@@ -1,0 +1,9 @@
+{
+  "economy": {
+    "initial_balance": 100,
+    "cost_accept": -5,
+    "reward_complete": 10,
+    "penalty_fail": -5,
+    "eliminate_on_zero": true
+  }
+}

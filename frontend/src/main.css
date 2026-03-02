@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  margin: 0;
+  height: 100%;
+}
+body {
+  font-family: "Noto Serif SC", "JetBrains Mono", system-ui, serif;
+  background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+  color: #e2e8f0;
+  -webkit-font-smoothing: antialiased;
+}

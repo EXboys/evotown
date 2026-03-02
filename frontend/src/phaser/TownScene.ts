@@ -49,9 +49,15 @@ export default class TownScene extends Phaser.Scene {
   private agents: Map<string, AgentState> = new Map();
   private agentColors: number[] = [0x3b82f6, 0x10b981, 0xf59e0b, 0xef4444, 0x8b5cf6, 0xec4899];
   private buildingRects: Map<string, Phaser.GameObjects.Container> = new Map();
+  private eventHandlers: Array<{ ev: "sprite_move" | "task_complete" | "agent_eliminated" | "agent_created" | "evolution_event"; fn: (d: unknown) => void }> = [];
 
   constructor() {
     super({ key: "TownScene" });
+  }
+
+  shutdown() {
+    this.eventHandlers.forEach(({ ev, fn }) => evotownEvents.off(ev, fn as never));
+    this.eventHandlers = [];
   }
 
   preload() {
@@ -569,12 +575,54 @@ export default class TownScene extends Phaser.Scene {
     vignetteOverlay.setDisplaySize(w, h);
     vignetteOverlay.setScrollFactor(0);
 
-    // 订阅事件
-    evotownEvents.on("sprite_move", (d) => this.onSpriteMove(d));
-    evotownEvents.on("task_complete", (d) => this.onTaskComplete(d));
-    evotownEvents.on("agent_eliminated", (d) => this.onAgentEliminated(d));
-    evotownEvents.on("agent_created", (d) => this.onAgentCreated(d));
-    evotownEvents.on("evolution_event", (d) => this.onEvolutionEvent(d));
+    // 订阅事件（保存引用以便 shutdown 时移除）
+    const h1 = (d: { agent_id: string; from: string; to: string; reason: string }) => this.onSpriteMove(d);
+    const h2 = (d: { agent_id: string; success: boolean; balance: number }) => this.onTaskComplete(d);
+    const h3 = (d: { agent_id: string; reason: string }) => this.onAgentEliminated(d);
+    const h4 = (d: { agent_id: string; balance: number }) => this.onAgentCreated(d);
+    const h5 = (d: { agent_id: string; type?: string; [k: string]: unknown }) => this.onEvolutionEvent(d);
+    evotownEvents.on("sprite_move", h1);
+    evotownEvents.on("task_complete", h2);
+    evotownEvents.on("agent_eliminated", h3);
+    evotownEvents.on("agent_created", h4);
+    evotownEvents.on("evolution_event", h5);
+    this.eventHandlers = [
+      { ev: "sprite_move" as const, fn: h1 as (d: unknown) => void },
+      { ev: "task_complete" as const, fn: h2 as (d: unknown) => void },
+      { ev: "agent_eliminated" as const, fn: h3 as (d: unknown) => void },
+      { ev: "agent_created" as const, fn: h4 as (d: unknown) => void },
+      { ev: "evolution_event" as const, fn: h5 as (d: unknown) => void },
+    ];
+    // 延迟发出，确保 React 已订阅 phaser_ready
+    this.time.delayedCall(150, () => evotownEvents.emit("phaser_ready", {}));
+    // 直接从 API 拉取 agents（刷新后恢复人物）
+    const sceneKey = "TownScene";
+    const syncFromApi = () => {
+      if (!this.scene.isActive(sceneKey)) return;
+      fetch("/agents")
+        .then((r) => r.json())
+        .then((list: { id: string; balance: number; in_task?: boolean }[]) => {
+          if (this.scene.isActive(sceneKey) && Array.isArray(list) && list.length > 0) {
+            list.forEach((a) => {
+              this.onAgentCreated({ agent_id: a.id, balance: a.balance });
+              // 根据 in_task 恢复 sprite 位置（刷新后正确还原）
+              this.onSpriteMove({
+                agent_id: a.id,
+                from: "",
+                to: a.in_task ? "任务中心" : "广场",
+                reason: "sync",
+              });
+            });
+          }
+        })
+        .catch(() => {});
+    };
+    syncFromApi();
+    this.time.delayedCall(200, syncFromApi);
+    this.time.delayedCall(500, syncFromApi);
+    this.time.delayedCall(1200, syncFromApi);
+    this.time.delayedCall(2500, syncFromApi);
+    this.time.addEvent({ delay: 4000, callback: syncFromApi, loop: true });
   }
 
   /** 沿曲线绘制道路瓦片：贝塞尔二次曲线，带曲折感 */
@@ -868,12 +916,14 @@ export default class TownScene extends Phaser.Scene {
       const sprite = this.add.sprite(spawn.x, spawn.y, "char");
       sprite.setTint(color);
       sprite.setScale(0.9);
+      sprite.setDepth(400);
 
       const label = this.add.text(spawn.x, spawn.y + 18, agentId, {
         fontSize: "9px",
         color: "#e2e8f0",
         fontStyle: "bold",
       }).setOrigin(0.5).setPadding(4, 2);
+      label.setDepth(401);
 
       agent = {
         sprite,

@@ -1,4 +1,4 @@
-/** Evotown 全局状态 — 进化事件、Agent 列表、选中 Agent */
+/** Evotown 全局状态 — 进化事件、Agent 列表、裁判评分、分发器 */
 import { create } from "zustand";
 
 export interface AgentInfo {
@@ -25,12 +25,38 @@ export interface MetricsPoint {
   avg_replans?: number;
 }
 
+export interface JudgeScore {
+  completion: number;
+  quality: number;
+  efficiency: number;
+  total_score: number;
+  reward: number;
+  reason: string;
+  skipped?: boolean;
+}
+
+export interface TaskRecord {
+  agent_id: string;
+  task: string;
+  success: boolean;
+  judge?: JudgeScore;
+  ts: string;
+}
+
+export interface DispatcherState {
+  running: boolean;
+  pool_size: number;
+  interval: number;
+}
+
 interface EvotownState {
   agents: AgentInfo[];
   evolutionEvents: EvolutionEventItem[];
   selectedAgentId: string | null;
   metricsCache: Record<string, MetricsPoint[]>;
   evolutionLogCache: Record<string, EvolutionEventItem[]>;
+  taskRecords: TaskRecord[];
+  dispatcherState: DispatcherState;
 
   setAgents: (agents: AgentInfo[]) => void;
   addAgent: (agent: AgentInfo) => void;
@@ -44,6 +70,9 @@ interface EvotownState {
   setSelectedAgent: (id: string | null) => void;
   setMetricsCache: (agentId: string, data: MetricsPoint[]) => void;
   getMetrics: (agentId: string) => MetricsPoint[];
+
+  pushTaskRecord: (record: TaskRecord) => void;
+  setDispatcherState: (state: Partial<DispatcherState>) => void;
 }
 
 export const useEvotownStore = create<EvotownState>((set, get) => ({
@@ -52,9 +81,15 @@ export const useEvotownStore = create<EvotownState>((set, get) => ({
   selectedAgentId: null,
   metricsCache: {},
   evolutionLogCache: {},
+  taskRecords: [],
+  dispatcherState: { running: false, pool_size: 0, interval: 30 },
 
   setAgents: (agents) => set({ agents }),
-  addAgent: (agent) => set((s) => ({ agents: [...s.agents, agent] })),
+  addAgent: (agent) =>
+    set((s) => {
+      if (s.agents.some((a) => a.id === agent.id)) return s;
+      return { agents: [...s.agents, agent] };
+    }),
   updateAgentBalance: (agentId, balance) =>
     set((s) => ({
       agents: s.agents.map((a) => (a.id === agentId ? { ...a, balance } : a)),
@@ -83,4 +118,14 @@ export const useEvotownStore = create<EvotownState>((set, get) => ({
       metricsCache: { ...s.metricsCache, [agentId]: data },
     })),
   getMetrics: (agentId) => get().metricsCache[agentId] ?? [],
+
+  pushTaskRecord: (record) =>
+    set((s) => ({
+      taskRecords: [...s.taskRecords, record].slice(-100),
+    })),
+
+  setDispatcherState: (partial) =>
+    set((s) => ({
+      dispatcherState: { ...s.dispatcherState, ...partial },
+    })),
 }));

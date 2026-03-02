@@ -5,5 +5,10 @@
     "reward_complete": 10,
     "penalty_fail": -5,
     "eliminate_on_zero": true
+  },
+  "dispatcher": {
+    "auto_start": false,
+    "interval": 30,
+    "min_pool_size": 5
   }
 }

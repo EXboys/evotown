@@ -1,10 +1,11 @@
 /** Evotown 事件总线 — React/WS 与 Phaser 通信 */
-type EvotownEventMap = {
+export type EvotownEventMap = {
   sprite_move: { agent_id: string; from: string; to: string; reason: string };
   task_complete: { agent_id: string; success: boolean; balance: number };
   evolution_event: { agent_id: string; type?: string; [k: string]: unknown };
   agent_eliminated: { agent_id: string; reason: string };
   agent_created: { agent_id: string; balance: number };
+  phaser_ready: Record<string, never>; // Phaser 场景就绪，React 可同步 agents
 };
 
 type Listener<T> = (data: T) => void;

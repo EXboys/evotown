@@ -4,12 +4,16 @@ interface TaskInjectorBarProps {
   onTaskInputChange: (v: string) => void;
   onInject: () => void;
   onEvolve: () => void;
+  feedback?: string;
 }
 
-export function TaskInjectorBar({ agents, taskInput, onTaskInputChange, onInject, onEvolve }: TaskInjectorBarProps) {
+export function TaskInjectorBar({ agents, taskInput, onTaskInputChange, onInject, onEvolve, feedback }: TaskInjectorBarProps) {
   const canAct = agents.length > 0;
   return (
     <div className="space-y-3">
+      {feedback && (
+        <p className="text-xs text-emerald-400 animate-pulse">{feedback}</p>
+      )}
       <input
         value={taskInput}
         onChange={(e) => onTaskInputChange(e.target.value)}

@@ -16,6 +16,7 @@ class AgentInfo(BaseModel):
     chat_dir: str
     balance: int = 100
     status: Literal["active", "stopped", "eliminated"] = "active"
+    in_task: bool = False  # 当前是否正在执行任务（用于前端刷新后恢复位置）
 
 
 class TaskInject(BaseModel):

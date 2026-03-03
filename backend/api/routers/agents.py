@@ -52,6 +52,11 @@ async def get_agent_rules(agent_id: str):
     return await agent_service.get_rules_data(agent_id)
 
 
+@router.get("/{agent_id}/prompts")
+async def get_agent_prompts(agent_id: str):
+    return await agent_service.get_prompts_data(agent_id)
+
+
 @router.get("/{agent_id}/evolution_log")
 async def get_agent_evolution_log(agent_id: str, limit: int = 100):
     return await agent_service.get_evolution_log_data(agent_id, limit)

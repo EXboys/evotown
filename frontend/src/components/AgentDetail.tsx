@@ -13,6 +13,14 @@ interface Rule {
   effectiveness?: number;
   tool_hint?: string;
   has_skill?: boolean;
+  origin?: string;
+}
+
+interface PromptItem {
+  name: string;
+  filename: string;
+  content: string;
+  evolved: boolean;
 }
 
 interface Decision {
@@ -70,12 +78,13 @@ export function AgentDetail({
 }: {
   agentId: string;
   onClose: () => void;
-  initialTab?: "rules" | "skills" | "decisions" | "evolution" | "soul" | "executions";
+  initialTab?: "rules" | "skills" | "decisions" | "evolution" | "soul" | "executions" | "prompts";
 }) {
-  const [tab, setTab] = useState<"rules" | "skills" | "decisions" | "evolution" | "soul" | "executions">(
-    initialTab ?? "executions"
-  );
+  const [tab, setTab] = useState<
+    "rules" | "skills" | "decisions" | "evolution" | "soul" | "executions" | "prompts"
+  >(initialTab ?? "executions");
   const [rules, setRules] = useState<Rule[]>([]);
+  const [prompts, setPrompts] = useState<PromptItem[]>([]);
   const [skills, setSkills] = useState<
     { name: string; status: string; description?: string; created_at?: string; call_count?: number; success_count?: number }[]
   >([]);
@@ -92,13 +101,14 @@ export function AgentDetail({
     const load = async () => {
       if (!cancelled) setLoading(true);
       try {
-        const [rRes, sRes, dRes, exeRes, soulRes, evoRes] = await Promise.all([
+        const [rRes, sRes, dRes, exeRes, soulRes, evoRes, promptsRes] = await Promise.all([
           fetch(`/agents/${agentId}/rules`),
           fetch(`/agents/${agentId}/skills`),
           fetch(`/agents/${agentId}/decisions?limit=50`),
           fetch(`/agents/${agentId}/execution_log?limit=30`),
           fetch(`/agents/${agentId}/soul`),
           fetch(`/agents/${agentId}/evolution_log?limit=100`),
+          fetch(`/agents/${agentId}/prompts`),
         ]);
         if (cancelled) return;
 
@@ -156,6 +166,9 @@ export function AgentDetail({
         } else {
           setSoul(null);
         }
+
+        const promptsRaw = (await safeJson(promptsRes, [])) as PromptItem[];
+        setPrompts(Array.isArray(promptsRaw) ? promptsRaw : []);
       } catch (err) {
         if (cancelled) return;
         console.warn(`[evotown] AgentDetail load failed for ${agentId}`, err);
@@ -201,7 +214,7 @@ export function AgentDetail({
         </button>
       </div>
       <div className="flex border-b border-slate-600/50 overflow-x-auto">
-        {(["executions", "decisions", "rules", "skills", "evolution", "soul"] as const).map((t) => (
+        {(["executions", "decisions", "rules", "prompts", "skills", "evolution", "soul"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -211,7 +224,7 @@ export function AgentDetail({
                 : "text-slate-500 hover:text-slate-300"
             }`}
           >
-            {t === "executions" ? "执行记录" : t === "rules" ? "规则" : t === "skills" ? "技能" : t === "decisions" ? "决策" : t === "evolution" ? "进化" : "Soul"}
+            {t === "executions" ? "执行记录" : t === "rules" ? "规则" : t === "prompts" ? "Prompts" : t === "skills" ? "技能" : t === "decisions" ? "决策" : t === "evolution" ? "进化" : "Soul"}
           </button>
         ))}
       </div>
@@ -281,25 +294,39 @@ export function AgentDetail({
               rules.map((r, i) => (
                 <li
                   key={r.id ?? i}
-                  className="p-2 rounded bg-slate-800/50 border border-slate-700/50 text-xs text-slate-300"
+                  className={`p-2 rounded border text-xs text-slate-300 ${
+                    r.origin === "evolved"
+                      ? "bg-violet-900/20 border-violet-700/40"
+                      : "bg-slate-800/50 border-slate-700/50"
+                  }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <p className="font-mono whitespace-pre-wrap break-words flex-1 min-w-0">
                       {r.instruction ?? r.content ?? JSON.stringify(r)}
                     </p>
-                    {r.tool_hint != null && (
-                      <span
-                        className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] ${
-                          r.has_skill
-                            ? "bg-emerald-900/50 text-emerald-400 border border-emerald-700/50"
-                            : "bg-amber-900/30 text-amber-500/90 border border-amber-700/30"
-                        }`}
-                        title={r.has_skill ? "已拥有此技能" : "未拥有此技能"}
-                      >
-                        {r.tool_hint}
-                        {r.has_skill ? " ✓" : " ✗"}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {r.origin === "evolved" && (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[10px] bg-violet-900/50 text-violet-400 border border-violet-600/50"
+                          title="进化产出"
+                        >
+                          ✨ 进化
+                        </span>
+                      )}
+                      {r.tool_hint != null && (
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] ${
+                            r.has_skill
+                              ? "bg-emerald-900/50 text-emerald-400 border border-emerald-700/50"
+                              : "bg-amber-900/30 text-amber-500/90 border border-amber-700/30"
+                          }`}
+                          title={r.has_skill ? "已拥有此技能" : "未拥有此技能"}
+                        >
+                          {r.tool_hint}
+                          {r.has_skill ? " ✓" : " ✗"}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   {r.effectiveness != null && (
                     <p className="text-slate-500 mt-1">effectiveness: {r.effectiveness}</p>
@@ -308,6 +335,41 @@ export function AgentDetail({
               ))
             )}
           </ul>
+        ) : tab === "prompts" ? (
+          <div className="space-y-3">
+            <p className="text-xs text-slate-500">planning / execution / system / examples（进化过的会标记 ✨）</p>
+            {prompts.length === 0 ? (
+              <p className="text-sm text-slate-500 py-4 text-center rounded-lg bg-slate-800/30 border border-dashed border-slate-600/50">
+                暂无 Prompts
+              </p>
+            ) : (
+              prompts.map((p) => (
+                <div
+                  key={p.name}
+                  className={`rounded-xl border text-xs overflow-hidden ${
+                    p.evolved
+                      ? "bg-violet-900/15 border-violet-700/40"
+                      : "bg-slate-800/40 border-slate-700/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-slate-700/50 bg-slate-900/30">
+                    <span className="font-mono font-medium text-slate-200">{p.filename}</span>
+                    {p.evolved && (
+                      <span
+                        className="shrink-0 px-1.5 py-0.5 rounded text-[10px] bg-violet-900/50 text-violet-400 border border-violet-600/50"
+                        title="曾被进化修改"
+                      >
+                        ✨ 进化
+                      </span>
+                    )}
+                  </div>
+                  <pre className="p-3 text-slate-400 whitespace-pre-wrap break-words font-mono text-[11px] max-h-48 overflow-y-auto">
+                    {p.content || "(空)"}
+                  </pre>
+                </div>
+              ))
+            )}
+          </div>
         ) : tab === "skills" ? (
           <div className="space-y-2">
             {skills.length === 0 ? (

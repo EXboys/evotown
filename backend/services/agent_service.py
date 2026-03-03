@@ -17,6 +17,7 @@ from sqlite_reader import (
     get_metrics,
     get_rules_with_skill_status,
     get_skills,
+    get_prompts,
     confirm_skill,
     reject_skill,
 )
@@ -163,6 +164,13 @@ async def get_rules_data(agent_id: str):
     if not a:
         return []
     return await get_rules_with_skill_status(a.chat_dir, a.agent_home or a.chat_dir)
+
+
+async def get_prompts_data(agent_id: str):
+    a = arena.get_agent(agent_id)
+    if not a:
+        return []
+    return await get_prompts(a.chat_dir)
 
 
 async def get_evolution_log_data(agent_id: str, limit: int = 100):

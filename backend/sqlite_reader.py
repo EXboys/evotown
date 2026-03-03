@@ -17,6 +17,10 @@ def _rules_path(chat_root: str) -> Path:
     return Path(chat_root) / "prompts" / "rules.json"
 
 
+def _prompts_dir(chat_root: str) -> Path:
+    return Path(chat_root) / "prompts"
+
+
 async def get_metrics(chat_root: str, limit: int = 100) -> list[dict[str, Any]]:
     """查询 evolution_metrics 表（EGL 曲线）"""
     db = _db_path(chat_root)
@@ -388,3 +392,53 @@ async def get_rules_with_skill_status(
         hint = r.get("tool_hint")
         r["has_skill"] = not hint or hint in available  # 无 tool_hint 或拥有对应技能
     return rules
+
+
+def _evolved_prompt_files(chat_root: str) -> set[str]:
+    """从 changelog.jsonl 解析曾被进化修改过的 prompt 文件名"""
+    changelog = _prompts_dir(chat_root) / "_versions" / "changelog.jsonl"
+    if not changelog.exists():
+        return set()
+    evolved: set[str] = set()
+    try:
+        for line in changelog.read_text(encoding="utf-8").strip().splitlines():
+            if not line.strip():
+                continue
+            try:
+                data = json.loads(line)
+                for f in data.get("files", []):
+                    evolved.add(f)
+            except json.JSONDecodeError:
+                pass
+    except OSError:
+        pass
+    return evolved
+
+
+async def get_prompts(chat_root: str) -> list[dict[str, Any]]:
+    """读取 prompts 目录下的 planning.md, execution.md, system.md, examples.md，并标注是否进化过"""
+    prompts_dir = _prompts_dir(chat_root)
+    if not prompts_dir.exists():
+        return []
+    evolved_files = _evolved_prompt_files(chat_root)
+    result: list[dict[str, Any]] = []
+    for name, filename in [
+        ("planning", "planning.md"),
+        ("execution", "execution.md"),
+        ("system", "system.md"),
+        ("examples", "examples.md"),
+    ]:
+        path = prompts_dir / filename
+        content = ""
+        if path.exists():
+            try:
+                content = path.read_text(encoding="utf-8")
+            except OSError:
+                pass
+        result.append({
+            "name": name,
+            "filename": filename,
+            "content": content,
+            "evolved": filename in evolved_files,
+        })
+    return result

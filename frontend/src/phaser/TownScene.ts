@@ -13,19 +13,11 @@ import {
   drawMountainClusters,
   VIEW_SCALE_Y,
   VIEW_FILL_SCALE,
+  LABEL_TO_XY,
+  TO_LABEL,
 } from "./sceneAssets";
 
-function getSquareSpreadPos(agentId: string): { x: number; y: number } {
-  const hash = agentId.split("").reduce((a, c) => ((a << 5) - a) + c.charCodeAt(0), 0);
-  const idx = Math.abs(hash) % 16;
-  const col = idx % 4;
-  const row = Math.floor(idx / 4);
-  const spacing = 14;
-  return {
-    x: BUILDINGS.square.x + (col - 1.5) * spacing,
-    y: BUILDINGS.square.y + (row - 1.5) * spacing,
-  };
-}
+type TaskPhase = "idle" | "accept" | "execute" | "deliver";
 
 interface AgentState {
   container: Phaser.GameObjects.Container;
@@ -36,9 +28,10 @@ interface AgentState {
   label: Phaser.GameObjects.Text;
   color: number;
   phaseOffset: number;
-  isInTask: boolean;
+  taskPhase: TaskPhase;
   wanderTimer: number;
   facing: CharFacing;
+  pendingBalance: number | null;
 }
 
 export default class TownScene extends Phaser.Scene {
@@ -213,9 +206,10 @@ export default class TownScene extends Phaser.Scene {
     if (!agent) {
       const hash = agentId.split("").reduce((a, c) => ((a << 5) - a) + c.charCodeAt(0), 0);
       const color = this.agentColors[Math.abs(hash) % this.agentColors.length];
-      const spawn = getSquareSpreadPos(agentId);
       const cx = this.scale.width / 2;
       const cy = this.scale.height / 2;
+      // 无任务时到处闲逛：出生点随机分布在地图各处，不聚集在城池
+      const spawn = getRandomWanderPoint();
       const { container, label, body, base, helmet } = createCharacterContainer(
         this,
         spawn.x - cx,
@@ -234,9 +228,10 @@ export default class TownScene extends Phaser.Scene {
         label,
         color,
         phaseOffset: Math.random() * Math.PI * 2,
-        isInTask: false,
+        taskPhase: "idle",
         wanderTimer: 0,
         facing: "front",
+        pendingBalance: null,
       };
       this.agents.set(agentId, agent);
     }
@@ -248,29 +243,82 @@ export default class TownScene extends Phaser.Scene {
     const cy = this.scale.height / 2;
     const agent = this.getOrCreateAgent(data.agent_id);
 
+    // deliver 阶段不响应新的 sprite_move（正在回 NPC 交付）
+    if (agent.taskPhase === "deliver") return;
+
+    // 去任务中心 → accept 阶段：生成 NPC，agent 走向 NPC
     if (data.to === "任务中心") {
-      agent.isInTask = true;
+      agent.taskPhase = "accept";
       const npcPos = this.taskNpcManager.assignToAgent(data.agent_id);
       if (npcPos) {
         agent.target = { x: npcPos.x - cx, y: npcPos.y - cy };
       } else {
-        agent.isInTask = false;
+        agent.taskPhase = "idle";
         const wander = getRandomWanderPoint();
         agent.target = { x: wander.x - cx, y: wander.y - cy };
       }
       return;
     }
 
-    // 闲逛模式：不进入建筑，只在地图开放区域随机走动
-    agent.isInTask = false;
+    // 广场/城池 = 闲逛
+    if (["广场", "城池", "中央广场"].includes(data.to)) {
+      agent.taskPhase = "idle";
+      const wander = getRandomWanderPoint();
+      agent.target = { x: wander.x - cx, y: wander.y - cy };
+      return;
+    }
+
+    // 任务建筑（图书馆/工坊/档案馆/记忆仓库）→ execute 阶段
+    const key = TO_LABEL[data.to];
+    const taskBuildings = ["library", "workshop", "archive", "memory"];
+    if (key && LABEL_TO_XY[key] && taskBuildings.includes(key)) {
+      agent.taskPhase = "execute";
+      this.taskNpcManager.assignToAgent(data.agent_id);
+      const pos = LABEL_TO_XY[key];
+      agent.target = { x: pos.x - cx, y: pos.y - cy + 12 };
+      return;
+    }
+
+    // 进化神殿等其它建筑
+    if (key && LABEL_TO_XY[key]) {
+      agent.taskPhase = "execute";
+      const pos = LABEL_TO_XY[key];
+      agent.target = { x: pos.x - cx, y: pos.y - cy + 12 };
+      return;
+    }
+
+    // 兜底：闲逛
+    agent.taskPhase = "idle";
     const wander = getRandomWanderPoint();
     agent.target = { x: wander.x - cx, y: wander.y - cy };
   }
 
   private onTaskComplete(data: { agent_id: string; success: boolean; balance: number }) {
     const agent = this.agents.get(data.agent_id);
-    if (agent) agent.label.setText(String(data.balance));
-    this.taskNpcManager.despawnByAgent(data.agent_id);
+    if (!agent) {
+      this.taskNpcManager.despawnByAgent(data.agent_id);
+      return;
+    }
+
+    // deliver 阶段：先存余额，走回 NPC 交付后再更新显示
+    agent.pendingBalance = data.balance;
+    const npcPos = this.taskNpcManager.getAssignedNpcPosition(data.agent_id);
+    if (npcPos) {
+      agent.taskPhase = "deliver";
+      const cx = this.scale.width / 2;
+      const cy = this.scale.height / 2;
+      agent.target = { x: npcPos.x - cx, y: npcPos.y - cy };
+    } else {
+      // 没有 NPC（边界情况）直接完成
+      agent.label.setText(String(data.balance));
+      agent.pendingBalance = null;
+      agent.taskPhase = "idle";
+      const cx = this.scale.width / 2;
+      const cy = this.scale.height / 2;
+      const wander = getRandomWanderPoint();
+      agent.target = { x: wander.x - cx, y: wander.y - cy };
+      this.taskNpcManager.despawnByAgent(data.agent_id);
+    }
   }
 
   private onAgentEliminated(data: { agent_id: string }) {
@@ -293,11 +341,12 @@ export default class TownScene extends Phaser.Scene {
     const speedWander = 0.6;
     const speedTask = 1.8;
     const moveThreshold = 1.5;
-    this.agents.forEach((agent) => {
-      const speed = agent.isInTask ? speedTask : speedWander;
+    this.agents.forEach((agent, agentId) => {
+      const speed = agent.taskPhase === "idle" ? speedWander : speedTask;
       const dx = agent.target.x - agent.container.x;
       const dy = agent.target.y - agent.container.y;
       const isMoving = Math.abs(dx) > moveThreshold || Math.abs(dy) > moveThreshold;
+
       if (isMoving) {
         agent.facing = this.getFacing(dx, dy);
         const walkFrame = Math.floor((time + agent.phaseOffset) * 0.004) % 2;
@@ -306,7 +355,22 @@ export default class TownScene extends Phaser.Scene {
         agent.container.y += Phaser.Math.Clamp(dy, -speed, speed);
       } else {
         setCharFacing(agent.base, agent.helmet, agent.facing, 0);
-        if (!agent.isInTask) {
+
+        // deliver 到达 NPC：更新余额、销毁 NPC、切换 idle 闲逛
+        if (agent.taskPhase === "deliver") {
+          if (agent.pendingBalance !== null) {
+            agent.label.setText(String(agent.pendingBalance));
+            agent.pendingBalance = null;
+          }
+          this.taskNpcManager.despawnByAgent(agentId);
+          agent.taskPhase = "idle";
+          agent.wanderTimer = 0;
+          const wander = getRandomWanderPoint();
+          agent.target = { x: wander.x - cx, y: wander.y - cy };
+        }
+
+        // idle 定时换闲逛目标
+        if (agent.taskPhase === "idle") {
           agent.wanderTimer += delta;
           if (agent.wanderTimer >= 4000) {
             agent.wanderTimer = 0;

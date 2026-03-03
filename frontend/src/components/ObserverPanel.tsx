@@ -21,7 +21,7 @@ type TabId = "timeline" | "metrics" | "agents" | "arena";
 
 export function ObserverPanel() {
   const [taskInput, setTaskInput] = useState("");
-  const [tab, setTab] = useState<TabId>("agents");
+  const [tab, setTab] = useState<TabId>("arena");
   const [agentDetailInitialTab, setAgentDetailInitialTab] = useState<
     "rules" | "skills" | "decisions" | "evolution" | "soul" | undefined
   >(undefined);
@@ -149,8 +149,8 @@ export function ObserverPanel() {
       <div className="flex items-stretch border-b border-slate-600/50 shrink-0 overflow-x-auto [scrollbar-width:thin]">
         <div className="flex items-center min-w-0 flex-1">
           {[
-            { id: "agents" as TabId, label: "智能体" },
             { id: "arena" as TabId, label: "竞技场" },
+            { id: "agents" as TabId, label: "智能体" },
             { id: "timeline" as TabId, label: "时间线" },
             { id: "metrics" as TabId, label: "EGL" },
           ].map((t) => (

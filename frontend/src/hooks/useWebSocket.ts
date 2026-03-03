@@ -98,12 +98,6 @@ export function useWebSocket() {
               ts: new Date().toISOString(),
               difficulty: (msg.difficulty as string) ?? undefined,
             });
-            evotownEvents.emit("sprite_move", {
-              agent_id: agentId,
-              from: "任务中心",
-              to: "广场",
-              reason: "task_complete",
-            });
           } else if (type === "task_dispatched") {
             const agentId = String(msg.agent_id ?? "");
             evotownEvents.emit("sprite_move", {
@@ -112,6 +106,7 @@ export function useWebSocket() {
               to: "任务中心",
               reason: "auto_dispatch",
             });
+            evotownEvents.emit("request_sync", {});
             if (store.agents.some((a) => a.id === agentId)) {
               store.setAgents(store.agents.map((a) =>
                 a.id === agentId ? { ...a, in_task: true } : a

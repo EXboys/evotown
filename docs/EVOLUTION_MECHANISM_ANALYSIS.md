@@ -137,3 +137,17 @@ should_evolve = periodic or failure_trigger
 | **进化奖励配置** | `evotown_config.json` 的 `evolution.rewards` 可配置各类型奖励值 |
 | **前端余额同步** | `evolution_event` 带 `balance` 时更新 store，Phaser 标签同步 |
 | **观测面板** | Agent 列表中有进化事件的 agent 显示 ✨ 标识 |
+
+---
+
+## 七、进化产出改进策略（2025-03 追加）
+
+针对「执行很久却无 skills/rules 产出」的改进：
+
+| 策略 | 实现 |
+|------|------|
+| **降低进化触发门槛** | `interval_tasks` 默认 3→2，`failure_cooldown` 3→2；支持 `EVOTOWN_INTERVAL_TASKS`、`EVOTOWN_FAILURE_COOLDOWN` 环境变量 |
+| **任务设计强化** | TASK_GEN_PROMPT 明确要求「每个任务必须 2+ 工具」，禁止 0 工具纯记忆题 |
+| **配置示例** | `evotown_config.json.example` 提供完整进化配置模板 |
+
+**SkillLite 侧**：`meaningful` 定义为 `total_tools >= 2`，单工具任务不积累。若需进一步放宽，可修改 `crates/skilllite-evolution/src/lib.rs` 中 SQL 的 `total_tools >= 2` 为 `>= 1`（需评估质量影响）。

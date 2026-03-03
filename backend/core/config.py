@@ -49,15 +49,15 @@ def load_economy_config() -> dict[str, Any]:
 
 
 def load_evolution_config() -> dict[str, Any]:
-    """进化触发配置"""
+    """进化触发配置。降低默认门槛以促进进化产出。"""
     data = _load_json()
     evo = data.get("evolution", {})
     rewards = evo.get("rewards") or {}
-    return {
+    defaults = {
         "auto_trigger": evo.get("auto_trigger", True),
-        "interval_tasks": int(evo.get("interval_tasks", 3)),
+        "interval_tasks": int(evo.get("interval_tasks", 2)),  # 2: 更频繁触发进化
         "on_failure": evo.get("on_failure", True),
-        "failure_cooldown": int(evo.get("failure_cooldown", 3)),
+        "failure_cooldown": int(evo.get("failure_cooldown", 2)),  # 2: 失败后更快再触发
         "rewards": {
             "rule_added": int(rewards.get("rule_added", 5)),
             "example_added": int(rewards.get("example_added", 3)),
@@ -66,6 +66,18 @@ def load_evolution_config() -> dict[str, Any]:
             "skill_pending": int(rewards.get("skill_pending", 4)),
         },
     }
+    env_map = {
+        "EVOTOWN_INTERVAL_TASKS": ("interval_tasks", int),
+        "EVOTOWN_FAILURE_COOLDOWN": ("failure_cooldown", int),
+    }
+    for env_key, (cfg_key, conv) in env_map.items():
+        val = os.environ.get(env_key)
+        if val is not None:
+            try:
+                defaults[cfg_key] = conv(val)
+            except (ValueError, TypeError):
+                pass
+    return defaults
 
 
 def load_timeout_config() -> dict[str, Any]:

@@ -76,7 +76,9 @@ export function AgentDetail({
     initialTab ?? "executions"
   );
   const [rules, setRules] = useState<Rule[]>([]);
-  const [skills, setSkills] = useState<string[]>([]);
+  const [skills, setSkills] = useState<
+    { name: string; status: string; description?: string; created_at?: string; call_count?: number; success_count?: number }[]
+  >([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [executionLog, setExecutionLog] = useState<ExecutionLogItem[]>([]);
   const [evolutionLog, setEvolutionLog] = useState<EvolutionLogItem[]>([]);
@@ -99,14 +101,29 @@ export function AgentDetail({
           fetch(`/agents/${agentId}/evolution_log?limit=100`),
         ]);
         if (cancelled) return;
-        setRules((await rRes.json()) ?? []);
-        setSkills((await sRes.json()) ?? []);
-        const decisionsData = (await dRes.json()) ?? [];
+
+        const safeJson = async (res: Response, fallback: unknown = []) => {
+          try { return res.ok ? (await res.json()) ?? fallback : fallback; }
+          catch { return fallback; }
+        };
+
+        setRules((await safeJson(rRes, [])) as Rule[]);
+
+        const skillsRaw = (await safeJson(sRes, [])) as unknown[];
+        setSkills(
+          Array.isArray(skillsRaw)
+            ? skillsRaw.map((s: unknown) =>
+                typeof s === "string" ? { name: s, status: "confirmed" } : (s as typeof skills[number])
+              )
+            : []
+        );
+
+        const decisionsData = (await safeJson(dRes, [])) as Decision[];
         setDecisions(decisionsData);
+
         if (exeRes.ok) {
-          setExecutionLog((await exeRes.json()) ?? []);
+          setExecutionLog((await safeJson(exeRes, [])) as ExecutionLogItem[]);
         } else {
-          // 后端未提供 execution_log 时降级：用 decisions 转成执行记录（仅已执行）
           setExecutionLog(
             decisionsData.slice(0, 30).map((d: Decision) => ({
               ts: d.ts ?? "",
@@ -119,31 +136,29 @@ export function AgentDetail({
             }))
           );
         }
-        const evoRaw = (await evoRes.json()) ?? [];
+
+        const evoRaw = (await safeJson(evoRes, [])) as Record<string, unknown>[];
         setEvolutionLog(
-          evoRaw.map((r: Record<string, unknown>) => ({
-            ts: String(r.ts ?? r.timestamp ?? ""),
-            type: String(r.type ?? r.event_type ?? ""),
-            target_id: String(r.target_id ?? r.id ?? ""),
-            reason: String(r.reason ?? ""),
-          }))
+          Array.isArray(evoRaw)
+            ? evoRaw.map((r) => ({
+                ts: String(r.ts ?? r.timestamp ?? ""),
+                type: String(r.type ?? r.event_type ?? ""),
+                target_id: String(r.target_id ?? r.id ?? ""),
+                reason: String(r.reason ?? ""),
+              }))
+            : []
         );
-        const soulData = await soulRes.json();
-        if (soulData.content !== undefined) {
-          setSoul(soulData);
-          setSoulEdit(soulData.content ?? "");
+
+        const soulData = await safeJson(soulRes, null);
+        if (soulData && typeof soulData === "object" && "content" in (soulData as Record<string, unknown>)) {
+          setSoul(soulData as SoulData);
+          setSoulEdit((soulData as SoulData).content ?? "");
         } else {
           setSoul(null);
         }
       } catch (err) {
         if (cancelled) return;
         console.warn(`[evotown] AgentDetail load failed for ${agentId}`, err);
-        setRules([]);
-        setSkills([]);
-        setDecisions([]);
-        setExecutionLog([]);
-        setSoul(null);
-        setEvolutionLog([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -294,17 +309,85 @@ export function AgentDetail({
             )}
           </ul>
         ) : tab === "skills" ? (
-          <ul className="space-y-1">
+          <div className="space-y-2">
             {skills.length === 0 ? (
-              <li className="text-sm text-slate-500">暂无进化技能</li>
+              <p className="text-sm text-slate-500 py-4 text-center rounded-lg bg-slate-800/30 border border-dashed border-slate-600/50">
+                暂无进化技能
+              </p>
             ) : (
               skills.map((s) => (
-                <li key={s} className="text-sm font-mono text-slate-300">
-                  · {s}
-                </li>
+                <div
+                  key={s.name}
+                  className={`rounded-xl border text-xs transition-all ${
+                    s.status === "pending"
+                      ? "bg-gradient-to-b from-amber-950/20 to-slate-800/50 border-amber-700/40"
+                      : "bg-slate-800/40 border-slate-700/40"
+                  }`}
+                >
+                  <div className="p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-mono text-slate-200 font-medium truncate">{s.name}</span>
+                        <span
+                          className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            s.status === "pending"
+                              ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                              : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                          }`}
+                        >
+                          {s.status === "pending" ? "待确认" : "已启用"}
+                        </span>
+                      </div>
+                      {s.status === "pending" && (
+                        <div className="flex gap-1.5 shrink-0">
+                          <button
+                            onClick={async () => {
+                              const res = await fetch(`/agents/${agentId}/skills/${s.name}/confirm`, { method: "POST" });
+                              const data = await res.json();
+                              if (data.ok) {
+                                setSkills((prev) =>
+                                  prev.map((sk) => sk.name === s.name ? { ...sk, status: "confirmed" } : sk)
+                                );
+                              }
+                            }}
+                            className="px-2 py-1 rounded text-[10px] font-medium bg-emerald-600/20 text-emerald-400 border border-emerald-600/30 hover:bg-emerald-600/40 transition-colors"
+                          >
+                            确认
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const res = await fetch(`/agents/${agentId}/skills/${s.name}/reject`, { method: "POST" });
+                              const data = await res.json();
+                              if (data.ok) {
+                                setSkills((prev) => prev.filter((sk) => sk.name !== s.name));
+                              }
+                            }}
+                            className="px-2 py-1 rounded text-[10px] font-medium bg-rose-600/20 text-rose-400 border border-rose-600/30 hover:bg-rose-600/40 transition-colors"
+                          >
+                            拒绝
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    {s.description && (
+                      <p className="text-slate-400 text-[11px] leading-relaxed">{s.description}</p>
+                    )}
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">
+                      {s.created_at && (
+                        <span>创建: {new Date(s.created_at).toLocaleString("zh-CN")}</span>
+                      )}
+                      {s.call_count != null && s.status === "confirmed" && (
+                        <span>调用 {s.call_count} 次</span>
+                      )}
+                      {s.success_count != null && s.status === "confirmed" && s.call_count != null && s.call_count > 0 && (
+                        <span>成功 {s.success_count} 次</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
               ))
             )}
-          </ul>
+          </div>
         ) : tab === "evolution" ? (
           <div className="space-y-2">
             <p className="text-xs text-slate-500">进化事件明细（时间倒序）</p>

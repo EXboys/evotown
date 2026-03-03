@@ -62,6 +62,18 @@ async def get_agent_skills(agent_id: str):
     return await agent_service.get_skills_data(agent_id)
 
 
+@router.post("/{agent_id}/skills/{skill_name}/confirm")
+async def confirm_skill(agent_id: str, skill_name: str):
+    ok, msg = await agent_service.confirm_skill_action(agent_id, skill_name)
+    return {"ok": ok, "message": msg}
+
+
+@router.post("/{agent_id}/skills/{skill_name}/reject")
+async def reject_skill(agent_id: str, skill_name: str):
+    ok, msg = await agent_service.reject_skill_action(agent_id, skill_name)
+    return {"ok": ok, "message": msg}
+
+
 @router.get("/{agent_id}/soul")
 async def get_agent_soul(agent_id: str):
     data = await agent_service.get_soul_data(agent_id)

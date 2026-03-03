@@ -174,6 +174,9 @@ export function ArenaControl() {
         </div>
       </section>
 
+      {/* 任务历史 - 第二模块 */}
+      <TaskHistorySection />
+
       {/* Judge Records */}
       <section className="space-y-2">
         <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider flex items-center gap-2">
@@ -207,9 +210,6 @@ export function ArenaControl() {
 
       {/* Arena Stats */}
       <ArenaStats />
-
-      {/* 持久化任务历史 */}
-      <TaskHistorySection />
     </div>
   );
 }
@@ -224,11 +224,23 @@ type TaskHistoryItem = {
   elapsed_ms?: number;
   refusal_count?: number;
   refusal_reason?: string;
+  ts?: number;
+  judge?: JudgeScore;
+};
+
+type TaskDetail = {
+  agent_id: string;
+  task: string;
+  transcript: Array<{ type?: string; role?: string; content?: string; tool_calls?: unknown }>;
+  decision?: { total_tools?: number; failed_tools?: number; tools_detail?: string; task_description?: string };
+  task_history?: { judge?: JudgeScore; elapsed_ms?: number; success?: boolean };
 };
 
 function TaskHistorySection() {
   const [history, setHistory] = useState<TaskHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [detailModal, setDetailModal] = useState<TaskDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const loadHistory = () => {
     setLoading(true);
@@ -237,6 +249,25 @@ function TaskHistorySection() {
       .then((data) => setHistory(Array.isArray(data) ? data : []))
       .catch(() => setHistory([]))
       .finally(() => setLoading(false));
+  };
+
+  const openTaskDetail = (h: TaskHistoryItem) => {
+    const agentId = h.claimed_by ?? h.agent_id;
+    if (!agentId || !h.task || h.outcome === "dropped") return;
+    setDetailLoading(true);
+    const ts = typeof h.ts === "number" ? h.ts : undefined;
+    const params = new URLSearchParams();
+    params.set("agent_id", agentId);
+    params.set("task", h.task);
+    if (ts != null) params.set("ts", String(ts));
+    fetch(`/monitor/task_detail?${params}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.error) return;
+        setDetailModal(data as TaskDetail);
+      })
+      .catch(() => {})
+      .finally(() => setDetailLoading(false));
   };
 
   useEffect(() => {
@@ -267,8 +298,15 @@ function TaskHistorySection() {
             const isDropped = h.outcome === "dropped" || (!h.agent_id && !h.claimed_by && h.refusal_count != null && h.outcome !== "refused");
             const isRefused = h.outcome === "refused";
             const claimant = h.claimed_by ?? h.agent_id;
+            const canClick = claimant && h.task && !isDropped;
             return (
-              <div key={i} className="flex items-center justify-between gap-2 text-[10px] py-1 px-2 rounded bg-slate-900/40 border border-slate-700/30">
+              <div
+                key={i}
+                onClick={() => canClick && openTaskDetail(h)}
+                className={`flex items-center justify-between gap-2 text-[10px] py-1 px-2 rounded border border-slate-700/30 ${
+                  canClick ? "bg-slate-900/40 hover:bg-slate-800/60 cursor-pointer" : "bg-slate-900/40"
+                }`}
+              >
                 <span className="text-slate-500 truncate flex-1" title={h.task}>
                   {h.task.length > 50 ? `${h.task.slice(0, 50)}…` : h.task}
                 </span>
@@ -288,6 +326,7 @@ function TaskHistorySection() {
                     {h.refusal_count != null && h.refusal_count > 0 && (
                       <span className="text-slate-600 shrink-0" title="认领前被拒次数">拒{h.refusal_count}</span>
                     )}
+                    {canClick && <span className="shrink-0 text-slate-500">›</span>}
                   </>
                 )}
               </div>
@@ -295,7 +334,123 @@ function TaskHistorySection() {
           })}
         </div>
       )}
+
+      {detailLoading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <p className="text-sm text-slate-300">加载执行详情...</p>
+        </div>
+      )}
+
+      {detailModal && !detailLoading && (
+        <TaskDetailModal
+          detail={detailModal}
+          onClose={() => setDetailModal(null)}
+        />
+      )}
     </section>
+  );
+}
+
+function TaskDetailModal({ detail, onClose }: { detail: TaskDetail; onClose: () => void }) {
+  const judge = detail.task_history?.judge ?? detail.decision;
+  const toolsDetail = detail.decision?.tools_detail
+    ? (() => {
+        try {
+          const arr = JSON.parse(detail.decision.tools_detail);
+          return Array.isArray(arr) ? arr : [];
+        } catch {
+          return [];
+        }
+      })()
+    : [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={onClose}>
+      <div
+        className="w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col rounded-xl border border-slate-600/50 bg-slate-900 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-600/50 shrink-0">
+          <h4 className="text-sm font-medium text-slate-200 truncate flex-1 mr-2" title={detail.task}>
+            {detail.task}
+          </h4>
+          <button
+            onClick={onClose}
+            className="text-slate-500 hover:text-slate-300 text-lg leading-none px-1"
+          >
+            ×
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+          {detail.task_history && (
+            <div className="rounded-lg bg-slate-800/50 border border-slate-700/50 p-3 space-y-2">
+              <p className="text-slate-400 font-medium">裁判评分</p>
+              {detail.task_history.judge && (
+                <div className="space-y-1">
+                  <p>完成度 {detail.task_history.judge.completion} / 质量 {detail.task_history.judge.quality} / 效率 {detail.task_history.judge.efficiency} → 奖励 {detail.task_history.judge.reward}</p>
+                  {detail.task_history.judge.reason && <p className="text-slate-500 text-[10px]">{detail.task_history.judge.reason}</p>}
+                </div>
+              )}
+              {detail.task_history.elapsed_ms != null && <p className="text-slate-500">耗时 {detail.task_history.elapsed_ms}ms</p>}
+            </div>
+          )}
+
+          {toolsDetail.length > 0 && (
+            <div className="rounded-lg bg-slate-800/50 border border-slate-700/50 p-3 space-y-2">
+              <p className="text-slate-400 font-medium">工具调用</p>
+              <ul className="space-y-1 font-mono text-[10px]">
+                {toolsDetail.map((t: { tool?: string; success?: boolean }, j: number) => (
+                  <li key={j} className={t.success ? "text-emerald-400/90" : "text-red-400/90"}>
+                    {t.tool ?? "?"} {t.success ? "✓" : "✗"}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="rounded-lg bg-slate-800/50 border border-slate-700/50 p-3 space-y-2">
+            <p className="text-slate-400 font-medium">执行日志 (Transcript)</p>
+            {detail.transcript.length === 0 ? (
+              <p className="text-slate-500 italic">无 transcript 记录</p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto font-mono text-[10px]">
+                {detail.transcript.map((e, j) => {
+                  const role = e.role ?? e.type;
+                  const content = e.content ?? "";
+                  const toolCalls = e.tool_calls;
+                  if (role === "user") {
+                    return (
+                      <div key={j} className="p-2 rounded bg-blue-900/20 border border-blue-700/30">
+                        <span className="text-blue-400">用户</span>
+                        <pre className="mt-1 whitespace-pre-wrap break-words text-slate-300">{content || "(空)"}</pre>
+                      </div>
+                    );
+                  }
+                  if (role === "assistant") {
+                    return (
+                      <div key={j} className="p-2 rounded bg-emerald-900/20 border border-emerald-700/30">
+                        <span className="text-emerald-400">助手</span>
+                        {toolCalls && (
+                          <pre className="mt-1 text-amber-400/90 text-[9px]">
+                            {typeof toolCalls === "string" ? toolCalls : JSON.stringify(toolCalls, null, 2).slice(0, 500)}
+                          </pre>
+                        )}
+                        <pre className="mt-1 whitespace-pre-wrap break-words text-slate-300">{content || "(空)"}</pre>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={j} className="p-2 rounded bg-slate-800/50 border border-slate-700/30">
+                      <pre className="whitespace-pre-wrap break-words text-slate-400">{JSON.stringify(e).slice(0, 300)}</pre>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

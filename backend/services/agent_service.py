@@ -11,11 +11,14 @@ from infra.execution_log import load_refusals
 from infra.task_history import load_task_history
 from sqlite_reader import (
     get_transcript_executions,
+    get_transcript_excerpt_for_task,
     get_decisions,
     get_evolution_log,
     get_metrics,
     get_rules_with_skill_status,
     get_skills,
+    confirm_skill,
+    reject_skill,
 )
 
 
@@ -175,6 +178,72 @@ async def get_skills_data(agent_id: str):
     if not a:
         return []
     return await get_skills(a.agent_home)
+
+
+async def confirm_skill_action(agent_id: str, skill_name: str) -> tuple[bool, str]:
+    a = arena.get_agent(agent_id)
+    if not a:
+        return False, "agent not found"
+    agent_home = a.agent_home or a.chat_dir
+    ok = confirm_skill(agent_home, skill_name)
+    if ok:
+        await broadcast_evolution_event({
+            "agent_id": agent_id,
+            "event_type": "skill_confirmed",
+            "type": "evolution_event",
+            "id": skill_name,
+            "reason": "user confirmed via UI",
+        })
+    return ok, "ok" if ok else "skill not found or already confirmed"
+
+
+async def reject_skill_action(agent_id: str, skill_name: str) -> tuple[bool, str]:
+    a = arena.get_agent(agent_id)
+    if not a:
+        return False, "agent not found"
+    agent_home = a.agent_home or a.chat_dir
+    ok = reject_skill(agent_home, skill_name)
+    return ok, "ok" if ok else "skill not found"
+
+
+async def get_task_execution_detail(
+    agent_id: str, task_text: str, ts_hint: float | None = None
+) -> dict | None:
+    """获取某任务的执行详情：transcript 片段 + decision（工具明细）+ task_history（judge）"""
+    a = arena.get_agent(agent_id)
+    if not a:
+        return None
+
+    chat_root = a.chat_dir
+    transcript_entries = await asyncio.to_thread(
+        get_transcript_excerpt_for_task, chat_root, agent_id, task_text, ts_hint
+    )
+
+    decisions = await get_decisions(chat_root, limit=100)
+    decision = None
+    for d in decisions:
+        desc = (d.get("task_description") or "").strip()
+        if desc and (desc == task_text or task_text in desc):
+            decision = d
+            break
+
+    task_history = await asyncio.to_thread(
+        load_task_history, None, agent_id, limit=100
+    )
+    th_record = None
+    for h in task_history:
+        t = (h.get("task") or "").strip()
+        if t and (t == task_text or task_text in t):
+            th_record = h
+            break
+
+    return {
+        "agent_id": agent_id,
+        "task": task_text,
+        "transcript": transcript_entries,
+        "decision": decision,
+        "task_history": th_record,
+    }
 
 
 async def get_soul_data(agent_id: str) -> dict | None:

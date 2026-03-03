@@ -30,45 +30,49 @@ REFUSAL_THRESHOLD_CHALLENGE = 2
 CHALLENGE_TASK_PICK_RATIO = 0.25
 
 TASK_GEN_PROMPT = """\
-You are a task designer for an AI agent arena. Generate **diverse** short tasks (4-8 Chinese chars) to help agents evolve.
+You are a task designer for an AI agent arena. Generate tasks to **drive agent evolution** (skills, rules, memory).
 Tools available: web search, file ops, code exec, calc, text. NO real-time weather API.
 
+Evolution goal: Tasks MUST require **2+ tool calls** (evolution engine counts meaningful decisions only when total_tools>=2).
+- easy: 至少2个工具（如 list_dir+read_file、search+calc）
+- medium: 2步以上，搜索+计算/代码 或 多源比较
+- hard: 多步推理、组合多种工具、需归纳规律
+
 Rules:
-- Each task MUST be 4-8 chars. Chinese only. Verifiable.
-- easy: 单步查/算
-- medium: 2步
-- hard: 需推理但仍短
-- Do NOT generate weather/temperature tasks (agents have no weather API).
-- **CRITICAL**: Avoid generating tasks similar to existing ones. Each batch must be diverse in topic and difficulty.
+- Each task 4-12 chars. Chinese only. Verifiable.
+- **CRITICAL**: Every task must need 2+ tools. No 0-tool memory questions (e.g. "中国首都", "3的平方").
+- Prefer: search+calc, search+code, file+code; comparison/sorting; tasks with retry potential.
+- Do NOT generate weather tasks (no weather API).
+- Avoid tasks similar to existing ones.
 - Generate exactly {count} tasks
 
-JSON: {"tasks": [{"text": "短任务", "difficulty": "easy"}, ...]}
+JSON: {"tasks": [{"text": "短任务", "difficulty": "easy|medium|hard"}, ...]}
 """
 
-# 任务主题 hint，每次 refill 随机选一个，促进多样性、引导进化
+# 任务主题：侧重引导进化（多步、组合工具、易触发重规划/失败）
 TASK_THEMES = [
-    "计算、数学、公式",
-    "翻译、语言转换",
-    "百科、地理、历史",
-    "编程、代码、Python",
-    "文件操作、读写",
-    "搜索、查询、比较",
-    "逻辑推理、排序",
-    "单位换算、日期",
+    "搜索+计算：查数据后做运算",
+    "搜索+代码：查文档后写示例",
+    "多源比较、排序、筛选",
+    "文件操作+统计/分析",
+    "逻辑推理、归纳规律",
+    "单位换算、日期计算",
+    "API/库文档查询并调用",
+    "多步验证、交叉校验",
 ]
 
-# 种子任务：仅包含 agent 有能力完成的任务（无天气类，agent 无天气 API）
+# 种子任务：引导进化 — 需多步/组合工具/有失败可能，而非简单单步查
 SEED_TASKS: list[TaskItem] = [
-    ("2+3=?", "easy"),
-    ("1到5求和", "easy"),
-    ("最大国家", "easy"),
-    ("hello翻译", "easy"),
-    ("列3省会", "easy"),
-    ("100÷4", "easy"),
-    ("3的平方", "easy"),
-    ("圆周率前5位", "easy"),
-    ("中国首都", "easy"),
-    ("Python是什么", "medium"),
+    ("比较俄罗斯和加拿大面积", "medium"),
+    ("搜索Python最新版本并写Hello World", "medium"),
+    ("计算2^10并验证位数", "medium"),
+    ("找出3个以B开头的国家首都", "medium"),
+    ("搜索2024春节日期并算距今天数", "medium"),
+    ("用代码求1到50的素数个数", "medium"),
+    ("比较俄加中三国面积并排序", "hard"),
+    ("搜索某REST API文档并写调用示例", "hard"),
+    ("读取当前目录txt文件并统计总行数", "hard"),
+    ("计算10!并验证结果的位数", "hard"),
 ]
 
 

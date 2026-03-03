@@ -4,6 +4,36 @@ import logging
 
 from core.config import load_economy_config, load_evolution_config, load_timeout_config
 from core.deps import arena, process_mgr, monitor, task_dispatcher, ws
+
+# 工具名 → 建筑（中文标签）映射：agent 调用工具时进入对应建筑
+TOOL_TO_BUILDING: dict[str, str] = {
+    # 图书馆：搜索/查询类
+    "web_search": "图书馆",
+    "web_search_skill": "图书馆",
+    "http_request": "图书馆",
+    "http-request": "图书馆",
+    # 技能工坊：代码执行/计算类
+    "skilllite_execute_code": "技能工坊",
+    "execute_code": "技能工坊",
+    "run_skill": "技能工坊",
+    "calculator": "技能工坊",
+    "calculator_skill": "技能工坊",
+    "run_command": "技能工坊",
+    # 档案馆：文件操作类
+    "read_file": "档案馆",
+    "list_dir": "档案馆",
+    "write_file": "档案馆",
+    "write_output": "档案馆",
+    "list_output": "档案馆",
+    "search_replace": "档案馆",
+    "insert_lines": "档案馆",
+    "grep_files": "档案馆",
+    "preview_edit": "档案馆",
+    # 记忆仓库：记忆读写类
+    "memory_search": "记忆仓库",
+    "memory_write": "记忆仓库",
+    "memory_list": "记忆仓库",
+}
 from infra.execution_log import append_refusal, count_refusals_by_task
 from infra.task_history import append_task_record
 from judge import judge_task
@@ -58,6 +88,19 @@ async def trigger_evolve_background(agent_id: str, agent_home: str) -> None:
 
 def on_agent_event(agent_id: str, event: str, data: dict) -> None:
     monitor.process_event(agent_id, event, data)
+    # 工具调用时：agent 进入对应建筑（图书馆/工坊/档案馆/记忆仓库）；仅 tool_call 触发，避免与 tool_result 重复
+    if event == "tool_call":
+        tool_name = (data.get("name") or "").strip()
+        if tool_name:
+            building = TOOL_TO_BUILDING.get(tool_name)
+            if building:
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(
+                        ws.send_sprite_move(agent_id, "广场", building, f"tool_{tool_name}")
+                    )
+                except RuntimeError:
+                    pass
 
 
 async def on_task_done(

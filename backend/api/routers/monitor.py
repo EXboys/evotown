@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from core.deps import experiment_id, monitor
 from infra.execution_log import load_all_refusals
 from infra.task_history import load_task_history
+from services import agent_service
 
 router = APIRouter(prefix="/monitor", tags=["monitor"])
 
@@ -49,3 +50,20 @@ async def get_task_history(
     combined = list(claimed_and_dropped) + refusal_items
     combined.sort(key=lambda x: x.get("ts", 0))
     return combined[-limit:]
+
+
+@router.get("/task_detail")
+async def get_task_detail(
+    agent_id: str,
+    task: str,
+    ts: float | None = None,
+):
+    """任务执行详情：transcript 片段 + decision（工具明细）+ judge"""
+    if not agent_id or not task:
+        return {"error": "agent_id and task required"}
+    detail = await agent_service.get_task_execution_detail(
+        agent_id, task, ts_hint=ts
+    )
+    if detail is None:
+        return {"error": "agent not found or no matching execution"}
+    return detail

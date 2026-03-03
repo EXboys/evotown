@@ -139,6 +139,79 @@ def get_transcript_executions(
     return executions[-limit:] if limit else executions
 
 
+def get_transcript_excerpt_for_task(
+    chat_root: str, session_key: str, task_text: str, ts_hint: float | None = None
+) -> list[dict[str, Any]]:
+    """获取某任务的完整 transcript 片段：用户消息 + 助手回复 + 工具调用等"""
+    transcripts_dir = Path(chat_root) / "transcripts"
+    paths = _list_transcript_files(transcripts_dir, session_key)
+    if not paths:
+        return []
+
+    task_clean = (task_text or "").strip()
+    if not task_clean:
+        return []
+
+    best_match: tuple[float, list[dict[str, Any]]] | None = None
+
+    for p in paths:
+        try:
+            lines = p.read_text(encoding="utf-8").strip().splitlines()
+        except OSError:
+            continue
+
+        entries: list[dict[str, Any]] = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+
+        i = 0
+        while i < len(entries):
+            entry = entries[i]
+            kind = entry.get("type", "")
+            role = entry.get("role", "")
+            content = (entry.get("content") or "").strip()
+
+            if kind == "message" and role == "user" and content:
+                if _PREVIEW_PREFIX in content:
+                    i += 1
+                    continue
+                if content != task_clean and task_clean not in content:
+                    i += 1
+                    continue
+
+                ts = entry.get("timestamp") or entry.get("ts")
+                ts_num = _parse_ts_to_num(ts) if ts else 0
+                excerpt: list[dict[str, Any]] = [entry]
+
+                j = i + 1
+                while j < len(entries):
+                    nxt = entries[j]
+                    nxt_kind = nxt.get("type", "")
+                    nxt_role = nxt.get("role", "")
+                    if nxt_kind == "message" and nxt_role == "user":
+                        break
+                    excerpt.append(nxt)
+                    j += 1
+
+                if ts_hint is not None:
+                    score = -abs(ts_num - ts_hint) if ts_num else 0
+                else:
+                    score = ts_num
+                if best_match is None or score > best_match[0]:
+                    best_match = (score, excerpt)
+                i = j
+            else:
+                i += 1
+
+    return best_match[1] if best_match else []
+
+
 async def get_decisions(chat_root: str, limit: int = 50) -> list[dict[str, Any]]:
     """最近 N 条 decisions 记录"""
     db = _db_path(chat_root)
@@ -202,24 +275,82 @@ async def get_evolution_log(chat_root: str, limit: int = 100) -> list[dict[str, 
         return []
 
 
-async def get_skills(agent_home: str) -> list[str]:
-    """列出 agent_home/.skills/_evolved 下的技能（子目录，含 SKILL.md）"""
-    evolved = Path(agent_home) / ".skills" / "_evolved"
-    if not evolved.exists() or not evolved.is_dir():
+async def get_skills(agent_home: str) -> list[dict[str, Any]]:
+    """列出 agent_home/.skills/_evolved 下的技能（含 confirmed 和 pending）"""
+    skills_root = Path(agent_home) / ".skills" / "_evolved"
+    if not skills_root.exists() or not skills_root.is_dir():
         return []
-    names = []
-    for f in evolved.iterdir():
-        if f.is_dir() and (f / "SKILL.md").exists():
-            meta = f / ".meta.json"
-            if meta.exists():
+
+    result: list[dict[str, Any]] = []
+
+    def _scan_dir(directory: Path, status: str) -> None:
+        if not directory.exists() or not directory.is_dir():
+            return
+        for f in directory.iterdir():
+            if not f.is_dir() or not (f / "SKILL.md").exists():
+                continue
+            if f.name.startswith("_"):
+                continue
+            info: dict[str, Any] = {"name": f.name, "status": status}
+            meta_path = f / ".meta.json"
+            if meta_path.exists():
                 try:
-                    data = json.loads(meta.read_text(encoding="utf-8"))
-                    if data.get("archived"):
+                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                    if meta.get("archived"):
                         continue
+                    info["created_at"] = meta.get("created_at", "")
+                    info["call_count"] = meta.get("call_count", 0)
+                    info["success_count"] = meta.get("success_count", 0)
                 except (json.JSONDecodeError, OSError):
                     pass
-            names.append(f.name)
-    return sorted(names)
+            skill_md = f / "SKILL.md"
+            try:
+                content = skill_md.read_text(encoding="utf-8")
+                for line in content.splitlines():
+                    line = line.strip()
+                    if line.lower().startswith("# ") or line.lower().startswith("## description"):
+                        continue
+                    if line and not line.startswith("---") and not line.startswith("name:") and not line.startswith("compatibility:"):
+                        info.setdefault("description", line[:120])
+                        break
+            except OSError:
+                pass
+            result.append(info)
+
+    _scan_dir(skills_root, "confirmed")
+    _scan_dir(skills_root / "_pending", "pending")
+
+    result.sort(key=lambda s: (0 if s["status"] == "pending" else 1, s["name"]))
+    return result
+
+
+async def get_skills_simple(agent_home: str) -> list[str]:
+    """向后兼容：仅返回已确认技能名列表"""
+    all_skills = await get_skills(agent_home)
+    return [s["name"] for s in all_skills if s.get("status") == "confirmed"]
+
+
+def confirm_skill(agent_home: str, skill_name: str) -> bool:
+    """将 pending 技能移至 confirmed（_evolved/ 根目录）"""
+    pending = Path(agent_home) / ".skills" / "_evolved" / "_pending" / skill_name
+    target = Path(agent_home) / ".skills" / "_evolved" / skill_name
+    if not pending.exists() or not pending.is_dir():
+        return False
+    if target.exists():
+        return False
+    import shutil
+    shutil.move(str(pending), str(target))
+    return True
+
+
+def reject_skill(agent_home: str, skill_name: str) -> bool:
+    """拒绝（删除）pending 技能"""
+    pending = Path(agent_home) / ".skills" / "_evolved" / "_pending" / skill_name
+    if not pending.exists() or not pending.is_dir():
+        return False
+    import shutil
+    shutil.rmtree(str(pending))
+    return True
 
 
 # 与 task_planner.rs BUILTIN_HINTS 对齐：无需技能即可使用的 tool_hint
@@ -250,8 +381,9 @@ async def get_rules_with_skill_status(
 ) -> list[dict[str, Any]]:
     """读取 rules.json，并为每条规则标注 has_skill（该 agent 是否拥有对应技能）"""
     rules = await get_rules(chat_root)
-    skills = await get_skills(agent_home)
-    available = BUILTIN_TOOL_HINTS | set(skills)
+    all_skills = await get_skills(agent_home)
+    skill_names = {s["name"] for s in all_skills if isinstance(s, dict) and "name" in s}
+    available = BUILTIN_TOOL_HINTS | skill_names
     for r in rules:
         hint = r.get("tool_hint")
         r["has_skill"] = not hint or hint in available  # 无 tool_hint 或拥有对应技能

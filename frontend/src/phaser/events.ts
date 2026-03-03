@@ -6,6 +6,7 @@ export type EvotownEventMap = {
   agent_eliminated: { agent_id: string; reason: string };
   agent_created: { agent_id: string; balance: number };
   phaser_ready: Record<string, never>; // Phaser 场景就绪，React 可同步 agents
+  request_sync: Record<string, never>; // 请求从 API 同步 agent 状态（含 in_task）并刷新 NPC
 };
 
 type Listener<T> = (data: T) => void;

@@ -1,0 +1,9 @@
+Medieval RTS
+Created/distributed by Kenney (www.kenney.nl)
+https://kenney.nl/assets/medieval-rts
+
+License: Creative Commons CC0
+http://creativecommons.org/publicdomain/zero/1.0/
+
+Free to use in personal, educational and commercial projects.
+Credit Kenney or www.kenney.nl (this is not mandatory)

@@ -1,5 +1,10 @@
-/** Agent 详情抽屉 — 规则 / 技能 / 决策 */
+/** Agent 详情抽屉 — 规则 / 技能 / 决策 / Soul */
 import { useEffect, useState } from "react";
+
+interface SoulData {
+  content: string;
+  soul_type: string;
+}
 
 interface Rule {
   id?: string;
@@ -27,17 +32,57 @@ interface Decision {
   [k: string]: unknown;
 }
 
+interface EvolutionLogItem {
+  ts: string;
+  type: string;
+  target_id: string;
+  reason: string;
+}
+
+/** 执行记录：拒绝 / 已执行 */
+interface ExecutionLogItem {
+  ts: string | number;
+  task: string;
+  status: "refused" | "executed";
+  refusal_reason?: string;
+  task_completed?: boolean;
+  total_tools?: number;
+  failed_tools?: number;
+  elapsed_ms?: number;
+}
+
+const EVO_TYPE_LABELS: Record<string, string> = {
+  rule_added: "规则+",
+  rule_retired: "规则-",
+  example_added: "示例+",
+  skill_pending: "技能待确认",
+  skill_confirmed: "技能确认",
+  skill_refined: "技能优化",
+  skill_retired: "技能归档",
+  evolution_run: "运行",
+  auto_rollback: "回滚",
+};
+
 export function AgentDetail({
   agentId,
   onClose,
+  initialTab,
 }: {
   agentId: string;
   onClose: () => void;
+  initialTab?: "rules" | "skills" | "decisions" | "evolution" | "soul" | "executions";
 }) {
-  const [tab, setTab] = useState<"rules" | "skills" | "decisions">("rules");
+  const [tab, setTab] = useState<"rules" | "skills" | "decisions" | "evolution" | "soul" | "executions">(
+    initialTab ?? "executions"
+  );
   const [rules, setRules] = useState<Rule[]>([]);
   const [skills, setSkills] = useState<string[]>([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [executionLog, setExecutionLog] = useState<ExecutionLogItem[]>([]);
+  const [evolutionLog, setEvolutionLog] = useState<EvolutionLogItem[]>([]);
+  const [soul, setSoul] = useState<SoulData | null>(null);
+  const [soulEdit, setSoulEdit] = useState("");
+  const [soulSaving, setSoulSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -45,20 +90,60 @@ export function AgentDetail({
     const load = async () => {
       if (!cancelled) setLoading(true);
       try {
-        const [rRes, sRes, dRes] = await Promise.all([
+        const [rRes, sRes, dRes, exeRes, soulRes, evoRes] = await Promise.all([
           fetch(`/agents/${agentId}/rules`),
           fetch(`/agents/${agentId}/skills`),
           fetch(`/agents/${agentId}/decisions?limit=50`),
+          fetch(`/agents/${agentId}/execution_log?limit=30`),
+          fetch(`/agents/${agentId}/soul`),
+          fetch(`/agents/${agentId}/evolution_log?limit=100`),
         ]);
         if (cancelled) return;
         setRules((await rRes.json()) ?? []);
         setSkills((await sRes.json()) ?? []);
-        setDecisions((await dRes.json()) ?? []);
-      } catch {
+        const decisionsData = (await dRes.json()) ?? [];
+        setDecisions(decisionsData);
+        if (exeRes.ok) {
+          setExecutionLog((await exeRes.json()) ?? []);
+        } else {
+          // 后端未提供 execution_log 时降级：用 decisions 转成执行记录（仅已执行）
+          setExecutionLog(
+            decisionsData.slice(0, 30).map((d: Decision) => ({
+              ts: d.ts ?? "",
+              task: d.task_description ?? "-",
+              status: "executed" as const,
+              task_completed: d.task_completed,
+              total_tools: d.total_tools,
+              failed_tools: d.failed_tools,
+              elapsed_ms: d.elapsed_ms,
+            }))
+          );
+        }
+        const evoRaw = (await evoRes.json()) ?? [];
+        setEvolutionLog(
+          evoRaw.map((r: Record<string, unknown>) => ({
+            ts: String(r.ts ?? r.timestamp ?? ""),
+            type: String(r.type ?? r.event_type ?? ""),
+            target_id: String(r.target_id ?? r.id ?? ""),
+            reason: String(r.reason ?? ""),
+          }))
+        );
+        const soulData = await soulRes.json();
+        if (soulData.content !== undefined) {
+          setSoul(soulData);
+          setSoulEdit(soulData.content ?? "");
+        } else {
+          setSoul(null);
+        }
+      } catch (err) {
         if (cancelled) return;
+        console.warn(`[evotown] AgentDetail load failed for ${agentId}`, err);
         setRules([]);
         setSkills([]);
         setDecisions([]);
+        setExecutionLog([]);
+        setSoul(null);
+        setEvolutionLog([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -68,8 +153,29 @@ export function AgentDetail({
     return () => { cancelled = true; clearInterval(interval); };
   }, [agentId]);
 
+  useEffect(() => {
+    if (initialTab) setTab(initialTab);
+  }, [agentId, initialTab]);
+
+  const saveSoul = async () => {
+    setSoulSaving(true);
+    try {
+      const res = await fetch(`/agents/${agentId}/soul`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: soulEdit }),
+      });
+      const data = await res.json();
+      if (data?.ok) {
+        setSoul((prev) => (prev ? { ...prev, content: soulEdit } : { content: soulEdit, soul_type: "balanced" }));
+      }
+    } finally {
+      setSoulSaving(false);
+    }
+  };
+
   return (
-    <div className="absolute inset-0 z-20 flex flex-col bg-slate-900/95 backdrop-blur-sm border-l border-slate-600/50">
+    <div className="absolute inset-0 z-20 flex flex-col bg-slate-900/95 backdrop-blur-sm border-l border-slate-600/50 min-w-0 overflow-hidden">
       <div className="flex items-center justify-between p-3 border-b border-slate-600/50">
         <h3 className="text-sm font-medium text-slate-200">{agentId} 详情</h3>
         <button
@@ -79,24 +185,79 @@ export function AgentDetail({
           ×
         </button>
       </div>
-      <div className="flex border-b border-slate-600/50">
-        {(["rules", "skills", "decisions"] as const).map((t) => (
+      <div className="flex border-b border-slate-600/50 overflow-x-auto">
+        {(["executions", "decisions", "rules", "skills", "evolution", "soul"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 text-xs font-medium transition-colors ${
+            className={`px-3 py-2 text-xs font-medium transition-colors shrink-0 ${
               tab === t
                 ? "text-evo-accent border-b-2 border-evo-accent"
                 : "text-slate-500 hover:text-slate-300"
             }`}
           >
-            {t === "rules" ? "规则" : t === "skills" ? "技能" : "决策"}
+            {t === "executions" ? "执行记录" : t === "rules" ? "规则" : t === "skills" ? "技能" : t === "decisions" ? "决策" : t === "evolution" ? "进化" : "Soul"}
           </button>
         ))}
       </div>
       <div className="flex-1 overflow-y-auto p-3">
         {loading ? (
           <p className="text-sm text-slate-500">加载中...</p>
+        ) : tab === "executions" ? (
+          <div className="space-y-2">
+            <p className="text-xs text-slate-500">任务态度与执行（最近 30 条：拒绝 / 接受并执行）</p>
+            {executionLog.length === 0 ? (
+              <p className="text-sm text-slate-500 py-4 text-center rounded-lg bg-slate-800/30 border border-dashed border-slate-600/50">
+                暂无执行记录
+              </p>
+            ) : (
+              <ul className="space-y-1.5 font-mono text-xs">
+                {executionLog.map((e, i) => (
+                  <li key={i} className="flex flex-wrap gap-2 py-1.5 px-2 rounded hover:bg-slate-800/40 items-baseline">
+                    <span className="text-slate-500 shrink-0 whitespace-nowrap">
+                      {typeof e.ts === "number"
+                        ? new Date(e.ts * 1000).toLocaleString("zh-CN")
+                        : e.ts
+                          ? new Date(e.ts).toLocaleString("zh-CN")
+                          : "-"}
+                    </span>
+                    <span className="truncate text-slate-300 min-w-0" title={e.task}>
+                      {e.task || "-"}
+                    </span>
+                    {e.status === "refused" ? (
+                      <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] bg-rose-900/50 text-rose-400 border border-rose-700/50">
+                        拒绝
+                      </span>
+                    ) : (
+                      <span
+                        className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] ${
+                          e.task_completed
+                            ? "bg-emerald-900/50 text-emerald-400 border border-emerald-700/50"
+                            : "bg-amber-900/50 text-amber-400 border border-amber-700/50"
+                        }`}
+                      >
+                        {e.task_completed ? "✓ 完成" : "○ 未完成"}
+                      </span>
+                    )}
+                    {e.status === "refused" && e.refusal_reason && (
+                      <span className="text-slate-500 text-[10px] truncate max-w-[180px]" title={e.refusal_reason}>
+                        {e.refusal_reason}
+                      </span>
+                    )}
+                    {e.status === "executed" && (e.total_tools != null || e.elapsed_ms != null) && (
+                      <span className="text-slate-500 text-[10px]">
+                        {e.total_tools != null && `🔧 ${e.total_tools}次`}
+                        {e.failed_tools != null && e.failed_tools > 0 && (
+                          <span className="text-amber-400"> 失败{e.failed_tools}</span>
+                        )}
+                        {e.elapsed_ms != null && ` ⏱ ${e.elapsed_ms}ms`}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         ) : tab === "rules" ? (
           <ul className="space-y-2">
             {rules.length === 0 ? (
@@ -144,6 +305,74 @@ export function AgentDetail({
               ))
             )}
           </ul>
+        ) : tab === "evolution" ? (
+          <div className="space-y-2">
+            <p className="text-xs text-slate-500">进化事件明细（时间倒序）</p>
+            {evolutionLog.length === 0 ? (
+              <p className="text-sm text-slate-500 py-4 text-center rounded-lg bg-slate-800/30 border border-dashed border-slate-600/50">
+                暂无进化记录
+              </p>
+            ) : (
+              <div className="rounded-lg border border-slate-700/50 overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-slate-800/50 text-slate-400">
+                      <th className="text-left py-2 px-2 font-medium">时间</th>
+                      <th className="text-left py-2 px-2 font-medium">类型</th>
+                      <th className="text-left py-2 px-2 font-medium">目标</th>
+                      <th className="text-left py-2 px-2 font-medium">说明</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {evolutionLog.map((e, i) => (
+                      <tr key={i} className="border-t border-slate-700/30 hover:bg-slate-800/30">
+                        <td className="py-1.5 px-2 text-slate-500 whitespace-nowrap">
+                          {e.ts ? new Date(e.ts).toLocaleString("zh-CN") : "-"}
+                        </td>
+                        <td className="py-1.5 px-2">
+                          <span className="px-1.5 py-0.5 rounded bg-slate-700/50 text-slate-300">
+                            {EVO_TYPE_LABELS[e.type] ?? e.type}
+                          </span>
+                        </td>
+                        <td className="py-1.5 px-2 font-mono text-slate-400 truncate max-w-[80px]" title={e.target_id}>
+                          {e.target_id || "-"}
+                        </td>
+                        <td className="py-1.5 px-2 text-slate-400 break-words max-w-[180px]">
+                          {e.reason || "-"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        ) : tab === "soul" ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              {soul ? (
+                <span className="text-slate-500 text-xs">
+                  类型: {soul.soul_type === "conservative" ? "保守" : soul.soul_type === "aggressive" ? "激进" : "均衡"}
+                </span>
+              ) : (
+                <span className="text-slate-500 text-xs">Soul 文件</span>
+              )}
+              <button
+                onClick={saveSoul}
+                disabled={soulSaving || (soul ? soulEdit === soul.content : false)}
+                className="px-3 py-1 text-xs rounded bg-evo-accent/20 text-evo-accent border border-evo-accent/20 hover:bg-evo-accent/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {soulSaving ? "保存中..." : "保存"}
+              </button>
+            </div>
+            <textarea
+              value={soulEdit}
+              onChange={(e) => setSoulEdit(e.target.value)}
+              className="w-full h-64 p-3 rounded bg-slate-800/50 border border-slate-700/50 text-slate-300 text-xs font-mono resize-y focus:outline-none focus:ring-1 focus:ring-evo-accent/50"
+              placeholder="SOUL.md"
+              spellCheck={false}
+            />
+          </div>
         ) : (
           <ul className="space-y-3">
             {decisions.length === 0 ? (

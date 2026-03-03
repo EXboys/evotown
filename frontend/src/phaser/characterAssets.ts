@@ -1,162 +1,270 @@
 /**
- * 角色资产 — Minecraft 风格智能体纹理与创建逻辑
- * 从 TownScene 抽离，便于维护与复用
+ * 角色资产 — NES/FC 吞食天地2 风格 16×16 像素精灵
+ * 双层结构：char_base（身体/轮廓）+ char_helmet（头盔填充，可 tint 变色）
  */
 import type Phaser from "phaser";
+import { NES_HEX } from "./nesColors";
 
-/** 3/4 视角立体方块绘制 */
-function drawBlock3d(
-  ctx: CanvasRenderingContext2D,
-  fx: number,
-  fy: number,
-  fw: number,
-  fh: number,
-  sideW: number,
-  topH: number,
-  front: string,
-  side: string,
-  top: string
-) {
-  ctx.fillStyle = side;
-  ctx.fillRect(fx + fw, fy + topH, sideW, fh - topH);
-  ctx.fillStyle = front;
-  ctx.fillRect(fx, fy + topH, fw, fh - topH);
-  ctx.fillStyle = top;
-  ctx.fillRect(fx, fy, fw + sideW, topH);
+type PixelRow = (string | null)[];
+
+const _ = null; // 透明
+const O = NES_HEX.OUTLINE;
+const F = NES_HEX.CHAR_SKIN;
+const W = NES_HEX.CHAR_ARMOR;
+const G = NES_HEX.CHAR_WEAPON;
+
+/** char_base 正面（朝下走）：身体、面部、铠甲、腿、武器 */
+const BASE_FRONT: PixelRow[] = [
+  [_,_,_,_,_,O,_,_,_,O,_,_,_,_,_,_],
+  [_,_,_,_,O,_,_,_,_,_,O,_,_,_,_,_],
+  [_,_,_,_,O,_,_,_,_,_,O,_,_,_,_,_],
+  [_,_,_,_,_,O,F,F,F,O,_,_,_,_,_,_],
+  [_,_,_,_,O,F,O,F,O,F,O,_,_,_,_,_],
+  [_,_,_,_,_,O,F,F,F,O,_,_,_,_,_,_],
+  [_,_,_,O,O,W,W,W,W,W,O,O,_,_,_,_],
+  [_,_,_,O,W,W,W,W,W,W,W,O,_,_,_,_],
+  [_,_,_,O,W,O,O,O,O,O,W,O,_,_,_,_],
+  [_,_,_,O,W,W,W,W,W,W,W,O,G,_,_,_],
+  [_,_,_,O,W,O,O,O,O,O,W,O,G,_,_,_],
+  [_,_,_,O,W,W,W,W,W,W,W,O,G,_,_,_],
+  [_,_,_,_,O,W,W,W,W,W,O,_,_,_,_,_],
+  [_,_,_,_,O,W,O,_,O,W,O,_,_,_,_,_],
+  [_,_,_,_,O,W,O,_,O,W,O,_,_,_,_,_],
+  [_,_,_,_,O,O,O,_,O,O,O,_,_,_,_,_],
+];
+
+/** char_base 正面 走动帧（腿微动，幅度小：左腿略前） */
+const BASE_FRONT_WALK: PixelRow[] = [
+  ...BASE_FRONT.slice(0, 12),
+  [_,_,_,O,W,O,_,_,O,W,O,_,_,_,_,_],
+  [_,_,_,O,W,O,_,_,O,W,O,_,_,_,_,_],
+  [_,_,_,O,W,O,_,_,O,W,O,_,_,_,_,_],
+  [_,_,_,O,O,O,_,_,O,O,O,_,_,_,_,_],
+];
+
+/** char_base 背面（朝上走）：头盔、铠甲、腿 */
+const BASE_BACK: PixelRow[] = [
+  [_,_,_,_,_,O,O,O,O,O,O,_,_,_,_,_],
+  [_,_,_,_,O,O,O,O,O,O,O,O,_,_,_,_],
+  [_,_,_,_,O,O,O,O,O,O,O,O,_,_,_,_],
+  [_,_,_,_,_,O,O,O,O,O,O,_,_,_,_,_],
+  [_,_,_,_,O,O,O,O,O,O,O,O,_,_,_,_],
+  [_,_,_,_,O,O,O,O,O,O,O,O,_,_,_,_],
+  [_,_,_,O,O,W,W,W,W,W,O,O,_,_,_,_],
+  [_,_,_,O,W,W,W,W,W,W,W,O,_,_,_,_],
+  [_,_,_,O,W,O,O,O,O,O,W,O,_,_,_,_],
+  [_,_,_,O,W,W,W,W,W,W,W,O,G,_,_,_],
+  [_,_,_,O,W,O,O,O,O,O,W,O,G,_,_,_],
+  [_,_,_,O,W,W,W,W,W,W,W,O,G,_,_,_],
+  [_,_,_,_,O,W,W,W,W,W,O,_,_,_,_,_],
+  [_,_,_,_,O,W,O,_,O,W,O,_,_,_,_,_],
+  [_,_,_,_,O,W,O,_,O,W,O,_,_,_,_,_],
+  [_,_,_,_,O,O,O,_,O,O,O,_,_,_,_,_],
+];
+
+/** char_base 背面 走动帧（腿微动，幅度小） */
+const BASE_BACK_WALK: PixelRow[] = [
+  ...BASE_BACK.slice(0, 12),
+  [_,_,_,O,W,O,_,_,O,W,O,_,_,_,_,_],
+  [_,_,_,O,W,O,_,_,O,W,O,_,_,_,_,_],
+  [_,_,_,O,W,O,_,_,O,W,O,_,_,_,_,_],
+  [_,_,_,O,O,O,_,_,O,O,O,_,_,_,_,_],
+];
+
+/** char_base 侧面（朝左/右走）：站立时双腿，与身体对齐 */
+const BASE_SIDE: PixelRow[] = [
+  [_,_,_,_,_,_,O,O,O,O,_,_,_,_,_,_],
+  [_,_,_,_,_,O,O,O,O,O,O,_,_,_,_,_],
+  [_,_,_,_,_,O,O,O,O,O,O,_,_,_,_,_],
+  [_,_,_,_,_,O,F,F,O,O,_,_,_,_,_,_],
+  [_,_,_,_,O,F,O,F,O,O,_,_,_,_,_,_],
+  [_,_,_,_,_,O,F,F,O,O,_,_,_,_,_,_],
+  [_,_,_,_,O,O,W,W,W,O,O,_,_,_,_,_],
+  [_,_,_,_,O,W,W,W,W,W,O,_,_,_,_,_],
+  [_,_,_,_,O,W,O,O,O,W,O,_,_,_,_,_],
+  [_,_,_,_,O,W,W,W,W,W,O,G,_,_,_,_],
+  [_,_,_,_,O,W,O,O,O,W,O,G,_,_,_,_],
+  [_,_,_,_,O,W,W,W,W,W,O,G,_,_,_,_],
+  [_,_,_,_,O,W,W,O,W,W,O,_,_,_,_,_],
+  [_,_,_,_,O,W,O,O,O,W,O,_,_,_,_,_],
+  [_,_,_,_,O,W,O,O,O,W,O,_,_,_,_,_],
+  [_,_,_,_,O,O,O,_,O,O,O,_,_,_,_,_],
+];
+
+/** char_base 侧面 走动帧（单腿前伸，与身体对齐） */
+const BASE_SIDE_WALK: PixelRow[] = [
+  ...BASE_SIDE.slice(0, 12),
+  [_,_,_,_,O,W,W,W,W,O,_,_,_,_,_,_],
+  [_,_,_,_,O,W,O,O,W,O,_,_,_,_,_,_],
+  [_,_,_,_,O,W,O,O,W,O,_,_,_,_,_,_],
+  [_,_,_,_,O,O,O,O,O,O,_,_,_,_,_,_],
+];
+
+/** char_helmet 正面 */
+const HELMET_FRONT: PixelRow[] = [
+  [_,_,_,_,_,_,'#FFFFFF','#FFFFFF','#FFFFFF',_,_,_,_,_,_,_],
+  [_,_,_,_,_,'#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF',_,_,_,_,_,_],
+  [_,_,_,_,_,'#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF',_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+];
+
+/** char_helmet 背面（#FFFFFF 为 tint 填充区） */
+const HELMET_BACK: PixelRow[] = [
+  [_,_,_,_,_,_,'#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF',_,_,_,_,_,_],
+  [_,_,_,_,_,'#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF',_,_,_,_,_],
+  [_,_,_,_,_,'#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF',_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+];
+
+/** char_helmet 侧面（#FFFFFF 为 tint 填充区） */
+const HELMET_SIDE: PixelRow[] = [
+  [_,_,_,_,_,_,'#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF',_,_,_,_,_,_],
+  [_,_,_,_,_,'#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF',_,_,_,_,_],
+  [_,_,_,_,_,'#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF',_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+  [_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_],
+];
+
+/** 将像素数组绘制到 Canvas */
+function renderPixels(ctx: CanvasRenderingContext2D, pixels: PixelRow[]) {
+  for (let y = 0; y < pixels.length; y++) {
+    for (let x = 0; x < pixels[y].length; x++) {
+      const c = pixels[y][x];
+      if (c) {
+        ctx.fillStyle = c;
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+  }
 }
 
-/** 注册角色相关纹理到场景 */
+/** 注册角色纹理到场景（4 方向） */
 export function registerCharacterTextures(scene: Phaser.Scene): void {
   const textures = scene.textures;
-
-  // 1) 头部 — 立体方块 + 脸部（眼睛/眉毛/嘴巴/头发）
-  const headCanvas = document.createElement("canvas");
-  headCanvas.width = 28;
-  headCanvas.height = 26;
-  const headCtx = headCanvas.getContext("2d")!;
-  headCtx.fillStyle = "#5d3d1e";
-  headCtx.fillRect(16, 10, 8, 14);
-  headCtx.fillStyle = "#8d6e4b";
-  headCtx.fillRect(0, 10, 16, 14);
-  headCtx.fillStyle = "#a08060";
-  headCtx.fillRect(2, 4, 18, 6);
-  headCtx.fillStyle = "#6b5344";
-  headCtx.fillRect(4, 2, 14, 3);
-  headCtx.fillStyle = "#3d2c1e";
-  headCtx.fillRect(5, 12, 2, 2);
-  headCtx.fillRect(10, 12, 2, 2);
-  headCtx.fillRect(4, 11, 10, 1);
-  headCtx.fillRect(6, 15, 4, 1);
-  textures.addCanvas("char_head", headCanvas);
-
-  // 2) 身体 — 立体 + 衣领/腰带
-  const bodyCanvas = document.createElement("canvas");
-  bodyCanvas.width = 28;
-  bodyCanvas.height = 28;
-  const bodyCtx = bodyCanvas.getContext("2d")!;
-  drawBlock3d(bodyCtx, 6, 0, 14, 14, 4, 3, "#ffffff", "#5a5a5a", "#e8e8e8");
-  bodyCtx.fillStyle = "#d0d0d0";
-  bodyCtx.fillRect(6, 2, 14, 2);
-  drawBlock3d(bodyCtx, 6, 11, 14, 14, 4, 3, "#ffffff", "#5a5a5a", "#e8e8e8");
-  bodyCtx.fillStyle = "#4a4a4a";
-  bodyCtx.fillRect(6, 20, 14, 2);
-  textures.addCanvas("char_body", bodyCanvas);
-
-  // 3) 左臂 — 肤色立体（侧面/正面/顶面）
-  const armLCanvas = document.createElement("canvas");
-  armLCanvas.width = 12;
-  armLCanvas.height = 24;
-  const armLCtx = armLCanvas.getContext("2d")!;
-  armLCtx.fillStyle = "#5d3d1e";
-  armLCtx.fillRect(6, 4, 4, 18);
-  armLCtx.fillStyle = "#8d6e4b";
-  armLCtx.fillRect(0, 4, 6, 18);
-  armLCtx.fillStyle = "#a08060";
-  armLCtx.fillRect(0, 0, 8, 4);
-  armLCtx.fillStyle = "#6d4c2b";
-  armLCtx.fillRect(4, 10, 2, 2);
-  textures.addCanvas("char_arm_left", armLCanvas);
-
-  // 4) 右臂 — 肤色立体
-  const armRCanvas = document.createElement("canvas");
-  armRCanvas.width = 12;
-  armRCanvas.height = 24;
-  const armRCtx = armRCanvas.getContext("2d")!;
-  armRCtx.fillStyle = "#5d3d1e";
-  armRCtx.fillRect(2, 4, 4, 18);
-  armRCtx.fillStyle = "#8d6e4b";
-  armRCtx.fillRect(6, 4, 6, 18);
-  armRCtx.fillStyle = "#a08060";
-  armRCtx.fillRect(2, 0, 8, 4);
-  armRCtx.fillStyle = "#6d4c2b";
-  armRCtx.fillRect(4, 10, 2, 2);
-  textures.addCanvas("char_arm_right", armRCanvas);
-
-  // 5) 腿+脚 — 立体 + 鞋子
-  const legsCanvas = document.createElement("canvas");
-  legsCanvas.width = 28;
-  legsCanvas.height = 32;
-  const legsCtx = legsCanvas.getContext("2d")!;
-  legsCtx.fillStyle = "rgba(0,0,0,0.35)";
-  legsCtx.fillRect(4, 26, 20, 6);
-  drawBlock3d(legsCtx, 6, 0, 5, 14, 3, 2, "#b8b8b8", "#5a5a5a", "#d8d8d8");
-  drawBlock3d(legsCtx, 15, 0, 5, 14, 3, 2, "#b8b8b8", "#5a5a5a", "#d8d8d8");
-  legsCtx.fillStyle = "#2d2018";
-  legsCtx.fillRect(6, 14, 6, 6);
-  legsCtx.fillRect(15, 14, 6, 6);
-  legsCtx.fillStyle = "#1a1510";
-  legsCtx.fillRect(8, 18, 4, 4);
-  legsCtx.fillRect(17, 18, 4, 4);
-  textures.addCanvas("char_legs", legsCanvas);
+  const add = (key: string, pixels: PixelRow[]) => {
+    const c = document.createElement("canvas");
+    c.width = 16;
+    c.height = 16;
+    renderPixels(c.getContext("2d")!, pixels);
+    textures.addCanvas(key, c);
+  };
+  add("char_base_front", BASE_FRONT);
+  add("char_base_front_walk", BASE_FRONT_WALK);
+  add("char_base_back", BASE_BACK);
+  add("char_base_back_walk", BASE_BACK_WALK);
+  add("char_base_side", BASE_SIDE);
+  add("char_base_side_walk", BASE_SIDE_WALK);
+  add("char_helmet_front", HELMET_FRONT);
+  add("char_helmet_back", HELMET_BACK);
+  add("char_helmet_side", HELMET_SIDE);
+  add("char_base", BASE_FRONT);
+  add("char_helmet", HELMET_FRONT);
 }
 
 /** 角色布局常量 */
 export const CHAR_LAYOUT = {
-  scale: 0.85,
+  scale: 2,
   depth: 400,
-  labelOffsetY: 28,
-  armOffsetX: 10,
-  headOffsetY: -27,
-  headOffsetX: 2,
-  legsOffsetY: 18,
+  labelOffsetY: 14,
 } as const;
 
-/** 创建角色容器（腿/身体/手臂/头/标签） */
+export type CharFacing = "front" | "back" | "left" | "right";
+
+/** 根据朝向与走动帧设置 base/helmet 纹理（walkFrame: 0=站立双腿, 1=迈步单腿） */
+export function setCharFacing(
+  base: Phaser.GameObjects.Sprite,
+  helmet: Phaser.GameObjects.Sprite,
+  facing: CharFacing,
+  walkFrame = 0,
+): void {
+  const flipX = facing === "right";
+  const w = walkFrame ? "_walk" : "";
+  if (facing === "front") {
+    base.setTexture(`char_base_front${w}`);
+    helmet.setTexture("char_helmet_front");
+    base.setFlipX(false);
+  } else if (facing === "back") {
+    base.setTexture(`char_base_back${w}`);
+    helmet.setTexture("char_helmet_back");
+    base.setFlipX(false);
+  } else {
+    base.setTexture(`char_base_side${w}`);
+    helmet.setTexture("char_helmet_side");
+    base.setFlipX(flipX);
+    helmet.setFlipX(flipX);
+  }
+}
+
+/** 创建角色容器（base + helmet + label），body 用于上下浮动与朝向 */
 export function createCharacterContainer(
   scene: Phaser.Scene,
   x: number,
   y: number,
   color: number,
-  labelText: string
-): { container: Phaser.GameObjects.Container; label: Phaser.GameObjects.Text } {
-  const { scale, depth, labelOffsetY, armOffsetX, headOffsetY, headOffsetX, legsOffsetY } = CHAR_LAYOUT;
+  labelText: string,
+): {
+  container: Phaser.GameObjects.Container;
+  label: Phaser.GameObjects.Text;
+  body: Phaser.GameObjects.Container;
+  base: Phaser.GameObjects.Sprite;
+  helmet: Phaser.GameObjects.Sprite;
+} {
+  const { scale, depth, labelOffsetY } = CHAR_LAYOUT;
 
   const container = scene.add.container(x, y);
+  const body = scene.add.container(0, 0);
 
-  const legs = scene.add.sprite(0, legsOffsetY, "char_legs");
-  legs.setTint(color);
-
-  const body = scene.add.sprite(0, 0, "char_body");
-  body.setTint(color);
-
-  const armL = scene.add.sprite(-armOffsetX, 2, "char_arm_left");
-  const armR = scene.add.sprite(armOffsetX, 2, "char_arm_right");
-  const head = scene.add.sprite(headOffsetX, headOffsetY, "char_head");
+  const base = scene.add.sprite(0, 0, "char_base_front");
+  const helmet = scene.add.sprite(0, 0, "char_helmet_front");
+  helmet.setTint(color);
+  body.add([base, helmet]);
 
   const label = scene.add.text(0, labelOffsetY, labelText, {
-    fontSize: "9px",
-    color: "#f1f5f9",
+    fontSize: "7px",
+    color: "#F8F8F8",
     fontStyle: "bold",
-    stroke: "#0f172a",
-    strokeThickness: 2,
-    backgroundColor: "rgba(15,23,42,0.85)",
-    padding: { x: 6, y: 3 },
-  }).setOrigin(0.5);
+    backgroundColor: "#000000",
+    padding: { x: 3, y: 2 },
+  }).setOrigin(0.5, 0).setResolution(2);
 
-  container.add([legs, body, armL, armR, head, label]);
-  label.setDepth(1);
+  container.add([body, label]);
   container.setScale(scale);
   container.setDepth(depth);
 
-  return { container, label };
+  return { container, label, body, base, helmet };
 }

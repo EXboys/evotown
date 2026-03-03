@@ -1,0 +1,26 @@
+{
+  "economy": {
+    "initial_balance": 100,
+    "cost_accept": -3,
+    "reward_complete": 5,
+    "penalty_fail": -5,
+    "eliminate_on_zero": true
+  },
+  "evolution": {
+    "auto_trigger": true,
+    "interval_tasks": 5,
+    "on_failure": true,
+    "failure_cooldown": 3,
+    "rewards": {
+      "rule_added": 3,
+      "example_added": 2,
+      "skill_confirmed": 8,
+      "skill_refined": 3,
+      "skill_pending": 0
+    }
+  },
+  "timeouts": {
+    "task_timeout_seconds": 600,
+    "judge_timeout_seconds": 60
+  }
+}

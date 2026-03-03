@@ -47,7 +47,8 @@ export function MetricsDashboard({ agents }: { agents: { id: string }[] }) {
           const rows: MetricsPoint[] = await r.json();
           setMetricsCache(a.id, rows);
           all[a.id] = rows;
-        } catch {
+        } catch (err) {
+          console.warn(`[evotown] fetch metrics for ${a.id} failed`, err);
           all[a.id] = [];
         }
       }

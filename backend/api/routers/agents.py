@@ -1,0 +1,79 @@
+"""Agent 路由"""
+from fastapi import APIRouter
+
+from domain.models import AgentCreate
+from services import agent_service
+
+router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+@router.get("")
+async def list_agents():
+    return agent_service.list_agents()
+
+
+@router.post("")
+async def create_agent(body: AgentCreate):
+    return await agent_service.create_agent(body)
+
+
+@router.delete("/{agent_id}")
+async def delete_agent(agent_id: str):
+    await agent_service.delete_agent(agent_id)
+    return {"ok": True}
+
+
+@router.post("/{agent_id}/evolve")
+async def trigger_evolve(agent_id: str):
+    ok, message = await agent_service.trigger_evolve(agent_id)
+    if not ok and message == "agent not found":
+        return {"ok": False, "error": message}
+    return {"ok": ok, "message": message}
+
+
+@router.get("/{agent_id}/metrics")
+async def get_agent_metrics(agent_id: str, limit: int = 100):
+    return await agent_service.get_metrics_data(agent_id, limit)
+
+
+@router.get("/{agent_id}/decisions")
+async def get_agent_decisions(agent_id: str, limit: int = 50):
+    return await agent_service.get_decisions_data(agent_id, limit)
+
+
+@router.get("/{agent_id}/execution_log")
+async def get_agent_execution_log(agent_id: str, limit: int = 30):
+    """合并执行记录：拒绝 + 已执行，按时间倒序"""
+    return await agent_service.get_execution_log_data(agent_id, limit)
+
+
+@router.get("/{agent_id}/rules")
+async def get_agent_rules(agent_id: str):
+    return await agent_service.get_rules_data(agent_id)
+
+
+@router.get("/{agent_id}/evolution_log")
+async def get_agent_evolution_log(agent_id: str, limit: int = 100):
+    return await agent_service.get_evolution_log_data(agent_id, limit)
+
+
+@router.get("/{agent_id}/skills")
+async def get_agent_skills(agent_id: str):
+    return await agent_service.get_skills_data(agent_id)
+
+
+@router.get("/{agent_id}/soul")
+async def get_agent_soul(agent_id: str):
+    data = await agent_service.get_soul_data(agent_id)
+    if data is None:
+        return {"error": "agent not found"}
+    return data
+
+
+@router.put("/{agent_id}/soul")
+async def update_agent_soul(agent_id: str, body: dict):
+    content = body.get("content", "")
+    ok = await agent_service.update_soul(agent_id, content)
+    if not ok:
+        return {"ok": False, "error": "agent not found"}
+    return {"ok": True}

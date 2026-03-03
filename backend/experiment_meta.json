@@ -1,0 +1,20 @@
+{
+  "experiment_id": "exp_692eae4c3c61",
+  "started_at": "2026-03-03T06:36:03.294661+00:00",
+  "economy": {
+    "initial_balance": 100,
+    "cost_accept": -5,
+    "reward_complete": 10,
+    "penalty_fail": -5,
+    "eliminate_on_zero": true
+  },
+  "evolution": {
+    "auto_trigger": true,
+    "interval_tasks": 3,
+    "on_failure": true
+  },
+  "timeouts": {
+    "task_timeout_seconds": 600,
+    "judge_timeout_seconds": 60
+  }
+}

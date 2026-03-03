@@ -6,6 +6,8 @@ export interface AgentInfo {
   balance: number;
   chat_dir?: string;
   status?: string;
+  in_task?: boolean;
+  soul_type?: string;
 }
 
 export interface EvolutionEventItem {
@@ -41,12 +43,18 @@ export interface TaskRecord {
   success: boolean;
   judge?: JudgeScore;
   ts: string;
+  difficulty?: string;
 }
 
 export interface DispatcherState {
   running: boolean;
   pool_size: number;
   interval: number;
+}
+
+export interface ExperimentInfo {
+  experiment_id: string | null;
+  config: Record<string, unknown> | null;
 }
 
 interface EvotownState {
@@ -57,6 +65,7 @@ interface EvotownState {
   evolutionLogCache: Record<string, EvolutionEventItem[]>;
   taskRecords: TaskRecord[];
   dispatcherState: DispatcherState;
+  experimentInfo: ExperimentInfo;
 
   setAgents: (agents: AgentInfo[]) => void;
   addAgent: (agent: AgentInfo) => void;
@@ -73,6 +82,7 @@ interface EvotownState {
 
   pushTaskRecord: (record: TaskRecord) => void;
   setDispatcherState: (state: Partial<DispatcherState>) => void;
+  setExperimentInfo: (info: ExperimentInfo) => void;
 }
 
 export const useEvotownStore = create<EvotownState>((set, get) => ({
@@ -83,6 +93,7 @@ export const useEvotownStore = create<EvotownState>((set, get) => ({
   evolutionLogCache: {},
   taskRecords: [],
   dispatcherState: { running: false, pool_size: 0, interval: 30 },
+  experimentInfo: { experiment_id: null, config: null },
 
   setAgents: (agents) => set({ agents }),
   addAgent: (agent) =>
@@ -128,4 +139,5 @@ export const useEvotownStore = create<EvotownState>((set, get) => ({
     set((s) => ({
       dispatcherState: { ...s.dispatcherState, ...partial },
     })),
+  setExperimentInfo: (info) => set({ experimentInfo: info }),
 }));

@@ -127,6 +127,14 @@ class ArenaMonitor:
     def history(self) -> list[dict[str, Any]]:
         return list(self._history)
 
+    def get_timed_out_agent_ids(self, timeout_seconds: float) -> list[str]:
+        """返回执行时间超过 timeout_seconds 的 agent_id 列表"""
+        now = time.time()
+        return [
+            aid for aid, exe in self._active.items()
+            if (now - exe.start_ts) >= timeout_seconds
+        ]
+
     def stats(self) -> dict[str, Any]:
         completed = [h for h in self._history if h["task_completed"]]
         failed = [h for h in self._history if not h["task_completed"]]

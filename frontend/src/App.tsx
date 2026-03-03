@@ -3,8 +3,8 @@ import { ObserverPanel } from "./components/ObserverPanel";
 
 function App() {
   return (
-    <div className="flex h-screen w-full bg-slate-900">
-      <main className="flex-1 flex overflow-hidden">
+    <div className="flex h-screen w-full min-w-0 bg-slate-900 overflow-hidden">
+      <main className="flex-1 flex min-w-0 overflow-hidden">
         <TownLayout />
         <ObserverPanel />
       </main>

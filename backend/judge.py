@@ -24,6 +24,11 @@ _JSON_PREFIX_PATTERN = re.compile(
     r"Sure,? here(?:'s| is) the JSON:?)\s*\n*",
     re.IGNORECASE,
 )
+# Gemini 等可能返回 "Here is the JSON requested:\n```json\n{...}"
+_JSON_WRAPPER_PATTERN = re.compile(
+    r"^(?:Here is the JSON requested:\s*\n?)?```(?:json)?\s*\n?",
+    re.IGNORECASE,
+)
 
 JUDGE_PROMPT = """\
 You are a strict task-completion judge for an AI agent arena.
@@ -66,13 +71,36 @@ def _extract_json_block(text: str) -> str | None:
     return None
 
 
+def _extract_judge_fields_from_text(text: str) -> dict[str, Any] | None:
+    """从文本中用正则提取 completion/quality/efficiency 作为兜底"""
+    # 匹配 "completion": 10 或 "completion": 9 等
+    m = re.search(r'"completion"\s*:\s*(\d+)', text)
+    completion = int(m.group(1)) if m else 0
+    m = re.search(r'"quality"\s*:\s*(\d+)', text)
+    quality = int(m.group(1)) if m else 0
+    m = re.search(r'"efficiency"\s*:\s*(\d+)', text)
+    efficiency = int(m.group(1)) if m else 0
+    m = re.search(r'"reason"\s*:\s*"((?:[^"\\]|\\.)*)', text)
+    reason = (m.group(1) if m else "")[:200]
+    if completion or quality or efficiency:
+        return {
+            "completion": min(10, max(0, completion)),
+            "quality": min(10, max(0, quality)),
+            "efficiency": min(10, max(0, efficiency)),
+            "reason": reason or "Parsed from partial response",
+        }
+    return None
+
+
 def _parse_judge_json(raw: str) -> dict[str, Any] | None:
-    """从 LLM 原始输出中解析 Judge JSON，支持前缀、markdown、片段提取"""
+    """从 LLM 原始输出中解析 Judge JSON，支持前缀、markdown、片段提取、截断修复"""
     if not raw or not isinstance(raw, str):
         return None
 
     # 1. 去除常见前缀
     text = _JSON_PREFIX_PATTERN.sub("", raw).strip()
+    # 1b. 去除 "Here is the JSON requested:\n```json\n" 这类包装
+    text = _JSON_WRAPPER_PATTERN.sub("", text).strip()
 
     # 2. 去除 markdown 代码块
     for pattern in (r"^```(?:json)?\s*\n?", r"\n?```\s*$"):
@@ -100,7 +128,9 @@ def _parse_judge_json(raw: str) -> dict[str, Any] | None:
                 return parsed
         except (json.JSONDecodeError, TypeError):
             pass
-    return None
+
+    # 5. 兜底：从截断/非标准文本中正则提取字段
+    return _extract_judge_fields_from_text(raw)
 
 
 @dataclass
@@ -117,16 +147,16 @@ class JudgeResult:
 
     @property
     def reward(self) -> int:
-        """映射到经济系统的奖惩值: -5 ~ +15"""
+        """映射到经济系统的奖惩值: -5 ~ +5"""
         total = self.total_score  # 0~30
         if total <= 5:
             return -5
         elif total <= 10:
             return 0
         elif total <= 20:
-            return 5
+            return 3
         else:
-            return 10
+            return 5
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)

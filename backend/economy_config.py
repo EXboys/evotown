@@ -11,8 +11,20 @@ def _config_path() -> Path:
     return Path(__file__).parent / "evotown_config.json"
 
 
+def _load_json_config() -> dict[str, Any]:
+    """加载 evotown_config.json"""
+    path = _config_path()
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
 def load_economy_config() -> dict[str, Any]:
     """加载经济规则，优先级：env > evotown_config.json > 默认值"""
+    data = _load_json_config()
     defaults = {
         "initial_balance": 100,
         "cost_accept": -5,       # 接任务
@@ -20,14 +32,8 @@ def load_economy_config() -> dict[str, Any]:
         "penalty_fail": -5,      # 未完成任务（默认 -5）
         "eliminate_on_zero": True,  # 余额≤0 是否淘汰
     }
-    path = _config_path()
-    if path.exists():
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            economy = data.get("economy", {})
-            defaults.update({k: v for k, v in economy.items() if k in defaults})
-        except (json.JSONDecodeError, OSError):
-            pass
+    economy = data.get("economy", {})
+    defaults.update({k: v for k, v in economy.items() if k in defaults})
 
     # 环境变量覆盖
     env_map = {
@@ -46,3 +52,14 @@ def load_economy_config() -> dict[str, Any]:
                 pass
 
     return defaults
+
+
+def load_evolution_config() -> dict[str, Any]:
+    """加载进化触发配置"""
+    data = _load_json_config()
+    evo = data.get("evolution", {})
+    return {
+        "auto_trigger": evo.get("auto_trigger", True),
+        "interval_tasks": int(evo.get("interval_tasks", 3)),
+        "on_failure": evo.get("on_failure", True),
+    }

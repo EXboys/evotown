@@ -10,5 +10,10 @@
     "auto_start": false,
     "interval": 30,
     "min_pool_size": 5
+  },
+  "evolution": {
+    "auto_trigger": true,
+    "interval_tasks": 3,
+    "on_failure": true
   }
 }

@@ -1,6 +1,6 @@
 """SkillLite 进程生命周期管理
 每个角色 = 一个独立 SkillLite 子进程，独立 chat_dir + 独立 skills
-通过 HOME 环境变量实现多 Agent 数据隔离：HOME=agent_home 时 ~/.skilllite/chat → agent_home/.skilllite/chat
+通过 SKILLLITE_WORKSPACE 环境变量实现多 Agent 数据隔离：每个 agent 的数据在 agent_home/ 下
 """
 import asyncio
 import json
@@ -12,7 +12,7 @@ from typing import Awaitable, Callable, Optional
 
 logger = logging.getLogger("evotown.process")
 
-# 每个 agent 的 agent_home 下：.skilllite/chat（数据）、.skills（技能，独立进化）
+# 每个 agent 的 agent_home 下：chat/（数据）、.skills/（技能，独立进化）
 
 
 class ProcessManager:
@@ -42,11 +42,11 @@ class ProcessManager:
         return self._arena_root / agent_id
 
     def _chat_root(self, agent_home: Path) -> Path:
-        """chat_root = agent_home/.skilllite/chat"""
-        return agent_home / ".skilllite" / "chat"
+        """chat_root = agent_home/chat（SKILLLITE_WORKSPACE 直接作为 data root）"""
+        return agent_home / "chat"
 
     def _ensure_agent_structure(self, agent_home: Path) -> Path:
-        """创建 agent_home/.skilllite/chat 结构，并初始化 agent_home/.skills（独立技能目录）"""
+        """创建 agent_home/chat 结构，并初始化 agent_home/.skills（独立技能目录）"""
         chat_root = self._chat_root(agent_home)
         chat_root.mkdir(parents=True, exist_ok=True)
         (chat_root / "memory").mkdir(parents=True, exist_ok=True)
@@ -77,29 +77,16 @@ class ProcessManager:
         self._arena_root.mkdir(parents=True, exist_ok=True)
         chat_root = self._ensure_agent_structure(agent_home)
 
-        # 初始化 seed（若 prompts 为空）
-        prompts_dir = chat_root / "prompts"
-        rules_file = prompts_dir / "rules.json"
-        if not rules_file.exists():
-            # 运行 skilllite evolution run 初始化（会 ensure_seed_data）
-            proc = await asyncio.create_subprocess_exec(
-                "skilllite",
-                "evolution",
-                "run",
-                env={**os.environ, "HOME": str(agent_home)},
-                cwd=os.getcwd(),  # 需要 workspace 有 .skills
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.wait()
-            # 若失败（如无 .skills），仍创建空结构，后续可手动初始化
-
-        # 启动 skilllite agent-rpc 子进程（JSON-RPC over stdio，适合程序化任务注入）
+        # 启动 skilllite agent-rpc 子进程（仅设 SKILLLITE_WORKSPACE，不覆盖 HOME）
+        agent_env = {
+            **os.environ,
+            "SKILLLITE_WORKSPACE": str(agent_home),
+        }
         proc = await asyncio.create_subprocess_exec(
             "skilllite",
             "agent-rpc",
-            env={**os.environ, "HOME": str(agent_home)},
-            cwd=os.getcwd(),
+            env=agent_env,
+            cwd=str(agent_home),  # 避免 cwd 影响 skills_root 解析
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -135,6 +122,10 @@ class ProcessManager:
                     logger.info("[%s][stdout] event=%s data=%s", agent_id, event, str(data)[:200])
                     if self._on_event:
                         self._on_event(agent_id, event, data)
+                    # agent-rpc 在 confirmation_request 后会阻塞等待 stdin 输入
+                    # 格式: {"method": "confirm", "params": {"approved": true}}
+                    if event == "confirmation_request":
+                        await self._send_confirm(agent_id, approved=True)
                     if event == "tool_result":
                         tool_name = data.get("name", "")
                         if tool_name not in ("update_task_plan",):
@@ -190,6 +181,21 @@ class ProcessManager:
             except ProcessLookupError:
                 pass
 
+    async def _send_confirm(self, agent_id: str, approved: bool) -> None:
+        """向 agent stdin 发送确认响应，解除 confirmation_request 的阻塞"""
+        if agent_id not in self._processes:
+            return
+        proc = self._processes[agent_id]
+        if proc.stdin is None:
+            return
+        try:
+            payload = json.dumps({"method": "confirm", "params": {"approved": approved}}) + "\n"
+            proc.stdin.write(payload.encode())
+            await proc.stdin.drain()
+            logger.info("[%s] sent confirm approved=%s", agent_id, approved)
+        except (BrokenPipeError, ConnectionResetError) as e:
+            logger.warning("[%s] _send_confirm failed: %s", agent_id, e)
+
     async def inject_task(self, agent_id: str, task: str) -> bool:
         """向 stdin 注入任务（agent-rpc JSON-RPC 格式），使用该 agent 独立的 skill_dirs"""
         if agent_id not in self._processes:
@@ -233,23 +239,27 @@ class ProcessManager:
             logger.error("[%s] inject_task FAILED to write stdin: %s", agent_id, e)
             return False
 
-    async def trigger_evolve(self, agent_id: str, agent_home: str) -> bool:
-        """主动触发进化: skilllite evolution run，使用该 agent 独立的 .skills"""
+    async def trigger_evolve(self, agent_id: str, agent_home: str) -> tuple[bool, str]:
+        """主动触发进化: skilllite evolution run，使用该 agent 独立的 .skills
+        返回 (成功与否, 输出信息供前端展示)
+        """
         proc = await asyncio.create_subprocess_exec(
             "skilllite",
             "evolution",
             "run",
             env={
                 **os.environ,
-                "HOME": agent_home,
-                "SKILLLITE_WORKSPACE": agent_home,  # 进化写入 agent_home/.skills/_evolved
+                "SKILLLITE_WORKSPACE": agent_home,
             },
-            cwd=os.getcwd(),
+            cwd=agent_home,  # 确保 resolve_skills_root 正确
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
         )
-        _, stderr = await proc.communicate()
-        if proc.returncode != 0 and stderr:
-            # 记录但不失败（可能是无新样本等）
-            pass
-        return proc.returncode == 0
+        stdout, _ = await proc.communicate()
+        out = (stdout or b"").decode("utf-8", errors="replace").strip()
+        if proc.returncode != 0:
+            logger.warning("[%s] evolution run failed (code=%s): %s", agent_id, proc.returncode, out[:500])
+        elif out:
+            logger.info("[%s] evolution: %s", agent_id, out[:300])
+        ok = proc.returncode == 0
+        return ok, out

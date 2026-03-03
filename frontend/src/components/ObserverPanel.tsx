@@ -112,17 +112,32 @@ export function ObserverPanel() {
     }
   };
 
+  const [evolveFeedback, setEvolveFeedback] = useState("");
   const triggerEvolve = async () => {
     if (agents.length === 0) return;
-    const agentId = agents[0].id;
-    const res = await fetch(`/agents/${agentId}/evolve`, { method: "POST" });
-    if (res.ok) {
-      evotownEvents.emit("sprite_move", {
-        agent_id: agentId,
-        from: "广场",
-        to: "进化神殿",
-        reason: "forced_evolution",
-      });
+    const agentId = (selectedAgentId && agents.some((a) => a.id === selectedAgentId))
+      ? selectedAgentId
+      : agents[0].id;
+    try {
+      const res = await fetch(`/agents/${agentId}/evolve`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        evotownEvents.emit("sprite_move", {
+          agent_id: agentId,
+          from: "广场",
+          to: "进化神殿",
+          reason: "forced_evolution",
+        });
+        const msg = data.message || (data.ok ? "进化已触发" : "进化未产生变更");
+        setEvolveFeedback(msg.slice(0, 80));
+        setTimeout(() => setEvolveFeedback(""), 4000);
+      } else {
+        setEvolveFeedback(data.error || "进化失败");
+        setTimeout(() => setEvolveFeedback(""), 4000);
+      }
+    } catch {
+      setEvolveFeedback("请求失败");
+      setTimeout(() => setEvolveFeedback(""), 3000);
     }
   };
 
@@ -207,7 +222,7 @@ export function ObserverPanel() {
               onTaskInputChange={setTaskInput}
               onInject={injectTask}
               onEvolve={triggerEvolve}
-              feedback={injectFeedback}
+              feedback={evolveFeedback || injectFeedback}
             />
           </section>
         )}
@@ -224,7 +239,7 @@ export function ObserverPanel() {
               onTaskInputChange={setTaskInput}
               onInject={injectTask}
               onEvolve={triggerEvolve}
-              feedback={injectFeedback}
+              feedback={evolveFeedback || injectFeedback}
             />
           </section>
         )}

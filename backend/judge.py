@@ -7,13 +7,23 @@
 
 快速短路：结构化信号检测到全工具失败时直接判 0，不浪费 LLM 调用。
 """
+import json
 import logging
+import re
 from dataclasses import dataclass, asdict
 from typing import Any
 
 from llm_client import chat_completion
 
 logger = logging.getLogger("evotown.judge")
+
+# 常见 LLM 返回的前缀（Gemini 等可能带说明文字）
+_JSON_PREFIX_PATTERN = re.compile(
+    r"^(?:Here is the JSON requested|Here is the JSON|Here's the JSON|"
+    r"The JSON (?:is|requested)|JSON (?:output|response):?|"
+    r"Sure,? here(?:'s| is) the JSON:?)\s*\n*",
+    re.IGNORECASE,
+)
 
 JUDGE_PROMPT = """\
 You are a strict task-completion judge for an AI agent arena.
@@ -30,9 +40,67 @@ Score the agent on three dimensions (0–10 each):
 
 Also provide a one-sentence **reason** explaining the score.
 
-Respond in JSON:
+Respond ONLY with valid JSON, no other text:
 {"completion": <int>, "quality": <int>, "efficiency": <int>, "reason": "<string>"}
 """
+
+JUDGE_PROMPT_STRICT = """\
+Output ONLY a valid JSON object, nothing else. No explanation, no markdown, no code block.
+Format: {"completion": <0-10>, "quality": <0-10>, "efficiency": <0-10>, "reason": "<string>"}
+"""
+
+
+def _extract_json_block(text: str) -> str | None:
+    """从文本中提取第一个完整的 JSON 对象（支持嵌套花括号）"""
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    for i, c in enumerate(text[start:], start):
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
+def _parse_judge_json(raw: str) -> dict[str, Any] | None:
+    """从 LLM 原始输出中解析 Judge JSON，支持前缀、markdown、片段提取"""
+    if not raw or not isinstance(raw, str):
+        return None
+
+    # 1. 去除常见前缀
+    text = _JSON_PREFIX_PATTERN.sub("", raw).strip()
+
+    # 2. 去除 markdown 代码块
+    for pattern in (r"^```(?:json)?\s*\n?", r"\n?```\s*$"):
+        text = re.sub(pattern, "", text).strip()
+    text = text.rstrip("`").strip()
+
+    candidates: list[str] = [text, raw]
+
+    # 3. 提取 {...} 块（支持嵌套）
+    block = _extract_json_block(text) or _extract_json_block(raw)
+    if block:
+        candidates.insert(0, block)
+
+    # 4. 简单首尾 { } 提取（兜底）
+    s, e = raw.find("{"), raw.rfind("}")
+    if s >= 0 and e > s:
+        candidates.append(raw[s : e + 1])
+
+    for candidate in candidates:
+        if not candidate.strip():
+            continue
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict) and "completion" in parsed:
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return None
 
 
 @dataclass
@@ -99,14 +167,30 @@ async def judge_task(
     )
 
     try:
-        result = await chat_completion(
-            messages=[
-                {"role": "system", "content": JUDGE_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-            temperature=0.1,
-            max_tokens=256,
-        )
+        result: dict[str, Any] = {}
+        for attempt in range(2):
+            prompt = JUDGE_PROMPT_STRICT if attempt == 1 else JUDGE_PROMPT
+            api_result = await chat_completion(
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0.1,
+                max_tokens=256,
+                response_format={"type": "json_object"},
+            )
+            if "raw" not in api_result:
+                result = api_result
+                break
+            raw = str(api_result.get("raw", ""))
+            parsed = _parse_judge_json(raw)
+            if parsed:
+                result = parsed
+                break
+            logger.warning("Judge LLM returned non-JSON (attempt %d), raw=%s", attempt + 1, raw[:400])
+            if attempt == 0:
+                continue
+            result = {"completion": 0, "quality": 0, "efficiency": 0, "reason": ""}
         return JudgeResult(
             completion=int(result.get("completion", 0)),
             quality=int(result.get("quality", 0)),

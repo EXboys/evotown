@@ -13,7 +13,7 @@ export const getPhaserConfig = (parent: string | HTMLElement | null): Phaser.Typ
   },
   scene: [TownScene],
   scale: {
-    mode: Phaser.Scale.FIT,
+    mode: Phaser.Scale.ENVELOP,
     autoCenter: Phaser.Scale.CENTER_BOTH,
     width: 640,
     height: 448,

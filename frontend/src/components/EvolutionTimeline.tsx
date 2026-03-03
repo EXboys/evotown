@@ -21,6 +21,7 @@ function eventLabel(type: string): string {
     skill_generated: "技能",
     example_added: "示例+",
     auto_rollback: "回滚",
+    evolution_run: "运行",
   };
   return map[type] ?? type;
 }
@@ -94,13 +95,21 @@ export function EvolutionTimeline({ agents }: { agents: { id: string }[] }) {
     );
   }
 
+  const hasAnyEvents = merged.length > 0;
+
   return (
     <div className="space-y-4">
+      {!hasAnyEvents && (
+        <p className="text-xs text-slate-500">
+          进化时间线展示规则、技能等进化事件。每次进化运行（含无变更）会记录一条事件。
+          请执行任务后触发进化，或等待自动进化。
+        </p>
+      )}
       <div className="overflow-x-auto pb-2 -mx-1">
         <div className="min-w-[400px]">
           {/* 时间轴刻度 */}
           <div className="flex items-center gap-1 text-[10px] text-slate-500 mb-2">
-            {merged.length > 0 && (
+            {hasAnyEvents && (
               <>
                 <span>{formatTime(merged[0].ts)}</span>
                 <span className="flex-1 border-t border-dashed border-slate-600" />
@@ -118,6 +127,9 @@ export function EvolutionTimeline({ agents }: { agents: { id: string }[] }) {
                   {a.id}
                 </span>
                 <div className="flex-1 flex items-center gap-0.5 relative h-6">
+                  {events.length === 0 ? (
+                    <span className="text-[10px] text-slate-600 italic">暂无进化事件</span>
+                  ) : null}
                   {events.map((e, i) => (
                     <div
                       key={`${e.ts}-${e.type}-${e.target_id ?? i}`}

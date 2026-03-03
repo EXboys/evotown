@@ -15,10 +15,11 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from economy_config import load_economy_config
+from economy_config import load_economy_config, load_evolution_config
+from arena_state import load_state, save_state
 from models import AgentCreate, AgentInfo, TaskInject, TaskBatch
 from process_manager import ProcessManager
-from sqlite_reader import get_decisions, get_evolution_log, get_metrics, get_rules, get_skills
+from sqlite_reader import get_decisions, get_evolution_log, get_metrics, get_rules, get_rules_with_skill_status, get_skills
 from log_watcher import start_watching
 from arena_monitor import ArenaMonitor
 from judge import judge_task
@@ -53,12 +54,40 @@ dispatcher = TaskDispatcher()
 
 # 内存中的 Agent 状态（余额等）
 agents: dict[str, dict] = {}
+# 单调递增，落盘后重启不重置
+_agent_counter: int = 0
 # agent_id → 当前任务描述（用于裁判评分）
 _pending_tasks: dict[str, str] = {}
+# agent_id → 已完成任务数（用于自动进化触发）
+_agent_task_count: dict[str, int] = {}
+# agent_id → 上次进化时的任务数（用于冷却）
+_last_evolve_at: dict[str, int] = {}
 
 
 def _economy() -> dict:
     return load_economy_config()
+
+
+def _persist_state() -> None:
+    """状态落盘"""
+    save_state(_agent_counter, [{"id": aid, **a} for aid, a in agents.items()])
+
+
+async def _trigger_evolve_background(agent_id: str, agent_home: str) -> None:
+    """后台触发进化，不阻塞主流程"""
+    try:
+        ok, msg = await process_mgr.trigger_evolve(agent_id, agent_home)
+        logger.info("[%s] auto evolution %s", agent_id, "ok" if ok else f"failed: {msg[:200]}")
+        if ok:
+            await manager.broadcast({
+                "type": "sprite_move",
+                "agent_id": agent_id,
+                "from": "广场",
+                "to": "进化神殿",
+                "reason": "auto_evolution",
+            })
+    except Exception as e:
+        logger.warning("[%s] auto evolution failed: %s", agent_id, e)
 
 
 def _on_agent_event(agent_id: str, event: str, data: dict) -> None:
@@ -96,6 +125,27 @@ async def _on_task_done(agent_id: str, success: bool, done_data: dict) -> None:
         "balance": agents[agent_id]["balance"],
         "judge": judge_result.to_dict(),
     })
+    _persist_state()
+
+    # 自动进化触发：每 N 个任务或任务失败时（失败触发有冷却，避免连续失败时频繁进化）
+    evo_cfg = load_evolution_config()
+    if evo_cfg["auto_trigger"]:
+        _agent_task_count[agent_id] = _agent_task_count.get(agent_id, 0) + 1
+        count = _agent_task_count[agent_id]
+        task_failed = judge_result.completion < 5
+        interval = evo_cfg["interval_tasks"]
+        on_fail = evo_cfg["on_failure"]
+        last_evolve = _last_evolve_at.get(agent_id, 0)
+        # 定期触发：每 interval 个任务
+        periodic = count % interval == 0
+        # 失败触发：任务失败且距上次进化至少 2 个任务（冷却）
+        failure_trigger = on_fail and task_failed and (count - last_evolve) >= 2
+        should_evolve = periodic or failure_trigger
+        if should_evolve:
+            _last_evolve_at[agent_id] = count
+            agent_home = agents[agent_id].get("agent_home", agents[agent_id].get("chat_dir", ""))
+            if agent_home:
+                asyncio.create_task(_trigger_evolve_background(agent_id, agent_home))
 
     if cfg["eliminate_on_zero"] and agents[agent_id]["balance"] <= 0:
         a = agents.pop(agent_id, None)
@@ -108,6 +158,7 @@ async def _on_task_done(agent_id: str, success: bool, done_data: dict) -> None:
             "agent_id": agent_id,
             "reason": "balance_zero",
         })
+        _persist_state()
 
 
 def _get_idle_agents() -> list[str]:
@@ -146,6 +197,32 @@ async def _on_dispatched(agent_id: str, task: str) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _agent_counter, agents
+    # 启动时从磁盘恢复
+    state = load_state()
+    _agent_counter = state["agent_counter"]
+    cfg = load_economy_config()
+    loop = asyncio.get_event_loop()
+    for a in state.get("agents", []):
+        agent_id = a.get("id")
+        if not agent_id:
+            continue
+        try:
+            agent_home, chat_root = await process_mgr.spawn(agent_id, None)
+            observer = start_watching(chat_root, agent_id, _broadcast_evolution_event, loop)
+            agents[agent_id] = {
+                "agent_home": agent_home,
+                "chat_dir": chat_root,
+                "balance": a.get("balance", cfg["initial_balance"]),
+                "status": a.get("status", "active"),
+                "_observer": observer,
+            }
+            logger.info("[%s] restored from disk", agent_id)
+        except Exception as e:
+            logger.warning("[%s] restore failed: %s", agent_id, e)
+    if agents:
+        logger.info("Restored %d agents, counter=%d", len(agents), _agent_counter)
+
     process_mgr.set_on_task_done(_on_task_done)
     process_mgr.set_on_event(_on_agent_event)
     dispatcher.configure(
@@ -201,8 +278,10 @@ async def _broadcast_evolution_event(data: dict) -> None:
 @app.post("/agents")
 async def create_agent(body: AgentCreate):
     """创建新角色实例"""
+    global _agent_counter
     cfg = _economy()
-    agent_id = f"agent_{len(agents) + 1}"
+    _agent_counter += 1
+    agent_id = f"agent_{_agent_counter}"
     agent_home, chat_root = await process_mgr.spawn(agent_id, body.chat_dir)
     loop = asyncio.get_event_loop()
     observer = start_watching(chat_root, agent_id, _broadcast_evolution_event, loop)
@@ -219,6 +298,7 @@ async def create_agent(body: AgentCreate):
         "agent_id": agent_id,
         "balance": balance,
     })
+    _persist_state()
     return AgentInfo(id=agent_id, chat_dir=chat_root, balance=balance, status="active")
 
 
@@ -230,6 +310,7 @@ async def delete_agent(agent_id: str):
         obs.stop()
         obs.join(timeout=2)
     await process_mgr.kill(agent_id)
+    _persist_state()
     return {"ok": True}
 
 
@@ -292,7 +373,7 @@ async def trigger_evolve(agent_id: str):
     if agent_id not in agents:
         return {"ok": False, "error": "agent not found"}
     agent_home = agents[agent_id].get("agent_home", agents[agent_id]["chat_dir"])
-    ok = await process_mgr.trigger_evolve(agent_id, agent_home)
+    ok, message = await process_mgr.trigger_evolve(agent_id, agent_home)
     await manager.broadcast({
         "type": "sprite_move",
         "agent_id": agent_id,
@@ -300,7 +381,7 @@ async def trigger_evolve(agent_id: str):
         "to": "进化神殿",
         "reason": "forced_evolution",
     })
-    return {"ok": ok}
+    return {"ok": ok, "message": message}
 
 
 @app.get("/agents/{agent_id}/metrics")
@@ -327,10 +408,11 @@ async def get_economy_config():
 
 @app.get("/agents/{agent_id}/rules")
 async def get_agent_rules(agent_id: str):
-    """读取 rules.json（规则热力图数据）"""
+    """读取 rules.json（规则热力图数据），每条规则带 has_skill 表示 agent 是否拥有对应技能"""
     if agent_id not in agents:
         return []
-    return await get_rules(agents[agent_id]["chat_dir"])
+    a = agents[agent_id]
+    return await get_rules_with_skill_status(a["chat_dir"], a.get("agent_home", a["chat_dir"]))
 
 
 @app.get("/agents/{agent_id}/evolution_log")

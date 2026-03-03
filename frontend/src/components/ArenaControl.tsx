@@ -16,27 +16,37 @@ function ScoreBar({ label, value, max = 10 }: { label: string; value: number; ma
   );
 }
 
-function JudgeCard({ judge, agentId, success }: { judge: JudgeScore; agentId: string; success: boolean }) {
+function JudgeCard({ judge, agentId, success, task }: { judge: JudgeScore; agentId: string; success: boolean; task?: string }) {
   return (
-    <div className={`rounded-lg border p-3 space-y-2 ${
-      success ? "border-emerald-600/40 bg-emerald-950/20" : "border-red-600/40 bg-red-950/20"
+    <div className={`relative overflow-hidden rounded-xl border shadow-lg ${
+      success ? "border-emerald-600/40 bg-gradient-to-b from-emerald-950/30 to-slate-900/60" : "border-red-600/40 bg-gradient-to-b from-red-950/20 to-slate-900/60"
     }`}>
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-mono text-slate-400">{agentId}</span>
-        <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
-          judge.reward > 0 ? "bg-emerald-600/30 text-emerald-300" : 
-          judge.reward === 0 ? "bg-slate-600/30 text-slate-300" :
-          "bg-red-600/30 text-red-300"
-        }`}>
-          {judge.reward > 0 ? "+" : ""}{judge.reward}
-        </span>
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-slate-500/20 to-transparent" />
+      <div className="p-3.5 space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-mono text-slate-400 truncate">{agentId}</span>
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-lg shrink-0 ${
+            judge.reward > 0 ? "bg-emerald-500/25 text-emerald-300 border border-emerald-500/40" :
+            judge.reward === 0 ? "bg-slate-600/30 text-slate-300" :
+            "bg-red-500/25 text-red-300 border border-red-500/40"
+          }`}>
+            {judge.reward > 0 ? "+" : ""}{judge.reward} 分
+          </span>
+        </div>
+        {task && (
+          <p className="text-xs text-slate-300 leading-relaxed line-clamp-2 bg-slate-900/40 rounded-lg px-2.5 py-1.5 border border-slate-700/50" title={task}>
+            {task}
+          </p>
+        )}
+        <div className="space-y-1.5">
+          <ScoreBar label="完成度" value={judge.completion} />
+          <ScoreBar label="质量" value={judge.quality} />
+          <ScoreBar label="效率" value={judge.efficiency} />
+        </div>
+        {judge.reason && (
+          <p className="text-[10px] text-slate-500 leading-relaxed pt-0.5">{judge.reason}</p>
+        )}
       </div>
-      <ScoreBar label="完成度" value={judge.completion} />
-      <ScoreBar label="质量" value={judge.quality} />
-      <ScoreBar label="效率" value={judge.efficiency} />
-      {judge.reason && (
-        <p className="text-[10px] text-slate-500 leading-relaxed">{judge.reason}</p>
-      )}
     </div>
   );
 }
@@ -46,6 +56,7 @@ export function ArenaControl() {
   const dispatcherState = useEvotownStore((s) => s.dispatcherState);
   const setDispatcherState = useEvotownStore((s) => s.setDispatcherState);
   const [loading, setLoading] = useState(false);
+  const [generateFeedback, setGenerateFeedback] = useState("");
 
   useEffect(() => {
     fetch("/dispatcher/status")
@@ -70,12 +81,20 @@ export function ArenaControl() {
 
   const generateTasks = async () => {
     setLoading(true);
+    setGenerateFeedback("");
     try {
       const res = await fetch("/dispatcher/generate", { method: "POST" });
+      const data = await res.json();
       if (res.ok) {
-        const data = await res.json();
         setDispatcherState({ pool_size: data.pool_size });
+        setGenerateFeedback(`已生成 ${data.generated ?? 0} 个任务，任务池: ${data.pool_size}`);
+        setTimeout(() => setGenerateFeedback(""), 3000);
+      } else {
+        const err = Array.isArray(data?.detail) ? data.detail[0]?.msg : data?.detail ?? "生成失败";
+        setGenerateFeedback(String(err));
       }
+    } catch (e) {
+      setGenerateFeedback("请求失败，请确认后端已启动");
     } finally {
       setLoading(false);
     }
@@ -87,10 +106,10 @@ export function ArenaControl() {
     <div className="space-y-4">
       {/* Dispatcher Control */}
       <section className="space-y-2">
-        <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-          任务分发器
+        <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider flex items-center gap-2">
+          <span className="text-amber-500/80">⚙</span> 任务分发器
         </h3>
-        <div className="rounded-lg bg-slate-900/50 border border-slate-600/50 p-3 space-y-3">
+        <div className="rounded-xl bg-gradient-to-b from-slate-900/60 to-slate-900/40 border border-slate-600/50 p-3.5 space-y-3 shadow-inner">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full ${dispatcherState.running ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}`} />
@@ -119,16 +138,20 @@ export function ArenaControl() {
               disabled={loading}
               className="flex-1 py-2 bg-slate-700/80 hover:bg-slate-600 rounded-lg text-xs font-medium text-slate-200 transition-all disabled:opacity-40"
             >
-              生成任务
+              {loading ? "..." : "生成任务"}
             </button>
           </div>
+          {generateFeedback && (
+            <p className="text-[10px] text-emerald-400/90">{generateFeedback}</p>
+          )}
         </div>
       </section>
 
       {/* Judge Records */}
       <section className="space-y-2">
-        <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-          裁判评分 <span className="text-slate-600">({taskRecords.length})</span>
+        <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider flex items-center gap-2">
+          <span className="text-amber-500/80">⚖</span> 裁判评分
+          <span className="text-slate-600 font-normal">({taskRecords.length})</span>
         </h3>
         {recentRecords.length === 0 ? (
           <p className="text-xs text-slate-500 italic">暂无评分记录</p>
@@ -136,12 +159,15 @@ export function ArenaControl() {
           <div className="space-y-2">
             {recentRecords.map((r, i) => (
               r.judge ? (
-                <JudgeCard key={i} judge={r.judge} agentId={r.agent_id} success={r.success} />
+                <JudgeCard key={i} judge={r.judge} agentId={r.agent_id} success={r.success} task={r.task} />
               ) : (
-                <div key={i} className="rounded-lg border border-slate-600/40 bg-slate-900/30 p-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono text-slate-400">{r.agent_id}</span>
-                    <span className={`text-xs ${r.success ? "text-emerald-400" : "text-red-400"}`}>
+                <div key={i} className="rounded-xl border border-slate-600/40 bg-slate-900/30 p-3 flex items-center justify-between gap-2">
+                  <p className="text-xs text-slate-400 truncate flex-1" title={r.task}>{r.task || "任务"}</p>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs font-mono text-slate-500">{r.agent_id}</span>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg ${
+                      r.success ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
+                    }`}>
                       {r.success ? "PASS" : "FAIL"}
                     </span>
                   </div>
@@ -184,7 +210,9 @@ function ArenaStats() {
 
   return (
     <section className="space-y-2">
-      <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">竞技场统计</h3>
+      <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider flex items-center gap-2">
+        <span className="text-amber-500/80">📊</span> 竞技场统计
+      </h3>
       <div className="grid grid-cols-2 gap-2">
         {[
           { label: "进行中", value: stats.active_tasks, color: "text-blue-400" },

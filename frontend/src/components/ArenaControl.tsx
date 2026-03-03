@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { evotownEvents } from "../phaser/events";
 import { useEvotownStore } from "../store/evotownStore";
-import type { JudgeScore } from "../store/evotownStore";
+import type { JudgeScore, TaskRecord } from "../store/evotownStore";
 
 function ScoreBar({ label, value, max = 10 }: { label: string; value: number; max?: number }) {
   const pct = Math.min((value / max) * 100, 100);
@@ -66,8 +66,31 @@ export function ArenaControl() {
   const taskRecords = useEvotownStore((s) => s.taskRecords);
   const dispatcherState = useEvotownStore((s) => s.dispatcherState);
   const setDispatcherState = useEvotownStore((s) => s.setDispatcherState);
+  const hydrateTaskRecords = useEvotownStore((s) => s.hydrateTaskRecords);
   const [loading, setLoading] = useState(false);
   const [generateFeedback, setGenerateFeedback] = useState("");
+
+  // 后台重启后从持久化 task_history 恢复裁判评分
+  useEffect(() => {
+    fetch("/monitor/task_history?limit=100")
+      .then((r) => r.json())
+      .then((data: TaskHistoryItem[]) => {
+        const arr = Array.isArray(data) ? data : [];
+        const withJudge = arr.filter(
+          (h) => (h.outcome === "claimed" || h.agent_id || h.claimed_by) && h.judge
+        );
+        const records: TaskRecord[] = withJudge.map((h) => ({
+          agent_id: h.claimed_by ?? h.agent_id ?? "",
+          task: h.task ?? "",
+          success: h.success ?? false,
+          judge: h.judge,
+          ts: typeof h.ts === "number" ? new Date(h.ts * 1000).toISOString() : new Date().toISOString(),
+          difficulty: h.difficulty,
+        }));
+        if (records.length > 0) hydrateTaskRecords(records);
+      })
+      .catch(() => {});
+  }, [hydrateTaskRecords]);
 
   useEffect(() => {
     fetch("/dispatcher/status")

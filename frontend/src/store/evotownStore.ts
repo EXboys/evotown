@@ -81,6 +81,8 @@ interface EvotownState {
   getMetrics: (agentId: string) => MetricsPoint[];
 
   pushTaskRecord: (record: TaskRecord) => void;
+  /** 从持久化 task_history 恢复裁判评分（后台重启后调用） */
+  hydrateTaskRecords: (records: TaskRecord[]) => void;
   setDispatcherState: (state: Partial<DispatcherState>) => void;
   setExperimentInfo: (info: ExperimentInfo) => void;
 }
@@ -134,6 +136,9 @@ export const useEvotownStore = create<EvotownState>((set, get) => ({
     set((s) => ({
       taskRecords: [...s.taskRecords, record].slice(-100),
     })),
+
+  hydrateTaskRecords: (records) =>
+    set({ taskRecords: records.slice(-100) }),
 
   setDispatcherState: (partial) =>
     set((s) => ({

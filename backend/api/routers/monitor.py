@@ -3,7 +3,7 @@ from fastapi import APIRouter
 
 from core.deps import experiment_id, monitor
 from infra.execution_log import load_all_refusals
-from infra.task_history import load_task_history
+from infra.task_history import compute_stats_from_history, load_task_history
 from services import agent_service
 
 router = APIRouter(prefix="/monitor", tags=["monitor"])
@@ -21,7 +21,25 @@ async def monitor_history(limit: int = 50):
 
 @router.get("/stats")
 async def monitor_stats():
-    return monitor.stats()
+    """竞技场统计与裁判评分：优先从持久化 task_history 恢复，后台重启后历史数据不丢失。
+    active_tasks 来自内存（当前进行中任务），其余来自 task_history.jsonl。"""
+    mem_stats = monitor.stats()
+    persisted = compute_stats_from_history(experiment_id=experiment_id)
+    return {
+        "active_tasks": mem_stats["active_tasks"],
+        "total_completed": persisted["total_completed"],
+        "success_count": persisted["success_count"],
+        "fail_count": persisted["fail_count"],
+        "success_rate": persisted["success_rate"],
+        "avg_elapsed_ms": persisted["avg_elapsed_ms"],
+        # 裁判评分（同样从 task_history 恢复）
+        "total_reward": persisted["total_reward"],
+        "avg_reward": persisted["avg_reward"],
+        "avg_total_score": persisted["avg_total_score"],
+        "avg_completion": persisted["avg_completion"],
+        "avg_quality": persisted["avg_quality"],
+        "avg_efficiency": persisted["avg_efficiency"],
+    }
 
 
 @router.get("/task_history")

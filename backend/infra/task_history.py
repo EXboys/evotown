@@ -80,6 +80,56 @@ def load_task_history(
         return []
 
 
+def compute_stats_from_history(
+    experiment_id: str | None = None,
+    limit: int = 10000,
+) -> dict[str, Any]:
+    """从持久化的 task_history 计算竞技场统计与裁判评分，用于后台重启后恢复历史数据。
+    返回格式与 ArenaMonitor.stats() 一致，并扩展裁判评分字段。"""
+    records = load_task_history(experiment_id=experiment_id, outcome="claimed", limit=limit)
+    completed = [r for r in records if r.get("success") is True]
+    failed = [r for r in records if r.get("success") is False]
+    total = len(records)
+    elapsed_list = [r.get("elapsed_ms", 0) for r in records if isinstance(r.get("elapsed_ms"), (int, float))]
+    avg_elapsed = sum(elapsed_list) / max(len(elapsed_list), 1)
+
+    # 裁判评分：从 judge 字段聚合
+    rewards: list[int | float] = []
+    total_scores: list[int | float] = []
+    completions: list[int | float] = []
+    qualities: list[int | float] = []
+    efficiencies: list[int | float] = []
+    for r in records:
+        j = r.get("judge") or {}
+        if isinstance(j, dict):
+            if "reward" in j and isinstance(j["reward"], (int, float)):
+                rewards.append(j["reward"])
+            if "total_score" in j and isinstance(j["total_score"], (int, float)):
+                total_scores.append(j["total_score"])
+            if "completion" in j and isinstance(j["completion"], (int, float)):
+                completions.append(j["completion"])
+            if "quality" in j and isinstance(j["quality"], (int, float)):
+                qualities.append(j["quality"])
+            if "efficiency" in j and isinstance(j["efficiency"], (int, float)):
+                efficiencies.append(j["efficiency"])
+
+    return {
+        "active_tasks": 0,  # 持久化数据无法反映当前进行中任务，由调用方合并
+        "total_completed": total,
+        "success_count": len(completed),
+        "fail_count": len(failed),
+        "success_rate": len(completed) / max(total, 1),
+        "avg_elapsed_ms": round(avg_elapsed, 1),
+        # 裁判评分
+        "total_reward": sum(rewards),
+        "avg_reward": round(sum(rewards) / max(len(rewards), 1), 1),
+        "avg_total_score": round(sum(total_scores) / max(len(total_scores), 1), 1),
+        "avg_completion": round(sum(completions) / max(len(completions), 1), 1),
+        "avg_quality": round(sum(qualities) / max(len(qualities), 1), 1),
+        "avg_efficiency": round(sum(efficiencies) / max(len(efficiencies), 1), 1),
+    }
+
+
 def append_task_dropped(
     experiment_id: str,
     task: str,

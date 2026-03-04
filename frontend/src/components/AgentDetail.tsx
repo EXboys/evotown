@@ -1,5 +1,7 @@
 /** Agent 详情抽屉 — 规则 / 技能 / 决策 / Soul */
 import { useEffect, useState } from "react";
+import { evotownEvents } from "../phaser/events";
+import { useEvotownStore } from "../store/evotownStore";
 
 interface SoulData {
   content: string;
@@ -95,6 +97,9 @@ export function AgentDetail({
   const [soulEdit, setSoulEdit] = useState("");
   const [soulSaving, setSoulSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
+  const removeAgent = useEvotownStore((s) => s.removeAgent);
+  const agent = useEvotownStore((s) => s.agents.find((a) => a.id === agentId));
 
   useEffect(() => {
     let cancelled = false;
@@ -202,16 +207,54 @@ export function AgentDetail({
     }
   };
 
+  const handleDelete = async () => {
+    if (!window.confirm(`确定要删除 Agent「${agentId}」吗？删除后可从竞技场重新创建。`)) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/agents/${agentId}`, { method: "DELETE" });
+      if (res.ok) {
+        removeAgent(agentId);
+        evotownEvents.emit("agent_eliminated", { agent_id: agentId, reason: "user_deleted" });
+        evotownEvents.emit("request_sync", {});
+        onClose();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data?.error ?? "删除失败");
+      }
+    } catch (err) {
+      console.warn("[evotown] delete agent failed", err);
+      alert("删除失败，请检查网络");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="absolute inset-0 z-20 flex flex-col bg-slate-900/95 backdrop-blur-sm border-l border-slate-600/50 min-w-0 overflow-hidden">
-      <div className="flex items-center justify-between p-3 border-b border-slate-600/50">
-        <h3 className="text-sm font-medium text-slate-200">{agentId} 详情</h3>
-        <button
-          onClick={onClose}
-          className="text-slate-400 hover:text-white text-lg leading-none"
-        >
-          ×
-        </button>
+      <div className="flex items-center justify-between gap-2 p-3 border-b border-slate-600/50">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-medium text-slate-200 truncate">{agentId} 详情</h3>
+          {agent && (
+            <p className="text-[10px] text-slate-500 mt-0.5" title="任务 成功/总数 · 进化 成功/总数">
+              📋{agent.success_count ?? 0}/{agent.task_count ?? 0} ✨{agent.evolution_success_count ?? 0}/{agent.evolution_count ?? 0}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="px-2 py-1 text-[10px] font-medium rounded bg-rose-600/20 text-rose-400 border border-rose-600/30 hover:bg-rose-600/40 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {deleting ? "删除中..." : "删除"}
+          </button>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-white text-lg leading-none"
+          >
+            ×
+          </button>
+        </div>
       </div>
       <div className="flex border-b border-slate-600/50 overflow-x-auto">
         {(["executions", "decisions", "rules", "prompts", "skills", "evolution", "soul"] as const).map((t) => (

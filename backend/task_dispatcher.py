@@ -1,15 +1,16 @@
-"""Evotown 任务分发器 — 自动生成任务并分配给空闲 Agent
+"""Evotown 任务分发器 — 任务板模式：任务上屏、全员可见、先到先得
 
 职责：
   1. 用 LLM 根据 agent 能力/历史动态生成任务
-  2. 周期性检查空闲 agent 并分发
-  3. 维护任务池（预生成 + 实时生成）
-  4. 按难度均衡分发，避免某 agent 长期只收到单一难度
-  5. 平衡「可完成任务」与「挑战任务」：高拒绝任务代表生态未解决的能力缺口，保留并适度分发以引导进化
+  2. 任务加入任务板 → 广播 task_available（所有人可见）
+  3. 向所有空闲 agent 并发发送预览，先 ACCEPT 者得
+  4. 全部拒绝则任务保留在板，60 分钟后自动消失
+  5. 多个任务可并存
 """
 import asyncio
 import logging
 import random
+import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
@@ -21,6 +22,12 @@ logger = logging.getLogger("evotown.dispatcher")
 
 # (task_text, difficulty)
 TaskItem = tuple[str, str]
+
+# 任务板上无人认领时，60 分钟后自动消失
+TASK_BOARD_EXPIRY_SEC = 60 * 60
+
+# 任务板与任务 NPC 最多同时存在数量
+MAX_AVAILABLE_TASKS = 3
 
 # 任务被拒绝此次数后才永久丢弃（高拒绝任务代表生态未解决的能力缺口，保留更久以引导进化）
 MAX_REFUSAL_BEFORE_DROP = 8
@@ -76,31 +83,43 @@ SEED_TASKS: list[TaskItem] = [
 ]
 
 
+# 任务板条目：task_id -> {task, difficulty, created_at}
+_AvailableTask = dict[str, Any]
+
+
 @dataclass
 class TaskDispatcher:
-    """任务分发器"""
+    """任务分发器 — 任务板模式"""
     _task_pool: list[TaskItem] = field(default_factory=lambda: list(SEED_TASKS))
+    _available_tasks: dict[str, _AvailableTask] = field(default_factory=dict)  # task_id -> {task, difficulty, created_at}
+    _task_id_counter: int = field(default=0)
     _running: bool = False
     _stop_event: asyncio.Event | None = field(default=None, repr=False)
     _interval: float = 30.0  # 分发检查间隔（秒）
     _min_pool_size: int = 5
-    _inject_fn: Callable[[str, str, str], Awaitable[bool]] | None = None  # (agent_id, task, difficulty)
+    _broadcast_assign_fn: Callable[[str, str, str], Awaitable[str | None]] | None = None  # (task_id, task, difficulty) -> agent_id | None
     _get_idle_agents: Callable[[], list[str]] | None = None
     _get_agent_difficulty_counts: Callable[[str], dict[str, int]] | None = None
-    _on_dispatched: Callable[[str, str, str], Awaitable[None]] | None = None  # (agent_id, task, difficulty)
+    _on_task_available: Callable[[str, str, str, str], Awaitable[None]] | None = None  # (task_id, task, difficulty, created_at)
+    _on_task_taken: Callable[[str, str, str], Awaitable[None]] | None = None  # (task_id, agent_id, task)
+    _on_task_expired: Callable[[str, str], Awaitable[None]] | None = None  # (task_id, task)
 
     def configure(
         self,
-        inject_fn: Callable[[str, str, str], Awaitable[bool]],
+        broadcast_assign_fn: Callable[[str, str, str], Awaitable[str | None]],
         get_idle_agents: Callable[[], list[str]],
         get_agent_difficulty_counts: Callable[[str], dict[str, int]] | None = None,
-        on_dispatched: Callable[[str, str, str], Awaitable[None]] | None = None,
+        on_task_available: Callable[[str, str, str, str], Awaitable[None]] | None = None,
+        on_task_taken: Callable[[str, str, str], Awaitable[None]] | None = None,
+        on_task_expired: Callable[[str, str], Awaitable[None]] | None = None,
         interval: float = 30.0,
     ) -> None:
-        self._inject_fn = inject_fn
+        self._broadcast_assign_fn = broadcast_assign_fn
         self._get_idle_agents = get_idle_agents
         self._get_agent_difficulty_counts = get_agent_difficulty_counts
-        self._on_dispatched = on_dispatched
+        self._on_task_available = on_task_available
+        self._on_task_taken = on_task_taken
+        self._on_task_expired = on_task_expired
         self._interval = interval
 
     async def start(self) -> None:
@@ -114,10 +133,11 @@ class TaskDispatcher:
         asyncio.create_task(self._loop())
 
     async def stop(self) -> None:
+        """停止任务分发。仅停止向任务板添加新任务，已接任务的 agent 会继续执行直至完成。"""
         self._running = False
         if self._stop_event is not None:
             self._stop_event.set()
-        logger.info("Task dispatcher stopped")
+        logger.info("Task dispatcher stopped (in-progress tasks continue)")
 
     async def _loop(self) -> None:
         while self._running:
@@ -136,8 +156,12 @@ class TaskDispatcher:
             else:
                 await asyncio.sleep(self._interval)
 
+    def _next_task_id(self) -> str:
+        self._task_id_counter += 1
+        return f"t_{self._task_id_counter}"
+
     def return_task_to_pool(self, task_text: str, difficulty: str) -> None:
-        """将任务放回任务池（agent 拒绝时调用）。高拒绝任务保留更久，代表生态未解决的能力缺口。"""
+        """将任务放回任务池（兼容旧逻辑）。高拒绝任务保留更久，代表生态未解决的能力缺口。"""
         refusal_counts = count_refusals_by_task()
         count = refusal_counts.get((task_text or "").strip(), 0)
         if count >= MAX_REFUSAL_BEFORE_DROP:
@@ -156,8 +180,20 @@ class TaskDispatcher:
         self._task_pool.append((task_text, difficulty))
         logger.debug("Returned task to pool: [%s] %s (refused %d times)", difficulty, task_text[:40], count)
 
-    def _pick_task_for_agent(self, agent_id: str) -> TaskItem | None:
-        """均衡分发：优先常规任务，按比例混入挑战任务（高拒绝=生态未解决，引导进化）"""
+    def get_available_tasks(self) -> list[dict[str, Any]]:
+        """获取当前任务板上的任务列表（供 WS 连接时同步）。"""
+        return [
+            {
+                "task_id": tid,
+                "task": t["task"],
+                "difficulty": t["difficulty"],
+                "created_at": str(t.get("created_at", 0)),
+            }
+            for tid, t in self._available_tasks.items()
+        ]
+
+    def _pick_task_for_board(self) -> TaskItem | None:
+        """从任务池选取一个任务上板（均衡常规/挑战任务）。"""
         if not self._task_pool:
             return None
         refusal_counts = count_refusals_by_task()
@@ -166,57 +202,85 @@ class TaskDispatcher:
             return refusal_counts.get((item[0] or "").strip(), 0)
 
         def _split_pool(items: list[TaskItem]) -> tuple[list[TaskItem], list[TaskItem]]:
-            """分为常规任务（低拒绝）与挑战任务（高拒绝）"""
             low = [i for i in items if _refusal_count(i) < REFUSAL_THRESHOLD_CHALLENGE]
             high = [i for i in items if _refusal_count(i) >= REFUSAL_THRESHOLD_CHALLENGE]
             return low, high
 
-        def _pick_from(items: list[TaskItem], by_difficulty: bool) -> TaskItem | None:
-            if not items:
-                return None
-            if not by_difficulty or not self._get_agent_difficulty_counts:
-                return random.choice(items)
-            counts = self._get_agent_difficulty_counts(agent_id)
-            for difficulty in sorted(("easy", "medium", "hard"), key=lambda d: counts.get(d, 0)):
-                cand = [i for i in items if (i[1] if len(i) > 1 else "medium") == difficulty]
-                if cand:
-                    return random.choice(cand)
-            return random.choice(items)
-
         low_tasks, challenge_tasks = _split_pool(self._task_pool)
-        # 约 CHALLENGE_TASK_PICK_RATIO 概率选挑战任务（生态未解决的能力缺口，给进化机会）
         use_challenge = (
             challenge_tasks
             and (not low_tasks or random.random() < CHALLENGE_TASK_PICK_RATIO)
         )
         pool = challenge_tasks if use_challenge else (low_tasks if low_tasks else self._task_pool)
-        chosen = _pick_from(pool, by_difficulty=True)
+        chosen = random.choice(pool) if pool else None
         if chosen:
             self._task_pool.remove(chosen)
-            if use_challenge:
-                logger.debug("Picked challenge task (refused %d times): %s", _refusal_count(chosen), chosen[0][:40])
         return chosen
 
+    async def _expire_old_tasks(self) -> None:
+        """移除任务板上超过 60 分钟未被认领的任务。"""
+        now = time.time()
+        to_remove = []
+        for task_id, entry in self._available_tasks.items():
+            created_at = entry.get("created_at", 0)
+            if isinstance(created_at, str):
+                try:
+                    created_at = float(created_at)
+                except (ValueError, TypeError):
+                    created_at = now
+            if now - created_at >= TASK_BOARD_EXPIRY_SEC:
+                to_remove.append((task_id, entry.get("task", "")))
+        for task_id, task_text in to_remove:
+            del self._available_tasks[task_id]
+            if self._on_task_expired:
+                await self._on_task_expired(task_id, task_text)
+            logger.info("Task expired (60min on board): %s", task_text[:50])
+
     async def _tick(self) -> None:
-        if not self._inject_fn or not self._get_idle_agents:
+        if not self._broadcast_assign_fn or not self._get_idle_agents:
             return
 
         if len(self._task_pool) < self._min_pool_size:
             await self._refill_pool()
 
+        await self._expire_old_tasks()
+
+        if len(self._available_tasks) >= MAX_AVAILABLE_TASKS:
+            return
+
         idle_agents = self._get_idle_agents()
         if not idle_agents:
             return
 
-        for agent_id in idle_agents:
-            item = self._pick_task_for_agent(agent_id)
-            if not item:
-                break
-            task_text, difficulty = item[0], item[1] if len(item) > 1 else "medium"
-            logger.info("[%s] dispatching task [%s]: %s", agent_id, difficulty, task_text[:60])
-            ok = await self._inject_fn(agent_id, task_text, difficulty)
-            if ok and self._on_dispatched:
-                await self._on_dispatched(agent_id, task_text, difficulty)
+        item = self._pick_task_for_board()
+        if not item:
+            return
+
+        task_text, difficulty = item[0], item[1] if len(item) > 1 else "medium"
+        task_id = self._next_task_id()
+        created_at = time.time()
+
+        self._available_tasks[task_id] = {
+            "task": task_text,
+            "difficulty": difficulty,
+            "created_at": created_at,
+        }
+
+        if self._on_task_available:
+            await self._on_task_available(
+                task_id, task_text, difficulty, str(created_at)
+            )
+
+        logger.info("Task on board [%s]: %s", difficulty, task_text[:60])
+
+        agent_id = await self._broadcast_assign_fn(task_id, task_text, difficulty)
+
+        if agent_id:
+            del self._available_tasks[task_id]
+            if self._on_task_taken:
+                await self._on_task_taken(task_id, agent_id, task_text)
+        else:
+            logger.info("No agent grabbed task, remains on board: %s", task_text[:50])
 
     def _parse_tasks(self, raw: Any) -> list[TaskItem]:
         """解析 LLM 返回的任务列表，支持新旧格式"""
@@ -247,18 +311,17 @@ class TaskDispatcher:
 
     def _build_existing_tasks_hint(self) -> str:
         """构建「已有任务」提示，供 LLM 避免重复"""
-        if not self._task_pool:
-            return ""
-        # 取池中任务 + 最近可能重复的，限制数量避免 token 过多
-        sample = self._task_pool[-25:] if len(self._task_pool) > 25 else self._task_pool
-        texts = [str(t[0]).strip() for t in sample if t and str(t[0]).strip()]
+        pool_texts = [str(t[0]).strip() for t in self._task_pool if t and str(t[0]).strip()]
+        board_texts = [str(e.get("task", "")).strip() for e in self._available_tasks.values() if e.get("task")]
+        texts = (pool_texts[-25:] if len(pool_texts) > 25 else pool_texts) + board_texts
         if not texts:
             return ""
         return "已有/近期任务（请勿生成相似）：" + "、".join(texts[:20])
 
     def _filter_duplicate_tasks(self, new_tasks: list[TaskItem]) -> list[TaskItem]:
-        """过滤与池中已有任务重复或过于相似的新任务"""
+        """过滤与池中/任务板上已有任务重复或过于相似的新任务"""
         existing = {str(t[0]).strip() for t in self._task_pool if t}
+        existing |= {str(e.get("task", "")).strip() for e in self._available_tasks.values()}
         seen: set[str] = set()
         result: list[TaskItem] = []
         for t in new_tasks:

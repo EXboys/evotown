@@ -16,8 +16,9 @@ import { EvolutionTimeline } from "./EvolutionTimeline";
 import { MetricsDashboard } from "./MetricsDashboard";
 import { AgentDetail } from "./AgentDetail";
 import { ArenaControl } from "./ArenaControl";
+import { AgentGraveyard } from "./AgentGraveyard";
 
-type TabId = "timeline" | "metrics" | "agents" | "arena";
+type TabId = "timeline" | "metrics" | "agents" | "arena" | "graveyard";
 
 export function ObserverPanel() {
   const [taskInput, setTaskInput] = useState("");
@@ -120,6 +121,35 @@ export function ObserverPanel() {
   };
 
   const [evolveFeedback, setEvolveFeedback] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const removeAgent = useEvotownStore((s) => s.removeAgent);
+
+  const deleteAgent = async (agentId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`确定要删除 Agent「${agentId}」吗？删除后可从竞技场重新创建。`)) return;
+    setDeletingId(agentId);
+    try {
+      const res = await fetch(`/agents/${agentId}`, { method: "DELETE" });
+      if (res.ok) {
+        removeAgent(agentId);
+        evotownEvents.emit("agent_eliminated", { agent_id: agentId, reason: "user_deleted" });
+        evotownEvents.emit("request_sync", {});
+        if (selectedAgentId === agentId) {
+          setSelectedAgent(null);
+          setAgentDetailInitialTab(undefined);
+        }
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data?.error ?? "删除失败");
+      }
+    } catch (err) {
+      console.warn("[evotown] delete agent failed", err);
+      alert("删除失败，请检查网络");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const triggerEvolve = async () => {
     if (agents.length === 0) return;
     const agentId = (selectedAgentId && agents.some((a) => a.id === selectedAgentId))
@@ -182,6 +212,7 @@ export function ObserverPanel() {
           {[
             { id: "arena" as TabId, label: "竞技场" },
             { id: "agents" as TabId, label: "智能体" },
+            { id: "graveyard" as TabId, label: "墓园" },
             { id: "timeline" as TabId, label: "时间线" },
             { id: "metrics" as TabId, label: "EGL" },
           ].map((t) => (
@@ -236,30 +267,42 @@ export function ObserverPanel() {
               {agents.length > 0 ? (
                 <div className="space-y-1">
                   {agents.map((a) => (
-                    <button
+                    <div
                       key={a.id}
-                      onClick={() => {
-                        setSelectedAgent(a.id);
-                        setAgentDetailInitialTab(undefined);
-                      }}
-                      className={`w-full flex items-center gap-1.5 text-left px-2 py-1.5 rounded text-sm font-mono truncate transition-colors ${
+                      className={`flex items-center gap-1.5 rounded transition-colors ${
                         selectedAgentId === a.id
-                          ? "bg-evo-accent/20 text-evo-accent"
-                          : "text-slate-300 hover:bg-slate-800/50"
+                          ? "bg-evo-accent/20"
+                          : "hover:bg-slate-800/50"
                       }`}
                     >
-                      <span
-                        className="inline-block w-2 h-2 rounded-full shrink-0"
-                        style={{ backgroundColor: getAgentColor(a.id) }}
-                      />
-                      <span className="truncate min-w-0">{a.id}</span>
-                      <span className="text-amber-400 shrink-0">({a.balance})</span>
-                      {(evolutionEvents.filter((e) => e.agent_id === a.id).length > 0) && (
-                        <span className="shrink-0 text-violet-400 text-[10px]" title="进化">
-                          ✨
+                      <button
+                        onClick={() => {
+                          setSelectedAgent(a.id);
+                          setAgentDetailInitialTab(undefined);
+                        }}
+                        className={`flex-1 flex items-center gap-1.5 text-left px-2 py-1.5 text-sm font-mono truncate min-w-0 ${
+                          selectedAgentId === a.id ? "text-evo-accent" : "text-slate-300"
+                        }`}
+                      >
+                        <span
+                          className="inline-block w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: getAgentColor(a.id) }}
+                        />
+                        <span className="truncate min-w-0">{a.id}</span>
+                        <span className="text-amber-400 shrink-0">({a.balance})</span>
+                        <span className="shrink-0 text-[10px] text-slate-500" title="任务 成功/总数 · 进化 成功/总数">
+                          📋{a.success_count ?? 0}/{a.task_count ?? 0} ✨{a.evolution_success_count ?? 0}/{a.evolution_count ?? 0}
                         </span>
-                      )}
-                    </button>
+                      </button>
+                      <button
+                        onClick={(e) => deleteAgent(a.id, e)}
+                        disabled={deletingId === a.id}
+                        className="shrink-0 px-1.5 py-1 text-[10px] text-slate-500 hover:text-rose-400 hover:bg-rose-600/20 rounded disabled:opacity-50"
+                        title="删除 Agent"
+                      >
+                        {deletingId === a.id ? "…" : "删除"}
+                      </button>
+                    </div>
                   ))}
                 </div>
               ) : (
@@ -284,6 +327,7 @@ export function ObserverPanel() {
         )}
 
         {tab === "arena" && <ArenaControl />}
+        {tab === "graveyard" && <AgentGraveyard />}
         {tab === "timeline" && (
           <EvolutionTimeline
             agents={agents}

@@ -13,6 +13,9 @@ from ws_messages import (
     AgentEliminatedMsg,
     TaskCompleteMsg,
     TaskDispatchedMsg,
+    TaskAvailableMsg,
+    TaskTakenMsg,
+    TaskExpiredMsg,
     EvolutionEventMsg,
     PongMsg,
 )
@@ -104,6 +107,32 @@ class WsDispatcher:
             "task": task[:200],
         }
 
+    def task_available(
+        self, task_id: str, task: str, difficulty: str, created_at: str
+    ) -> TaskAvailableMsg:
+        return {
+            "type": "task_available",
+            "task_id": task_id,
+            "task": task[:200],
+            "difficulty": difficulty,
+            "created_at": created_at,
+        }
+
+    def task_taken(self, task_id: str, agent_id: str, task: str) -> TaskTakenMsg:
+        return {
+            "type": "task_taken",
+            "task_id": task_id,
+            "agent_id": agent_id,
+            "task": task[:200],
+        }
+
+    def task_expired(self, task_id: str, task: str) -> TaskExpiredMsg:
+        return {
+            "type": "task_expired",
+            "task_id": task_id,
+            "task": task[:200],
+        }
+
     def agent_eliminated(self, agent_id: str, reason: str) -> AgentEliminatedMsg:
         return {
             "type": "agent_eliminated",
@@ -151,6 +180,21 @@ class WsDispatcher:
 
     async def send_task_dispatched(self, agent_id: str, task: str) -> None:
         await self.broadcast(self.task_dispatched(agent_id, task))
+
+    async def send_task_available(
+        self, task_id: str, task: str, difficulty: str, created_at: str
+    ) -> None:
+        await self.broadcast(
+            self.task_available(task_id, task, difficulty, created_at)
+        )
+
+    async def send_task_taken(
+        self, task_id: str, agent_id: str, task: str
+    ) -> None:
+        await self.broadcast(self.task_taken(task_id, agent_id, task))
+
+    async def send_task_expired(self, task_id: str, task: str) -> None:
+        await self.broadcast(self.task_expired(task_id, task))
 
     async def send_agent_eliminated(self, agent_id: str, reason: str) -> None:
         await self.broadcast(self.agent_eliminated(agent_id, reason))

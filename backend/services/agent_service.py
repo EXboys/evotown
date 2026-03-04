@@ -1,5 +1,6 @@
 """Agent 业务服务"""
 import asyncio
+from pathlib import Path
 
 from core.config import load_economy_config
 from core.deps import arena, process_mgr, ws
@@ -23,18 +24,28 @@ from sqlite_reader import (
 )
 
 
-def list_agents() -> list[AgentInfo]:
-    return [
-        AgentInfo(
+async def list_agents() -> list[AgentInfo]:
+    from core.deps import experiment_id as exp_id
+    result = []
+    for rec in arena.agents.values():
+        stats = await compute_agent_stats(
+            rec.agent_id,
+            chat_root=rec.chat_dir,
+            experiment_id=exp_id or None,
+        )
+        result.append(AgentInfo(
             id=rec.agent_id,
             chat_dir=rec.chat_dir,
             balance=rec.balance,
             status=rec.status,
             in_task=rec.in_task,
             soul_type=rec.soul_type,
-        )
-        for rec in arena.agents.values()
-    ]
+            task_count=stats["task_count"],
+            success_count=stats["success_count"],
+            evolution_count=stats["evolution_count"],
+            evolution_success_count=stats["evolution_success_count"],
+        ))
+    return result
 
 
 async def create_agent(body: AgentCreate) -> AgentInfo:
@@ -62,10 +73,19 @@ async def create_agent(body: AgentCreate) -> AgentInfo:
 
 
 async def delete_agent(agent_id: str) -> None:
+    from infra.eliminated_agents import append_eliminated
+
     removed = arena.remove_agent(agent_id)
-    if removed and removed._observer:
-        removed._observer.stop()
-        removed._observer.join(timeout=2)
+    if removed:
+        append_eliminated(
+            agent_id,
+            reason="user_deleted",
+            final_balance=removed.balance,
+            soul_type=removed.soul_type or "balanced",
+        )
+        if removed._observer:
+            removed._observer.stop()
+            removed._observer.join(timeout=2)
     await process_mgr.kill(agent_id)
     arena.persist()
 
@@ -272,7 +292,225 @@ async def update_soul(agent_id: str, content: str) -> bool:
     a = arena.get_agent(agent_id)
     if not a:
         return False
-    from pathlib import Path
     soul_path = Path(a.agent_home or a.chat_dir) / "SOUL.md"
     soul_path.write_text(content, encoding="utf-8")
     return True
+
+
+def _archived_chat_root(agent_id: str) -> Path:
+    """已淘汰 agent 的 chat 目录（磁盘上可能仍存在）"""
+    return Path.home() / ".skilllite" / "arena" / agent_id / "chat"
+
+
+# 进化「成功」= 产生了规则/技能/示例等产出（rule_added, skill_confirmed 等）
+_EVOLUTION_SUCCESS_TYPES = frozenset({
+    "rule_added", "skill_confirmed", "example_added", "skill_refined", "skill_pending",
+})
+
+
+async def compute_agent_stats(
+    agent_id: str,
+    chat_root: str | None = None,
+    experiment_id: str | None = None,
+) -> dict[str, int]:
+    """计算 agent 统计：任务数、成功数、进化次数、进化成功次数。
+    任务：task_history 中 outcome=claimed 的记录；进化次数=evolution_run 次数，进化成功=产生规则/技能等的事件数。"""
+    from core.deps import experiment_id as exp_id
+    exp = experiment_id or exp_id or None
+
+    # 任务：支持 agent_id 或 claimed_by 匹配（兼容旧数据）
+    task_history = await asyncio.to_thread(
+        load_task_history, exp, agent_id, outcome="claimed", limit=10000
+    )
+    task_count = len(task_history)
+    success_count = sum(1 for h in task_history if h.get("success") is True)
+
+    evolution_count = 0
+    evolution_success_count = 0
+    chat_path = chat_root or str(_archived_chat_root(agent_id))
+    if Path(chat_path).exists():
+        evo_log = await get_evolution_log(chat_path, limit=1000)
+        # 进化次数 = evolution_run 事件数（实际触发进化的次数）
+        evolution_count = sum(
+            1 for e in evo_log
+            if (e.get("type") or e.get("event_type") or "").strip() == "evolution_run"
+        )
+        # 进化成功 = 产生规则/技能/示例等产出的事件数
+        evolution_success_count = sum(
+            1 for e in evo_log
+            if (e.get("type") or e.get("event_type") or "").strip() in _EVOLUTION_SUCCESS_TYPES
+        )
+
+    return {
+        "task_count": task_count,
+        "success_count": success_count,
+        "evolution_count": evolution_count,
+        "evolution_success_count": evolution_success_count,
+    }
+
+
+async def get_eliminated_lifecycle(agent_id: str) -> dict | None:
+    """获取已淘汰 agent 的生命周期数据：任务历史、拒绝、进化、决策等。
+    数据来自 task_history、execution_log、以及磁盘上的 chat 目录（若仍存在）。
+    支持显式归档 agent 及从 task_history/refusals 推断的历史 agent。"""
+    from infra.eliminated_agents import load_eliminated
+
+    # 显式归档记录（可选）
+    eliminated_list = load_eliminated(limit=500)
+    record = next((r for r in eliminated_list if r.get("agent_id") == agent_id), None)
+
+    # 若不在显式归档中，需有 task_history 或 refusals 才可查看
+    from core.deps import experiment_id as exp_id
+    if not record:
+        task_history = await asyncio.to_thread(
+            load_task_history, exp_id or None, agent_id, limit=10
+        )
+        refusals = await asyncio.to_thread(load_refusals, agent_id, limit=10)
+        if not task_history and not refusals:
+            return None
+        # 推断记录：从最后活动时间
+        last_ts = 0
+        for h in task_history:
+            t = h.get("ts", 0)
+            try:
+                last_ts = max(last_ts, float(t) if isinstance(t, (int, float)) else 0)
+            except (ValueError, TypeError):
+                pass
+        for r in refusals:
+            t = r.get("ts", 0)
+            try:
+                last_ts = max(last_ts, float(t) if isinstance(t, (int, float)) else 0)
+            except (ValueError, TypeError):
+                pass
+        record = {
+            "agent_id": agent_id,
+            "reason": "inferred",
+            "final_balance": None,
+            "soul_type": "balanced",
+            "ts": last_ts,
+        }
+
+    chat_root = str(_archived_chat_root(agent_id))
+    chat_exists = _archived_chat_root(agent_id).exists()
+
+    # 任务完成历史（task_history 持久化，按 experiment 过滤）
+    from core.deps import experiment_id as exp_id
+    task_history = await asyncio.to_thread(
+        load_task_history, exp_id or None, agent_id, limit=100
+    )
+    # 拒绝记录（execution_log 持久化）
+    refusals = await asyncio.to_thread(load_refusals, agent_id, limit=100)
+
+    # 若 chat 目录仍存在，可读 evolution_log、decisions、rules、execution_log 合并
+    execution_log = []
+    evolution_log = []
+    decisions = []
+    rules = []
+    skills = []
+
+    if chat_exists:
+        transcript_exec = await asyncio.to_thread(
+            get_transcript_executions, chat_root, agent_id, limit=50
+        )
+        decisions_raw = await get_decisions(chat_root, limit=50)
+        decisions = decisions_raw
+        evolution_log_raw = await get_evolution_log(chat_root, limit=100)
+        evolution_log = list(reversed(evolution_log_raw))
+        rules = await get_rules_with_skill_status(
+            chat_root, str(_archived_chat_root(agent_id).parent)
+        )
+        skills = await get_skills(str(_archived_chat_root(agent_id).parent))
+
+        # 合并执行记录（与 get_execution_log_data 类似）
+        task_history_by_task = {h.get("task", "").strip(): h for h in task_history if h.get("task")}
+        decisions_by_task = {
+            (d.get("task_description") or "").strip(): d for d in decisions_raw if d.get("task_description")
+        }
+        for r in refusals:
+            ts = r.get("ts")
+            try:
+                ts_num = float(ts) if isinstance(ts, (int, float)) else (float(ts) if ts else 0)
+            except (ValueError, TypeError):
+                ts_num = 0
+            execution_log.append({
+                "ts": ts, "ts_num": ts_num,
+                "task": r.get("task", ""), "status": "refused",
+                "refusal_reason": r.get("refusal_reason", ""),
+                "difficulty": r.get("difficulty", "medium"),
+            })
+        for e in transcript_exec:
+            task = (e.get("task") or "").strip()
+            ts_num = e.get("ts_num", 0)
+            h = task_history_by_task.get(task) if task else None
+            d = decisions_by_task.get(task) if task else None
+            success = h.get("success") if h else e.get("task_completed")
+            execution_log.append({
+                "ts": e.get("ts"), "ts_num": ts_num,
+                "task": task or e.get("task", ""), "status": "executed",
+                "task_completed": success if success is not None else True,
+                "total_tools": d.get("total_tools", 0) if d else 0,
+                "failed_tools": d.get("failed_tools", 0) if d else 0,
+                "elapsed_ms": h.get("elapsed_ms") if h else None,
+                "id": d.get("id") if d else None,
+            })
+        execution_log.sort(key=lambda x: x.get("ts_num", 0), reverse=True)
+        execution_log = execution_log[:50]
+    else:
+        # 仅 task_history + refusals
+        for r in refusals:
+            ts = r.get("ts")
+            try:
+                ts_num = float(ts) if isinstance(ts, (int, float)) else (float(ts) if ts else 0)
+            except (ValueError, TypeError):
+                ts_num = 0
+            execution_log.append({
+                "ts": ts, "ts_num": ts_num,
+                "task": r.get("task", ""), "status": "refused",
+                "refusal_reason": r.get("refusal_reason", ""),
+                "difficulty": r.get("difficulty", "medium"),
+            })
+        for h in task_history:
+            ts = h.get("ts", 0)
+            try:
+                ts_num = float(ts) if isinstance(ts, (int, float)) else (float(ts) if ts else 0)
+            except (ValueError, TypeError):
+                ts_num = 0
+            execution_log.append({
+                "ts": ts, "ts_num": ts_num,
+                "task": h.get("task", ""), "status": "executed",
+                "task_completed": h.get("success", False),
+                "elapsed_ms": h.get("elapsed_ms"),
+                "judge": h.get("judge"),
+            })
+        execution_log.sort(key=lambda x: x.get("ts_num", 0), reverse=True)
+        execution_log = execution_log[:50]
+
+    reason = record.get("reason", "unknown")
+    if reason == "inferred":
+        reason_label = "历史推断"
+    elif reason == "balance_zero":
+        reason_label = "余额归零"
+    else:
+        reason_label = "用户删除"
+
+    stats = await compute_agent_stats(agent_id, chat_root if chat_exists else None, exp_id or None)
+    return {
+        "agent_id": agent_id,
+        "reason": reason,
+        "reason_label": reason_label,
+        "final_balance": record.get("final_balance"),
+        "soul_type": record.get("soul_type", "balanced"),
+        "eliminated_at": record.get("ts"),
+        "chat_exists": chat_exists,
+        "task_count": stats["task_count"],
+        "success_count": stats["success_count"],
+        "evolution_count": stats["evolution_count"],
+        "evolution_success_count": stats["evolution_success_count"],
+        "task_history": task_history,
+        "refusals": refusals,
+        "execution_log": execution_log,
+        "evolution_log": evolution_log,
+        "decisions": decisions,
+        "rules": rules,
+        "skills": skills,
+    }

@@ -8,6 +8,10 @@ export interface AgentInfo {
   status?: string;
   in_task?: boolean;
   soul_type?: string;
+  task_count?: number;
+  success_count?: number;
+  evolution_count?: number;
+  evolution_success_count?: number;
 }
 
 export interface EvolutionEventItem {
@@ -46,6 +50,13 @@ export interface TaskRecord {
   difficulty?: string;
 }
 
+export interface AvailableTask {
+  task_id: string;
+  task: string;
+  difficulty: string;
+  created_at: string;
+}
+
 export interface DispatcherState {
   running: boolean;
   pool_size: number;
@@ -59,6 +70,7 @@ export interface ExperimentInfo {
 
 interface EvotownState {
   agents: AgentInfo[];
+  availableTasks: AvailableTask[];
   evolutionEvents: EvolutionEventItem[];
   selectedAgentId: string | null;
   metricsCache: Record<string, MetricsPoint[]>;
@@ -71,6 +83,10 @@ interface EvotownState {
   addAgent: (agent: AgentInfo) => void;
   updateAgentBalance: (agentId: string, balance: number) => void;
   removeAgent: (agentId: string) => void;
+
+  addAvailableTask: (task: AvailableTask) => void;
+  removeAvailableTask: (taskId: string) => void;
+  setAvailableTasks: (tasks: AvailableTask[]) => void;
 
   pushEvolutionEvent: (ev: EvolutionEventItem) => void;
   setEvolutionLog: (agentId: string, log: EvolutionEventItem[]) => void;
@@ -89,6 +105,7 @@ interface EvotownState {
 
 export const useEvotownStore = create<EvotownState>((set, get) => ({
   agents: [],
+  availableTasks: [],
   evolutionEvents: [],
   selectedAgentId: null,
   metricsCache: {},
@@ -112,6 +129,16 @@ export const useEvotownStore = create<EvotownState>((set, get) => ({
       agents: s.agents.filter((a) => a.id !== agentId),
       selectedAgentId: s.selectedAgentId === agentId ? null : s.selectedAgentId,
     })),
+
+  addAvailableTask: (task) =>
+    set((s) => ({
+      availableTasks: [...s.availableTasks.filter((t) => t.task_id !== task.task_id), task],
+    })),
+  removeAvailableTask: (taskId) =>
+    set((s) => ({
+      availableTasks: s.availableTasks.filter((t) => t.task_id !== taskId),
+    })),
+  setAvailableTasks: (tasks) => set({ availableTasks: tasks }),
 
   pushEvolutionEvent: (ev) =>
     set((s) => ({

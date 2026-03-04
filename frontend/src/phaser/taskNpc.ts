@@ -1,6 +1,6 @@
 /**
  * 任务 NPC 模块 — 分散随机走动的任务发布者
- * NPC 与任务一一对应：有任务才出现 NPC，任务数 = NPC 数，任务消失则 NPC 消失
+ * 任务板模式：task_available 时生成 NPC，task_taken 时 agent 关联到该 NPC，task_expired/task_complete 时销毁
  */
 import Phaser from "phaser";
 import { createCharacterContainer, setCharFacing, type CharFacing } from "./characterAssets";
@@ -87,6 +87,9 @@ const TARGET_INTERVAL_MAX = 20000;
 /** NPC 行走速度 — 慢速 */
 const WALK_SPEED = 0.5;
 
+/** 任务板与任务 NPC 最多同时存在数量（与后端 MAX_AVAILABLE_TASKS 一致） */
+const MAX_TASK_NPCS = 3;
+
 /** 任务 NPC 颜色（与 Agent 区分，偏黄/橙） */
 const NPC_COLORS = [0xe8a317, 0xd97706, 0xb45309, 0xf59e0b];
 
@@ -97,6 +100,7 @@ let npcIdCounter = 0;
 
 export interface TaskNpcState {
   id: string;
+  taskId: string | null;  // 任务板模式：task_id
   container: Phaser.GameObjects.Container;
   body: Phaser.GameObjects.Container;
   base: Phaser.GameObjects.Sprite;
@@ -126,6 +130,7 @@ export class TaskNpcManager {
   private originY: number;
   private npcs: Map<string, TaskNpcState> = new Map();
   private agentToNpc: Map<string, string> = new Map();
+  private taskToNpc: Map<string, string> = new Map();  // task_id -> npc_id
 
   constructor(config: TaskNpcManagerConfig) {
     this.scene = config.scene;
@@ -156,8 +161,17 @@ export class TaskNpcManager {
     return false;
   }
 
+  /** 为任务板上的任务生成 NPC（task_available 时调用），最多 MAX_TASK_NPCS 个 */
+  spawnForTask(taskId: string): TaskNpcState | null {
+    if (this.taskToNpc.has(taskId)) return this.npcs.get(this.taskToNpc.get(taskId)!) ?? null;
+    if (this.taskToNpc.size >= MAX_TASK_NPCS) return null;
+    const npc = this.spawnOne(taskId);
+    if (npc) this.taskToNpc.set(taskId, npc.id);
+    return npc;
+  }
+
   /** 在分散的生成点生成一个 NPC（保证与其它 NPC 保持距离） */
-  spawnOne(): TaskNpcState | null {
+  private spawnOne(taskId: string | null = null): TaskNpcState | null {
     const shuffled = [...SPAWN_ZONES].sort(() => Math.random() - 0.5);
     for (const zone of shuffled) {
       const jitter = (Math.random() - 0.5) * 24;
@@ -187,6 +201,7 @@ export class TaskNpcManager {
       const nextInterval = TARGET_INTERVAL_MIN + Math.random() * (TARGET_INTERVAL_MAX - TARGET_INTERVAL_MIN);
       const state: TaskNpcState = {
         id,
+        taskId,
         container,
         body,
         base,
@@ -218,14 +233,24 @@ export class TaskNpcManager {
     return TARGET_INTERVAL_MIN + Math.random() * (TARGET_INTERVAL_MAX - TARGET_INTERVAL_MIN);
   }
 
-  /** 为 agent 生成并分配一个 NPC（任务与 NPC 一一对应），返回 agent 应站的世界坐标（NPC 旁偏移，避免重合） */
+  /** 任务被认领时，将 agent 关联到该任务的 NPC（task_taken 时调用） */
+  assignAgentToTaskNpc(agentId: string, taskId: string): void {
+    const npcId = this.taskToNpc.get(taskId);
+    if (!npcId) return;
+    const npc = this.npcs.get(npcId);
+    if (!npc) return;
+    npc.assignedAgentId = agentId;
+    this.agentToNpc.set(agentId, npcId);
+  }
+
+  /** 为 agent 获取/分配 NPC 位置（sprite_move 到任务中心时调用） */
   assignToAgent(agentId: string): { x: number; y: number } | null {
     const existingNpcId = this.agentToNpc.get(agentId);
     let npcWorld: { x: number; y: number } | null;
     if (existingNpcId) {
       npcWorld = this.getNpcWorldPosition(existingNpcId);
     } else {
-      const npc = this.spawnOne();
+      const npc = this.spawnOne(null);
       if (!npc) return null;
       npc.assignedAgentId = agentId;
       this.agentToNpc.set(agentId, npc.id);
@@ -253,7 +278,15 @@ export class TaskNpcManager {
       npc.container.destroy();
       this.npcs.delete(npcId);
       if (npc.assignedAgentId) this.agentToNpc.delete(npc.assignedAgentId);
+      if (npc.taskId) this.taskToNpc.delete(npc.taskId);
     }
+  }
+
+  /** 任务过期或消失时，销毁该任务的 NPC */
+  despawnByTaskId(taskId: string): void {
+    const npcId = this.taskToNpc.get(taskId);
+    this.taskToNpc.delete(taskId);
+    if (npcId) this.despawn(npcId);
   }
 
   /** 获取 NPC 当前世界坐标（用于 agent 寻路） */

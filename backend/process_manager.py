@@ -164,16 +164,41 @@ class ProcessManager:
         (chat_root / "plans").mkdir(parents=True, exist_ok=True)
         (chat_root / "output").mkdir(parents=True, exist_ok=True)
 
+        # prompts/rules 种子：若为空则从 arena_prompts 复制（SkillLite 的 ensure_seed_data 需首次请求才触发）
+        prompts_dir = chat_root / "prompts"
+        _arena_prompts = Path(__file__).resolve().parent / "arena_prompts"
+        if _arena_prompts.exists() and (not (prompts_dir / "rules.json").exists() or not list(prompts_dir.glob("*.md"))):
+            for f in _arena_prompts.iterdir():
+                if f.is_file() and f.suffix in (".json", ".md"):
+                    dst = prompts_dir / f.name
+                    if not dst.exists():
+                        shutil.copy2(f, dst)
+                        logger.info("Seeded prompt %s into agent", f.name)
+
         # 每个 agent 独立 .skills：从 arena_skills 或 workspace 复制种子技能，进化产物写入 agent_home/.skills/_evolved
         skills_dir = agent_home / ".skills"
-        # 优先使用 evotown 内置 arena_skills（http-request + agent-browser + skill-creator + calculator）
+        # 优先使用 evotown 内置 arena_skills（http-request + agent-browser + skill-creator + calculator + find-skills）
         _arena_skills = Path(__file__).resolve().parent / "arena_skills"
         workspace_skills = _arena_skills if _arena_skills.exists() else (Path.cwd() / ".skills")
         if not workspace_skills.exists():
             workspace_skills = Path.cwd() / "skills"
-        if not skills_dir.exists() and workspace_skills.exists():
-            shutil.copytree(workspace_skills, skills_dir, dirs_exist_ok=True)
-            logger.info("Seeded agent .skills from %s", workspace_skills.name)
+        if workspace_skills.exists():
+            skills_dir.mkdir(parents=True, exist_ok=True)
+            # 若 .skills 为空（如从持久化恢复的 agent），补充种子技能
+            existing = [d.name for d in skills_dir.iterdir() if d.is_dir() and not d.name.startswith("_")]
+            if not existing:
+                shutil.copytree(workspace_skills, skills_dir, dirs_exist_ok=True)
+                logger.info("Seeded agent .skills from %s", workspace_skills.name)
+            else:
+                # 合并缺失的种子技能（兼容旧 agent）
+                for sub in workspace_skills.iterdir():
+                    if sub.name.startswith(".") or sub.name in existing:
+                        continue
+                    if sub.is_dir() and (sub / "SKILL.md").exists():
+                        dst = skills_dir / sub.name
+                        if not dst.exists():
+                            shutil.copytree(sub, dst, dirs_exist_ok=True)
+                            logger.info("Merged seed skill %s into agent .skills", sub.name)
         elif not skills_dir.exists():
             skills_dir.mkdir(parents=True, exist_ok=True)
 

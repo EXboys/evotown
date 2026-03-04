@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { useEvotownStore } from "../store/evotownStore";
 import { evotownEvents } from "./events";
 import { createCharacterContainer, setCharFacing, type CharFacing } from "./characterAssets";
 import { TaskNpcManager, getRandomWanderPoint } from "./taskNpc";
@@ -45,7 +46,10 @@ export default class TownScene extends Phaser.Scene {
   private worldContainer!: Phaser.GameObjects.Container;
   private worldInner!: Phaser.GameObjects.Container;
   private taskNpcManager!: TaskNpcManager;
-  private eventHandlers: Array<{ ev: "sprite_move" | "task_complete" | "agent_eliminated" | "agent_created" | "evolution_event"; fn: (d: unknown) => void }> = [];
+  private eventHandlers: Array<{
+    ev: "sprite_move" | "task_complete" | "agent_eliminated" | "agent_created" | "evolution_event" | "task_available" | "task_taken" | "task_expired";
+    fn: (d: unknown) => void;
+  }> = [];
 
   constructor() {
     super({ key: "TownScene" });
@@ -137,20 +141,32 @@ export default class TownScene extends Phaser.Scene {
     const h3 = (d: { agent_id: string; reason: string }) => this.onAgentEliminated(d);
     const h4 = (d: { agent_id: string; balance: number }) => this.onAgentCreated(d);
     const h5 = (d: { agent_id: string; type?: string; [k: string]: unknown }) => this.onEvolutionEvent(d);
+    const h6 = (d: { task_id: string; task: string; difficulty: string }) => this.onTaskAvailable(d);
+    const h7 = (d: { task_id: string; agent_id: string; task: string }) => this.onTaskTaken(d);
+    const h8 = (d: { task_id: string; task: string }) => this.onTaskExpired(d);
     evotownEvents.on("sprite_move", h1);
     evotownEvents.on("task_complete", h2);
     evotownEvents.on("agent_eliminated", h3);
     evotownEvents.on("agent_created", h4);
     evotownEvents.on("evolution_event", h5);
+    evotownEvents.on("task_available", h6);
+    evotownEvents.on("task_taken", h7);
+    evotownEvents.on("task_expired", h8);
     this.eventHandlers = [
-      { ev: "sprite_move" as const, fn: h1 as (d: unknown) => void },
-      { ev: "task_complete" as const, fn: h2 as (d: unknown) => void },
-      { ev: "agent_eliminated" as const, fn: h3 as (d: unknown) => void },
-      { ev: "agent_created" as const, fn: h4 as (d: unknown) => void },
-      { ev: "evolution_event" as const, fn: h5 as (d: unknown) => void },
+      { ev: "sprite_move", fn: h1 as (d: unknown) => void },
+      { ev: "task_complete", fn: h2 as (d: unknown) => void },
+      { ev: "agent_eliminated", fn: h3 as (d: unknown) => void },
+      { ev: "agent_created", fn: h4 as (d: unknown) => void },
+      { ev: "evolution_event", fn: h5 as (d: unknown) => void },
+      { ev: "task_available", fn: h6 as (d: unknown) => void },
+      { ev: "task_taken", fn: h7 as (d: unknown) => void },
+      { ev: "task_expired", fn: h8 as (d: unknown) => void },
     ];
 
-    this.time.delayedCall(150, () => evotownEvents.emit("phaser_ready", {}));
+    this.time.delayedCall(150, () => {
+      evotownEvents.emit("phaser_ready", {});
+      this.syncAvailableTasksFromStore();
+    });
   }
 
   private onEvolutionEvent(data: { agent_id: string; event_type?: string; [k: string]: unknown }) {
@@ -199,6 +215,23 @@ export default class TownScene extends Phaser.Scene {
   private onAgentCreated(data: { agent_id: string; balance: number }) {
     const agent = this.getOrCreateAgent(data.agent_id);
     agent.label.setText(String(data.balance));
+  }
+
+  private onTaskAvailable(data: { task_id: string; task: string; difficulty: string }) {
+    this.taskNpcManager.spawnForTask(data.task_id);
+  }
+
+  private onTaskTaken(data: { task_id: string; agent_id: string; task: string }) {
+    this.taskNpcManager.assignAgentToTaskNpc(data.agent_id, data.task_id);
+  }
+
+  private onTaskExpired(data: { task_id: string; task: string }) {
+    this.taskNpcManager.despawnByTaskId(data.task_id);
+  }
+
+  private syncAvailableTasksFromStore() {
+    const tasks = useEvotownStore.getState().availableTasks;
+    tasks.forEach((t) => this.taskNpcManager.spawnForTask(t.task_id));
   }
 
   private getOrCreateAgent(agentId: string): AgentState {

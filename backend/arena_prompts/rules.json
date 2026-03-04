@@ -1,0 +1,188 @@
+[
+  {
+    "id": "seed_explicit_skill",
+    "priority": 100,
+    "keywords": [],
+    "context_keywords": [],
+    "instruction": "**If user says \"使用 XX skill\" / \"用 XX 技能\" / \"use XX skills\"**, you MUST add that skill to the task list. Do NOT return empty list.",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_memory_write",
+    "priority": 95,
+    "keywords": ["memory_write", "生成向量记忆", "写入记忆", "保存到记忆", "向量记忆", "记忆存储"],
+    "context_keywords": [],
+    "tool_hint": "memory_write",
+    "instruction": "**生成向量记忆/写入记忆/memory_write**: When the user asks to generate vector memory, store memory, save to memory, or explicitly says \"使用 memory_write\", you MUST add a task with tool_hint: \"memory_write\". Use memory_write to store conversation summaries, user preferences, or facts. Do NOT return empty list.",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_weather",
+    "priority": 90,
+    "keywords": ["天气", "气温", "气象", "今天天气", "明天天气", "适合出行吗", "适合出去玩吗"],
+    "context_keywords": [],
+    "tool_hint": "weather",
+    "instruction": "**天气/气象/天气预报**: When the user asks about weather, you MUST use **weather** skill. The LLM cannot provide real-time weather data; only the weather skill can. Return a task with tool_hint: \"weather\".",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_place_attraction_intro",
+    "priority": 91,
+    "keywords": ["介绍一下", "介绍", "推荐", "攻略", "路线", "景点", "旅游", "步行", "漫步", "walk", "take a walk", "walking", "tour", "walking tour", "步行路线", "徒步"],
+    "context_keywords": ["清迈", "曼谷", "普吉", "地方", "城市", "某地"],
+    "instruction": "**介绍+地点/景点/旅游路线**: When the user asks to 介绍/推荐 a specific place, attraction, walking route, or tour (e.g. 介绍一下清迈的 take a walk, 推荐曼谷的景点), the LLM's knowledge may be stale or incomplete. You MUST add a task to fetch fresh information: use **agent-browser** if available (to open search and extract info), or **http-request** to fetch from web. Do NOT return empty list [] — place/attraction intros need up-to-date info.",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_realtime_http",
+    "priority": 90,
+    "keywords": ["实时", "最新", "实时信息", "最新数据", "实时数据", "最新排名", "实时查询", "抓取网页", "获取最新", "fetch live data"],
+    "context_keywords": [],
+    "tool_hint": "http-request",
+    "instruction": "**实时/最新/实时信息**: When the user explicitly asks for real-time or latest data, you MUST use **http-request** skill. The LLM's knowledge has a cutoff; only HTTP requests can fetch current information. Return a task with tool_hint: \"http-request\".",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_openclaw_web_tools",
+    "priority": 91,
+    "keywords": ["web_search", "web_fetch", "网页搜索", "搜索网页", "使用 web_search", "使用 web_fetch", "use web_search", "use web_fetch"],
+    "context_keywords": ["OpenClaw", "ClawHub"],
+    "tool_hint": "http-request",
+    "instruction": "**OpenClaw web_search/web_fetch 映射**: When the task requires web search or fetching URL content (OpenClaw: web_search, web_fetch), use **http-request** skill. For search: call Brave/Perplexity API. For fetch: GET url with extract_mode: markdown.",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_agent_browser",
+    "priority": 90,
+    "keywords": ["agent-browser", "browser", "使用 browser", "use browser", "用 browser", "automate", "automation", "open a website", "fill out a form", "click a button", "take a screenshot", "scrape data", "scrape", "web interaction", "navigate", "snapshot", "浏览器", "自动化", "打开网站", "填写表单", "点击按钮", "截图", "抓取数据", "网页交互"],
+    "context_keywords": ["website", "page", "form", "button", "screenshot", "data", "test", "login", "web app", "网站", "页面", "表单", "测试", "登录"],
+    "tool_hint": "agent-browser",
+    "instruction": "**Browser Automation (OpenClaw browser 映射)**: When user asks to interact with a website (navigate, fill forms, click, screenshot, scrape data, test, login, or automate any browser task), use **agent-browser** skill.",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_external_comparison",
+    "priority": 92,
+    "keywords": ["对比", "比较", "优劣势", "优劣对比", "对比分析", "全方位", "全方位分析", "vs", "versus"],
+    "context_keywords": ["地方", "城市", "两地", "城市对比"],
+    "tool_hint": "http-request",
+    "instruction": "**对比/比较/优劣势** (places, cities, companies, topics): When the user asks to compare or analyze pros/cons of places, cities, companies, or external topics, PREFER **http-request** to fetch fresh data. Do NOT use chat_history — it is ONLY for past chat/conversation analysis. Plan: (1) http-request to fetch current info from web; (2) analysis. If user did not ask for 实时/最新 and task is general knowledge, you may return [] to let LLM answer directly.",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_continue_context",
+    "priority": 85,
+    "keywords": ["继续", "继续未完成", "继续之前", "继续任务"],
+    "context_keywords": ["实时", "最新", "排名", "university", "QS", "官网", "需要用户自行查询", "请访问官网"],
+    "tool_hint": "http-request",
+    "instruction": "**继续/继续未完成的任务**: When the user says 继续, you MUST use the **conversation context** to understand what task to continue. If the context mentions real-time data, rankings, or similar, plan **http-request** to fetch the data.",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_xiaohongshu",
+    "priority": 90,
+    "keywords": ["小红书", "种草文案", "小红书图文", "小红书笔记"],
+    "context_keywords": [],
+    "tool_hint": "xiaohongshu-writer",
+    "instruction": "**小红书/种草/图文笔记**: When the task involves 小红书 content, you MUST use **xiaohongshu-writer** skill.",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_csdn_article",
+    "priority": 88,
+    "keywords": ["csdn", "CSDN", "csdn文章", "CSDN文章", "csdn博客"],
+    "context_keywords": ["文章", "博客", "写一篇"],
+    "instruction": "**CSDN 文章**: When the user asks to write a CSDN article or blog, output the complete Markdown directly in your response. Follow **csdn-article** skill format (title, summary block, body, code blocks with language, tags). Use **writing-helper** for style. Do NOT return empty task list — include at least one task to generate the article.",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_frontend_design",
+    "priority": 92,
+    "keywords": ["官网", "网站", "网站设计", "设计网页", "设计页面", "前端设计", "页面设计", "landing page", "website", "web page", "homepage", "首页", "网站首页", "官方网站", "做个网站", "做一个网站", "生成网站", "生成页面", "生成网页"],
+    "context_keywords": [],
+    "tool_hint": "file_operation",
+    "instruction": "**官网/网站/网页设计**: When the user asks to design or generate a website, landing page, or web page, you MUST plan exactly TWO tasks: (1) Generate the complete HTML/CSS/JS and use **write_output** to save to index.html (tool_hint: file_operation); (2) Use **preview_server** to start local server and open in browser (tool_hint: file_operation). If a frontend-design skill exists, it is reference-only — use its design guidelines but output via write_output. Do NOT call the frontend-design skill directly. Do NOT return empty list — website generation requires file output + preview.",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_html_preview",
+    "priority": 90,
+    "keywords": ["html渲染", "渲染出来", "预览", "在浏览器中打开", "html呈现", "网页渲染", "PPT"],
+    "context_keywords": [],
+    "tool_hint": "file_operation",
+    "instruction": "**HTML/PPT/渲染/预览**: When the user asks for HTML rendering or browser preview, use **write_output** + **preview_server**.",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_chat_history",
+    "priority": 95,
+    "keywords": ["历史记录", "聊天记录", "聊天历史", "查看记录", "chat history", "conversation history", "past chat"],
+    "context_keywords": [],
+    "tool_hint": "chat_history",
+    "instruction": "**历史记录/聊天记录**: When the user asks to view, summarize, or analyze past chat/conversation history, you MUST use **chat_history** (built-in). Do NOT use list_directory or file_operation — chat_history reads directly from transcripts. Plan: (1) Use chat_history with date if specified; (2) Analyze/summarize the content.",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_analyze_stability",
+    "priority": 85,
+    "keywords": ["分析稳定性", "分析项目问题", "分析历史消息", "分析健壮性", "分析最近", "ai稳定性", "项目问题", "历史消息", "最近几次", "健壮性", "analyze stability", "project issues"],
+    "context_keywords": [],
+    "tool_hint": "chat_history",
+    "instruction": "**分析AI稳定性/项目问题/历史消息** (ONLY when user explicitly asks to analyze chat/conversation): When the user asks to analyze recent AI stability, project issues, robustness, or conversation quality, you MUST use **chat_history** first to get the data, then analyze. chat_history is ONLY for analyzing past chat records — do NOT use it for comparing places, cities, companies, or external topics.",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_direct_answer",
+    "priority": 98,
+    "keywords": ["直接回答", "不用查", "直接说", "just answer", "answer directly", "no need to search"],
+    "context_keywords": [],
+    "instruction": "**直接回答/不用查**: When the user explicitly says 直接回答, 不用查, 直接说, or similar (e.g. just answer, no need to search), you MUST return empty list `[]` and let the LLM answer directly. Do NOT plan any tools.",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_code_refactor",
+    "priority": 85,
+    "keywords": ["refactor", "重构", "修改代码", "改成", "改成Result", "panic", "unwrap"],
+    "context_keywords": [],
+    "tool_hint": "file_operation",
+    "instruction": "**代码重构/修改**: When the user asks to refactor code (e.g. panic改成Result, 修改API), plan: (1) grep_files to locate targets; (2) search_replace/insert_lines to modify; (3) run_command to verify (tests/build). tool_hint: file_operation.",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_code_fix_test",
+    "priority": 84,
+    "keywords": ["修复", "fix", "bug", "添加测试", "加单元测试", "写测试", "add test", "unit test"],
+    "context_keywords": [],
+    "tool_hint": "file_operation",
+    "instruction": "**修复bug/添加测试**: When the user asks to fix a bug or add tests, plan: (1) read_file/list_directory to understand codebase; (2) search_replace/insert_lines to fix or add tests; (3) run_command to run tests. tool_hint: file_operation.",
+    "mutable": false,
+    "origin": "seed"
+  },
+  {
+    "id": "seed_output_to_file",
+    "priority": 92,
+    "keywords": ["输出到", "输出到output", "保存到", "写到文件", "写入文件", "保存为", "输出到文件", "save to", "output to", "write to file"],
+    "context_keywords": [],
+    "tool_hint": "file_operation",
+    "instruction": "**输出到 output/文件**: When the user explicitly asks to output, save, or write content to a file (e.g. 输出到output, 保存到文件, 写到 output), you MUST plan a file_operation task using **write_output**. Even if the content is an article, report, or markdown, saving to file requires the tool. Return a task with tool_hint: \"file_operation\" and description like \"Use write_output to save the generated content to output/<filename>\".",
+    "mutable": false,
+    "origin": "seed"
+  }
+]

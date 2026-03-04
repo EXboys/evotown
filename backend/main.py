@@ -8,12 +8,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.callbacks import (
     broadcast_evolution_event,
+    broadcast_preview_and_assign,
     check_task_timeouts,
-    dispatch_inject,
     get_idle_agents,
     on_agent_event,
-    on_dispatched,
+    on_task_available,
     on_task_done,
+    on_task_expired,
+    on_task_taken,
 )
 from core import deps
 from core.deps import arena, process_mgr, task_dispatcher
@@ -70,10 +72,12 @@ async def lifespan(app: FastAPI):
     process_mgr.set_on_task_done(on_task_done)
     process_mgr.set_on_event(on_agent_event)
     task_dispatcher.configure(
-        inject_fn=dispatch_inject,
+        broadcast_assign_fn=broadcast_preview_and_assign,
         get_idle_agents=get_idle_agents,
         get_agent_difficulty_counts=arena.get_agent_difficulty_counts,
-        on_dispatched=on_dispatched,
+        on_task_available=on_task_available,
+        on_task_taken=on_task_taken,
+        on_task_expired=on_task_expired,
         interval=30.0,
     )
 

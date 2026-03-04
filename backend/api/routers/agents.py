@@ -9,7 +9,7 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 
 @router.get("")
 async def list_agents():
-    return agent_service.list_agents()
+    return await agent_service.list_agents()
 
 
 @router.post("")

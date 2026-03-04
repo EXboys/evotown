@@ -30,6 +30,7 @@ export function useWebSocket() {
         }
         setConnected(true);
         log("connected");
+        evotownEvents.emit("request_sync", {});
       };
       ws.onclose = () => {
         if (!cancelled) {
@@ -98,6 +99,24 @@ export function useWebSocket() {
               ts: new Date().toISOString(),
               difficulty: (msg.difficulty as string) ?? undefined,
             });
+          } else if (type === "task_available") {
+            const taskId = String(msg.task_id ?? "");
+            const task = String(msg.task ?? "");
+            const difficulty = String(msg.difficulty ?? "medium");
+            const createdAt = String(msg.created_at ?? "");
+            store.addAvailableTask({ task_id: taskId, task, difficulty, created_at: createdAt });
+            evotownEvents.emit("task_available", { task_id: taskId, task, difficulty });
+          } else if (type === "task_taken") {
+            const taskId = String(msg.task_id ?? "");
+            const agentId = String(msg.agent_id ?? "");
+            const task = String(msg.task ?? "");
+            store.removeAvailableTask(taskId);
+            evotownEvents.emit("task_taken", { task_id: taskId, agent_id: agentId, task });
+          } else if (type === "task_expired") {
+            const taskId = String(msg.task_id ?? "");
+            const task = String(msg.task ?? "");
+            store.removeAvailableTask(taskId);
+            evotownEvents.emit("task_expired", { task_id: taskId, task });
           } else if (type === "task_dispatched") {
             const agentId = String(msg.agent_id ?? "");
             evotownEvents.emit("sprite_move", {

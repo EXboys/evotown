@@ -211,10 +211,19 @@ async def on_task_done(
                     asyncio.create_task(trigger_evolve_background(agent_id, agent_home))
 
         if cfg["eliminate_on_zero"] and a.balance <= 0:
+            from infra.eliminated_agents import append_eliminated
+
             removed = arena.remove_agent(agent_id)
-            if removed and removed._observer:
-                removed._observer.stop()
-                await asyncio.to_thread(removed._observer.join, 2)
+            if removed:
+                append_eliminated(
+                    agent_id,
+                    reason="balance_zero",
+                    final_balance=removed.balance,
+                    soul_type=removed.soul_type or "balanced",
+                )
+                if removed._observer:
+                    removed._observer.stop()
+                    await asyncio.to_thread(removed._observer.join, 2)
             await process_mgr.kill(agent_id)
             await ws.send_agent_eliminated(agent_id, "balance_zero")
             _persist()
@@ -271,26 +280,105 @@ def _format_arena_context(
     )
 
 
-async def dispatch_inject(agent_id: str, task: str, difficulty: str = "medium") -> bool:
-    """两阶段任务分发：先预览，agent 接受后再扣费并正式执行。"""
+def _build_context_for_agent(agent_id: str, difficulty: str) -> dict | None:
+    """为指定 agent 构建 arena context。"""
     cfg = _economy()
-    context = None
-    if arena.has_agent(agent_id):
-        a = arena.get_agent(agent_id)
-        if a is not None:
-            context = {
-                "append": _format_arena_context(
-                    balance=a.balance,
-                    cost_accept=cfg["cost_accept"],
-                    reward_complete=cfg["reward_complete"],
-                    penalty_fail=cfg["penalty_fail"],
-                    penalty_refuse=cfg.get("penalty_refuse", 0),
-                    eliminate_on_zero=cfg["eliminate_on_zero"],
-                    task_difficulty=difficulty,
-                )
-            }
+    if not arena.has_agent(agent_id):
+        return None
+    a = arena.get_agent(agent_id)
+    if a is None:
+        return None
+    return {
+        "append": _format_arena_context(
+            balance=a.balance,
+            cost_accept=cfg["cost_accept"],
+            reward_complete=cfg["reward_complete"],
+            penalty_fail=cfg["penalty_fail"],
+            penalty_refuse=cfg.get("penalty_refuse", 0),
+            eliminate_on_zero=cfg["eliminate_on_zero"],
+            task_difficulty=difficulty,
+        )
+    }
 
-    # Phase 1: 预览，等待 agent 返回 ACCEPT/REFUSE
+
+async def _inject_and_dispatch(
+    agent_id: str, task: str, difficulty: str, task_id: str | None = None
+) -> bool:
+    """接受后：扣费、注入正式任务、标记、发送 sprite_move。"""
+    cfg = _economy()
+    context = _build_context_for_agent(agent_id, difficulty)
+    ok = await process_mgr.inject_task(agent_id, task, context=context)
+    if ok and arena.has_agent(agent_id):
+        arena.add_balance(agent_id, cfg["cost_accept"], cfg["initial_balance"])
+        arena.set_in_task(agent_id, True)
+        arena.set_pending_task(agent_id, task, difficulty=difficulty, task_id=task_id)
+        monitor.begin_task(agent_id, task)
+        await ws.send_sprite_move(agent_id, "广场", "任务中心", "auto_dispatch")
+    return ok
+
+
+async def broadcast_preview_and_assign(
+    task_id: str, task: str, difficulty: str
+) -> str | None:
+    """任务板模式：向所有空闲 agent 并发发送预览，先 ACCEPT 者得。返回认领的 agent_id，无人认领则 None。"""
+    idle_agents = get_idle_agents()
+    if not idle_agents:
+        return None
+
+    cfg = _economy()
+    assigned: str | None = None
+
+    async def _preview_one(agent_id: str) -> tuple[str, bool, str]:
+        context = _build_context_for_agent(agent_id, difficulty)
+        accepted, response = await process_mgr.preview_task(agent_id, task, context=context)
+        return agent_id, accepted, response or ""
+
+    tasks_map = {asyncio.create_task(_preview_one(aid)): aid for aid in idle_agents}
+    pending = set(tasks_map.keys())
+
+    while pending and assigned is None:
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        for fut in done:
+            try:
+                agent_id, accepted, response = await fut
+            except (asyncio.CancelledError, Exception) as e:
+                logger.warning("Preview task failed: %s", e)
+                continue
+            if assigned is not None:
+                if accepted:
+                    append_refusal(agent_id, task, difficulty, reason="任务已被他人认领")
+                    # 不扣费：agent 尝试接受但任务已被抢，非主动拒绝
+                continue
+            if accepted:
+                assigned = agent_id
+                ok = await _inject_and_dispatch(agent_id, task, difficulty, task_id=task_id)
+                if ok:
+                    logger.info("[%s] grabbed task [%s] (first-come-first-served): %s", agent_id, difficulty, task[:50])
+                else:
+                    assigned = None
+            else:
+                append_refusal(agent_id, task, difficulty, reason=response)
+                penalty_refuse = cfg.get("penalty_refuse", 0)
+                if penalty_refuse != 0 and arena.has_agent(agent_id):
+                    arena.add_balance(agent_id, penalty_refuse, cfg["initial_balance"])
+                    _persist()
+                logger.info("[%s] refused task: %s", agent_id, task[:50])
+
+    for t in pending:
+        t.cancel()
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
+
+    return assigned
+
+
+async def dispatch_inject(agent_id: str, task: str, difficulty: str = "medium") -> bool:
+    """两阶段任务分发：先预览，agent 接受后再扣费并正式执行。（单 agent 模式，供兼容）"""
+    cfg = _economy()
+    context = _build_context_for_agent(agent_id, difficulty)
+
     accepted, response = await process_mgr.preview_task(agent_id, task, context=context)
     if not accepted:
         append_refusal(agent_id, task, difficulty, reason=response or "")
@@ -304,16 +392,26 @@ async def dispatch_inject(agent_id: str, task: str, difficulty: str = "medium") 
             logger.info("[%s] refused task, returned to pool: %s", agent_id, task[:50])
         return False
 
-    # Phase 2: 接受 → 扣费、标记、注入正式任务
-    ok = await process_mgr.inject_task(agent_id, task, context=context)
-    if ok and arena.has_agent(agent_id):
-        arena.add_balance(agent_id, cfg["cost_accept"], cfg["initial_balance"])
-        arena.set_in_task(agent_id, True)
-        arena.set_pending_task(agent_id, task, difficulty=difficulty)
-        monitor.begin_task(agent_id, task)
-        await ws.send_sprite_move(agent_id, "广场", "任务中心", "auto_dispatch")
-    return ok
+    return await _inject_and_dispatch(agent_id, task, difficulty)
 
 
 async def on_dispatched(agent_id: str, task: str, difficulty: str = "medium") -> None:
     await ws.send_task_dispatched(agent_id, task)
+
+
+async def on_task_available(
+    task_id: str, task: str, difficulty: str, created_at: str
+) -> None:
+    """任务上板时广播，所有人可见。"""
+    await ws.send_task_available(task_id, task, difficulty, created_at)
+
+
+async def on_task_taken(task_id: str, agent_id: str, task: str) -> None:
+    """任务被认领时广播。"""
+    await ws.send_task_taken(task_id, agent_id, task)
+    await ws.send_task_dispatched(agent_id, task)
+
+
+async def on_task_expired(task_id: str, task: str) -> None:
+    """任务 60 分钟无人认领后消失。"""
+    await ws.send_task_expired(task_id, task)

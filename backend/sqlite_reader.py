@@ -279,52 +279,87 @@ async def get_evolution_log(chat_root: str, limit: int = 100) -> list[dict[str, 
         return []
 
 
+def _scan_skill_dir(directory: Path, status: str, result: list[dict[str, Any]]) -> None:
+    """扫描技能目录，追加到 result"""
+    if not directory.exists() or not directory.is_dir():
+        return
+    for f in directory.iterdir():
+        if not f.is_dir() or not (f / "SKILL.md").exists():
+            continue
+        if f.name.startswith("_"):
+            continue
+        info: dict[str, Any] = {"name": f.name, "status": status}
+        meta_path = f / ".meta.json"
+        if meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                if meta.get("archived"):
+                    continue
+                info["created_at"] = meta.get("created_at", "")
+                info["call_count"] = meta.get("call_count", 0)
+                info["success_count"] = meta.get("success_count", 0)
+            except (json.JSONDecodeError, OSError):
+                pass
+        skill_md = f / "SKILL.md"
+        try:
+            content = skill_md.read_text(encoding="utf-8")
+            for line in content.splitlines():
+                line = line.strip()
+                if line.lower().startswith("# ") or line.lower().startswith("## description"):
+                    continue
+                if line and not line.startswith("---") and not line.startswith("name:") and not line.startswith("compatibility:"):
+                    info.setdefault("description", line[:120])
+                    break
+        except OSError:
+            pass
+        result.append(info)
+
+
 async def get_skills(agent_home: str) -> list[dict[str, Any]]:
-    """列出 agent_home/.skills/_evolved 下的技能（含 confirmed 和 pending）"""
-    skills_root = Path(agent_home) / ".skills" / "_evolved"
-    if not skills_root.exists() or not skills_root.is_dir():
+    """列出 agent 所有技能：预装（.skills/ 根目录）+ 进化（.skills/_evolved）"""
+    skills_base = Path(agent_home) / ".skills"
+    if not skills_base.exists() or not skills_base.is_dir():
         return []
 
     result: list[dict[str, Any]] = []
+    seen: set[str] = set()
 
-    def _scan_dir(directory: Path, status: str) -> None:
-        if not directory.exists() or not directory.is_dir():
-            return
-        for f in directory.iterdir():
-            if not f.is_dir() or not (f / "SKILL.md").exists():
-                continue
-            if f.name.startswith("_"):
-                continue
-            info: dict[str, Any] = {"name": f.name, "status": status}
-            meta_path = f / ".meta.json"
-            if meta_path.exists():
-                try:
-                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                    if meta.get("archived"):
-                        continue
-                    info["created_at"] = meta.get("created_at", "")
-                    info["call_count"] = meta.get("call_count", 0)
-                    info["success_count"] = meta.get("success_count", 0)
-                except (json.JSONDecodeError, OSError):
-                    pass
-            skill_md = f / "SKILL.md"
+    # 1. 预装技能（.skills/calculator, .skills/http-request 等，排除 _evolved）
+    for sub in skills_base.iterdir():
+        if not sub.is_dir() or sub.name.startswith("_"):
+            continue
+        if (sub / "SKILL.md").exists() and sub.name not in seen:
+            seen.add(sub.name)
+            info: dict[str, Any] = {"name": sub.name, "status": "installed"}
             try:
-                content = skill_md.read_text(encoding="utf-8")
+                content = (sub / "SKILL.md").read_text(encoding="utf-8")
                 for line in content.splitlines():
                     line = line.strip()
-                    if line.lower().startswith("# ") or line.lower().startswith("## description"):
-                        continue
-                    if line and not line.startswith("---") and not line.startswith("name:") and not line.startswith("compatibility:"):
+                    if line.lower().startswith("description:"):
+                        info["description"] = line.split(":", 1)[1].strip()[:120]
+                        break
+                    if line and not line.startswith("---") and not line.startswith("name:"):
                         info.setdefault("description", line[:120])
                         break
             except OSError:
                 pass
             result.append(info)
 
-    _scan_dir(skills_root, "confirmed")
-    _scan_dir(skills_root / "_pending", "pending")
+    # 2. 进化技能（.skills/_evolved 及 _pending）
+    evolved_root = skills_base / "_evolved"
+    _scan_skill_dir(evolved_root, "confirmed", result)
+    _scan_skill_dir(evolved_root / "_pending", "pending", result)
 
-    result.sort(key=lambda s: (0 if s["status"] == "pending" else 1, s["name"]))
+    # 去重：进化技能覆盖同名的预装展示（实际不会重名）
+    by_name: dict[str, dict[str, Any]] = {}
+    for s in result:
+        by_name[s["name"]] = s
+    result = list(by_name.values())
+
+    result.sort(key=lambda s: (
+        0 if s["status"] == "installed" else (1 if s["status"] == "confirmed" else 2),
+        s["name"],
+    ))
     return result
 
 

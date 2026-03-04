@@ -65,8 +65,10 @@ def load_task_history(
                     r = json.loads(line)
                     if experiment_id and r.get("experiment_id") != experiment_id:
                         continue
-                    if agent_id and r.get("agent_id") != agent_id:
-                        continue
+                    if agent_id:
+                        aid = r.get("agent_id") or r.get("claimed_by")
+                        if aid != agent_id:
+                            continue
                     if outcome:
                         rec_outcome = r.get("outcome") or ("claimed" if r.get("agent_id") else "dropped")
                         if rec_outcome != outcome:

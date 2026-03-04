@@ -15,6 +15,10 @@ class AgentInfo(BaseModel):
     status: Literal["active", "stopped", "eliminated"] = "active"
     in_task: bool = False
     soul_type: str = "balanced"
+    task_count: int = 0
+    success_count: int = 0
+    evolution_count: int = 0
+    evolution_success_count: int = 0
 
 
 class TaskInject(BaseModel):

@@ -39,6 +39,27 @@ class TaskDispatchedMsg(TypedDict):
     task: str
 
 
+class TaskAvailableMsg(TypedDict):
+    type: Literal["task_available"]
+    task_id: str
+    task: str
+    difficulty: str
+    created_at: str
+
+
+class TaskTakenMsg(TypedDict):
+    type: Literal["task_taken"]
+    task_id: str
+    agent_id: str
+    task: str
+
+
+class TaskExpiredMsg(TypedDict):
+    type: Literal["task_expired"]
+    task_id: str
+    task: str
+
+
 class AgentEliminatedMsg(TypedDict):
     type: Literal["agent_eliminated"]
     agent_id: str
@@ -72,6 +93,9 @@ WsOutgoingMsg = (
     | SpriteMoveMsg
     | TaskCompleteMsg
     | TaskDispatchedMsg
+    | TaskAvailableMsg
+    | TaskTakenMsg
+    | TaskExpiredMsg
     | AgentEliminatedMsg
     | AgentCreatedMsg
     | EvolutionEventMsg

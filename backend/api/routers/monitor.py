@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from core.deps import experiment_id, monitor
 from token_usage import get_usage
 from infra.execution_log import load_all_refusals
+from infra.eliminated_agents import load_eliminated
 from infra.task_history import compute_stats_from_history, load_task_history
 from services import agent_service
 
@@ -75,6 +76,75 @@ async def get_task_history(
     combined = list(claimed_and_dropped) + refusal_items
     combined.sort(key=lambda x: x.get("ts", 0))
     return combined[-limit:]
+
+
+async def _merge_eliminated_with_history(limit: int) -> list[dict]:
+    """合并：eliminated_agents 显式归档 + task_history/execution_log 中已消失的 agent（不在 arena）"""
+    from core.deps import arena, experiment_id
+    from services import agent_service
+
+    # 1. 显式归档
+    explicit = {r["agent_id"]: r for r in load_eliminated(limit=limit * 2)}
+    result = list(explicit.values())
+
+    # 2. 从 task_history 和 execution_log 收集曾出现过的 agent_id
+    seen_ids = set(explicit.keys()) | {a.agent_id for a in arena.agents.values()}
+    history = load_task_history(experiment_id=experiment_id or None, limit=5000)
+    refusals = load_all_refusals(limit=2000)
+
+    for r in history:
+        aid = r.get("agent_id") or r.get("claimed_by")
+        if aid and aid not in seen_ids:
+            seen_ids.add(aid)
+            result.append({
+                "agent_id": aid,
+                "reason": "inferred",
+                "final_balance": None,
+                "soul_type": "balanced",
+                "ts": r.get("ts", 0),
+            })
+    for r in refusals:
+        aid = r.get("agent_id")
+        if aid and aid not in seen_ids:
+            seen_ids.add(aid)
+            result.append({
+                "agent_id": aid,
+                "reason": "inferred",
+                "final_balance": None,
+                "soul_type": "balanced",
+                "ts": r.get("ts", 0),
+            })
+
+    result.sort(key=lambda x: x.get("ts") or 0, reverse=True)
+    result = result[:limit]
+
+    # 3. 为每条记录补充 task_count, success_count, evolution_count, evolution_success_count
+    for item in result:
+        stats = await agent_service.compute_agent_stats(
+            item["agent_id"],
+            experiment_id=experiment_id or None,
+        )
+        item["task_count"] = stats["task_count"]
+        item["success_count"] = stats["success_count"]
+        item["evolution_count"] = stats["evolution_count"]
+        item["evolution_success_count"] = stats["evolution_success_count"]
+
+    return result
+
+
+@router.get("/eliminated_agents")
+async def list_eliminated_agents(limit: int = 100):
+    """消失的智能体列表（淘汰/删除 + 历史推断），按时间倒序"""
+    return await _merge_eliminated_with_history(limit=limit)
+
+
+@router.get("/eliminated_agents/{agent_id}/lifecycle")
+async def get_eliminated_lifecycle(agent_id: str):
+    """已淘汰 agent 的生命周期：任务历史、拒绝、进化、决策等"""
+    data = await agent_service.get_eliminated_lifecycle(agent_id)
+    if data is None:
+        return {"error": "agent not found or not eliminated"}
+    return data
 
 
 @router.get("/task_detail")

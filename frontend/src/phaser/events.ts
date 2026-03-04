@@ -2,6 +2,9 @@
 export type EvotownEventMap = {
   sprite_move: { agent_id: string; from: string; to: string; reason: string };
   task_complete: { agent_id: string; success: boolean; balance: number };
+  task_available: { task_id: string; task: string; difficulty: string };
+  task_taken: { task_id: string; agent_id: string; task: string };
+  task_expired: { task_id: string; task: string };
   evolution_event: { agent_id: string; type?: string; [k: string]: unknown };
   agent_eliminated: { agent_id: string; reason: string };
   agent_created: { agent_id: string; balance: number };

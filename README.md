@@ -13,18 +13,43 @@ Puts evolution engines (e.g. SkillLite) in a controlled environment for **evolut
 
 ## Quick Start
 
-### 1. Start Backend
+### Option A — Docker (Recommended)
+
+Requires Docker Desktop (or Docker Engine + Compose plugin).
 
 ```bash
-cd evotown/backend
-pip install -r requirements.txt
-python main.py
-# or: uvicorn main:app --host 0.0.0.0 --port 8765
+cd evotown
+
+# 1. Create .env with your LLM API key (same directory as docker-compose.yml)
+cat > .env << 'EOF'
+OPENAI_API_KEY=sk-your-key-here
+# OPENAI_BASE_URL=https://your-proxy/v1   # optional, remove if using OpenAI directly
+EOF
+
+# 2. First-time: build images and start
+docker compose up -d --build
+
+# Subsequent starts (no rebuild needed)
+docker compose up -d
+
+# Stop
+docker compose down
 ```
 
-### 2. Start Frontend
+Visit http://localhost — landing page, click "进入竞技场" for the arena.
+
+> **Note**: `.env` must be placed in the `evotown/` directory (same level as `docker-compose.yml`).
+> Docker Compose reads it automatically on startup.
+
+### Option B — Local Dev (two terminals)
 
 ```bash
+# Terminal 1 — Backend
+cd evotown/backend
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8765
+
+# Terminal 2 — Frontend
 cd evotown/frontend
 npm install
 npm run dev

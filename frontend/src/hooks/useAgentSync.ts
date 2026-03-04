@@ -24,6 +24,7 @@ async function fetchAgents(): Promise<AgentInfo[]> {
   if (!Array.isArray(list)) throw new Error("invalid agents response");
   return list.map((a) => ({
     id: a.id,
+    display_name: a.display_name,
     balance: a.balance,
     in_task: a.in_task,
     chat_dir: a.chat_dir,
@@ -35,7 +36,7 @@ async function fetchAgents(): Promise<AgentInfo[]> {
 /** 将 store 中的 agents 同步到 Phaser（emit 事件） */
 function syncStoreToPhaser(agents: AgentInfo[]) {
   agents.forEach((a) => {
-    evotownEvents.emit("agent_created", { agent_id: a.id, balance: a.balance });
+    evotownEvents.emit("agent_created", { agent_id: a.id, balance: a.balance, display_name: a.display_name });
     evotownEvents.emit("sprite_move", {
       agent_id: a.id,
       from: "",

@@ -226,10 +226,15 @@ class ProcessManager:
         chat_root = self._ensure_agent_structure(agent_home, soul_type)
 
         # 启动 skilllite agent-rpc 子进程（仅设 SKILLLITE_WORKSPACE，不覆盖 HOME）
-        agent_env = {
-            **os.environ,
-            "SKILLLITE_WORKSPACE": str(agent_home),
-        }
+        agent_env = {**os.environ}
+        # 归一化 API 密钥：支持 API_KEY/BASE_URL/MODEL（本地 .env 惯例）和 OPENAI_* 两种命名
+        if not agent_env.get("OPENAI_API_KEY") and agent_env.get("API_KEY"):
+            agent_env["OPENAI_API_KEY"] = agent_env["API_KEY"]
+        if not agent_env.get("OPENAI_BASE_URL") and agent_env.get("BASE_URL"):
+            agent_env["OPENAI_BASE_URL"] = agent_env["BASE_URL"]
+        if not agent_env.get("OPENAI_MODEL") and agent_env.get("MODEL"):
+            agent_env["OPENAI_MODEL"] = agent_env["MODEL"]
+        agent_env["SKILLLITE_WORKSPACE"] = str(agent_home)
         proc = await asyncio.create_subprocess_exec(
             "skilllite",
             "agent-rpc",
@@ -480,14 +485,19 @@ class ProcessManager:
         """主动触发进化: skilllite evolution run，使用该 agent 独立的 .skills
         返回 (成功与否, 输出信息供前端展示)
         """
+        evolve_env = {**os.environ}
+        if not evolve_env.get("OPENAI_API_KEY") and evolve_env.get("API_KEY"):
+            evolve_env["OPENAI_API_KEY"] = evolve_env["API_KEY"]
+        if not evolve_env.get("OPENAI_BASE_URL") and evolve_env.get("BASE_URL"):
+            evolve_env["OPENAI_BASE_URL"] = evolve_env["BASE_URL"]
+        if not evolve_env.get("OPENAI_MODEL") and evolve_env.get("MODEL"):
+            evolve_env["OPENAI_MODEL"] = evolve_env["MODEL"]
+        evolve_env["SKILLLITE_WORKSPACE"] = agent_home
         proc = await asyncio.create_subprocess_exec(
             "skilllite",
             "evolution",
             "run",
-            env={
-                **os.environ,
-                "SKILLLITE_WORKSPACE": agent_home,
-            },
+            env=evolve_env,
             cwd=agent_home,  # 确保 resolve_skills_root 正确
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,

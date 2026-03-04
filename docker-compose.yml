@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  # ── Backend: FastAPI + uvicorn ──────────────────────────────────
+  backend:
+    build:
+      context: ..          # repo 根目录（包含 Cargo.toml + skilllite/ + crates/）
+      dockerfile: evotown/Dockerfile.backend
+    restart: unless-stopped
+    environment:
+      # LLM API 密钥 — 支持两种命名：OPENAI_API_KEY 或 API_KEY（skilllite 本地 .env 惯例）
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - API_KEY=${API_KEY:-}
+      - BASE_URL=${BASE_URL:-}
+      - MODEL=${MODEL:-}
+      # skilllite 运行时参数（从 .env 透传）
+      - SKILLLITE_MAX_TOKENS=${SKILLLITE_MAX_TOKENS:-8192}
+      - SKILLLITE_ENABLE_MEMORY_VECTOR=${SKILLLITE_ENABLE_MEMORY_VECTOR:-}
+      - SKILLLITE_LONG_TEXT_STRATEGY=${SKILLLITE_LONG_TEXT_STRATEGY:-}
+      - SKILLLITE_MAP_MODEL=${SKILLLITE_MAP_MODEL:-}
+      - SKILLLITE_QUIET=${SKILLLITE_QUIET:-}
+      - SKILLBOX_AUTO_APPROVE=${SKILLBOX_AUTO_APPROVE:-0}
+      - SKILLBOX_ALLOW_PLAYWRIGHT=${SKILLBOX_ALLOW_PLAYWRIGHT:-}
+      - SKILLBOX_USE_IPC=${SKILLBOX_USE_IPC:-}
+      # 经济参数（可选覆盖）
+      - EVOTOWN_INITIAL_BALANCE=${EVOTOWN_INITIAL_BALANCE:-100}
+      - EVOTOWN_REWARD_COMPLETE=${EVOTOWN_REWARD_COMPLETE:-10}
+      - EVOTOWN_PENALTY_FAIL=${EVOTOWN_PENALTY_FAIL:-5}
+      - EVOTOWN_COST_ACCEPT=${EVOTOWN_COST_ACCEPT:-5}
+      - EVOTOWN_ELIMINATE_ON_ZERO=${EVOTOWN_ELIMINATE_ON_ZERO:-true}
+    # 允许 bubblewrap (bwrap) 在容器内创建用户命名空间（user namespaces）。
+    # Docker 默认 seccomp 配置会拦截 clone(CLONE_NEWUSER)，导致 bwrap 沙箱失败。
+    # seccomp:unconfined 仅放开容器本身的 syscall 过滤；
+    # bwrap 会对被沙箱化的 skill 进程施加独立的 seccomp BPF 过滤（见 linux.rs）。
+    security_opt:
+      - seccomp:unconfined
+    volumes:
+      # 进化产物持久化
+      - evotown_arena:/root/.skilllite/arena
+      # 实验数据持久化
+      - evotown_data:/app/data
+    expose:
+      - "8765"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/health')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+
+  # ── Frontend: Nginx + React build ──────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  evotown_arena:
+  evotown_data:
+

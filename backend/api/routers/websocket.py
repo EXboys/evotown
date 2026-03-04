@@ -16,7 +16,7 @@ async def websocket_endpoint(ws_conn: WebSocket):
     await manager.connect(ws_conn)
     # 新连接必须直接发送 state_snapshot，确保客户端收到 agent 列表（broadcast 可能有时序问题）
     snapshot_agents: list[StateSnapshotAgent] = [
-        {"agent_id": rec.agent_id, "balance": rec.balance, "in_task": rec.in_task}
+        {"agent_id": rec.agent_id, "display_name": rec.display_name, "balance": rec.balance, "in_task": rec.in_task}
         for rec in arena.agents.values()
     ]
     try:

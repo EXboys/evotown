@@ -140,10 +140,11 @@ class WsDispatcher:
             "reason": reason,
         }
 
-    def agent_created(self, agent_id: str, balance: int) -> AgentCreatedMsg:
+    def agent_created(self, agent_id: str, balance: int, display_name: str = "") -> AgentCreatedMsg:
         return {
             "type": "agent_created",
             "agent_id": agent_id,
+            "display_name": display_name or agent_id,
             "balance": balance,
         }
 
@@ -199,8 +200,8 @@ class WsDispatcher:
     async def send_agent_eliminated(self, agent_id: str, reason: str) -> None:
         await self.broadcast(self.agent_eliminated(agent_id, reason))
 
-    async def send_agent_created(self, agent_id: str, balance: int) -> None:
-        await self.broadcast(self.agent_created(agent_id, balance))
+    async def send_agent_created(self, agent_id: str, balance: int, display_name: str = "") -> None:
+        await self.broadcast(self.agent_created(agent_id, balance, display_name))
 
     async def send_evolution_event(self, **kwargs: Any) -> None:
         await self.broadcast(self.evolution_event(**kwargs))

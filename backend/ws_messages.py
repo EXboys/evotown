@@ -6,6 +6,7 @@ from typing import Any, Literal, TypedDict
 
 class StateSnapshotAgent(TypedDict):
     agent_id: str
+    display_name: str
     balance: int
     in_task: bool
 
@@ -69,6 +70,7 @@ class AgentEliminatedMsg(TypedDict):
 class AgentCreatedMsg(TypedDict):
     type: Literal["agent_created"]
     agent_id: str
+    display_name: str
     balance: int
 
 

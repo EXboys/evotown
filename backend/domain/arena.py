@@ -1,6 +1,7 @@
 """竞技场内存状态"""
 from __future__ import annotations
 
+import random
 from typing import Any, Optional
 
 from infra.persistence import load_state as load_persisted, save_state as save_persisted
@@ -8,11 +9,19 @@ from infra.persistence import load_state as load_persisted, save_state as save_p
 # 待办任务元数据：task, difficulty, task_id
 PendingTaskMeta = dict[str, Any]
 
+# Agent 展示名字池（24 个有个性的名字）
+_AGENT_NAME_POOL: list[str] = [
+    "Nova", "Rex", "Aria", "Zeno", "Luna", "Kai",
+    "Mira", "Orion", "Sage", "Vex", "Echo", "Dusk",
+    "Flux", "Lyra", "Bolt", "Nyx", "Zara", "Axel",
+    "Cleo", "Dex", "Ember", "Finn", "Gaia", "Hex",
+]
+
 
 class AgentRecord:
     """单个 Agent 的内存记录"""
 
-    __slots__ = ("agent_id", "agent_home", "chat_dir", "balance", "status", "in_task", "soul_type", "_observer")
+    __slots__ = ("agent_id", "display_name", "agent_home", "chat_dir", "balance", "status", "in_task", "soul_type", "_observer")
 
     def __init__(
         self,
@@ -24,8 +33,10 @@ class AgentRecord:
         in_task: bool = False,
         soul_type: str = "balanced",
         observer: Any = None,
+        display_name: str = "",
     ) -> None:
         self.agent_id = agent_id
+        self.display_name = display_name or agent_id
         self.agent_home = agent_home
         self.chat_dir = chat_dir
         self.balance = balance
@@ -37,6 +48,7 @@ class AgentRecord:
     def to_serializable(self) -> dict[str, Any]:
         return {
             "id": self.agent_id,
+            "display_name": self.display_name,
             "balance": self.balance,
             "status": self.status,
             "soul_type": self.soul_type,
@@ -54,6 +66,27 @@ class ArenaState:
         self._agent_task_count: dict[str, int] = {}
         self._last_evolve_at: dict[str, int] = {}
         self._agent_difficulty_count: dict[str, dict[str, int]] = {}  # agent_id -> {easy:N, medium:N, hard:N}
+        self._used_names: set[str] = set()
+
+    def assign_display_name(self) -> str:
+        """从名字池随机分配一个未被使用的展示名（池用尽后加数字后缀）"""
+        available = [n for n in _AGENT_NAME_POOL if n not in self._used_names]
+        if available:
+            name = random.choice(available)
+        else:
+            # 全部用完，加数字后缀
+            i = 1
+            while True:
+                name = f"{random.choice(_AGENT_NAME_POOL)}{i}"
+                if name not in self._used_names:
+                    break
+                i += 1
+        self._used_names.add(name)
+        return name
+
+    def release_display_name(self, name: str) -> None:
+        """Agent 退场时归还名字"""
+        self._used_names.discard(name)
 
     @property
     def agent_counter(self) -> int:
@@ -69,9 +102,15 @@ class ArenaState:
 
     def add_agent(self, record: AgentRecord) -> None:
         self._agents[record.agent_id] = record
+        # 确保名字被标记为已使用（恢复状态时也需要注册）
+        if record.display_name:
+            self._used_names.add(record.display_name)
 
     def remove_agent(self, agent_id: str) -> Optional[AgentRecord]:
-        return self._agents.pop(agent_id, None)
+        rec = self._agents.pop(agent_id, None)
+        if rec:
+            self.release_display_name(rec.display_name)
+        return rec
 
     def get_agent(self, agent_id: str) -> Optional[AgentRecord]:
         return self._agents.get(agent_id)

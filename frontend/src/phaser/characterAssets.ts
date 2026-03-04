@@ -255,11 +255,11 @@ export function createCharacterContainer(
   body.add([base, helmet]);
 
   const label = scene.add.text(0, labelOffsetY, labelText, {
-    fontSize: "7px",
+    fontSize: "5px",
     color: "#F8F8F8",
     fontStyle: "bold",
     backgroundColor: "#000000",
-    padding: { x: 3, y: 2 },
+    padding: { x: 2, y: 1 },
   }).setOrigin(0.5, 0).setResolution(2);
 
   container.add([body, label]);

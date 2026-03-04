@@ -27,12 +27,14 @@ interface AgentState {
   helmet: Phaser.GameObjects.Sprite;
   target: { x: number; y: number };
   label: Phaser.GameObjects.Text;
+  displayName: string;
   color: number;
   phaseOffset: number;
   taskPhase: TaskPhase;
   wanderTimer: number;
   facing: CharFacing;
   pendingBalance: number | null;
+  eliminating: boolean;
 }
 
 export default class TownScene extends Phaser.Scene {
@@ -170,51 +172,159 @@ export default class TownScene extends Phaser.Scene {
   }
 
   private onEvolutionEvent(data: { agent_id: string; event_type?: string; [k: string]: unknown }) {
-    const container = this.buildingRects.get("temple");
-    if (container) {
+    const w = this.scale.width;
+    const h = this.scale.height;
+    const cx = w / 2;
+    const cy = h / 2;
+    const et = data.event_type as string;
+
+    // ── 1. 神殿建筑强脉冲（连跳3次）──────────────────────────────────
+    const templeContainer = this.buildingRects.get("temple");
+    if (templeContainer) {
       this.tweens.add({
-        targets: container,
-        scaleX: 1.1,
-        scaleY: 1.1,
-        duration: 150,
+        targets: templeContainer,
+        scaleX: 1.3,
+        scaleY: 1.3,
+        duration: 180,
         yoyo: true,
+        repeat: 2,
         ease: "Power2",
       });
     }
-    this.cameras.main.flash(200, 255, 251, 191);
 
+    // ── 2. 全屏金色大闪光 ──────────────────────────────────────────
+    this.cameras.main.flash(500, 255, 210, 50, false);
+
+    // ── 3. 神殿位置金色扩散光环 ────────────────────────────────────
+    // temple 屏幕坐标：scale 互消后 = (500, 100)
+    const tSX = BUILDINGS.temple.x;
+    const tSY = BUILDINGS.temple.y;
+    const ringGfx = this.add.graphics();
+    ringGfx.setDepth(850);
+    let ringR = 4;
+    const ringTick = this.time.addEvent({
+      delay: 16,
+      repeat: 28,
+      callback: () => {
+        ringGfx.clear();
+        const alpha = Math.max(0, 1 - ringR / 220);
+        ringGfx.lineStyle(3, NES.GOLD, alpha);
+        ringGfx.strokeCircle(tSX, tSY, ringR);
+        ringR += 8;
+      },
+      callbackScope: this,
+    });
+    this.time.delayedCall(500, () => { ringTick.destroy(); ringGfx.destroy(); });
+
+    // ── 4. 粒子喷射（12颗金色小方块射出）──────────────────────────
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2;
+      const spark = this.add.graphics();
+      spark.fillStyle(NES.GOLD, 1);
+      spark.fillRect(-3, -3, 6, 6);
+      spark.setDepth(851);
+      spark.x = tSX;
+      spark.y = tSY;
+      const dist = 55 + Math.random() * 50;
+      this.tweens.add({
+        targets: spark,
+        x: tSX + Math.cos(angle) * dist,
+        y: tSY + Math.sin(angle) * dist,
+        alpha: 0,
+        duration: 550 + Math.random() * 250,
+        ease: "Cubic.easeOut",
+        onComplete: () => spark.destroy(),
+      });
+    }
+
+    // ── 5. 角色头顶气泡（放大 + 停留 8 秒 + 字体加粗）──────────────
     const agent = this.agents.get(data.agent_id);
     if (agent) {
-      const et = data.event_type as string;
-      const msg = et === "rule_added" ? "学到了新规则" : et === "skill_generated" ? "生成了新技能" : "进化完成";
-      const cx = this.scale.width / 2;
-      const cy = this.scale.height / 2;
+      const msg = et === "rule_added" ? "🧠 学到了新规则！"
+        : et === "skill_generated" ? "⚡ 生成了新技能！"
+        : "✨ 进化完成！";
       const bubble = this.add.container(
         cx + agent.container.x,
-        cy + agent.container.y * VIEW_SCALE_Y - 25,
+        cy + agent.container.y * VIEW_SCALE_Y - 32,
       );
-      // NES 风格气泡 — 黑底白边，无圆角
+      bubble.setScale(0.3);
+      bubble.setDepth(800);
       const bg = this.add.graphics();
       bg.fillStyle(NES.BLACK, 1);
-      bg.fillRect(-55, -10, 110, 20);
-      bg.lineStyle(1, NES.GOLD, 1);
-      bg.strokeRect(-55, -10, 110, 20);
-      const txt = this.add.text(0, 0, msg, { fontSize: "12px", color: "#FBBF24" }).setOrigin(0.5).setResolution(2);
+      bg.fillRect(-68, -14, 136, 28);
+      bg.lineStyle(2, NES.GOLD, 1);
+      bg.strokeRect(-68, -14, 136, 28);
+      const txt = this.add.text(0, 0, msg, {
+        fontSize: "13px",
+        color: "#FBBF24",
+        fontStyle: "bold",
+      }).setOrigin(0.5).setResolution(2);
       bubble.add([bg, txt]);
-      bubble.setDepth(800);
+      // 弹出动画
       this.tweens.add({
         targets: bubble,
-        y: bubble.y - 15,
-        duration: 500,
-        ease: "Stepped",
+        scaleX: 1,
+        scaleY: 1,
+        duration: 250,
+        ease: "Back.easeOut",
       });
-      this.time.delayedCall(3500, () => bubble.destroy());
+      // 8 秒后淡出销毁
+      this.time.delayedCall(7500, () => {
+        this.tweens.add({
+          targets: bubble,
+          alpha: 0,
+          y: bubble.y - 12,
+          duration: 500,
+          ease: "Cubic.easeIn",
+          onComplete: () => bubble.destroy(),
+        });
+      });
     }
+
+    // ── 6. 左上角 Toast 通知 ────────────────────────────────────────
+    const agentName = this.agents.get(data.agent_id)?.displayName ?? data.agent_id;
+    const toastMsg = et === "rule_added" ? `🧠 ${agentName} 获得新规则！`
+      : et === "skill_generated" ? `⚡ ${agentName} 生成新技能！`
+      : `✨ ${agentName} 进化完成！`;
+    const toast = this.add.container(-200, 30);
+    toast.setDepth(950);
+    toast.setScrollFactor(0);
+    const toastBg = this.add.graphics();
+    toastBg.fillStyle(NES.BLACK, 0.92);
+    toastBg.fillRect(0, 0, 188, 28);
+    toastBg.lineStyle(2, NES.GOLD, 1);
+    toastBg.strokeRect(0, 0, 188, 28);
+    const toastTxt = this.add.text(94, 14, toastMsg, {
+      fontSize: "11px",
+      color: "#FBBF24",
+      fontStyle: "bold",
+    }).setOrigin(0.5).setResolution(2);
+    toast.add([toastBg, toastTxt]);
+    // 从左侧滑入
+    this.tweens.add({
+      targets: toast,
+      x: 10,
+      duration: 300,
+      ease: "Cubic.easeOut",
+    });
+    // 3.5 秒后滑出销毁
+    this.time.delayedCall(3500, () => {
+      this.tweens.add({
+        targets: toast,
+        x: -220,
+        duration: 350,
+        ease: "Cubic.easeIn",
+        onComplete: () => toast.destroy(),
+      });
+    });
   }
 
-  private onAgentCreated(data: { agent_id: string; balance: number }) {
-    const agent = this.getOrCreateAgent(data.agent_id);
-    agent.label.setText(String(data.balance));
+  private onAgentCreated(data: { agent_id: string; balance: number; display_name?: string }) {
+    const agent = this.getOrCreateAgent(data.agent_id, data.display_name);
+    if (data.display_name && agent.displayName !== data.display_name) {
+      agent.displayName = data.display_name;
+      agent.label.setText(data.display_name);
+    }
   }
 
   private onTaskAvailable(data: { task_id: string; task: string; difficulty: string }) {
@@ -234,7 +344,7 @@ export default class TownScene extends Phaser.Scene {
     tasks.forEach((t) => this.taskNpcManager.spawnForTask(t.task_id));
   }
 
-  private getOrCreateAgent(agentId: string): AgentState {
+  private getOrCreateAgent(agentId: string, displayName?: string): AgentState {
     let agent = this.agents.get(agentId);
     if (!agent) {
       const hash = agentId.split("").reduce((a, c) => ((a << 5) - a) + c.charCodeAt(0), 0);
@@ -243,12 +353,13 @@ export default class TownScene extends Phaser.Scene {
       const cy = this.scale.height / 2;
       // 无任务时到处闲逛：出生点随机分布在地图各处，不聚集在城池
       const spawn = getRandomWanderPoint();
+      const name = displayName || agentId;
       const { container, label, body, base, helmet } = createCharacterContainer(
         this,
         spawn.x - cx,
         spawn.y - cy,
         color,
-        "0",
+        name,
       );
       this.worldInner.add(container);
       const wander = getRandomWanderPoint();
@@ -259,22 +370,25 @@ export default class TownScene extends Phaser.Scene {
         helmet,
         target: { x: wander.x - cx, y: wander.y - cy },
         label,
+        displayName: name,
         color,
         phaseOffset: Math.random() * Math.PI * 2,
         taskPhase: "idle",
         wanderTimer: 0,
         facing: "front",
         pendingBalance: null,
+        eliminating: false,
       };
       this.agents.set(agentId, agent);
     }
-    return agent;
+    return agent!;
   }
 
   private onSpriteMove(data: { agent_id: string; from: string; to: string; reason: string }) {
     const cx = this.scale.width / 2;
     const cy = this.scale.height / 2;
     const agent = this.getOrCreateAgent(data.agent_id);
+    if (agent.eliminating) return;
 
     // deliver 阶段不响应新的 sprite_move（正在回 NPC 交付）
     if (agent.taskPhase === "deliver") return;
@@ -343,7 +457,6 @@ export default class TownScene extends Phaser.Scene {
       agent.target = { x: npcPos.x - cx, y: npcPos.y - cy };
     } else {
       // 没有 NPC（边界情况）直接完成
-      agent.label.setText(String(data.balance));
       agent.pendingBalance = null;
       agent.taskPhase = "idle";
       const cx = this.scale.width / 2;
@@ -354,12 +467,81 @@ export default class TownScene extends Phaser.Scene {
     }
   }
 
-  private onAgentEliminated(data: { agent_id: string }) {
+  private onAgentEliminated(data: { agent_id: string; reason?: string }) {
     const agent = this.agents.get(data.agent_id);
-    if (agent) {
-      agent.container.destroy();
-      this.agents.delete(data.agent_id);
-    }
+    if (!agent || agent.eliminating) return;
+
+    agent.eliminating = true;
+    agent.taskPhase = "idle"; // 停止移动
+
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height / 2;
+    const screenX = cx + agent.container.x;
+    const screenY = cy + agent.container.y * VIEW_SCALE_Y;
+
+    // Step 1: 红色闪烁（3次）
+    this.tweens.add({
+      targets: agent.container,
+      alpha: 0.2,
+      duration: 120,
+      yoyo: true,
+      repeat: 4,
+      ease: "Linear",
+      onStart: () => {
+        agent.base.setTint(0xff2222);
+        agent.helmet.setTint(0xff2222);
+      },
+    });
+
+    // Step 2: 骷髅气泡 + "BANKRUPT!" 文字
+    this.time.delayedCall(200, () => {
+      const name = agent.displayName;
+      const bubble = this.add.container(screenX, screenY - 30);
+      const bg = this.add.graphics();
+      bg.fillStyle(0x000000, 0.92);
+      bg.fillRect(-55, -14, 110, 28);
+      bg.lineStyle(2, 0xff4444, 1);
+      bg.strokeRect(-55, -14, 110, 28);
+      const skull = this.add.text(-42, 0, "💀", { fontSize: "14px" }).setOrigin(0.5).setResolution(2);
+      const txt = this.add.text(10, 0, `${name} DEAD`, {
+        fontSize: "9px",
+        color: "#FF4444",
+        fontStyle: "bold",
+      }).setOrigin(0.5).setResolution(2);
+      bubble.add([bg, skull, txt]);
+      bubble.setDepth(900);
+      // 气泡向上飘
+      this.tweens.add({
+        targets: bubble,
+        y: bubble.y - 30,
+        alpha: 0,
+        duration: 2000,
+        ease: "Cubic.easeOut",
+        onComplete: () => bubble.destroy(),
+      });
+    });
+
+    // Step 3: 相机震动
+    this.time.delayedCall(300, () => {
+      this.cameras.main.shake(400, 0.008);
+      this.cameras.main.flash(300, 255, 0, 0, false);
+    });
+
+    // Step 4: 精灵渐隐消失
+    this.time.delayedCall(600, () => {
+      this.tweens.add({
+        targets: agent.container,
+        alpha: 0,
+        scaleX: 0.5,
+        scaleY: 0.5,
+        duration: 1200,
+        ease: "Power2",
+        onComplete: () => {
+          agent.container.destroy();
+          this.agents.delete(data.agent_id);
+        },
+      });
+    });
   }
 
   private getFacing(dx: number, dy: number): CharFacing {
@@ -392,7 +574,6 @@ export default class TownScene extends Phaser.Scene {
         // deliver 到达 NPC：更新余额、销毁 NPC、切换 idle 闲逛
         if (agent.taskPhase === "deliver") {
           if (agent.pendingBalance !== null) {
-            agent.label.setText(String(agent.pendingBalance));
             agent.pendingBalance = null;
           }
           this.taskNpcManager.despawnByAgent(agentId);

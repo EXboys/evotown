@@ -52,6 +52,7 @@ export function useWebSocket() {
           if (type === "state_snapshot") {
             const agentList = (msg.agents ?? []) as {
               agent_id: string;
+              display_name?: string;
               balance: number;
               in_task: boolean;
             }[];
@@ -59,6 +60,7 @@ export function useWebSocket() {
               evotownEvents.emit("agent_created", {
                 agent_id: a.agent_id,
                 balance: a.balance,
+                display_name: a.display_name,
               });
               evotownEvents.emit("sprite_move", {
                 agent_id: a.agent_id,
@@ -69,6 +71,7 @@ export function useWebSocket() {
             });
             store.setAgents(agentList.map((a) => ({
               id: a.agent_id,
+              display_name: a.display_name,
               balance: a.balance,
               in_task: a.in_task,
             })));
@@ -142,10 +145,11 @@ export function useWebSocket() {
           } else if (type === "agent_created") {
             const agentId = String(msg.agent_id ?? "");
             const balance = Number(msg.balance ?? 100);
+            const displayName = String(msg.display_name ?? agentId);
             if (!store.agents.some((a) => a.id === agentId)) {
-              store.addAgent({ id: agentId, balance });
+              store.addAgent({ id: agentId, display_name: displayName, balance });
             }
-            evotownEvents.emit("agent_created", { agent_id: agentId, balance });
+            evotownEvents.emit("agent_created", { agent_id: agentId, balance, display_name: displayName });
           } else if (type === "evolution_event") {
             const agentId = String(msg.agent_id ?? "");
             const balance = msg.balance as number | undefined;

@@ -1,6 +1,7 @@
 """生命周期回调"""
 import asyncio
 import logging
+import random
 
 from core.config import load_economy_config, load_evolution_config, load_timeout_config
 from core.deps import arena, process_mgr, monitor, task_dispatcher, ws
@@ -103,6 +104,31 @@ def on_agent_event(agent_id: str, event: str, data: dict) -> None:
                     pass
 
 
+def _update_evolution_context() -> None:
+    """将当前所有 agent 的摘要注入 task_dispatcher，引导生成边界任务（超出当前能力一步）。
+    使用 arena 可直接获取的数据：
+      - rule_count  ← 该 agent 累计完成任务总数（任务越多代表经验越丰富）
+      - skill_count ← 该 agent 累计完成的 hard 任务数（硬任务代表高阶技能）
+      - success_rate← 近期平均成功率（用 balance/初始余额 作粗略代理）
+    """
+    cfg = load_economy_config()
+    initial = cfg.get("initial_balance", 100) or 100
+    summaries = []
+    for aid, a in arena.agents.items():
+        counts = arena.get_agent_difficulty_counts(aid)
+        total_tasks = sum(counts.values())
+        hard_tasks = counts.get("hard", 0)
+        # 用余额占比作为成功率的粗略代理（余额越高 → 成功率越高）
+        success_rate = min(max(a.balance / initial, 0.0), 2.0) / 2.0
+        summaries.append({
+            "name": a.display_name or aid,
+            "rule_count": total_tasks,
+            "skill_count": hard_tasks,
+            "success_rate": success_rate,
+        })
+    task_dispatcher.set_evolution_context(summaries)
+
+
 async def on_task_done(
     agent_id: str,
     success: bool,
@@ -192,6 +218,11 @@ async def on_task_done(
             refusal_count=refusal_count,
         )
         _persist()
+
+        # ── 多样性优化：将本次结果反馈给任务分发器 ──────────────────────────
+        task_success = judge_result.completion >= 5
+        task_dispatcher.record_outcome(task_success)
+        _update_evolution_context()
 
         evo_cfg = load_evolution_config()
         if evo_cfg["auto_trigger"]:
@@ -304,7 +335,10 @@ def _build_context_for_agent(agent_id: str, difficulty: str) -> dict | None:
 async def _inject_and_dispatch(
     agent_id: str, task: str, difficulty: str, task_id: str | None = None
 ) -> bool:
-    """接受后：扣费、注入正式任务、标记、发送 sprite_move。"""
+    """接受后：扣费、注入正式任务、标记。
+    注意：不在此处发送 sprite_move，由 on_task_taken → send_task_dispatched 触发，
+    确保 task_taken 先到达前端建立 agent→NPC 映射后再移动 agent。
+    """
     cfg = _economy()
     context = _build_context_for_agent(agent_id, difficulty)
     ok = await process_mgr.inject_task(agent_id, task, context=context)
@@ -313,17 +347,30 @@ async def _inject_and_dispatch(
         arena.set_in_task(agent_id, True)
         arena.set_pending_task(agent_id, task, difficulty=difficulty, task_id=task_id)
         monitor.begin_task(agent_id, task)
-        await ws.send_sprite_move(agent_id, "广场", "任务中心", "auto_dispatch")
     return ok
 
 
 async def broadcast_preview_and_assign(
     task_id: str, task: str, difficulty: str
 ) -> str | None:
-    """任务板模式：向所有空闲 agent 并发发送预览，先 ACCEPT 者得。返回认领的 agent_id，无人认领则 None。"""
+    """任务板模式：向所有空闲 agent 并发发送预览，先 ACCEPT 者得。返回认领的 agent_id，无人认领则 None。
+
+    强制任务快速路径：若任务被拒绝次数 >= REFUSAL_MANDATORY_THRESHOLD，
+    跳过预览直接将任务注入随机空闲 agent，agent 无法拒绝。
+    """
     idle_agents = get_idle_agents()
     if not idle_agents:
         return None
+
+    # ── 强制任务快速路径：跳过预览，直接注入 ──────────────────────────────
+    if task_dispatcher.is_mandatory_task(task_id):
+        chosen = random.choice(idle_agents)
+        logger.warning(
+            "[MANDATORY] Force-assigning task to [%s] (no preview, no refusal allowed): %s",
+            chosen, task[:60],
+        )
+        ok = await _inject_and_dispatch(chosen, task, difficulty, task_id=task_id)
+        return chosen if ok else None
 
     cfg = _economy()
     assigned: str | None = None

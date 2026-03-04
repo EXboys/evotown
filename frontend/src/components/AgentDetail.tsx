@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { evotownEvents } from "../phaser/events";
 import { useEvotownStore } from "../store/evotownStore";
+import { ShareCard } from "./ShareCard";
 
 interface SoulData {
   content: string;
@@ -98,6 +99,7 @@ export function AgentDetail({
   const [soulSaving, setSoulSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [showShare, setShowShare] = useState(false);
   const removeAgent = useEvotownStore((s) => s.removeAgent);
   const agent = useEvotownStore((s) => s.agents.find((a) => a.id === agentId));
 
@@ -241,6 +243,13 @@ export function AgentDetail({
           )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={() => setShowShare(true)}
+            className="px-2 py-1 text-[10px] font-medium rounded bg-violet-600/20 text-violet-400 border border-violet-600/30 hover:bg-violet-600/40"
+            title="生成分享卡片"
+          >
+            📤
+          </button>
           <button
             onClick={handleDelete}
             disabled={deleting}
@@ -661,6 +670,27 @@ export function AgentDetail({
           </ul>
         )}
       </div>
+
+      {showShare && (() => {
+        // 取最新一条有意义的 reason 作为"顿悟"内容
+        const latestEpiphany =
+          [...evolutionLog]
+            .reverse()
+            .find((e) => e.reason && e.reason.length > 5)?.reason ?? "";
+        return (
+          <ShareCard
+            agentName={agent?.display_name ?? agentId}
+            balance={agent?.balance ?? 0}
+            taskCount={agent?.task_count ?? 0}
+            successCount={agent?.success_count ?? 0}
+            rulesCount={rules.length}
+            skillsCount={skills.length}
+            evolutionCount={agent?.evolution_count ?? evolutionLog.length}
+            latestEpiphany={latestEpiphany}
+            onClose={() => setShowShare(false)}
+          />
+        );
+      })()}
     </div>
   );
 }

@@ -35,6 +35,7 @@ async def list_agents() -> list[AgentInfo]:
         )
         result.append(AgentInfo(
             id=rec.agent_id,
+            display_name=rec.display_name or rec.agent_id,
             chat_dir=rec.chat_dir,
             balance=rec.balance,
             status=rec.status,
@@ -51,6 +52,7 @@ async def list_agents() -> list[AgentInfo]:
 async def create_agent(body: AgentCreate) -> AgentInfo:
     cfg = load_economy_config()
     agent_id = arena.next_agent_id()
+    display_name = arena.assign_display_name()
     soul_type = body.soul_type or "balanced"
     agent_home, chat_root = await process_mgr.spawn(agent_id, body.chat_dir, soul_type=soul_type)
     loop = asyncio.get_event_loop()
@@ -65,9 +67,10 @@ async def create_agent(body: AgentCreate) -> AgentInfo:
         in_task=False,
         soul_type=soul_type,
         observer=observer,
+        display_name=display_name,
     )
     arena.add_agent(record)
-    await ws.send_agent_created(agent_id, balance)
+    await ws.send_agent_created(agent_id, balance, display_name)
     arena.persist()
     return AgentInfo(id=agent_id, chat_dir=chat_root, balance=balance, status="active", soul_type=soul_type)
 

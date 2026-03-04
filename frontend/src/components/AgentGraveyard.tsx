@@ -173,10 +173,10 @@ function LifecycleDetail({
           />
           <span className="font-mono text-sm text-slate-200 truncate">{agentId}</span>
           <span className="text-[10px] text-slate-500 shrink-0">
-            {lifecycle.reason_label}
+            {String(lifecycle.reason_label ?? "")}
             {lifecycle.final_balance != null ? ` · 余额 ${lifecycle.final_balance}` : ""}
             {" · "}
-            📋{(lifecycle.success_count ?? 0)}/{(lifecycle.task_count ?? 0)} ✨{(lifecycle.evolution_success_count ?? 0)}/{(lifecycle.evolution_count ?? 0)}
+            📋{Number(lifecycle.success_count ?? 0)}/{Number(lifecycle.task_count ?? 0)} ✨{Number(lifecycle.evolution_success_count ?? 0)}/{Number(lifecycle.evolution_count ?? 0)}
           </span>
         </div>
         <button onClick={onClose} className="text-slate-500 hover:text-slate-300 text-lg leading-none">
@@ -208,7 +208,7 @@ function LifecycleDetail({
                 <li key={i} className="flex flex-wrap gap-2 py-1 px-2 rounded hover:bg-slate-800/40 items-baseline">
                   <span className="text-slate-500 shrink-0 whitespace-nowrap">
                     {e.ts
-                      ? new Date(typeof e.ts === "number" ? e.ts * 1000 : e.ts).toLocaleString("zh-CN")
+                      ? new Date(typeof e.ts === "number" ? e.ts * 1000 : String(e.ts)).toLocaleString("zh-CN")
                       : "-"}
                   </span>
                   <span className="truncate text-slate-300 min-w-0" title={String(e.task ?? "")}>
@@ -262,7 +262,7 @@ function LifecycleDetail({
               rules.map((r, i) => (
                 <li key={i} className="p-2 rounded border border-slate-700/50 text-[10px] text-slate-300">
                   {String(r.instruction ?? r.content ?? JSON.stringify(r)).slice(0, 200)}
-                  {(r.instruction ?? r.content)?.length > 200 ? "…" : ""}
+                  {String(r.instruction ?? r.content ?? "").length > 200 ? "…" : ""}
                 </li>
               ))
             )}

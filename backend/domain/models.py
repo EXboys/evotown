@@ -10,6 +10,7 @@ class AgentCreate(BaseModel):
 
 class AgentInfo(BaseModel):
     id: str
+    display_name: str = ""
     chat_dir: str
     balance: int = 100
     status: Literal["active", "stopped", "eliminated"] = "active"

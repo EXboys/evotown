@@ -3,6 +3,7 @@ import { create } from "zustand";
 
 export interface AgentInfo {
   id: string;
+  display_name?: string;
   balance: number;
   chat_dir?: string;
   status?: string;
@@ -117,7 +118,17 @@ export const useEvotownStore = create<EvotownState>((set, get) => ({
   setAgents: (agents) => set({ agents }),
   addAgent: (agent) =>
     set((s) => {
-      if (s.agents.some((a) => a.id === agent.id)) return s;
+      const exists = s.agents.some((a) => a.id === agent.id);
+      if (exists) {
+        // 更新 display_name（及其它字段），不丢弃已有数据
+        return {
+          agents: s.agents.map((a) =>
+            a.id === agent.id
+              ? { ...a, ...(agent.display_name ? { display_name: agent.display_name } : {}) }
+              : a
+          ),
+        };
+      }
       return { agents: [...s.agents, agent] };
     }),
   updateAgentBalance: (agentId, balance) =>

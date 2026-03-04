@@ -1,0 +1,51 @@
+# ── Stage 1: Build skilllite Linux binary ────────────────────────────────────
+FROM rust:1-slim AS rust-builder
+
+WORKDIR /build
+
+# Install build deps (for linking)
+RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+
+# Copy only what's needed for the skilllite binary (layer-cache friendly)
+COPY Cargo.toml Cargo.lock ./
+COPY skilllite/ skilllite/
+COPY crates/ crates/
+
+# Patch workspace Cargo.toml: remove the Tauri member (macOS-only, won't compile on Linux)
+RUN sed -i 's|, "crates/skilllite-assistant/src-tauri"||g' Cargo.toml
+
+# Build the skilllite CLI with the agent feature (needed for agent-rpc subcommand)
+RUN cargo build --release --bin skilllite -p skilllite
+
+# ── Stage 2: Python backend ───────────────────────────────────────────────────
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 安装系统依赖：
+#   bubblewrap (bwrap) — SkillLite Linux 沙箱的首选隔离工具
+#   uidmap              — 提供 newuidmap/newgidmap，支持非特权用户命名空间映射
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bubblewrap \
+    uidmap \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 Python 依赖（路径相对于 repo 根目录，即 build context）
+COPY evotown/backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 复制源码
+COPY evotown/backend/ .
+
+# 复制编译好的 skilllite 二进制（Linux arm64/amd64，由 Stage 1 生成）
+COPY --from=rust-builder /build/target/release/skilllite /usr/local/bin/skilllite
+
+# 创建所需目录：
+#   /root/.skilllite/arena — 进化产物（volume: evotown_arena）
+#   /app/data             — arena_state.json 等持久化数据（volume: evotown_data）
+RUN mkdir -p /root/.skilllite/arena /app/data
+
+EXPOSE 8765
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8765"]
+

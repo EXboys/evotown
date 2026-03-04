@@ -375,7 +375,6 @@ function TaskHistorySection() {
 }
 
 function TaskDetailModal({ detail, onClose }: { detail: TaskDetail; onClose: () => void }) {
-  const judge = detail.task_history?.judge ?? detail.decision;
   const toolsDetail = detail.decision?.tools_detail
     ? (() => {
         try {
@@ -453,7 +452,7 @@ function TaskDetailModal({ detail, onClose }: { detail: TaskDetail; onClose: () 
                     return (
                       <div key={j} className="p-2 rounded bg-emerald-900/20 border border-emerald-700/30">
                         <span className="text-emerald-400">助手</span>
-                        {toolCalls && (
+                        {toolCalls != null && (
                           <pre className="mt-1 text-amber-400/90 text-[9px]">
                             {typeof toolCalls === "string" ? toolCalls : JSON.stringify(toolCalls, null, 2).slice(0, 500)}
                           </pre>

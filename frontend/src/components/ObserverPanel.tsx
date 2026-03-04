@@ -288,7 +288,7 @@ export function ObserverPanel() {
                           className="inline-block w-2 h-2 rounded-full shrink-0"
                           style={{ backgroundColor: getAgentColor(a.id) }}
                         />
-                        <span className="truncate min-w-0">{a.id}</span>
+                        <span className="truncate min-w-0">{a.display_name || a.id}</span>
                         <span className="text-amber-400 shrink-0">({a.balance})</span>
                         <span className="shrink-0 text-[10px] text-slate-500" title="任务 成功/总数 · 进化 成功/总数">
                           📋{a.success_count ?? 0}/{a.task_count ?? 0} ✨{a.evolution_success_count ?? 0}/{a.evolution_count ?? 0}

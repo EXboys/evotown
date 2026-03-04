@@ -51,6 +51,8 @@ async def lifespan(app: FastAPI):
             soul_type = a.get("soul_type", "balanced")
             agent_home, chat_root = await process_mgr.spawn(agent_id, None, soul_type=soul_type)
             observer = start_watching(chat_root, agent_id, broadcast_evolution_event, loop)
+            # 优先使用持久化的展示名，否则重新分配
+            display_name = a.get("display_name", "") or arena.assign_display_name()
             record = AgentRecord(
                 agent_id=agent_id,
                 agent_home=agent_home,
@@ -60,14 +62,18 @@ async def lifespan(app: FastAPI):
                 in_task=False,
                 soul_type=a.get("soul_type", "balanced"),
                 observer=observer,
+                display_name=display_name,
             )
             arena.add_agent(record)
-            logger.info("[%s] restored from disk", agent_id)
+            logger.info("[%s] restored from disk (display_name=%s)", agent_id, display_name)
         except Exception as e:
             logger.warning("[%s] restore failed: %s", agent_id, e)
 
     if arena.agents:
         logger.info("Restored %d agents, counter=%d", len(arena.agents), arena.agent_counter)
+        # 启动后立即持久化到 volume，确保 arena_state.json 保存在 /app/data/（挂载卷）
+        arena.persist(experiment_id=deps.experiment_id)
+        logger.info("Arena state persisted to data volume")
 
     process_mgr.set_on_task_done(on_task_done)
     process_mgr.set_on_event(on_agent_event)

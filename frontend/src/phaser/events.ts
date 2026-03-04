@@ -7,7 +7,7 @@ export type EvotownEventMap = {
   task_expired: { task_id: string; task: string };
   evolution_event: { agent_id: string; type?: string; [k: string]: unknown };
   agent_eliminated: { agent_id: string; reason: string };
-  agent_created: { agent_id: string; balance: number };
+  agent_created: { agent_id: string; balance: number; display_name?: string };
   phaser_ready: Record<string, never>; // Phaser 场景就绪，React 可同步 agents
   request_sync: Record<string, never>; // 请求从 API 同步 agent 状态（含 in_task）并刷新 NPC
 };

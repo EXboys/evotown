@@ -2,6 +2,8 @@
 
 Puts evolution engines (e.g. SkillLite) in a controlled environment for **evolution effect validation**. Economy rules are configurable, reproducible, fully local, and **do not depend on virtual/cryptocurrency**.
 
+![Evotown — Evolution Arena](./docs/images/Evotown.png)
+
 **Language**: [English](en/README.md) | [中文](zh-CN/README.md)
 
 ## Prerequisites

@@ -126,12 +126,43 @@ export function useReplay() {
     timerRef.current = setTimeout(() => { if (!pausedRef.current) scheduleNext(idx + 1); }, delay);
   }, []);
 
+  /** 进入回放模式：清理现有状态，屏蔽实时数据源 */
+  const enterReplayMode = useCallback(() => {
+    const store = useEvotownStore.getState();
+    if (!store.replayMode) {
+      store.setReplayMode(true);
+      // 清除当前场景中的所有 agent（让 Phaser 销毁精灵）
+      store.agents.forEach((a) => {
+        evotownEvents.emit("agent_eliminated", { agent_id: a.id, reason: "replay_clear" });
+      });
+      store.setAgents([]);
+      store.setAvailableTasks([]);
+    }
+  }, []);
+
+  /** 退出回放模式：恢复实时数据源 */
+  const exitReplayMode = useCallback(() => {
+    const store = useEvotownStore.getState();
+    if (store.replayMode) {
+      // 清除回放残留的 agent
+      store.agents.forEach((a) => {
+        evotownEvents.emit("agent_eliminated", { agent_id: a.id, reason: "replay_end" });
+      });
+      store.setAgents([]);
+      store.setAvailableTasks([]);
+      store.setReplayMode(false);
+      // 触发重新同步实时数据
+      evotownEvents.emit("request_sync", {});
+    }
+  }, []);
+
   const play = useCallback(() => {
     if (replayState === "done" || replayState === "idle") return;
+    enterReplayMode();
     pausedRef.current = false;
     setReplayState("playing");
     scheduleNext(indexRef.current);
-  }, [replayState, scheduleNext]);
+  }, [replayState, scheduleNext, enterReplayMode]);
 
   const pause = useCallback(() => {
     pausedRef.current = true;
@@ -144,10 +175,19 @@ export function useReplay() {
     pausedRef.current = false;
     indexRef.current = 0;
     setCurrentIndex(0);
+    exitReplayMode();
     setReplayState(eventsRef.current.length > 0 ? "ready" : "idle");
-  }, []);
+  }, [exitReplayMode]);
 
-  useEffect(() => () => clearTimer(), []);
+  useEffect(() => () => {
+    clearTimer();
+    // 组件卸载时退出回放模式
+    const store = useEvotownStore.getState();
+    if (store.replayMode) {
+      store.setReplayMode(false);
+      evotownEvents.emit("request_sync", {});
+    }
+  }, []);
 
   const total = eventsRef.current.length;
   const progress = total > 0 ? currentIndex / total : 0;

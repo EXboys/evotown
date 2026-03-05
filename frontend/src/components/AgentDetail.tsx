@@ -99,6 +99,8 @@ export function AgentDetail({
   const [soulSaving, setSoulSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [repairing, setRepairing] = useState(false);
+  const [repairMsg, setRepairMsg] = useState<string | null>(null);
   const [showShare, setShowShare] = useState(false);
   const removeAgent = useEvotownStore((s) => s.removeAgent);
   const agent = useEvotownStore((s) => s.agents.find((a) => a.id === agentId));
@@ -210,7 +212,8 @@ export function AgentDetail({
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(`确定要删除 Agent「${agentId}」吗？删除后可从竞技场重新创建。`)) return;
+    const displayName = agent?.display_name || agentId;
+    if (!window.confirm(`确定要删除 Agent「${displayName}」吗？删除后可从竞技场重新创建。`)) return;
     setDeleting(true);
     try {
       const res = await fetch(`/agents/${agentId}`, { method: "DELETE" });
@@ -235,7 +238,7 @@ export function AgentDetail({
     <div className="absolute inset-0 z-20 flex flex-col bg-slate-900/95 backdrop-blur-sm border-l border-slate-600/50 min-w-0 overflow-hidden">
       <div className="flex items-center justify-between gap-2 p-3 border-b border-slate-600/50">
         <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-medium text-slate-200 truncate">{agentId} 详情</h3>
+          <h3 className="text-sm font-medium text-slate-200 truncate">{agent?.display_name || agentId} 详情</h3>
           {agent && (
             <p className="text-[10px] text-slate-500 mt-0.5" title="任务 成功/总数 · 进化 成功/总数">
               📋{agent.success_count ?? 0}/{agent.task_count ?? 0} ✨{agent.evolution_success_count ?? 0}/{agent.evolution_count ?? 0}
@@ -424,6 +427,46 @@ export function AgentDetail({
           </div>
         ) : tab === "skills" ? (
           <div className="space-y-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[11px] text-slate-500">内置技能 + 进化技能</span>
+              <button
+                onClick={async () => {
+                  setRepairing(true);
+                  setRepairMsg(null);
+                  try {
+                    const res = await fetch(`/agents/${agentId}/repair-skills`, { method: "POST" });
+                    const data = await res.json();
+                    setRepairMsg(data.ok ? "✅ 修复完成" : `❌ ${data.error ?? "修复失败"}`);
+                    if (data.ok) {
+                      // 刷新技能列表
+                      const sRes = await fetch(`/agents/${agentId}/skills`);
+                      const skillsRaw = (await sRes.json()) as unknown[];
+                      setSkills(
+                        Array.isArray(skillsRaw)
+                          ? skillsRaw.map((s: unknown) =>
+                              typeof s === "string" ? { name: s, status: "confirmed" } : (s as typeof skills[number])
+                            )
+                          : []
+                      );
+                    }
+                  } catch {
+                    setRepairMsg("❌ 请求失败");
+                  } finally {
+                    setRepairing(false);
+                  }
+                }}
+                disabled={repairing}
+                className="px-2 py-1 text-[10px] font-medium rounded bg-sky-600/20 text-sky-400 border border-sky-600/30 hover:bg-sky-600/40 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="重新从 arena_skills 部署技能依赖，修复损坏的符号链接"
+              >
+                {repairing ? "修复中…" : "🔧 修复技能"}
+              </button>
+            </div>
+            {repairMsg && (
+              <p className="text-[11px] px-2 py-1 rounded bg-slate-800/50 text-slate-300 border border-slate-600/40">
+                {repairMsg}
+              </p>
+            )}
             {skills.length === 0 ? (
               <p className="text-sm text-slate-500 py-4 text-center rounded-lg bg-slate-800/30 border border-dashed border-slate-600/50">
                 暂无进化技能

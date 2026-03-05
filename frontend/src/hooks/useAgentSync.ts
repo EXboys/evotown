@@ -50,6 +50,8 @@ function syncStoreToPhaser(agents: AgentInfo[]) {
 async function doFullSync(
   setAgents: (a: AgentInfo[]) => void,
 ): Promise<void> {
+  // 回放模式下跳过，避免实时数据覆盖回放状态
+  if (useEvotownStore.getState().replayMode) return;
   try {
     const list = await fetchAgents();
     setAgents(list);
@@ -64,6 +66,8 @@ async function doFullSync(
 function syncFromStoreToPhaser(
   getAgents: () => AgentInfo[],
 ): void {
+  // 回放模式下跳过
+  if (useEvotownStore.getState().replayMode) return;
   const agents = getAgents();
   if (agents.length === 0) return;
   syncStoreToPhaser(agents);

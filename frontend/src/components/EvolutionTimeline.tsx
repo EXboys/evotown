@@ -44,7 +44,7 @@ export function EvolutionTimeline({
   agents,
   onSelectAgent,
 }: {
-  agents: { id: string }[];
+  agents: { id: string; display_name?: string }[];
   onSelectAgent?: (agentId: string, tab?: string) => void;
 }) {
   const [logByAgent, setLogByAgent] = useState<Record<string, EvolutionEventItem[]>>({});
@@ -137,7 +137,7 @@ export function EvolutionTimeline({
             return (
               <div key={a.id} className="flex items-center gap-2 py-1.5 min-h-[28px] min-w-0">
                 <span className="w-14 shrink-0 text-xs text-slate-400 truncate" title={a.id}>
-                  {a.id}
+                  {a.display_name || a.id}
                 </span>
                 <div className="flex-1 min-w-0 flex items-center gap-0.5 relative h-6 overflow-x-auto">
                   {events.length === 0 ? (
@@ -188,7 +188,7 @@ export function EvolutionTimeline({
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
             <dt className="text-slate-500">Agent</dt>
             <dd className="text-slate-300 font-mono">
-              {selectedEvent.agent_id}
+              {agents.find((a) => a.id === selectedEvent.agent_id)?.display_name || selectedEvent.agent_id}
               {onSelectAgent && (
                 <button
                   onClick={() => {

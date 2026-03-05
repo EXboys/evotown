@@ -79,7 +79,10 @@ interface EvotownState {
   taskRecords: TaskRecord[];
   dispatcherState: DispatcherState;
   experimentInfo: ExperimentInfo;
+  /** 回放模式 — true 时 WebSocket / AgentSync 不分发事件 */
+  replayMode: boolean;
 
+  setReplayMode: (mode: boolean) => void;
   setAgents: (agents: AgentInfo[]) => void;
   addAgent: (agent: AgentInfo) => void;
   updateAgentBalance: (agentId: string, balance: number) => void;
@@ -114,7 +117,9 @@ export const useEvotownStore = create<EvotownState>((set, get) => ({
   taskRecords: [],
   dispatcherState: { running: false, pool_size: 0, interval: 30 },
   experimentInfo: { experiment_id: null, config: null },
+  replayMode: false,
 
+  setReplayMode: (mode) => set({ replayMode: mode }),
   setAgents: (agents) => set({ agents }),
   addAgent: (agent) =>
     set((s) => {

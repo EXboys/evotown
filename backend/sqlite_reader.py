@@ -143,10 +143,48 @@ def get_transcript_executions(
     return executions[-limit:] if limit else executions
 
 
+def _parse_all_entries(paths: list[Path]) -> list[dict[str, Any]]:
+    """读取多个 transcript 文件并合并为一个条目列表"""
+    all_entries: list[dict[str, Any]] = []
+    for p in paths:
+        try:
+            lines = p.read_text(encoding="utf-8").strip().splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                all_entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+    return all_entries
+
+
+def _extract_excerpt(entries: list[dict[str, Any]], start_idx: int) -> list[dict[str, Any]]:
+    """从 start_idx 处提取一段对话：当前 user 消息 + 后续非 user 消息"""
+    excerpt: list[dict[str, Any]] = [entries[start_idx]]
+    j = start_idx + 1
+    while j < len(entries):
+        nxt = entries[j]
+        nxt_kind = nxt.get("type", "")
+        nxt_role = nxt.get("role", "")
+        if nxt_kind == "message" and nxt_role == "user":
+            break
+        excerpt.append(nxt)
+        j += 1
+    return excerpt
+
+
 def get_transcript_excerpt_for_task(
     chat_root: str, session_key: str, task_text: str, ts_hint: float | None = None
 ) -> list[dict[str, Any]]:
-    """获取某任务的完整 transcript 片段：用户消息 + 助手回复 + 工具调用等"""
+    """获取某任务的完整 transcript 片段：用户消息 + 助手回复 + 工具调用等。
+
+    优先按任务文本精确匹配；若 transcript 已被 compaction 清理导致匹配失败，
+    则回退到基于 ts_hint 时间戳的最近邻匹配。
+    """
     transcripts_dir = Path(chat_root) / "transcripts"
     paths = _list_transcript_files(transcripts_dir, session_key)
     if not paths:
@@ -156,52 +194,36 @@ def get_transcript_excerpt_for_task(
     if not task_clean:
         return []
 
+    entries = _parse_all_entries(paths)
+    if not entries:
+        return []
+
     best_match: tuple[float, list[dict[str, Any]]] | None = None
+    # 收集所有 user 消息索引（用于 ts_hint 回退）
+    user_msg_indices: list[tuple[int, float]] = []
 
-    for p in paths:
-        try:
-            lines = p.read_text(encoding="utf-8").strip().splitlines()
-        except OSError:
-            continue
+    i = 0
+    while i < len(entries):
+        entry = entries[i]
+        kind = entry.get("type", "")
+        role = entry.get("role", "")
+        content = (entry.get("content") or "").strip()
 
-        entries: list[dict[str, Any]] = []
-        for line in lines:
-            line = line.strip()
-            if not line:
+        if kind == "message" and role == "user" and content:
+            ts = entry.get("timestamp") or entry.get("ts")
+            ts_num = _parse_ts_to_num(ts) if ts else 0
+
+            if _PREVIEW_PREFIX in content:
+                # 跳过预览消息，但记录索引用于 ts_hint 回退
+                user_msg_indices.append((i, ts_num))
+                i += 1
                 continue
-            try:
-                entries.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
 
-        i = 0
-        while i < len(entries):
-            entry = entries[i]
-            kind = entry.get("type", "")
-            role = entry.get("role", "")
-            content = (entry.get("content") or "").strip()
+            # 记录索引
+            user_msg_indices.append((i, ts_num))
 
-            if kind == "message" and role == "user" and content:
-                if _PREVIEW_PREFIX in content:
-                    i += 1
-                    continue
-                if content != task_clean and task_clean not in content:
-                    i += 1
-                    continue
-
-                ts = entry.get("timestamp") or entry.get("ts")
-                ts_num = _parse_ts_to_num(ts) if ts else 0
-                excerpt: list[dict[str, Any]] = [entry]
-
-                j = i + 1
-                while j < len(entries):
-                    nxt = entries[j]
-                    nxt_kind = nxt.get("type", "")
-                    nxt_role = nxt.get("role", "")
-                    if nxt_kind == "message" and nxt_role == "user":
-                        break
-                    excerpt.append(nxt)
-                    j += 1
+            if content == task_clean or task_clean in content:
+                excerpt = _extract_excerpt(entries, i)
 
                 if ts_hint is not None:
                     score = -abs(ts_num - ts_hint) if ts_num else 0
@@ -209,11 +231,34 @@ def get_transcript_excerpt_for_task(
                     score = ts_num
                 if best_match is None or score > best_match[0]:
                     best_match = (score, excerpt)
-                i = j
+                i += len(excerpt)
             else:
                 i += 1
+        else:
+            i += 1
 
-    return best_match[1] if best_match else []
+    if best_match:
+        return best_match[1]
+
+    # 回退 1：文本匹配失败（可能 compaction 已删除原始消息），
+    # 尝试匹配包含任务文本的预览消息（【任务预览】xxx）
+    for idx, ts_num in user_msg_indices:
+        content = (entries[idx].get("content") or "").strip()
+        if _PREVIEW_PREFIX in content and task_clean in content:
+            return _extract_excerpt(entries, idx)
+
+    # 回退 2：用 ts_hint 找最近的非预览 user 消息
+    if ts_hint is not None and user_msg_indices:
+        non_preview = [
+            (idx, ts_num) for idx, ts_num in user_msg_indices
+            if _PREVIEW_PREFIX not in (entries[idx].get("content") or "")
+        ]
+        candidates = non_preview if non_preview else user_msg_indices
+        best_idx = min(candidates, key=lambda x: abs(x[1] - ts_hint) if x[1] else float("inf"))
+        if best_idx[1] and abs(best_idx[1] - ts_hint) < 300:  # 5 分钟以内
+            return _extract_excerpt(entries, best_idx[0])
+
+    return []
 
 
 async def get_decisions(chat_root: str, limit: int = 50) -> list[dict[str, Any]]:

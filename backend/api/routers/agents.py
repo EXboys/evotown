@@ -67,6 +67,15 @@ async def get_agent_skills(agent_id: str):
     return await agent_service.get_skills_data(agent_id)
 
 
+@router.post("/{agent_id}/repair-skills")
+async def repair_agent_skills(agent_id: str):
+    """重新从 arena_skills 部署内置技能，修复损坏的符号链接或缺失的技能目录。"""
+    ok, msg = await agent_service.repair_skills_action(agent_id)
+    if not ok:
+        return {"ok": False, "error": msg}
+    return {"ok": True, "message": msg}
+
+
 @router.post("/{agent_id}/skills/{skill_name}/confirm")
 async def confirm_skill(agent_id: str, skill_name: str):
     ok, msg = await agent_service.confirm_skill_action(agent_id, skill_name)

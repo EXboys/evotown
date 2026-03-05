@@ -187,7 +187,7 @@ class ProcessManager:
             # 若 .skills 为空（如从持久化恢复的 agent），补充种子技能
             existing = [d.name for d in skills_dir.iterdir() if d.is_dir() and not d.name.startswith("_")]
             if not existing:
-                shutil.copytree(workspace_skills, skills_dir, dirs_exist_ok=True)
+                shutil.copytree(workspace_skills, skills_dir, dirs_exist_ok=True, symlinks=True)
                 logger.info("Seeded agent .skills from %s", workspace_skills.name)
             else:
                 # 合并缺失的种子技能（兼容旧 agent）
@@ -197,7 +197,7 @@ class ProcessManager:
                     if sub.is_dir() and (sub / "SKILL.md").exists():
                         dst = skills_dir / sub.name
                         if not dst.exists():
-                            shutil.copytree(sub, dst, dirs_exist_ok=True)
+                            shutil.copytree(sub, dst, dirs_exist_ok=True, symlinks=True)
                             logger.info("Merged seed skill %s into agent .skills", sub.name)
         elif not skills_dir.exists():
             skills_dir.mkdir(parents=True, exist_ok=True)
@@ -227,6 +227,9 @@ class ProcessManager:
 
         # 启动 skilllite agent-rpc 子进程（仅设 SKILLLITE_WORKSPACE，不覆盖 HOME）
         agent_env = {**os.environ}
+        # ★ 禁用 agent-rpc 内置的周期/决策计数进化触发器 —— 进化统一由 Python 后端 trigger_evolve 管理，
+        #   避免两个进程（agent-rpc 内 + trigger_evolve 外）同时写同一 agent 的 .skills/_evolved/
+        agent_env["SKILLLITE_EVOLUTION"] = "0"
         # 归一化 API 密钥：支持 API_KEY/BASE_URL/MODEL（本地 .env 惯例）和 OPENAI_* 两种命名
         if not agent_env.get("OPENAI_API_KEY") and agent_env.get("API_KEY"):
             agent_env["OPENAI_API_KEY"] = agent_env["API_KEY"]
@@ -481,10 +484,67 @@ class ProcessManager:
             logger.error("[%s] inject_task FAILED to write stdin: %s", agent_id, e)
             return False
 
+    def repair_skills(self, agent_home: str) -> tuple[bool, str]:
+        """从 arena_skills 重新部署所有技能到 agent 的 .skills 目录，修复损坏的符号链接。
+
+        - 已存在的技能：仅替换 node_modules（保留进化产物 _evolved/）
+        - 缺失的技能：整体复制
+        所有复制均使用 symlinks=True，确保 node_modules/.bin 中的符号链接完整。
+        """
+        arena_skills = Path(__file__).resolve().parent / "arena_skills"
+        if not arena_skills.exists():
+            return False, f"arena_skills source not found at {arena_skills}"
+
+        skills_dir = Path(agent_home) / ".skills"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+
+        repaired: list[str] = []
+        for skill_src in sorted(arena_skills.iterdir()):
+            if not skill_src.is_dir() or not (skill_src / "SKILL.md").exists():
+                continue
+            skill_name = skill_src.name
+            skill_dst = skills_dir / skill_name
+
+            if skill_dst.exists():
+                # 只替换 node_modules，保留进化产物
+                nm_src = skill_src / "node_modules"
+                nm_dst = skill_dst / "node_modules"
+                if nm_src.exists():
+                    if nm_dst.exists():
+                        shutil.rmtree(nm_dst)
+                    shutil.copytree(nm_src, nm_dst, symlinks=True)
+                    repaired.append(f"{skill_name}: node_modules restored")
+                else:
+                    repaired.append(f"{skill_name}: no node_modules in source, skipped")
+            else:
+                shutil.copytree(skill_src, skill_dst, symlinks=True)
+                repaired.append(f"{skill_name}: copied (was missing)")
+
+        msg = "\n".join(repaired) if repaired else "No skills found in arena_skills"
+        logger.info("[%s] repair_skills done: %s", agent_home, repaired)
+        return True, msg
+
     async def trigger_evolve(self, agent_id: str, agent_home: str) -> tuple[bool, str]:
         """主动触发进化: skilllite evolution run，使用该 agent 独立的 .skills
         返回 (成功与否, 输出信息供前端展示)
         """
+        # ★ 防御检查：agent_home 不应以 /chat 结尾（chat_dir 误传），且路径中应包含 agent_id
+        if agent_home.rstrip("/").endswith("/chat"):
+            fixed = str(Path(agent_home).parent)
+            logger.warning(
+                "[%s] trigger_evolve: agent_home ends with /chat, fixing %s -> %s",
+                agent_id, agent_home, fixed,
+            )
+            agent_home = fixed
+        if agent_id not in agent_home:
+            logger.warning(
+                "[%s] trigger_evolve: agent_id not found in agent_home=%s — possible mismatch!",
+                agent_id, agent_home,
+            )
+        logger.info(
+            "[%s] trigger_evolve: agent_home=%s, skills_dir=%s",
+            agent_id, agent_home, Path(agent_home) / ".skills",
+        )
         evolve_env = {**os.environ}
         if not evolve_env.get("OPENAI_API_KEY") and evolve_env.get("API_KEY"):
             evolve_env["OPENAI_API_KEY"] = evolve_env["API_KEY"]

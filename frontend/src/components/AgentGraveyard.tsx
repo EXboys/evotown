@@ -12,6 +12,7 @@ function getAgentColor(agentId: string): string {
 
 interface EliminatedRecord {
   agent_id: string;
+  display_name?: string;
   reason: string;
   final_balance: number | null;
   soul_type: string;
@@ -103,7 +104,7 @@ export function AgentGraveyard() {
                   className="inline-block w-2 h-2 rounded-full shrink-0 opacity-60"
                   style={{ backgroundColor: getAgentColor(r.agent_id) }}
                 />
-                <span className="font-mono truncate min-w-0">{r.agent_id}</span>
+                <span className="font-mono truncate min-w-0">{r.display_name || r.agent_id}</span>
                 <span className="text-amber-500/80 shrink-0">
                   ({r.final_balance != null ? r.final_balance : "?"})
                 </span>
@@ -171,7 +172,7 @@ function LifecycleDetail({
             className="w-2 h-2 rounded-full shrink-0"
             style={{ backgroundColor: getAgentColor(agentId) }}
           />
-          <span className="font-mono text-sm text-slate-200 truncate">{agentId}</span>
+          <span className="font-mono text-sm text-slate-200 truncate">{String(lifecycle?.display_name || agentId)}</span>
           <span className="text-[10px] text-slate-500 shrink-0">
             {String(lifecycle.reason_label ?? "")}
             {lifecycle.final_balance != null ? ` · 余额 ${lifecycle.final_balance}` : ""}

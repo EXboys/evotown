@@ -45,6 +45,8 @@ export function useWebSocket() {
       ws.onmessage = (e) => {
         if (cancelled) return;
         const store = useEvotownStore.getState();
+        // 回放模式下忽略实时 WS 事件，避免覆盖回放状态
+        if (store.replayMode) return;
         try {
           const msg = JSON.parse(e.data) as Record<string, unknown>;
           const type = msg.type as string | undefined;

@@ -85,6 +85,7 @@ async def delete_agent(agent_id: str) -> None:
             reason="user_deleted",
             final_balance=removed.balance,
             soul_type=removed.soul_type or "balanced",
+            display_name=removed.display_name or agent_id,
         )
         if removed._observer:
             removed._observer.stop()
@@ -235,6 +236,16 @@ async def reject_skill_action(agent_id: str, skill_name: str) -> tuple[bool, str
     agent_home = a.agent_home or a.chat_dir
     ok = reject_skill(agent_home, skill_name)
     return ok, "ok" if ok else "skill not found"
+
+
+async def repair_skills_action(agent_id: str) -> tuple[bool, str]:
+    """重新从 arena_skills 部署所有内置技能到 agent 的 .skills 目录，修复损坏的符号链接。"""
+    a = arena.get_agent(agent_id)
+    if not a:
+        return False, "agent not found"
+    agent_home = a.agent_home or a.chat_dir
+    ok, msg = process_mgr.repair_skills(agent_home)
+    return ok, msg
 
 
 async def get_task_execution_detail(

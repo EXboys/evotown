@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import random
+from pathlib import Path
 
 from core.config import load_economy_config, load_evolution_config, load_timeout_config
 from core.deps import arena, process_mgr, monitor, task_dispatcher, ws
@@ -155,13 +156,14 @@ async def on_task_done(
     response = done_data.get("response", "")
     tool_total = exe.tool_total if exe else 0
     tool_failed = exe.tool_failed if exe else 0
+    tool_calls = exe.tool_calls if exe else []
 
     try:
         timeout_cfg = load_timeout_config()
         judge_timeout = timeout_cfg.get("judge_timeout_seconds", 60)
         try:
             judge_result = await asyncio.wait_for(
-                judge_task(task_text, response, tool_total, tool_failed),
+                judge_task(task_text, response, tool_total, tool_failed, tool_calls=tool_calls),
                 timeout=float(judge_timeout),
             )
         except asyncio.TimeoutError:
@@ -237,7 +239,11 @@ async def on_task_done(
             should_evolve = periodic or failure_trigger
             if should_evolve:
                 arena.set_last_evolve_at(agent_id, count)
-                agent_home = a.agent_home or a.chat_dir
+                # ★ 优先用 agent_home；若 fallback 到 chat_dir（含 /chat 后缀），需取其 parent
+                agent_home = a.agent_home
+                if not agent_home:
+                    cd = a.chat_dir or ""
+                    agent_home = str(Path(cd).parent) if cd.rstrip("/").endswith("/chat") else cd
                 if agent_home:
                     asyncio.create_task(trigger_evolve_background(agent_id, agent_home))
 
@@ -251,6 +257,7 @@ async def on_task_done(
                     reason="balance_zero",
                     final_balance=removed.balance,
                     soul_type=removed.soul_type or "balanced",
+                    display_name=removed.display_name or agent_id,
                 )
                 if removed._observer:
                     removed._observer.stop()

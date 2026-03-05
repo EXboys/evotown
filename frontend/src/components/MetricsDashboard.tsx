@@ -34,7 +34,7 @@ function formatDate(d: string): string {
   }
 }
 
-export function MetricsDashboard({ agents }: { agents: { id: string }[] }) {
+export function MetricsDashboard({ agents }: { agents: { id: string; display_name?: string }[] }) {
   const [data, setData] = useState<{ date: string; [key: string]: string | number | undefined }[]>([]);
   const setMetricsCache = useEvotownStore((s) => s.setMetricsCache);
 
@@ -115,7 +115,7 @@ export function MetricsDashboard({ agents }: { agents: { id: string }[] }) {
                 key={a.id}
                 type="monotone"
                 dataKey={`${a.id}_egl`}
-                name={a.id}
+                name={a.display_name || a.id}
                 stroke={agentColor(a.id)}
                 strokeWidth={2}
                 dot={{ r: 2 }}

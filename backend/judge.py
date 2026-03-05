@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass, asdict
 from typing import Any
 
-from llm_client import chat_completion
+from llm_client import judge_completion
 
 logger = logging.getLogger("evotown.judge")
 
@@ -31,17 +31,24 @@ _JSON_WRAPPER_PATTERN = re.compile(
 )
 
 JUDGE_PROMPT = """\
-You are a strict task-completion judge for an AI agent arena.
+You are a strict but fair task-completion judge for an AI agent arena.
 
 Given:
 - **Task**: the original task assigned to the agent
 - **Response**: the agent's final response
-- **Tool Stats**: total tool calls and how many failed
+- **Tool Calls**: detailed list of each tool call and whether it succeeded or failed
 
-Score the agent on three dimensions (0–10 each):
-1. **completion** — Did the agent fully accomplish the user's intent? 0 = total failure, 10 = perfect.
-2. **quality** — Is the response accurate, helpful, and well-structured?
-3. **efficiency** — Did the agent solve it without unnecessary retries or wasted tool calls?
+IMPORTANT JUDGING PRINCIPLES:
+- **Focus on the FINAL OUTCOME**, not the intermediate process.
+- If the agent's final response correctly and fully answers the task, completion should be HIGH (7-10), even if some tool calls failed along the way.
+- A failed tool call that was recovered from (e.g., run_code failed but calculator succeeded) should NOT heavily penalize completion or quality.
+- Efficiency should reflect whether the agent used reasonable approaches; a single retry or fallback to a different tool is acceptable (score 5-7). Only penalize heavily for many redundant retries.
+- An agent that fails one approach but succeeds with another demonstrates adaptability — do NOT treat this as total failure.
+
+Score on three dimensions (0–10 each):
+1. **completion** — Did the agent's FINAL RESPONSE fully accomplish the user's intent? 0 = wrong answer or no answer, 10 = perfect and complete.
+2. **quality** — Is the final response accurate, clear, and well-structured?
+3. **efficiency** — Did the agent solve it with reasonable effort? Minor retries are OK (5-7), excessive waste scores lower.
 
 Also provide a one-sentence **reason** explaining the score.
 
@@ -147,13 +154,23 @@ class JudgeResult:
 
     @property
     def reward(self) -> int:
-        """映射到经济系统的奖惩值: -5 ~ +5"""
+        """映射到经济系统的奖惩值: -5 ~ +5
+
+        更平滑的曲线，避免"结果正确但过程有瑕疵"时被过度惩罚。
+        0-3   → -5  (完全失败)
+        4-8   → -2  (部分完成但有明显问题)
+        9-14  →  0  (基本完成)
+        15-22 →  3  (良好)
+        23-30 →  5  (优秀)
+        """
         total = self.total_score  # 0~30
-        if total <= 5:
+        if total <= 3:
             return -5
-        elif total <= 10:
+        elif total <= 8:
+            return -2
+        elif total <= 14:
             return 0
-        elif total <= 20:
+        elif total <= 22:
             return 3
         else:
             return 5
@@ -170,37 +187,51 @@ async def judge_task(
     response: str,
     tool_total: int = 0,
     tool_failed: int = 0,
+    tool_calls: list[dict] | None = None,
 ) -> JudgeResult:
     """评判一次任务执行结果
 
-    快速短路：全工具失败时跳过 LLM 调用。
+    快速短路：全工具失败且无有效回复时跳过 LLM 调用。
     """
-    if tool_total > 0 and tool_failed >= tool_total:
-        logger.info("fast-path: all %d tool calls failed, skipping LLM judge", tool_total)
+    has_response = bool(response and response.strip())
+
+    if tool_total > 0 and tool_failed >= tool_total and not has_response:
+        logger.info("fast-path: all %d tool calls failed + empty response, skipping LLM judge", tool_total)
         return JudgeResult(
             completion=0, quality=0, efficiency=0,
-            reason=f"All {tool_total} tool calls failed — task not completed.",
+            reason=f"All {tool_total} tool calls failed and no response — task not completed.",
             skipped=True,
         )
 
-    if not response or not response.strip():
+    if not has_response:
         return JudgeResult(
             completion=0, quality=0, efficiency=0,
             reason="Agent returned empty response.",
             skipped=True,
         )
 
+    # Build per-tool detail string
+    tool_detail_lines: list[str] = []
+    if tool_calls:
+        for i, tc in enumerate(tool_calls, 1):
+            status = "✗ FAILED" if tc.get("is_error") else "✓ OK"
+            name = tc.get("name", "unknown")
+            tool_detail_lines.append(f"  {i}. [{status}] {name}")
+        tool_section = "**Tool Calls (in order):**\n" + "\n".join(tool_detail_lines)
+    else:
+        tool_section = f"**Tool Stats:** {tool_total} total calls, {tool_failed} failed"
+
     user_content = (
         f"**Task:** {task}\n\n"
         f"**Response:** {response[:2000]}\n\n"
-        f"**Tool Stats:** {tool_total} total calls, {tool_failed} failed"
+        f"{tool_section}"
     )
 
     try:
         result: dict[str, Any] = {}
         for attempt in range(2):
             prompt = JUDGE_PROMPT_STRICT if attempt == 1 else JUDGE_PROMPT
-            api_result = await chat_completion(
+            api_result = await judge_completion(
                 messages=[
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": user_content},

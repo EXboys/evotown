@@ -24,7 +24,7 @@ from typing import Any, Awaitable, Callable
 
 from infra.execution_log import count_refusals_by_task
 from infra.task_history import load_task_history
-from llm_client import chat_completion
+from llm_client import dispatcher_completion
 
 logger = logging.getLogger("evotown.dispatcher")
 
@@ -562,7 +562,7 @@ class TaskDispatcher:
         existing_hint = self._build_existing_tasks_hint()  # 包含历史
         messages = self._build_llm_messages(count, theme, existing_hint)
         try:
-            result = await chat_completion(messages=messages, temperature=0.95, max_tokens=1200)
+            result = await dispatcher_completion(messages=messages, temperature=0.95, max_tokens=1200)
             parsed = self._extract_tasks_from_result(result)
             if parsed:
                 filtered = self._filter_duplicate_tasks(parsed)  # 三层去重
@@ -594,7 +594,7 @@ class TaskDispatcher:
         existing_hint = self._build_existing_tasks_hint()
         messages = self._build_llm_messages(count, theme, existing_hint)
         try:
-            result = await chat_completion(messages=messages, temperature=0.95, max_tokens=1200)
+            result = await dispatcher_completion(messages=messages, temperature=0.95, max_tokens=1200)
             parsed = self._extract_tasks_from_result(result)
             if parsed:
                 filtered = self._filter_duplicate_tasks(parsed)

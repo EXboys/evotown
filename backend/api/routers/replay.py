@@ -13,6 +13,15 @@ async def get_sessions():
     return list_sessions()
 
 
+@router.get("/sessions/active")
+async def get_active_session():
+    """查询当前正在录制的 session（无则返回 null）"""
+    rec = get_recorder()
+    if rec is None:
+        return {"active": False, "session_id": None}
+    return {"active": True, "session_id": rec.session_id}
+
+
 @router.get("/sessions/{session_id}")
 async def get_session_events(session_id: str):
     """获取指定 session 的全部事件（含 replay_ts）"""
@@ -41,13 +50,4 @@ async def api_stop_session():
     sid = rec.session_id
     stop_session()
     return {"ok": True, "session_id": sid}
-
-
-@router.get("/sessions/active")
-async def get_active_session():
-    """查询当前正在录制的 session（无则返回 null）"""
-    rec = get_recorder()
-    if rec is None:
-        return {"active": False, "session_id": None}
-    return {"active": True, "session_id": rec.session_id}
 

@@ -79,6 +79,22 @@ async def lifespan(app: FastAPI):
         arena.persist(experiment_id=deps.experiment_id)
         logger.info("Arena state persisted to data volume")
 
+    # 记录初始状态快照到 replay，供回放时初始化 Phaser 场景中的 agent 精灵
+    from infra.replay import get_recorder as _get_replay_recorder
+    _replay_rec = _get_replay_recorder()
+    if _replay_rec is not None:
+        _snapshot_agents = [
+            {
+                "agent_id": a.agent_id,
+                "display_name": a.display_name or a.agent_id,
+                "balance": a.balance,
+                "in_task": a.in_task,
+            }
+            for a in arena.agents.values()
+        ]
+        _replay_rec.record({"type": "state_snapshot", "agents": _snapshot_agents})
+        logger.info("[replay] recorded initial state_snapshot with %d agents", len(_snapshot_agents))
+
     process_mgr.set_on_task_done(on_task_done)
     process_mgr.set_on_event(on_agent_event)
     task_dispatcher.configure(

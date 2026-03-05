@@ -23,6 +23,12 @@ services:
       - SKILLBOX_AUTO_APPROVE=${SKILLBOX_AUTO_APPROVE:-0}
       - SKILLBOX_ALLOW_PLAYWRIGHT=${SKILLBOX_ALLOW_PLAYWRIGHT:-}
       - SKILLBOX_USE_IPC=${SKILLBOX_USE_IPC:-}
+      # 本地模型（Ollama）路由 — 裁判+任务生成使用本地模型
+      # 注意：Docker 内访问宿主机 Ollama 必须用 host.docker.internal，不能用 127.0.0.1
+      - LOCAL_BASE_URL=${LOCAL_BASE_URL:-}
+      - LOCAL_API_KEY=${LOCAL_API_KEY:-ollama}
+      - JUDGE_MODEL=${JUDGE_MODEL:-}
+      - DISPATCHER_MODEL=${DISPATCHER_MODEL:-}
       # 经济参数（可选覆盖）
       - EVOTOWN_INITIAL_BALANCE=${EVOTOWN_INITIAL_BALANCE:-100}
       - EVOTOWN_REWARD_COMPLETE=${EVOTOWN_REWARD_COMPLETE:-10}
@@ -40,6 +46,8 @@ services:
       - evotown_arena:/root/.skilllite/arena
       # 实验数据持久化
       - evotown_data:/app/data
+      # 录制回放持久化
+      - evotown_replays:/app/replays
     expose:
       - "8765"
     healthcheck:
@@ -57,10 +65,8 @@ services:
     restart: unless-stopped
     ports:
       - "${PORT:-80}:80"
-    volumes:
-      # 开发时挂载本地 build 产物 + nginx 配置，免去重建镜像
-      - ./frontend/dist:/usr/share/nginx/html:ro
-      - ./nginx.conf:/etc/nginx/conf.d/evotown.conf:ro
+    # 前端产物 + nginx 配置全部内置在 Docker 镜像中，
+    # 不再挂载本地文件，docker compose up -d --build 即可更新。
     depends_on:
       backend:
         condition: service_healthy
@@ -68,4 +74,5 @@ services:
 volumes:
   evotown_arena:
   evotown_data:
+  evotown_replays:
 

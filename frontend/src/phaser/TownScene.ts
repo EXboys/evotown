@@ -323,7 +323,7 @@ export default class TownScene extends Phaser.Scene {
     const agent = this.getOrCreateAgent(data.agent_id, data.display_name);
     if (data.display_name && agent.displayName !== data.display_name) {
       agent.displayName = data.display_name;
-      agent.label.setText(data.display_name);
+      agent.label.setText(this.agentLabel(data.display_name, data.agent_id));
     }
   }
 
@@ -344,6 +344,13 @@ export default class TownScene extends Phaser.Scene {
     tasks.forEach((t) => this.taskNpcManager.spawnForTask(t.task_id));
   }
 
+  /** 生成带 agent_id 后缀的标签文本 */
+  private agentLabel(displayName: string, agentId: string): string {
+    // 如果 displayName 本身就是 agentId，不要重复
+    if (displayName === agentId) return agentId;
+    return `${displayName} (${agentId})`;
+  }
+
   private getOrCreateAgent(agentId: string, displayName?: string): AgentState {
     let agent = this.agents.get(agentId);
     if (!agent) {
@@ -354,12 +361,13 @@ export default class TownScene extends Phaser.Scene {
       // 无任务时到处闲逛：出生点随机分布在地图各处，不聚集在城池
       const spawn = getRandomWanderPoint();
       const name = displayName || agentId;
+      const labelText = this.agentLabel(name, agentId);
       const { container, label, body, base, helmet } = createCharacterContainer(
         this,
         spawn.x - cx,
         spawn.y - cy,
         color,
-        name,
+        labelText,
       );
       this.worldInner.add(container);
       const wander = getRandomWanderPoint();
@@ -470,6 +478,13 @@ export default class TownScene extends Phaser.Scene {
   private onAgentEliminated(data: { agent_id: string; reason?: string }) {
     const agent = this.agents.get(data.agent_id);
     if (!agent || agent.eliminating) return;
+
+    // 回放切换时立即清除，不播放死亡动画
+    if (data.reason === "replay_clear" || data.reason === "replay_end") {
+      agent.container.destroy();
+      this.agents.delete(data.agent_id);
+      return;
+    }
 
     agent.eliminating = true;
     agent.taskPhase = "idle"; // 停止移动

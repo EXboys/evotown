@@ -134,7 +134,8 @@ export function ObserverPanel() {
 
   const deleteAgent = async (agentId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm(`确定要删除 Agent「${agentId}」吗？删除后可从竞技场重新创建。`)) return;
+    const displayName = agents.find((a) => a.id === agentId)?.display_name || agentId;
+    if (!window.confirm(`确定要删除 Agent「${displayName}」吗？删除后可从竞技场重新创建。`)) return;
     setDeletingId(agentId);
     try {
       const res = await fetch(`/agents/${agentId}`, { method: "DELETE" });

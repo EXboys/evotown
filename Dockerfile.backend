@@ -43,7 +43,7 @@ COPY --from=rust-builder /build/target/release/skilllite /usr/local/bin/skilllit
 # 创建所需目录：
 #   /root/.skilllite/arena — 进化产物（volume: evotown_arena）
 #   /app/data             — arena_state.json 等持久化数据（volume: evotown_data）
-RUN mkdir -p /root/.skilllite/arena /app/data
+RUN mkdir -p /root/.skilllite/arena /app/data /app/replays
 
 EXPOSE 8765
 

@@ -15,6 +15,7 @@ def append_eliminated(
     reason: str,
     final_balance: int = 0,
     soul_type: str = "balanced",
+    display_name: str = "",
 ) -> None:
     """记录一个被淘汰/删除的 agent"""
     record = {
@@ -22,6 +23,7 @@ def append_eliminated(
         "reason": reason,
         "final_balance": final_balance,
         "soul_type": soul_type,
+        "display_name": display_name or agent_id,
         "ts": time.time(),
     }
     try:

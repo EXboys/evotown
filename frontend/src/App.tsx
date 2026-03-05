@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { TownLayout } from "./components/TownLayout";
 import { ObserverPanel } from "./components/ObserverPanel";
 import { LandingPage } from "./components/LandingPage";
+import { TaskHistoryPage } from "./components/TaskHistoryPage";
 
 function ArenaApp() {
   return (
@@ -20,6 +21,7 @@ function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/arena" element={<ArenaApp />} />
+        <Route path="/task-history" element={<TaskHistoryPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

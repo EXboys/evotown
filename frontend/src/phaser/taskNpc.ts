@@ -164,7 +164,7 @@ export class TaskNpcManager {
   /** 为任务板上的任务生成 NPC（task_available 时调用），最多 MAX_TASK_NPCS 个 */
   spawnForTask(taskId: string): TaskNpcState | null {
     if (this.taskToNpc.has(taskId)) return this.npcs.get(this.taskToNpc.get(taskId)!) ?? null;
-    if (this.taskToNpc.size >= MAX_TASK_NPCS) return null;
+    if (this.npcs.size >= MAX_TASK_NPCS) return null;
     const npc = this.spawnOne(taskId);
     if (npc) this.taskToNpc.set(taskId, npc.id);
     return npc;
@@ -250,6 +250,24 @@ export class TaskNpcManager {
     if (existingNpcId) {
       npcWorld = this.getNpcWorldPosition(existingNpcId);
     } else {
+      // 已达上限时不再生成新 NPC，复用最近的空闲 NPC 或返回 null
+      if (this.npcs.size >= MAX_TASK_NPCS) {
+        // 尝试复用一个未分配 agent 的空闲 NPC
+        for (const npc of this.npcs.values()) {
+          if (!npc.assignedAgentId) {
+            npc.assignedAgentId = agentId;
+            this.agentToNpc.set(agentId, npc.id);
+            npcWorld = this.localToWorld(npc.container.x, npc.container.y);
+            if (!npcWorld) return null;
+            const angle = Math.random() * Math.PI * 2;
+            return {
+              x: npcWorld.x + Math.cos(angle) * AGENT_NPC_OFFSET,
+              y: npcWorld.y + Math.sin(angle) * AGENT_NPC_OFFSET,
+            };
+          }
+        }
+        return null;
+      }
       const npc = this.spawnOne(null);
       if (!npc) return null;
       npc.assignedAgentId = agentId;

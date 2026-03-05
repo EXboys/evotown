@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { evotownEvents } from "../phaser/events";
 import { useEvotownStore } from "../store/evotownStore";
 import type { JudgeScore, TaskRecord } from "../store/evotownStore";
@@ -19,7 +20,7 @@ function ScoreBar({ label, value, max = 10 }: { label: string; value: number; ma
 
 const DIFFICULTY_LABELS: Record<string, string> = { easy: "简单", medium: "中等", hard: "困难" };
 
-function JudgeCard({ judge, agentId, success, task, difficulty }: { judge: JudgeScore; agentId: string; success: boolean; task?: string; difficulty?: string }) {
+function JudgeCard({ judge, agentId, agentName, success, task, difficulty }: { judge: JudgeScore; agentId: string; agentName?: string; success: boolean; task?: string; difficulty?: string }) {
   return (
     <div className={`relative overflow-hidden rounded-xl border shadow-lg ${
       success ? "border-emerald-600/40 bg-gradient-to-b from-emerald-950/30 to-slate-900/60" : "border-red-600/40 bg-gradient-to-b from-red-950/20 to-slate-900/60"
@@ -27,7 +28,7 @@ function JudgeCard({ judge, agentId, success, task, difficulty }: { judge: Judge
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-slate-500/20 to-transparent" />
       <div className="p-3.5 space-y-2.5">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-mono text-slate-400 truncate">{agentId}</span>
+          <span className="text-xs font-mono text-slate-400 truncate">{agentName || agentId}</span>
           <div className="flex items-center gap-1.5 shrink-0">
             {difficulty && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-600/50 text-slate-400">
@@ -67,6 +68,7 @@ export function ArenaControl() {
   const dispatcherState = useEvotownStore((s) => s.dispatcherState);
   const setDispatcherState = useEvotownStore((s) => s.setDispatcherState);
   const hydrateTaskRecords = useEvotownStore((s) => s.hydrateTaskRecords);
+  const agentNameMap = Object.fromEntries(agents.map((a) => [a.id, a.display_name || a.id]));
   const [loading, setLoading] = useState(false);
   const [generateFeedback, setGenerateFeedback] = useState("");
 
@@ -210,14 +212,15 @@ export function ArenaControl() {
           <p className="text-xs text-slate-500 italic">暂无评分记录</p>
         ) : (
           <div className="space-y-2 max-h-[320px] overflow-y-auto">
-            {recentRecords.map((r, i) => (
-              r.judge ? (
-                <JudgeCard key={i} judge={r.judge} agentId={r.agent_id} success={r.success} task={r.task} difficulty={r.difficulty} />
+            {recentRecords.map((r, i) => {
+              const name = agentNameMap[r.agent_id] || r.agent_id;
+              return r.judge ? (
+                <JudgeCard key={i} judge={r.judge} agentId={r.agent_id} agentName={name} success={r.success} task={r.task} difficulty={r.difficulty} />
               ) : (
                 <div key={i} className="rounded-xl border border-slate-600/40 bg-slate-900/30 p-3 flex items-center justify-between gap-2">
                   <p className="text-xs text-slate-400 truncate flex-1" title={r.task}>{r.task || "任务"}</p>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs font-mono text-slate-500">{r.agent_id}</span>
+                    <span className="text-xs font-mono text-slate-500">{name}</span>
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg ${
                       r.success ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
                     }`}>
@@ -225,8 +228,8 @@ export function ArenaControl() {
                     </span>
                   </div>
                 </div>
-              )
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
@@ -251,19 +254,13 @@ type TaskHistoryItem = {
   judge?: JudgeScore;
 };
 
-type TaskDetail = {
-  agent_id: string;
-  task: string;
-  transcript: Array<{ type?: string; role?: string; content?: string; tool_calls?: unknown }>;
-  decision?: { total_tools?: number; failed_tools?: number; tools_detail?: string; task_description?: string };
-  task_history?: { judge?: JudgeScore; elapsed_ms?: number; success?: boolean };
-};
 
 function TaskHistorySection() {
   const [history, setHistory] = useState<TaskHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [detailModal, setDetailModal] = useState<TaskDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const agents = useEvotownStore((s) => s.agents);
+  const agentNameMap = Object.fromEntries(agents.map((a) => [a.id, a.display_name || a.id]));
+  const navigate = useNavigate();
 
   const loadHistory = () => {
     setLoading(true);
@@ -272,25 +269,6 @@ function TaskHistorySection() {
       .then((data) => setHistory(Array.isArray(data) ? data : []))
       .catch(() => setHistory([]))
       .finally(() => setLoading(false));
-  };
-
-  const openTaskDetail = (h: TaskHistoryItem) => {
-    const agentId = h.claimed_by ?? h.agent_id;
-    if (!agentId || !h.task || h.outcome === "dropped") return;
-    setDetailLoading(true);
-    const ts = typeof h.ts === "number" ? h.ts : undefined;
-    const params = new URLSearchParams();
-    params.set("agent_id", agentId);
-    params.set("task", h.task);
-    if (ts != null) params.set("ts", String(ts));
-    fetch(`/monitor/task_detail?${params}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.error) return;
-        setDetailModal(data as TaskDetail);
-      })
-      .catch(() => {})
-      .finally(() => setDetailLoading(false));
   };
 
   useEffect(() => {
@@ -305,13 +283,21 @@ function TaskHistorySection() {
         <span className="flex items-center gap-2">
           <span className="text-amber-500/80">📋</span> 任务历史
         </span>
-        <button
-          onClick={loadHistory}
-          disabled={loading}
-          className="text-[10px] text-slate-500 hover:text-slate-400 disabled:opacity-50"
-        >
-          {loading ? "加载中" : "刷新"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate("/task-history")}
+            className="text-[10px] text-blue-400 hover:text-blue-300"
+          >
+            查看全部 →
+          </button>
+          <button
+            onClick={loadHistory}
+            disabled={loading}
+            className="text-[10px] text-slate-500 hover:text-slate-400 disabled:opacity-50"
+          >
+            {loading ? "加载中" : "刷新"}
+          </button>
+        </div>
       </h3>
       {history.length === 0 ? (
         <p className="text-xs text-slate-500 italic">暂无持久化历史</p>
@@ -321,11 +307,11 @@ function TaskHistorySection() {
             const isDropped = h.outcome === "dropped" || (!h.agent_id && !h.claimed_by && h.refusal_count != null && h.outcome !== "refused");
             const isRefused = h.outcome === "refused";
             const claimant = h.claimed_by ?? h.agent_id;
-            const canClick = claimant && h.task && !isDropped;
+            const canClick = !!(claimant && h.task && !isDropped);
             return (
               <div
                 key={i}
-                onClick={() => canClick && openTaskDetail(h)}
+                onClick={() => canClick && navigate("/task-history")}
                 className={`flex items-center justify-between gap-2 text-[10px] py-1 px-2 rounded border border-slate-700/30 ${
                   canClick ? "bg-slate-900/40 hover:bg-slate-800/60 cursor-pointer" : "bg-slate-900/40"
                 }`}
@@ -336,7 +322,7 @@ function TaskHistorySection() {
                 <span className="text-slate-600 shrink-0">{h.difficulty}</span>
                 {isRefused ? (
                   <span className="shrink-0 text-amber-500" title={h.refusal_reason || "拒绝"}>
-                    {claimant || "?"} 拒
+                    {(claimant && agentNameMap[claimant]) || claimant || "?"} 拒
                   </span>
                 ) : isDropped ? (
                   <span className="shrink-0 text-amber-600" title={`无人认领，被拒 ${h.refusal_count ?? 0} 次后丢弃`}>
@@ -344,7 +330,7 @@ function TaskHistorySection() {
                   </span>
                 ) : (
                   <>
-                    {claimant && <span className="text-slate-500 font-mono shrink-0 truncate max-w-[60px]" title={claimant}>{claimant}</span>}
+                    {claimant && <span className="text-slate-500 font-mono shrink-0 truncate max-w-[80px]" title={claimant}>{agentNameMap[claimant] || claimant}</span>}
                     <span className={`shrink-0 ${h.success ? "text-emerald-500" : "text-red-500"}`}>{h.success ? "✓" : "✗"}</span>
                     {h.refusal_count != null && h.refusal_count > 0 && (
                       <span className="text-slate-600 shrink-0" title="认领前被拒次数">拒{h.refusal_count}</span>
@@ -357,124 +343,10 @@ function TaskHistorySection() {
           })}
         </div>
       )}
-
-      {detailLoading && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <p className="text-sm text-slate-300">加载执行详情...</p>
-        </div>
-      )}
-
-      {detailModal && !detailLoading && (
-        <TaskDetailModal
-          detail={detailModal}
-          onClose={() => setDetailModal(null)}
-        />
-      )}
     </section>
   );
 }
 
-function TaskDetailModal({ detail, onClose }: { detail: TaskDetail; onClose: () => void }) {
-  const toolsDetail = detail.decision?.tools_detail
-    ? (() => {
-        try {
-          const arr = JSON.parse(detail.decision.tools_detail);
-          return Array.isArray(arr) ? arr : [];
-        } catch {
-          return [];
-        }
-      })()
-    : [];
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={onClose}>
-      <div
-        className="w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col rounded-xl border border-slate-600/50 bg-slate-900 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-600/50 shrink-0">
-          <h4 className="text-sm font-medium text-slate-200 truncate flex-1 mr-2" title={detail.task}>
-            {detail.task}
-          </h4>
-          <button
-            onClick={onClose}
-            className="text-slate-500 hover:text-slate-300 text-lg leading-none px-1"
-          >
-            ×
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
-          {detail.task_history && (
-            <div className="rounded-lg bg-slate-800/50 border border-slate-700/50 p-3 space-y-2">
-              <p className="text-slate-400 font-medium">裁判评分</p>
-              {detail.task_history.judge && (
-                <div className="space-y-1">
-                  <p>完成度 {detail.task_history.judge.completion} / 质量 {detail.task_history.judge.quality} / 效率 {detail.task_history.judge.efficiency} → 奖励 {detail.task_history.judge.reward}</p>
-                  {detail.task_history.judge.reason && <p className="text-slate-500 text-[10px]">{detail.task_history.judge.reason}</p>}
-                </div>
-              )}
-              {detail.task_history.elapsed_ms != null && <p className="text-slate-500">耗时 {detail.task_history.elapsed_ms}ms</p>}
-            </div>
-          )}
-
-          {toolsDetail.length > 0 && (
-            <div className="rounded-lg bg-slate-800/50 border border-slate-700/50 p-3 space-y-2">
-              <p className="text-slate-400 font-medium">工具调用</p>
-              <ul className="space-y-1 font-mono text-[10px]">
-                {toolsDetail.map((t: { tool?: string; success?: boolean }, j: number) => (
-                  <li key={j} className={t.success ? "text-emerald-400/90" : "text-red-400/90"}>
-                    {t.tool ?? "?"} {t.success ? "✓" : "✗"}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <div className="rounded-lg bg-slate-800/50 border border-slate-700/50 p-3 space-y-2">
-            <p className="text-slate-400 font-medium">执行日志 (Transcript)</p>
-            {detail.transcript.length === 0 ? (
-              <p className="text-slate-500 italic">无 transcript 记录</p>
-            ) : (
-              <div className="space-y-2 max-h-64 overflow-y-auto font-mono text-[10px]">
-                {detail.transcript.map((e, j) => {
-                  const role = e.role ?? e.type;
-                  const content = e.content ?? "";
-                  const toolCalls = e.tool_calls;
-                  if (role === "user") {
-                    return (
-                      <div key={j} className="p-2 rounded bg-blue-900/20 border border-blue-700/30">
-                        <span className="text-blue-400">用户</span>
-                        <pre className="mt-1 whitespace-pre-wrap break-words text-slate-300">{content || "(空)"}</pre>
-                      </div>
-                    );
-                  }
-                  if (role === "assistant") {
-                    return (
-                      <div key={j} className="p-2 rounded bg-emerald-900/20 border border-emerald-700/30">
-                        <span className="text-emerald-400">助手</span>
-                        {toolCalls != null && (
-                          <pre className="mt-1 text-amber-400/90 text-[9px]">
-                            {typeof toolCalls === "string" ? toolCalls : JSON.stringify(toolCalls, null, 2).slice(0, 500)}
-                          </pre>
-                        )}
-                        <pre className="mt-1 whitespace-pre-wrap break-words text-slate-300">{content || "(空)"}</pre>
-                      </div>
-                    );
-                  }
-                  return (
-                    <div key={j} className="p-2 rounded bg-slate-800/50 border border-slate-700/30">
-                      <pre className="whitespace-pre-wrap break-words text-slate-400">{JSON.stringify(e).slice(0, 300)}</pre>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function ArenaStats() {
   const [stats, setStats] = useState<{

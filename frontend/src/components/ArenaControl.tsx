@@ -8,12 +8,12 @@ function ScoreBar({ label, value, max = 10 }: { label: string; value: number; ma
   const pct = Math.min((value / max) * 100, 100);
   const color = value >= 7 ? "bg-emerald-500" : value >= 4 ? "bg-amber-500" : "bg-red-500";
   return (
-    <div className="flex items-center gap-2 text-xs">
-      <span className="w-14 text-slate-400 shrink-0">{label}</span>
-      <div className="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+    <div className="flex items-center gap-1.5 text-[10px]">
+      <span className="w-10 text-slate-500 shrink-0">{label}</span>
+      <div className="flex-1 h-1 bg-slate-700 rounded-full overflow-hidden">
         <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="w-5 text-right text-slate-300 font-mono">{value}</span>
+      <span className="w-4 text-right text-slate-400 font-mono">{value}</span>
     </div>
   );
 }
@@ -22,40 +22,37 @@ const DIFFICULTY_LABELS: Record<string, string> = { easy: "简单", medium: "中
 
 function JudgeCard({ judge, agentId, agentName, success, task, difficulty }: { judge: JudgeScore; agentId: string; agentName?: string; success: boolean; task?: string; difficulty?: string }) {
   return (
-    <div className={`relative overflow-hidden rounded-xl border shadow-lg ${
-      success ? "border-emerald-600/40 bg-gradient-to-b from-emerald-950/30 to-slate-900/60" : "border-red-600/40 bg-gradient-to-b from-red-950/20 to-slate-900/60"
+    <div className={`relative overflow-hidden rounded-lg border ${
+      success ? "border-emerald-600/30 bg-emerald-950/20" : "border-red-600/30 bg-red-950/10"
     }`}>
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-slate-500/20 to-transparent" />
-      <div className="p-3.5 space-y-2.5">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-mono text-slate-400 truncate">{agentName || agentId}</span>
-          <div className="flex items-center gap-1.5 shrink-0">
+      <div className="px-2.5 py-1.5 space-y-1">
+        <div className="flex items-center justify-between gap-1.5">
+          <span className="text-[10px] font-mono text-slate-400 truncate">{agentName || agentId}</span>
+          <div className="flex items-center gap-1 shrink-0">
             {difficulty && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-600/50 text-slate-400">
+              <span className="text-[9px] px-1 py-px rounded bg-slate-700/60 text-slate-500">
                 {DIFFICULTY_LABELS[difficulty] ?? difficulty}
               </span>
             )}
-            <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${
-            judge.reward > 0 ? "bg-emerald-500/25 text-emerald-300 border border-emerald-500/40" :
-            judge.reward === 0 ? "bg-slate-600/30 text-slate-300" :
-            "bg-red-500/25 text-red-300 border border-red-500/40"
-          }`}>
-            {judge.reward > 0 ? "+" : ""}{judge.reward} 分
-          </span>
+            <span className={`text-[10px] font-bold px-1.5 py-px rounded ${
+              judge.reward > 0 ? "bg-emerald-500/20 text-emerald-300" :
+              judge.reward === 0 ? "bg-slate-600/20 text-slate-400" :
+              "bg-red-500/20 text-red-300"
+            }`}>
+              {judge.reward > 0 ? "+" : ""}{judge.reward}
+            </span>
           </div>
         </div>
         {task && (
-          <p className="text-xs text-slate-300 leading-relaxed line-clamp-2 bg-slate-900/40 rounded-lg px-2.5 py-1.5 border border-slate-700/50" title={task}>
-            {task}
-          </p>
+          <p className="text-[10px] text-slate-400 line-clamp-1 truncate" title={task}>{task}</p>
         )}
-        <div className="space-y-1.5">
+        <div className="space-y-0.5">
           <ScoreBar label="完成度" value={judge.completion} />
           <ScoreBar label="质量" value={judge.quality} />
           <ScoreBar label="效率" value={judge.efficiency} />
         </div>
         {judge.reason && (
-          <p className="text-[10px] text-slate-500 leading-relaxed pt-0.5">{judge.reason}</p>
+          <p className="text-[9px] text-slate-600 leading-tight truncate" title={judge.reason}>{judge.reason}</p>
         )}
       </div>
     </div>
@@ -218,20 +215,20 @@ export function ArenaControl() {
         {recentRecords.length === 0 ? (
           <p className="text-xs text-slate-500 italic">暂无评分记录</p>
         ) : (
-          <div className="space-y-2 max-h-[320px] overflow-y-auto">
+          <div className="space-y-1 max-h-[160px] overflow-y-auto">
             {recentRecords.map((r, i) => {
               const name = agentNameMap[r.agent_id] || r.agent_id;
               return r.judge ? (
                 <JudgeCard key={i} judge={r.judge} agentId={r.agent_id} agentName={name} success={r.success} task={r.task} difficulty={r.difficulty} />
               ) : (
-                <div key={i} className="rounded-xl border border-slate-600/40 bg-slate-900/30 p-3 flex items-center justify-between gap-2">
-                  <p className="text-xs text-slate-400 truncate flex-1" title={r.task}>{r.task || "任务"}</p>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs font-mono text-slate-500">{name}</span>
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg ${
+                <div key={i} className="rounded border border-slate-600/30 bg-slate-900/30 px-2 py-1 flex items-center justify-between gap-2">
+                  <p className="text-[10px] text-slate-400 truncate flex-1" title={r.task}>{r.task || "任务"}</p>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] font-mono text-slate-500">{name}</span>
+                    <span className={`text-[10px] font-semibold px-1.5 py-px rounded ${
                       r.success ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
                     }`}>
-                      {r.success ? "PASS" : "FAIL"}
+                      {r.success ? "✓" : "✗"}
                     </span>
                   </div>
                 </div>

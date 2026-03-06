@@ -124,12 +124,22 @@ export function ObserverPanel() {
 
   // ── Replay ──────────────────────────────────────────────────────────────────
   const replay = useReplay();
+  const [selectedExpId, setSelectedExpId] = useState<string>("");
+
   useEffect(() => {
     replay.fetchActiveSession();
+    replay.fetchSessions();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (tab === "leaderboard") replay.fetchSessions();
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 当 experimentInfo 加载后，默认选中当前实验 ID
+  useEffect(() => {
+    if (experimentInfo.experiment_id && !selectedExpId) {
+      setSelectedExpId(experimentInfo.experiment_id);
+    }
+  }, [experimentInfo.experiment_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [evolveFeedback, setEvolveFeedback] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -206,11 +216,38 @@ export function ObserverPanel() {
             <p className="text-[10px] sm:text-xs text-slate-500 mt-0.5">监控与操控智能体</p>
           </div>
           <div className="flex flex-col items-end gap-1">
-            {experimentInfo.experiment_id && (
-              <p className="text-[10px] text-slate-600 font-mono truncate sm:max-w-[180px]" title={experimentInfo.experiment_id}>
-                实验: {experimentInfo.experiment_id}
-              </p>
-            )}
+            {/* 实验 ID 选择器 */}
+            <div className="flex items-center gap-1 min-w-0">
+              <span className="text-[10px] text-slate-500 shrink-0">实验:</span>
+              {replay.sessions.length > 1 ? (
+                <select
+                  value={selectedExpId}
+                  onChange={(e) => setSelectedExpId(e.target.value)}
+                  title="选择录制存放的实验 ID"
+                  className="text-[10px] text-slate-400 font-mono bg-slate-800/80 border border-slate-600/40 rounded px-1 py-0.5 max-w-[160px] focus:outline-none focus:ring-1 focus:ring-evo-accent/50 truncate"
+                >
+                  {/* 当前实验 ID（若不在 sessions 中也保留） */}
+                  {experimentInfo.experiment_id &&
+                    !replay.sessions.some((s) => s.session_id === experimentInfo.experiment_id) && (
+                      <option value={experimentInfo.experiment_id}>
+                        {experimentInfo.experiment_id}
+                      </option>
+                    )}
+                  {replay.sessions.map((s) => (
+                    <option key={s.session_id} value={s.session_id}>
+                      {s.session_id}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span
+                  className="text-[10px] text-slate-600 font-mono truncate max-w-[160px]"
+                  title={experimentInfo.experiment_id ?? ""}
+                >
+                  {experimentInfo.experiment_id ?? "—"}
+                </span>
+              )}
+            </div>
             {tokenUsage && tokenUsage.total_tokens > 0 && (
               <p className="text-[10px] text-slate-500" title={`输入 ${tokenUsage.prompt_tokens.toLocaleString()} / 输出 ${tokenUsage.completion_tokens.toLocaleString()}`}>
                 Token: {(tokenUsage.total_tokens / 1000).toFixed(1)}K
@@ -237,9 +274,10 @@ export function ObserverPanel() {
                 </>
               ) : (
                 <button
-                  onClick={() => replay.startNewSession()}
+                  onClick={() => replay.startNewSession(selectedExpId || experimentInfo.experiment_id || undefined)}
                   disabled={replay.recordingBusy}
                   className="text-[10px] text-slate-500 hover:text-red-400 disabled:opacity-40 transition-colors"
+                  title={`录制到: ${selectedExpId || experimentInfo.experiment_id || "新建"}`}
                 >
                   {replay.recordingBusy ? "…" : "● 新建录制"}
                 </button>

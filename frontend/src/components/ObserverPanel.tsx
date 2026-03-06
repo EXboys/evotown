@@ -254,12 +254,12 @@ export function ObserverPanel() {
               </p>
             )}
             {/* 录制控制 */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap justify-end">
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${replay.activeSession?.active ? "bg-red-500 animate-pulse" : "bg-slate-600"}`} />
-              {replay.activeSession?.active ? (
+              {replay.activeSession?.active && (
                 <>
                   <span
-                    className="text-[10px] text-red-400/80 font-mono truncate max-w-[120px]"
+                    className="text-[10px] text-red-400/80 font-mono truncate max-w-[90px]"
                     title={replay.activeSession.session_id ?? ""}
                   >
                     {replay.activeSession.session_id}
@@ -272,16 +272,19 @@ export function ObserverPanel() {
                     ■ 停止
                   </button>
                 </>
-              ) : (
-                <button
-                  onClick={() => replay.startNewSession(selectedExpId || experimentInfo.experiment_id || undefined, true)}
-                  disabled={replay.recordingBusy}
-                  className="text-[10px] text-slate-500 hover:text-red-400 disabled:opacity-40 transition-colors"
-                  title={`录制到: ${selectedExpId || experimentInfo.experiment_id || "新建"}`}
-                >
-                  {replay.recordingBusy ? "…" : "● 新建录制"}
-                </button>
               )}
+              <button
+                onClick={async () => {
+                  if (replay.activeSession?.active) await replay.stopSession();
+                  // 不传 session_id → 后端自动生成时间戳文件名（每次都是新文件）
+                  replay.startNewSession(undefined, true);
+                }}
+                disabled={replay.recordingBusy}
+                className="text-[10px] text-slate-500 hover:text-red-400 disabled:opacity-40 transition-colors shrink-0"
+                title="新建录制文件（后端自动生成时间戳文件名）"
+              >
+                {replay.recordingBusy ? "…" : "● 新建录制"}
+              </button>
             </div>
           </div>
         </div>

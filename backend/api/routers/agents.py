@@ -68,6 +68,15 @@ async def get_agent_skills(agent_id: str):
     return await agent_service.get_skills_data(agent_id)
 
 
+@router.get("/{agent_id}/skills/{skill_name}/content")
+async def get_skill_content(agent_id: str, skill_name: str):
+    data = await agent_service.get_skill_content(agent_id, skill_name)
+    if data is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="skill not found")
+    return data
+
+
 @router.post("/{agent_id}/repair-skills", dependencies=[Depends(require_admin)])
 async def repair_agent_skills(agent_id: str):
     """重新从 arena_skills 部署内置技能，修复损坏的符号链接或缺失的技能目录。"""

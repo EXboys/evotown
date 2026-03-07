@@ -267,6 +267,25 @@ def _run_evolution_check(agent_id: str, judge_result: "JudgeResult") -> None:
             asyncio.create_task(trigger_evolve_background(agent_id, agent_home))
 
 
+def _run_skill_sharing(agent_id: str, judge_result: "JudgeResult", tool_calls: list) -> None:
+    """步骤⑤a：任务成功时，将本次使用的成功工具名写入队伍共享技能池。"""
+    if judge_result.completion < 5:
+        return  # 任务失败，不共享
+    successful_tools: list[str] = []
+    seen: set[str] = set()
+    for tc in tool_calls:
+        if not isinstance(tc, dict):
+            continue
+        name = tc.get("name", "")
+        if name and not tc.get("is_error", False) and name not in seen:
+            seen.add(name)
+            successful_tools.append(name)
+    if not successful_tools:
+        return
+    arena.add_team_skill(agent_id, successful_tools)
+    logger.info("[%s] skill sharing: +%d tool(s) → team pool: %s", agent_id, len(successful_tools), successful_tools)
+
+
 def _run_social_reorganize() -> None:
     """步骤⑤：全局任务计数 +1，满 N 次触发社会重组（后台 task，不 await）。"""
     global_count = arena.inc_global_task_count()
@@ -322,6 +341,8 @@ async def _post_task_pipeline(
     # ── 多样性优化：将本次结果反馈给任务分发器 ──────────────────────────────
     task_dispatcher.record_outcome(judge_result.completion >= 5)
     _update_evolution_context()
+    # ③b 技能共享：成功工具写入队伍技能池
+    _run_skill_sharing(agent_id, judge_result, tool_calls)
     # ④ 个体进化检查
     _run_evolution_check(agent_id, judge_result)
     # ⑤ 社会重组检查
@@ -458,12 +479,20 @@ def _format_team_section(team_ctx: dict) -> str:
         else "Complete tasks successfully to raise your team's average merit and avoid disbandment."
     )
 
+    shared_skills = team_ctx.get("shared_skills", [])
+    skills_line = (
+        f"\n- Team Experience: Your teammates have succeeded with these tools: "
+        f"{', '.join(shared_skills)}. Prefer them when they fit the task."
+        if shared_skills else ""
+    )
+
     return (
         "\n## Team Context (社会生存压力)\n"
         f"- You belong to: {team_name} (Rank {rank} / {total} teams)\n"
         f"- Your teammates: {mate_str}\n"
         f"- {status_line}\n"
         f"- Tip: {tip}"
+        f"{skills_line}"
     )
 
 

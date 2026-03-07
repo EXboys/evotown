@@ -238,6 +238,43 @@ async def reject_skill_action(agent_id: str, skill_name: str) -> tuple[bool, str
     return ok, "ok" if ok else "skill not found"
 
 
+async def get_skill_content(agent_id: str, skill_name: str) -> dict | None:
+    """读取技能的 SKILL.md 和脚本文件内容"""
+    a = arena.get_agent(agent_id)
+    if not a:
+        return None
+    agent_home = Path(a.agent_home or a.chat_dir)
+    skills_base = agent_home / ".skills"
+
+    # 搜索顺序：_pending → _evolved → 根目录
+    candidates = [
+        skills_base / "_evolved" / "_pending" / skill_name,
+        skills_base / "_evolved" / skill_name,
+        skills_base / skill_name,
+    ]
+    skill_dir = next((p for p in candidates if p.is_dir()), None)
+    if skill_dir is None:
+        return None
+
+    result: dict = {"name": skill_name, "skill_md": None, "scripts": []}
+
+    skill_md_path = skill_dir / "SKILL.md"
+    if skill_md_path.exists():
+        result["skill_md"] = skill_md_path.read_text(encoding="utf-8")
+
+    # 读取 scripts/ 目录下所有非 __pycache__ 的源码文件
+    scripts_dir = skill_dir / "scripts"
+    if scripts_dir.is_dir():
+        for f in sorted(scripts_dir.iterdir()):
+            if f.is_file() and not f.name.startswith("_") and f.suffix in (".py", ".js", ".ts", ".sh"):
+                result["scripts"].append({
+                    "filename": f.name,
+                    "content": f.read_text(encoding="utf-8"),
+                })
+
+    return result
+
+
 async def repair_skills_action(agent_id: str) -> tuple[bool, str]:
     """重新从 arena_skills 部署所有内置技能到 agent 的 .skills 目录，修复损坏的符号链接。"""
     a = arena.get_agent(agent_id)

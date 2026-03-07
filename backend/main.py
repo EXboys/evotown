@@ -36,6 +36,7 @@ from infra.persistence import load_state
 from api.routers import agents, config, dispatcher, monitor, tasks, websocket, replay
 from api.routers import teams
 from api.routers import chronicle as chronicle_router
+from api.routers import snapshot as snapshot_router
 from log_watcher import start_watching
 
 logging.basicConfig(
@@ -162,6 +163,20 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
 
+    async def _checkpoint_loop() -> None:
+        """每 5 分钟将 ArenaState 持久化到磁盘，防止进程意外崩溃导致数据全丢"""
+        interval = int(os.environ.get("CHECKPOINT_INTERVAL_SEC", "300"))  # 默认 5 分钟
+        try:
+            while True:
+                await asyncio.sleep(interval)
+                try:
+                    arena.persist(experiment_id=deps.experiment_id)
+                    logger.debug("[checkpoint] arena state saved (interval=%ds)", interval)
+                except Exception as e:
+                    logger.error("[checkpoint] persist failed: %s", e)
+        except asyncio.CancelledError:
+            pass
+
     async def _chronicle_loop() -> None:
         """每日 00:05 CST 自动生成文言文战报"""
         from datetime import datetime, timezone, timedelta
@@ -191,13 +206,15 @@ async def lifespan(app: FastAPI):
             pass
 
     _timeout_task = asyncio.create_task(_timeout_loop())
+    _checkpoint_task = asyncio.create_task(_checkpoint_loop())
     _chronicle_task = asyncio.create_task(_chronicle_loop())
 
     yield
 
     _timeout_task.cancel()
+    _checkpoint_task.cancel()
     _chronicle_task.cancel()
-    for _t in (_timeout_task, _chronicle_task):
+    for _t in (_timeout_task, _checkpoint_task, _chronicle_task):
         try:
             await _t
         except asyncio.CancelledError:
@@ -247,6 +264,7 @@ app.include_router(websocket.router)
 app.include_router(replay.router)
 app.include_router(teams.router)
 app.include_router(chronicle_router.router)
+app.include_router(snapshot_router.router)
 # 兼容前端可能使用的 /api 前缀（解决 /config/experiment、/monitor/task_history 404）
 app.include_router(config.router, prefix="/api")
 app.include_router(monitor.router, prefix="/api")

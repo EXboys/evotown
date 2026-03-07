@@ -29,6 +29,8 @@ M4 16GB 本地模型推荐（via Ollama）:
 import json
 import logging
 import os
+import time
+from dataclasses import dataclass, field
 from typing import Any
 
 from dotenv import load_dotenv
@@ -38,6 +40,84 @@ from token_usage import add_usage
 
 load_dotenv()
 logger = logging.getLogger("evotown.llm")
+
+
+# ── 熔断器 ───────────────────────────────────────────────────────────────────
+@dataclass
+class _CircuitBreaker:
+    """简单三态熔断器：CLOSED → (连续失败 ≥ threshold) → OPEN → (cooldown 过期) → HALF_OPEN → CLOSED/OPEN
+
+    - CLOSED  : 正常放行
+    - OPEN    : 熔断，直接抛出异常，不发起网络请求
+    - HALF_OPEN: cooldown 后放行一次探测；成功则复位，失败则延长 cooldown 再次 OPEN
+    """
+    label: str
+    threshold: int = 3          # 连续失败多少次触发熔断
+    base_cooldown: float = 60.0 # 初始冷却时间（秒）
+
+    _failures: int = field(default=0, repr=False)
+    _is_open: bool = field(default=False, repr=False)
+    _opened_at: float = field(default=0.0, repr=False)
+    _cooldown: float = field(default=0.0, repr=False, init=False)
+
+    def __post_init__(self) -> None:
+        self._cooldown = self.base_cooldown
+
+    def _elapsed(self) -> float:
+        return time.monotonic() - self._opened_at
+
+    def allow(self) -> bool:
+        """返回 True 表示可以发起请求"""
+        if not self._is_open:
+            return True
+        if self._elapsed() >= self._cooldown:
+            logger.info("[circuit:%s] half-open probe allowed after %.0fs", self.label, self._elapsed())
+            return True  # half-open：允许一次探测
+        return False
+
+    def record_success(self) -> None:
+        if self._is_open:
+            logger.info("[circuit:%s] probe succeeded → CLOSED", self.label)
+        self._failures = 0
+        self._is_open = False
+        self._cooldown = self.base_cooldown  # 复位冷却时间
+
+    def record_failure(self) -> None:
+        self._failures += 1
+        if self._is_open:
+            # 半开探测失败：延长 cooldown（指数退避，上限 10 分钟）
+            self._cooldown = min(self._cooldown * 2, 600.0)
+            self._opened_at = time.monotonic()
+            logger.warning(
+                "[circuit:%s] half-open probe failed → OPEN again, cooldown=%.0fs",
+                self.label, self._cooldown,
+            )
+        elif self._failures >= self.threshold:
+            self._is_open = True
+            self._opened_at = time.monotonic()
+            logger.warning(
+                "[circuit:%s] OPEN after %d consecutive failures, cooldown=%.0fs",
+                self.label, self._failures, self._cooldown,
+            )
+
+    def raise_if_open(self) -> None:
+        """若熔断中则立刻抛出，调用方无需等待超时"""
+        if self._is_open and not self.allow():
+            remaining = max(0.0, self._cooldown - self._elapsed())
+            raise RuntimeError(
+                f"[circuit:{self.label}] open — {remaining:.0f}s remaining. "
+                "LLM API temporarily disabled to prevent runaway costs."
+            )
+
+
+# 每个调用通道各自独立的熔断器
+_breakers: dict[str, _CircuitBreaker] = {
+    "judge-local":      _CircuitBreaker("judge-local"),
+    "judge-main":       _CircuitBreaker("judge-main"),
+    "dispatcher-local": _CircuitBreaker("dispatcher-local"),
+    "dispatcher-main":  _CircuitBreaker("dispatcher-main"),
+    "main":             _CircuitBreaker("main"),
+}
 
 # ── 主客户端（远端 API，供 agent 子进程使用，不在此进程直接调用）──
 _BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
@@ -169,7 +249,12 @@ async def _call_with_client(
     response_format: dict | None,
     label: str,
 ) -> dict[str, Any]:
-    """内部：使用指定客户端和模型发起调用，统计 token 并返回解析结果。"""
+    """内部：使用指定客户端和模型发起调用，统计 token 并返回解析结果。
+    集成熔断器：熔断中时直接抛出，不发起网络请求。"""
+    # ── 熔断检查 ──────────────────────────────────────────────────────────────
+    breaker = _breakers.get(label) or _breakers.setdefault(label, _CircuitBreaker(label))
+    breaker.raise_if_open()
+
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": messages,
@@ -181,8 +266,11 @@ async def _call_with_client(
     try:
         response = await client.chat.completions.create(**kwargs)
     except Exception as e:
+        breaker.record_failure()
         logger.error("[%s] LLM call failed (model=%s): %s", label, model, e)
         raise
+    # ── 记录成功 ───────────────────────────────────────────────────────────────
+    breaker.record_success()
     usage = getattr(response, "usage", None)
     if usage is not None:
         pt = getattr(usage, "prompt_tokens", 0) or 0

@@ -131,8 +131,21 @@ class ProcessManager:
         self._on_event: Optional[Callable[[str, str, dict], None]] = None
         # per-agent tool call tracking for task completion validation
         self._tool_stats: dict[str, dict[str, int]] = {}
+        # ── P2-9: 单任务步骤上限 ─────────────────────────────────────────────
+        # 超过 max_tool_calls 的 agent_id 集合；done 时跳过（已提前 fail 处理）
+        self._tool_limit_exceeded: set[str] = set()
+        from core.config import load_timeout_config as _load_timeout
+        _tc = _load_timeout()
+        self._max_tool_calls: int = int(_tc.get("max_tool_calls", 25))
         # 两阶段：等待预览响应的 Future，agent_id -> Future[str]
         self._pending_preview: dict[str, asyncio.Future[str]] = {}
+        # ── 自动重启 ──────────────────────────────────────────────────────────
+        # soul_type 注册表：有条目 = 应自动重启；kill() 时删除以阻止重启
+        self._respawn_soul_types: dict[str, str] = {}
+        # 连续崩溃计数（指数退避用）；进程稳定运行 >60s 后重置
+        self._crash_counts: dict[str, int] = {}
+        # 记录每次 spawn 的启动时间（用于判断进程是否稳定）
+        self._spawn_times: dict[str, float] = {}
 
     def set_on_task_done(self, cb: Callable[[str, bool, dict], Awaitable[None]]) -> None:
         """设置任务完成回调：on_task_done(agent_id, success, done_data)"""
@@ -249,6 +262,9 @@ class ProcessManager:
         )
         self._processes[agent_id] = proc
         self._agent_homes[agent_id] = str(agent_home)
+        # 注册自动重启（覆盖写，respawn 时保持最新 soul_type）
+        self._respawn_soul_types[agent_id] = soul_type
+        self._spawn_times[agent_id] = asyncio.get_event_loop().time()
 
         # 后台消费 stdout，解析 done/error 事件并回调
         asyncio.create_task(self._drain_stdout(agent_id, proc.stdout))
@@ -262,11 +278,13 @@ class ProcessManager:
         """消费 stdout，解析 agent-rpc JSON-Lines 事件（done/error）并回调"""
         if stream is None:
             return
+        eof_received = False
         try:
             while agent_id in self._processes:
                 line = await stream.readline()
                 if not line:
                     logger.warning("[%s][stdout] EOF — subprocess exited", agent_id)
+                    eof_received = True
                     break
                 decoded = line.decode("utf-8", errors="ignore").strip()
                 if not decoded:
@@ -289,7 +307,26 @@ class ProcessManager:
                             stats["total"] += 1
                             if data.get("is_error"):
                                 stats["failed"] += 1
+                            # ── P2-9: 单任务步骤上限 ────────────────────────
+                            if stats["total"] >= self._max_tool_calls and agent_id not in self._tool_limit_exceeded:
+                                self._tool_limit_exceeded.add(agent_id)
+                                self._tool_stats.pop(agent_id, None)
+                                logger.warning(
+                                    "[%s] max_tool_calls=%d reached — forcing task failure",
+                                    agent_id, self._max_tool_calls,
+                                )
+                                if self._on_task_done:
+                                    await self._on_task_done(
+                                        agent_id, False,
+                                        {"message": f"max_tool_calls ({self._max_tool_calls}) exceeded", "task_completed": False},
+                                    )
                     elif event == "done":
+                        # ── P2-9: 步骤超限已提前处理，跳过此 done ──────────
+                        if agent_id in self._tool_limit_exceeded:
+                            self._tool_limit_exceeded.discard(agent_id)
+                            self._tool_stats.pop(agent_id, None)
+                            logger.info("[%s] done event ignored — already force-failed (tool limit)", agent_id)
+                            continue
                         # 两阶段：若在等待预览响应，则完成 Future，不触发 on_task_done
                         if agent_id in self._pending_preview:
                             fut = self._pending_preview.pop(agent_id)
@@ -306,6 +343,12 @@ class ProcessManager:
                         if self._on_task_done:
                             await self._on_task_done(agent_id, success, data)
                     elif event == "error":
+                        # ── P2-9: 步骤超限已提前处理，跳过此 error ─────────
+                        if agent_id in self._tool_limit_exceeded:
+                            self._tool_limit_exceeded.discard(agent_id)
+                            self._tool_stats.pop(agent_id, None)
+                            logger.info("[%s] error event ignored — already force-failed (tool limit)", agent_id)
+                            continue
                         # 两阶段：若在等待预览，完成 Future 并传递空响应（视为拒绝）
                         if agent_id in self._pending_preview:
                             fut = self._pending_preview.pop(agent_id)
@@ -317,6 +360,38 @@ class ProcessManager:
                             await self._on_task_done(agent_id, False, data)
                 except json.JSONDecodeError:
                     logger.warning("[%s][stdout] non-JSON line: %s", agent_id, decoded[:200])
+
+            # ── 自动重启（指数退避） ──────────────────────────────────────────
+            # 仅在 EOF 触发（非 kill() / CancelledError），且 agent 仍在 respawn 注册表中
+            if eof_received and agent_id in self._respawn_soul_types:
+                soul_type = self._respawn_soul_types[agent_id]
+                spawn_time = self._spawn_times.get(agent_id, 0.0)
+                uptime = asyncio.get_event_loop().time() - spawn_time
+                # 稳定运行 >60s 视为正常退出后崩溃，重置退避计数
+                if uptime > 60.0:
+                    self._crash_counts.pop(agent_id, None)
+                crash_count = self._crash_counts.get(agent_id, 0)
+                self._crash_counts[agent_id] = crash_count + 1
+                # 5s → 10s → 20s → 40s → 80s → 120s（上限）
+                backoff = min(5.0 * (2 ** crash_count), 120.0)
+                logger.warning(
+                    "[%s] process exited unexpectedly (uptime=%.0fs, crash #%d), "
+                    "respawning in %.0fs...",
+                    agent_id, uptime, crash_count + 1, backoff,
+                )
+                await asyncio.sleep(backoff)
+                # 再次检查：backoff 期间可能被 kill()
+                if agent_id in self._respawn_soul_types:
+                    logger.info("[%s] respawning (soul_type=%s)...", agent_id, soul_type)
+                    try:
+                        await self.spawn(agent_id, soul_type=soul_type)
+                        logger.info("[%s] respawn complete", agent_id)
+                    except Exception as exc:
+                        logger.error("[%s] respawn failed, giving up: %s", agent_id, exc)
+                        self._respawn_soul_types.pop(agent_id, None)
+                else:
+                    logger.info("[%s] kill() called during backoff — respawn cancelled", agent_id)
+
         except (asyncio.CancelledError, ConnectionResetError):
             pass
 
@@ -338,8 +413,15 @@ class ProcessManager:
             pass
 
     async def kill(self, agent_id: str) -> None:
-        """停止并清理"""
+        """停止并清理（删除 respawn 注册，确保不会自动重启）"""
+        # ★ 先取消 respawn 注册，再 terminate 进程；
+        #   这样 _drain_stdout 收到 EOF 后检查到注册已清除，不会触发重启
+        self._respawn_soul_types.pop(agent_id, None)
+        self._crash_counts.pop(agent_id, None)
+        self._spawn_times.pop(agent_id, None)
         self._agent_homes.pop(agent_id, None)
+        self._tool_stats.pop(agent_id, None)
+        self._tool_limit_exceeded.discard(agent_id)
         if agent_id in self._pending_preview:
             fut = self._pending_preview.pop(agent_id)
             if not fut.done():

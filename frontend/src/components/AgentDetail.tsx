@@ -278,6 +278,9 @@ export function AgentDetail({
   const [skills, setSkills] = useState<
     { name: string; status: string; description?: string; created_at?: string; call_count?: number; success_count?: number }[]
   >([]);
+  const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
+  const [skillContent, setSkillContent] = useState<Record<string, { skill_md: string | null; scripts: { filename: string; content: string }[] }>>({});
+  const [skillContentLoading, setSkillContentLoading] = useState<string | null>(null);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [executionLog, setExecutionLog] = useState<ExecutionLogItem[]>([]);
   const [evolutionLog, setEvolutionLog] = useState<EvolutionLogItem[]>([]);
@@ -664,77 +667,136 @@ export function AgentDetail({
                 暂无进化技能
               </p>
             ) : (
-              skills.map((s) => (
-                <div
-                  key={s.name}
-                  className={`rounded-xl border text-xs transition-all ${
-                    s.status === "pending"
-                      ? "bg-gradient-to-b from-amber-950/20 to-slate-800/50 border-amber-700/40"
-                      : "bg-slate-800/40 border-slate-700/40"
-                  }`}
-                >
-                  <div className="p-3 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="font-mono text-slate-200 font-medium truncate">{s.name}</span>
-                        <span
-                          className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                            s.status === "pending"
-                              ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                              : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                          }`}
+              skills.map((s) => {
+                const isExpanded = expandedSkill === s.name;
+                const content = skillContent[s.name];
+                const isLoadingThis = skillContentLoading === s.name;
+
+                const toggleExpand = async () => {
+                  if (isExpanded) {
+                    setExpandedSkill(null);
+                    return;
+                  }
+                  setExpandedSkill(s.name);
+                  if (!skillContent[s.name]) {
+                    setSkillContentLoading(s.name);
+                    try {
+                      const res = await fetch(`/agents/${agentId}/skills/${s.name}/content`);
+                      if (res.ok) {
+                        const data = await res.json();
+                        setSkillContent((prev) => ({ ...prev, [s.name]: data }));
+                      }
+                    } catch { /* ignore */ } finally {
+                      setSkillContentLoading(null);
+                    }
+                  }
+                };
+
+                return (
+                  <div
+                    key={s.name}
+                    className={`rounded-xl border text-xs transition-all ${
+                      s.status === "pending"
+                        ? "bg-gradient-to-b from-amber-950/20 to-slate-800/50 border-amber-700/40"
+                        : "bg-slate-800/40 border-slate-700/40"
+                    }`}
+                  >
+                    <div className="p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          onClick={toggleExpand}
+                          className="flex items-center gap-2 min-w-0 flex-1 text-left hover:opacity-80 transition-opacity"
                         >
-                          {s.status === "pending" ? "待确认" : "已启用"}
-                        </span>
+                          <span className="text-slate-500 text-[10px] shrink-0">{isExpanded ? "▼" : "▶"}</span>
+                          <span className="font-mono text-slate-200 font-medium truncate">{s.name}</span>
+                          <span
+                            className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                              s.status === "pending"
+                                ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                                : s.status === "installed"
+                                ? "bg-sky-500/20 text-sky-400 border border-sky-500/30"
+                                : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                            }`}
+                          >
+                            {s.status === "pending" ? "待确认" : s.status === "installed" ? "内置" : "已启用"}
+                          </span>
+                        </button>
+                        {s.status === "pending" && (
+                          <div className="flex gap-1.5 shrink-0">
+                            <button
+                              onClick={async () => {
+                                const res = await adminFetch(`/agents/${agentId}/skills/${s.name}/confirm`, { method: "POST" });
+                                const data = await res.json();
+                                if (data.ok) {
+                                  setSkills((prev) =>
+                                    prev.map((sk) => sk.name === s.name ? { ...sk, status: "confirmed" } : sk)
+                                  );
+                                }
+                              }}
+                              className="px-2 py-1 rounded text-[10px] font-medium bg-emerald-600/20 text-emerald-400 border border-emerald-600/30 hover:bg-emerald-600/40 transition-colors"
+                            >
+                              确认
+                            </button>
+                            <button
+                              onClick={async () => {
+                                const res = await adminFetch(`/agents/${agentId}/skills/${s.name}/reject`, { method: "POST" });
+                                const data = await res.json();
+                                if (data.ok) {
+                                  setSkills((prev) => prev.filter((sk) => sk.name !== s.name));
+                                  if (expandedSkill === s.name) setExpandedSkill(null);
+                                }
+                              }}
+                              className="px-2 py-1 rounded text-[10px] font-medium bg-rose-600/20 text-rose-400 border border-rose-600/30 hover:bg-rose-600/40 transition-colors"
+                            >
+                              拒绝
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      {s.status === "pending" && (
-                        <div className="flex gap-1.5 shrink-0">
-                          <button
-                            onClick={async () => {
-                              const res = await adminFetch(`/agents/${agentId}/skills/${s.name}/confirm`, { method: "POST" });
-                              const data = await res.json();
-                              if (data.ok) {
-                                setSkills((prev) =>
-                                  prev.map((sk) => sk.name === s.name ? { ...sk, status: "confirmed" } : sk)
-                                );
-                              }
-                            }}
-                            className="px-2 py-1 rounded text-[10px] font-medium bg-emerald-600/20 text-emerald-400 border border-emerald-600/30 hover:bg-emerald-600/40 transition-colors"
-                          >
-                            确认
-                          </button>
-                          <button
-                            onClick={async () => {
-                              const res = await adminFetch(`/agents/${agentId}/skills/${s.name}/reject`, { method: "POST" });
-                              const data = await res.json();
-                              if (data.ok) {
-                                setSkills((prev) => prev.filter((sk) => sk.name !== s.name));
-                              }
-                            }}
-                            className="px-2 py-1 rounded text-[10px] font-medium bg-rose-600/20 text-rose-400 border border-rose-600/30 hover:bg-rose-600/40 transition-colors"
-                          >
-                            拒绝
-                          </button>
-                        </div>
+                      {s.description && (
+                        <p className="text-slate-400 text-[11px] leading-relaxed">{s.description}</p>
                       )}
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">
+                        {s.created_at && (
+                          <span>创建: {new Date(s.created_at).toLocaleString("zh-CN")}</span>
+                        )}
+                        {s.call_count != null && s.status === "confirmed" && (
+                          <span>调用 {s.call_count} 次</span>
+                        )}
+                        {s.success_count != null && s.status === "confirmed" && s.call_count != null && s.call_count > 0 && (
+                          <span>成功 {s.success_count} 次</span>
+                        )}
+                      </div>
                     </div>
-                    {s.description && (
-                      <p className="text-slate-400 text-[11px] leading-relaxed">{s.description}</p>
+                    {isExpanded && (
+                      <div className="border-t border-slate-700/50 px-3 pb-3 pt-2 space-y-3">
+                        {isLoadingThis ? (
+                          <p className="text-[11px] text-slate-500 py-2 text-center">加载中…</p>
+                        ) : !content ? (
+                          <p className="text-[11px] text-slate-500 py-2 text-center">内容不可用</p>
+                        ) : (
+                          <>
+                            {content.skill_md && (
+                              <div>
+                                <p className="text-[10px] text-slate-500 mb-1 font-medium uppercase tracking-wide">SKILL.md</p>
+                                <pre className="bg-slate-900/60 border border-slate-700/40 rounded-lg p-2.5 text-[10px] text-slate-300 leading-relaxed overflow-x-auto whitespace-pre-wrap break-words max-h-48 overflow-y-auto">{content.skill_md}</pre>
+                              </div>
+                            )}
+                            {content.scripts.map((sc) => (
+                              <div key={sc.filename}>
+                                <p className="text-[10px] text-slate-500 mb-1 font-medium">
+                                  <span className="font-mono text-sky-400">scripts/{sc.filename}</span>
+                                </p>
+                                <pre className="bg-slate-900/80 border border-slate-700/40 rounded-lg p-2.5 text-[10px] text-emerald-300/90 leading-relaxed overflow-x-auto whitespace-pre max-h-64 overflow-y-auto font-mono">{sc.content}</pre>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </div>
                     )}
-                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">
-                      {s.created_at && (
-                        <span>创建: {new Date(s.created_at).toLocaleString("zh-CN")}</span>
-                      )}
-                      {s.call_count != null && s.status === "confirmed" && (
-                        <span>调用 {s.call_count} 次</span>
-                      )}
-                      {s.success_count != null && s.status === "confirmed" && s.call_count != null && s.call_count > 0 && (
-                        <span>成功 {s.success_count} 次</span>
-                      )}
-                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         ) : tab === "evolution" ? (

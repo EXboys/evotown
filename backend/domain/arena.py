@@ -454,7 +454,29 @@ class ArenaState:
             "total_teams": len(self._teams),
             "global_avg": round(global_avg, 1),
             "is_strong": team_avg >= global_avg,
+            "shared_skills": list(team.shared_skills),
         }
+
+    # ── 技能共享 ──────────────────────────────────────────────────────────────────
+
+    _MAX_SHARED_SKILLS = 20
+    _SKILL_IGNORE: frozenset[str] = frozenset({"update_task_plan"})
+
+    def add_team_skill(self, agent_id: str, tool_names: list[str]) -> None:
+        """将成功工具名写入所属队伍的共享技能池（去重，保留最近 20 条）。"""
+        a = self._agents.get(agent_id)
+        if not a or not a.team_id:
+            return
+        team = self._teams.get(a.team_id)
+        if not team:
+            return
+        for name in tool_names:
+            if name in self._SKILL_IGNORE:
+                continue
+            if name not in team.shared_skills:
+                team.shared_skills.append(name)
+        if len(team.shared_skills) > self._MAX_SHARED_SKILLS:
+            team.shared_skills = team.shared_skills[-self._MAX_SHARED_SKILLS:]
 
     def inc_global_task_count(self) -> int:
         """全局任务计数 +1，返回最新值。每次任务完成后调用。"""

@@ -29,21 +29,56 @@ def load_state(experiment_id: str | None = None) -> dict[str, Any]:
         return empty
     try:
         data = json.loads(path_to_read.read_text(encoding="utf-8"))
-        result: dict[str, Any] = {
-            "agent_counter": int(data.get("agent_counter", 0)),
-            "task_counter": int(data.get("task_counter", 0)),
-            "global_task_counter": int(data.get("global_task_counter", 0)),
-            "agents": data.get("agents", []),
-            "teams": data.get("teams", []),
-        }
-        if "experiment_id" in data:
-            result["experiment_id"] = data["experiment_id"]
-        elif experiment_id:
-            result["experiment_id"] = experiment_id
-        return result
-    except (json.JSONDecodeError, OSError) as e:
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
         logger.warning("Failed to load arena state: %s", e)
         return empty
+
+    # ── 顶层计数器：类型异常时降级为 0 ──────────────────────────────────────
+    def _int(val: Any, default: int = 0) -> int:
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return default
+
+    result: dict[str, Any] = {
+        "agent_counter": _int(data.get("agent_counter"), 0),
+        "task_counter": _int(data.get("task_counter"), 0),
+        "global_task_counter": _int(data.get("global_task_counter"), 0),
+        "agents": [],
+        "teams": data.get("teams") if isinstance(data.get("teams"), list) else [],
+    }
+    if "experiment_id" in data:
+        result["experiment_id"] = data["experiment_id"]
+    elif experiment_id:
+        result["experiment_id"] = experiment_id
+
+    # ── 逐个 agent 容错：字段缺失或类型错误时用默认值，不让单个 agent 拖垮整体启动 ──
+    for raw in data.get("agents", []):
+        if not isinstance(raw, dict):
+            logger.warning("Skipping non-dict agent entry: %s", raw)
+            continue
+        agent_id = raw.get("id")
+        if not agent_id:
+            logger.warning("Skipping agent entry with missing id: %s", raw)
+            continue
+        try:
+            agent: dict[str, Any] = {
+                "id": str(agent_id),
+                "display_name": str(raw.get("display_name", "") or ""),
+                "balance": _int(raw.get("balance"), 100),
+                "status": str(raw.get("status", "active") or "active"),
+                "soul_type": str(raw.get("soul_type", "balanced") or "balanced"),
+                "team_id": raw.get("team_id"),  # None is valid
+                "rescue_given": _int(raw.get("rescue_given"), 0),
+                "rescue_received": _int(raw.get("rescue_received"), 0),
+                "solo_preference": bool(raw.get("solo_preference", False)),
+                "evolution_focus": str(raw.get("evolution_focus", "") or ""),
+            }
+            result["agents"].append(agent)
+        except Exception as e:
+            logger.warning("Skipping agent %s due to parse error: %s", agent_id, e)
+
+    return result
 
 
 def save_state(

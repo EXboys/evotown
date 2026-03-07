@@ -105,18 +105,20 @@ def load_team_config() -> dict[str, Any]:
 
 
 def load_timeout_config() -> dict[str, Any]:
-    """超时配置：任务执行超时、Judge LLM 调用超时"""
+    """超时配置：任务执行超时、Judge LLM 调用超时、单任务最大工具调用步数"""
     data = _load_json()
     timeouts = data.get("timeouts", {})
     defaults = {
         "task_timeout_seconds": 600,  # 10 分钟
         "judge_timeout_seconds": 60,
+        "max_tool_calls": 25,         # 单任务最多工具调用步数（P2-9）
     }
     defaults.update({k: v for k, v in timeouts.items() if k in defaults})
 
     env_map = {
         "EVOTOWN_TASK_TIMEOUT_SECONDS": ("task_timeout_seconds", int),
         "EVOTOWN_JUDGE_TIMEOUT_SECONDS": ("judge_timeout_seconds", int),
+        "EVOTOWN_MAX_TOOL_CALLS": ("max_tool_calls", int),
     }
     for env_key, (cfg_key, conv) in env_map.items():
         val = os.environ.get(env_key)

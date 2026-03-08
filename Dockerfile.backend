@@ -10,11 +10,16 @@ ARG TARGETARCH
 # 安装系统依赖：
 #   bubblewrap (bwrap) — SkillLite Linux 沙箱的首选隔离工具
 #   uidmap              — 提供 newuidmap/newgidmap，支持非特权用户命名空间映射
-#   curl                — 下载 GitHub Release 预编译二进制
+#   curl / gnupg        — 下载 GitHub Release 预编译二进制 + NodeJS 源
+#   nodejs / npm        — agent-browser skill 运行时依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bubblewrap \
     uidmap \
     curl \
+    gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g agent-browser \
     && rm -rf /var/lib/apt/lists/*
 
 # 从 GitHub Release 下载对应平台的预编译 skilllite 二进制，跳过 Rust 编译。

@@ -3,7 +3,9 @@ import { evotownEvents } from "../phaser/events";
 import { useEvotownStore } from "../store/evotownStore";
 import { useChronicleStore } from "../store/chronicleStore";
 
-const WS_URL = import.meta.env.DEV ? "ws://localhost:5174/ws" : `ws://${location.host}/ws`;
+const WS_URL = import.meta.env.DEV
+  ? "ws://localhost:5174/ws"
+  : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 const LOG = import.meta.env.DEV;
 
 function log(msg: string, ...args: unknown[]) {

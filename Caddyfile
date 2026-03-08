@@ -1,0 +1,22 @@
+# ── 宿主机 Caddy 反向代理配置 ──────────────────────────────────────
+# 将域名 HTTPS 流量转发到本机 Docker 暴露的 8080 端口
+# 自动申请并续期 Let's Encrypt TLS 证书
+#
+# 使用方式：
+#   1. 把下面的 evotown.example.com 替换成你的真实域名
+#   2. sudo caddy run --config /path/to/Caddyfile
+#      或放到 /etc/caddy/Caddyfile 后 sudo systemctl reload caddy
+
+www.skilllite.ai {
+    reverse_proxy localhost:8080 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}
+

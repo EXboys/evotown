@@ -91,6 +91,12 @@ class PongMsg(TypedDict):
     ts: str
 
 
+class ServerPingMsg(TypedDict):
+    """服务端心跳请求 - 服务端定期发送给客户端"""
+    type: Literal["server_ping"]
+    ts: str
+
+
 class TeamMemberInfo(TypedDict):
     agent_id: str
     display_name: str
@@ -240,18 +246,6 @@ WsOutgoingMsg = (
 
 class PingMsg(TypedDict):
     type: Literal["ping"]
-
-
-class PongMsg(TypedDict):
-    """服务端心跳响应"""
-    type: Literal["pong"]
-    ts: str
-
-
-class ServerPingMsg(TypedDict):
-    """服务端心跳请求 - 服务端定期发送给客户端"""
-    type: Literal["server_ping"]
-    ts: str
 
 
 WsIncomingMsg = PingMsg

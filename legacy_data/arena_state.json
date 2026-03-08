@@ -1,0 +1,31 @@
+{
+  "agent_counter": 13,
+  "agents": [
+    {
+      "id": "agent_10",
+      "balance": 26,
+      "status": "active",
+      "soul_type": "balanced"
+    },
+    {
+      "id": "agent_11",
+      "balance": 18,
+      "status": "active",
+      "soul_type": "balanced"
+    },
+    {
+      "id": "agent_12",
+      "balance": 52,
+      "status": "active",
+      "soul_type": "balanced"
+    },
+    {
+      "id": "agent_13",
+      "balance": 37,
+      "status": "active",
+      "soul_type": "balanced"
+    }
+  ],
+  "experiment_id": "exp_692eae4c3c61",
+  "task_counter": 163
+}

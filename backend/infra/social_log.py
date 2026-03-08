@@ -2,19 +2,23 @@
 
 每条 agent 间消息投递成功后追加到此文件，重启后可从中恢复社交记忆。
 
-记录格式（JSONL）：
-  {"from_id": str, "from_name": str, "to_id": str, "to_name": str,
-   "content": str, "msg_type": str, "ts": float}
+路径：使用 EVOTOWN_DATA_DIR（Docker 下为 /app/data），与 arena_state 同目录，
+确保容器重启后数据不丢失。
 """
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("evotown.social_log")
 
-_LOG_PATH = Path(__file__).parent.parent / "social_log.jsonl"
+# 路径配置：优先使用 EVOTOWN_DATA_DIR 环境变量
+_backend_dir = Path(__file__).resolve().parent.parent
+_evotown_data = _backend_dir.parent / "data"
+_DATA_DIR = Path(os.environ.get("EVOTOWN_DATA_DIR", _evotown_data if _evotown_data.is_dir() else _backend_dir / "data"))
+_LOG_PATH = _DATA_DIR / "social_log.jsonl"
 
 # 最多保留最近多少条（写入时不裁剪，读取时限制）
 _MAX_LOAD = 200

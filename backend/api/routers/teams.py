@@ -1,6 +1,7 @@
 """结阵（队伍）路由 — 组队分配、救援转账、自治偏好、社交图谱"""
 import json
 import logging
+import os
 from collections import defaultdict
 from pathlib import Path
 from typing import Optional
@@ -13,7 +14,11 @@ from core.deps import arena, ws
 from core.config import load_team_config
 from domain.arena import EVOLUTION_FOCUS_OPTIONS
 
-_SOCIAL_LOG_PATH = Path(__file__).parent.parent.parent / "social_log.jsonl"
+# 路径配置：优先使用 EVOTOWN_DATA_DIR 环境变量
+_backend_dir = Path(__file__).resolve().parent.parent.parent
+_evotown_data = _backend_dir.parent / "data"
+_DATA_DIR = Path(os.environ.get("EVOTOWN_DATA_DIR", _evotown_data if _evotown_data.is_dir() else _backend_dir / "data"))
+_SOCIAL_LOG_PATH = _DATA_DIR / "social_log.jsonl"
 
 logger = logging.getLogger("evotown.routers.teams")
 

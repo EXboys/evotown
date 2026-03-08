@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   # ── Backend: FastAPI + uvicorn ──────────────────────────────────
   backend:
@@ -11,7 +9,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${BACKEND_CPU_LIMIT:-4.0}"
+          cpus: "${BACKEND_CPU_LIMIT:-2.0}"
           memory: "${BACKEND_MEM_LIMIT:-4G}"
         reservations:
           cpus: "0.5"

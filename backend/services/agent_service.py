@@ -66,9 +66,9 @@ async def create_agent(body: AgentCreate) -> AgentInfo:
         status="active",
         in_task=False,
         soul_type=soul_type,
-        observer=observer,
         display_name=display_name,
     )
+    record._observer = observer
     arena.add_agent(record)
     await ws.send_agent_created(agent_id, balance, display_name)
     arena.persist()

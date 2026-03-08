@@ -15,6 +15,9 @@ logger = logging.getLogger("evotown.process")
 # 预览请求超时（秒）
 PREVIEW_TIMEOUT_SEC = 60
 
+# 单进程完成多少个任务后触发受控软重启（清空 LLM 消息历史）
+_TASKS_PER_SOFT_RESTART = 20
+
 # 每个 agent 的 agent_home 下：chat/（数据）、.skills/（技能，独立进化）
 
 # Arena Soul 模板变体（方案 C：每个 agent 定制 Soul）
@@ -146,6 +149,11 @@ class ProcessManager:
         self._crash_counts: dict[str, int] = {}
         # 记录每次 spawn 的启动时间（用于判断进程是否稳定）
         self._spawn_times: dict[str, float] = {}
+        # ── 内存管理：任务完成计数 + 计划重启标志 ────────────────────────────────
+        # 每个 agent 进程完成任务的累计次数；达到 _TASKS_PER_SOFT_RESTART 时触发软重启
+        self._task_done_counts: dict[str, int] = {}
+        # 软重启（计划内）的 agent 集合；_drain_stdout 收到 EOF 时走快速路径（1 s 延迟，不累计崩溃次数）
+        self._planned_restart: set[str] = set()
 
     def set_on_task_done(self, cb: Callable[[str, bool, dict], Awaitable[None]]) -> None:
         """设置任务完成回调：on_task_done(agent_id, success, done_data)"""
@@ -265,6 +273,8 @@ class ProcessManager:
         # 注册自动重启（覆盖写，respawn 时保持最新 soul_type）
         self._respawn_soul_types[agent_id] = soul_type
         self._spawn_times[agent_id] = asyncio.get_event_loop().time()
+        # 新进程启动，重置任务完成计数（历史消息已清空）
+        self._task_done_counts.pop(agent_id, None)
 
         # 后台消费 stdout，解析 done/error 事件并回调
         asyncio.create_task(self._drain_stdout(agent_id, proc.stdout))
@@ -342,6 +352,17 @@ class ProcessManager:
                             success = False
                         if self._on_task_done:
                             await self._on_task_done(agent_id, success, data)
+                        # ── 内存管理：任务完成计数，达阈值触发软重启 ──────────
+                        if success:
+                            count = self._task_done_counts.get(agent_id, 0) + 1
+                            self._task_done_counts[agent_id] = count
+                            if count >= _TASKS_PER_SOFT_RESTART:
+                                logger.info(
+                                    "[%s] task_done_count=%d >= %d — scheduling soft restart "
+                                    "to reclaim LLM message memory",
+                                    agent_id, count, _TASKS_PER_SOFT_RESTART,
+                                )
+                                asyncio.create_task(self._soft_restart_for_memory(agent_id))
                     elif event == "error":
                         # ── P2-9: 步骤超限已提前处理，跳过此 error ─────────
                         if agent_id in self._tool_limit_exceeded:
@@ -361,36 +382,53 @@ class ProcessManager:
                 except json.JSONDecodeError:
                     logger.warning("[%s][stdout] non-JSON line: %s", agent_id, decoded[:200])
 
-            # ── 自动重启（指数退避） ──────────────────────────────────────────
+            # ── 自动重启（指数退避 / 计划软重启快速路径） ──────────────────────
             # 仅在 EOF 触发（非 kill() / CancelledError），且 agent 仍在 respawn 注册表中
             if eof_received and agent_id in self._respawn_soul_types:
                 soul_type = self._respawn_soul_types[agent_id]
-                spawn_time = self._spawn_times.get(agent_id, 0.0)
-                uptime = asyncio.get_event_loop().time() - spawn_time
-                # 稳定运行 >60s 视为正常退出后崩溃，重置退避计数
-                if uptime > 60.0:
-                    self._crash_counts.pop(agent_id, None)
-                crash_count = self._crash_counts.get(agent_id, 0)
-                self._crash_counts[agent_id] = crash_count + 1
-                # 5s → 10s → 20s → 40s → 80s → 120s（上限）
-                backoff = min(5.0 * (2 ** crash_count), 120.0)
-                logger.warning(
-                    "[%s] process exited unexpectedly (uptime=%.0fs, crash #%d), "
-                    "respawning in %.0fs...",
-                    agent_id, uptime, crash_count + 1, backoff,
-                )
-                await asyncio.sleep(backoff)
-                # 再次检查：backoff 期间可能被 kill()
-                if agent_id in self._respawn_soul_types:
-                    logger.info("[%s] respawning (soul_type=%s)...", agent_id, soul_type)
-                    try:
-                        await self.spawn(agent_id, soul_type=soul_type)
-                        logger.info("[%s] respawn complete", agent_id)
-                    except Exception as exc:
-                        logger.error("[%s] respawn failed, giving up: %s", agent_id, exc)
-                        self._respawn_soul_types.pop(agent_id, None)
+
+                # ★ 计划内软重启（内存清理或看门狗触发）：1 s 延迟，不累计崩溃次数
+                if agent_id in self._planned_restart:
+                    self._planned_restart.discard(agent_id)
+                    logger.info("[%s] planned soft restart — respawning in 1 s", agent_id)
+                    await asyncio.sleep(1.0)
+                    if agent_id in self._respawn_soul_types:
+                        try:
+                            await self.spawn(agent_id, soul_type=soul_type)
+                            logger.info("[%s] soft restart complete", agent_id)
+                        except Exception as exc:
+                            logger.error("[%s] soft restart spawn failed: %s", agent_id, exc)
+                            self._respawn_soul_types.pop(agent_id, None)
+                    else:
+                        logger.info("[%s] kill() called during soft restart — cancelled", agent_id)
                 else:
-                    logger.info("[%s] kill() called during backoff — respawn cancelled", agent_id)
+                    # 意外崩溃：指数退避
+                    spawn_time = self._spawn_times.get(agent_id, 0.0)
+                    uptime = asyncio.get_event_loop().time() - spawn_time
+                    # 稳定运行 >60s 视为正常退出后崩溃，重置退避计数
+                    if uptime > 60.0:
+                        self._crash_counts.pop(agent_id, None)
+                    crash_count = self._crash_counts.get(agent_id, 0)
+                    self._crash_counts[agent_id] = crash_count + 1
+                    # 5s → 10s → 20s → 40s → 80s → 120s（上限）
+                    backoff = min(5.0 * (2 ** crash_count), 120.0)
+                    logger.warning(
+                        "[%s] process exited unexpectedly (uptime=%.0fs, crash #%d), "
+                        "respawning in %.0fs...",
+                        agent_id, uptime, crash_count + 1, backoff,
+                    )
+                    await asyncio.sleep(backoff)
+                    # 再次检查：backoff 期间可能被 kill()
+                    if agent_id in self._respawn_soul_types:
+                        logger.info("[%s] respawning (soul_type=%s)...", agent_id, soul_type)
+                        try:
+                            await self.spawn(agent_id, soul_type=soul_type)
+                            logger.info("[%s] respawn complete", agent_id)
+                        except Exception as exc:
+                            logger.error("[%s] respawn failed, giving up: %s", agent_id, exc)
+                            self._respawn_soul_types.pop(agent_id, None)
+                    else:
+                        logger.info("[%s] kill() called during backoff — respawn cancelled", agent_id)
 
         except (asyncio.CancelledError, ConnectionResetError):
             pass
@@ -422,6 +460,8 @@ class ProcessManager:
         self._agent_homes.pop(agent_id, None)
         self._tool_stats.pop(agent_id, None)
         self._tool_limit_exceeded.discard(agent_id)
+        self._task_done_counts.pop(agent_id, None)
+        self._planned_restart.discard(agent_id)
         if agent_id in self._pending_preview:
             fut = self._pending_preview.pop(agent_id)
             if not fut.done():
@@ -436,6 +476,24 @@ class ProcessManager:
                 await proc.wait()
             except ProcessLookupError:
                 pass
+
+    async def _soft_restart_for_memory(self, agent_id: str) -> None:
+        """受控软重启：通过 terminate() 让 _drain_stdout 走计划重启快速路径（1 s 延迟，不累计崩溃次数）。
+
+        调用前提：agent 仍在 _respawn_soul_types（即自动重启已注册）。
+        _drain_stdout 收到 EOF 后检测到 _planned_restart 标志，跳过指数退避直接重新 spawn。
+        """
+        if agent_id not in self._processes:
+            return
+        proc = self._processes.get(agent_id)
+        if proc is None or proc.returncode is not None:
+            return
+        logger.info("[%s] _soft_restart_for_memory: marking planned restart and terminating", agent_id)
+        self._planned_restart.add(agent_id)
+        try:
+            proc.terminate()
+        except ProcessLookupError:
+            self._planned_restart.discard(agent_id)
 
     async def preview_task(
         self,

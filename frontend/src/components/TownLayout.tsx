@@ -38,7 +38,7 @@ export function TownLayout() {
             <div className="text-amber-700 text-[11px] truncate">{latest.preview.slice(0, 40)}…</div>
           </div>
           <button
-            onClick={() => { navigate("/chronicle"); clear(); }}
+            onClick={() => { navigate(`/chronicle?date=${latest.date}`); clear(); }}
             className="text-[11px] px-2 py-1 rounded bg-amber-700/30 text-amber-400 hover:bg-amber-700/50 shrink-0 transition-colors"
           >
             阅览

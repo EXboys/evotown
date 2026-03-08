@@ -30,6 +30,9 @@ export interface AgentInfo {
   success_count?: number;
   evolution_count?: number;
   evolution_success_count?: number;
+  /** 队伍信息（结阵后由 team_formed WS 事件填充） */
+  team_id?: string;
+  team_name?: string;
 }
 
 export interface EvolutionEventItem {
@@ -86,6 +89,26 @@ export interface ExperimentInfo {
   config: Record<string, unknown> | null;
 }
 
+export interface SocialMessage {
+  from_id: string;
+  from_name: string;
+  to_id: string;
+  to_name: string;
+  content: string;
+  msg_type: string;
+  ts: string;
+}
+
+export interface AgentDecision {
+  agent_id: string;
+  display_name: string;
+  solo_preference: boolean;
+  evolution_focus: string;
+  prev_evolution_focus: string;
+  reason: string;
+  ts: string;
+}
+
 interface EvotownState {
   agents: AgentInfo[];
   availableTasks: AvailableTask[];
@@ -98,12 +121,18 @@ interface EvotownState {
   experimentInfo: ExperimentInfo;
   /** 回放模式 — true 时 WebSocket / AgentSync 不分发事件 */
   replayMode: boolean;
+  /** Agent 间社交消息（最多 60 条，FIFO） */
+  socialMessages: SocialMessage[];
+  /** Agent 自主决策记录（最多 60 条，FIFO） */
+  agentDecisions: AgentDecision[];
 
   setReplayMode: (mode: boolean) => void;
   setAgents: (agents: AgentInfo[]) => void;
   addAgent: (agent: AgentInfo) => void;
   updateAgentBalance: (agentId: string, balance: number) => void;
   removeAgent: (agentId: string) => void;
+  /** 结阵后批量更新队伍归属，teams = [{team_id, name, members:[agent_id]}] */
+  setAgentTeams: (teams: { team_id: string; name: string; members: { agent_id: string }[] }[]) => void;
 
   addAvailableTask: (task: AvailableTask) => void;
   removeAvailableTask: (taskId: string) => void;
@@ -122,6 +151,8 @@ interface EvotownState {
   hydrateTaskRecords: (records: TaskRecord[]) => void;
   setDispatcherState: (state: Partial<DispatcherState>) => void;
   setExperimentInfo: (info: ExperimentInfo) => void;
+  pushSocialMessage: (msg: SocialMessage) => void;
+  pushAgentDecision: (dec: AgentDecision) => void;
 }
 
 export const useEvotownStore = create<EvotownState>((set, get) => ({
@@ -135,8 +166,25 @@ export const useEvotownStore = create<EvotownState>((set, get) => ({
   dispatcherState: { running: false, pool_size: 0, interval: 30 },
   experimentInfo: { experiment_id: null, config: null },
   replayMode: false,
+  socialMessages: [],
+  agentDecisions: [],
 
   setReplayMode: (mode) => set({ replayMode: mode }),
+  setAgentTeams: (teams) =>
+    set((s) => {
+      // 构建 agent_id -> {team_id, team_name} 映射
+      const map: Record<string, { team_id: string; team_name: string }> = {};
+      teams.forEach((t) => {
+        t.members.forEach((m) => {
+          map[m.agent_id] = { team_id: t.team_id, team_name: t.name };
+        });
+      });
+      return {
+        agents: s.agents.map((a) =>
+          map[a.id] ? { ...a, team_id: map[a.id].team_id, team_name: map[a.id].team_name } : a
+        ),
+      };
+    }),
   setAgents: (agents) => {
     // 批量分配：始终用三国武将名覆盖后端英文名，逐个去重
     const usedNames = new Set<string>();
@@ -225,4 +273,12 @@ export const useEvotownStore = create<EvotownState>((set, get) => ({
       dispatcherState: { ...s.dispatcherState, ...partial },
     })),
   setExperimentInfo: (info) => set({ experimentInfo: info }),
+  pushSocialMessage: (msg) =>
+    set((s) => ({
+      socialMessages: [...s.socialMessages, msg].slice(-60),
+    })),
+  pushAgentDecision: (dec) =>
+    set((s) => ({
+      agentDecisions: [...s.agentDecisions, dec].slice(-60),
+    })),
 }));

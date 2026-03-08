@@ -23,6 +23,12 @@ from ws_messages import (
     RescueEventMsg,
     RescueNeededMsg,
     TeamReorganizedMsg,
+    AgentMessageMsg,
+    AgentDecisionMsg,
+    AgentLastStandMsg,
+    SubtitleBroadcastMsg,
+    AgentDefectedMsg,
+    TeamCreedGeneratedMsg,
 )
 
 logger = logging.getLogger("evotown.ws")
@@ -321,6 +327,152 @@ class WsDispatcher:
                 refugees, cost_stay, global_task_count,
             )
         )
+
+    # ── Agent 间通信消息 ──────────────────────────────────────────────────────
+
+    def agent_message(
+        self,
+        from_id: str,
+        from_name: str,
+        to_id: str,
+        to_name: str,
+        content: str,
+        msg_type: str,
+        ts: str,
+    ) -> AgentMessageMsg:
+        return {
+            "type": "agent_message",
+            "from_id": from_id,
+            "from_name": from_name,
+            "to_id": to_id,
+            "to_name": to_name,
+            "content": content[:200],
+            "msg_type": msg_type,
+            "ts": ts,
+        }
+
+    async def send_agent_message(
+        self,
+        from_id: str,
+        from_name: str,
+        to_id: str,
+        to_name: str,
+        content: str,
+        msg_type: str,
+        ts: str,
+    ) -> None:
+        await self.broadcast(
+            self.agent_message(from_id, from_name, to_id, to_name, content, msg_type, ts)
+        )
+
+    # ── Agent 自主社会决策消息 ────────────────────────────────────────────────
+
+    def agent_decision(
+        self,
+        agent_id: str,
+        display_name: str,
+        solo_preference: bool,
+        evolution_focus: str,
+        prev_evolution_focus: str,
+        reason: str,
+        ts: str,
+    ) -> AgentDecisionMsg:
+        return {
+            "type": "agent_decision",
+            "agent_id": agent_id,
+            "display_name": display_name,
+            "solo_preference": solo_preference,
+            "evolution_focus": evolution_focus,
+            "prev_evolution_focus": prev_evolution_focus,
+            "reason": reason[:200],
+            "ts": ts,
+        }
+
+    async def send_agent_decision(
+        self,
+        agent_id: str,
+        display_name: str,
+        solo_preference: bool,
+        evolution_focus: str,
+        prev_evolution_focus: str,
+        reason: str,
+        ts: str,
+    ) -> None:
+        await self.broadcast(
+            self.agent_decision(
+                agent_id, display_name, solo_preference,
+                evolution_focus, prev_evolution_focus, reason, ts,
+            )
+        )
+
+    def agent_last_stand(self, agent_id: str, display_name: str, balance: int) -> AgentLastStandMsg:
+        return {"type": "agent_last_stand", "agent_id": agent_id, "display_name": display_name, "balance": balance}
+
+    async def send_agent_last_stand(self, agent_id: str, display_name: str, balance: int) -> None:
+        await self.broadcast(self.agent_last_stand(agent_id, display_name, balance))
+
+    def subtitle_broadcast(self, text: str, level: str = "info") -> SubtitleBroadcastMsg:
+        return {"type": "subtitle_broadcast", "text": text, "level": level}
+
+    async def send_subtitle_broadcast(self, text: str, level: str = "info") -> None:
+        await self.broadcast(self.subtitle_broadcast(text, level))
+
+    def agent_defected(
+        self,
+        agent_id: str,
+        display_name: str,
+        old_team_id: str,
+        old_team_name: str,
+        new_team_id: str,
+        new_team_name: str,
+    ) -> AgentDefectedMsg:
+        return {
+            "type": "agent_defected",
+            "agent_id": agent_id,
+            "display_name": display_name,
+            "old_team_id": old_team_id,
+            "old_team_name": old_team_name,
+            "new_team_id": new_team_id,
+            "new_team_name": new_team_name,
+        }
+
+    async def send_agent_defected(
+        self,
+        agent_id: str,
+        display_name: str,
+        old_team_id: str,
+        old_team_name: str,
+        new_team_id: str,
+        new_team_name: str,
+    ) -> None:
+        await self.broadcast(
+            self.agent_defected(
+                agent_id, display_name,
+                old_team_id, old_team_name,
+                new_team_id, new_team_name,
+            )
+        )
+
+    def team_creed_generated(
+        self,
+        team_id: str,
+        team_name: str,
+        creed: str,
+    ) -> TeamCreedGeneratedMsg:
+        return {
+            "type": "team_creed_generated",
+            "team_id": team_id,
+            "team_name": team_name,
+            "creed": creed,
+        }
+
+    async def send_team_creed_generated(
+        self,
+        team_id: str,
+        team_name: str,
+        creed: str,
+    ) -> None:
+        await self.broadcast(self.team_creed_generated(team_id, team_name, creed))
 
 
 # 入站消息处理器类型

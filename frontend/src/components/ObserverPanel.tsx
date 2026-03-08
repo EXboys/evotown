@@ -20,10 +20,12 @@ import { AgentDetail } from "./AgentDetail";
 import { ArenaControl } from "./ArenaControl";
 import { AgentGraveyard } from "./AgentGraveyard";
 import { Leaderboard } from "./Leaderboard";
+import { SocialGraph } from "./SocialGraph";
 
-type TabId = "metrics" | "agents" | "arena" | "graveyard" | "leaderboard";
+type TabId = "metrics" | "agents" | "arena" | "graveyard" | "leaderboard" | "social";
 
 export function ObserverPanel() {
+
   const [taskInput, setTaskInput] = useState("");
   const [tab, setTab] = useState<TabId>("leaderboard");
   const [agentDetailInitialTab, setAgentDetailInitialTab] = useState<
@@ -289,11 +291,12 @@ export function ObserverPanel() {
         </div>
       </div>
 
-      {/* Tab 栏：6 个 Tab，排名 Tab 内含回放+动态 */}
+      {/* Tab 栏：6 个 Tab，史记入口已移至游戏区右上角悬浮按钮 */}
       <div className="flex border-b border-slate-600/50 shrink-0">
         {[
           { id: "leaderboard" as TabId, label: "排名" },
           { id: "arena" as TabId, label: "竞技" },
+          { id: "social" as TabId, label: "🕸社交" },
           { id: "agents" as TabId, label: "智能体" },
           { id: "graveyard" as TabId, label: "墓园" },
           { id: "metrics" as TabId, label: "EGL" },
@@ -482,9 +485,40 @@ export function ObserverPanel() {
           </div>
         )}
         {tab === "arena" && <ArenaControl />}
+        {tab === "social" && <SocialGraph />}
         {tab === "graveyard" && <AgentGraveyard />}
 
-        {tab === "metrics" && <MetricsDashboard agents={agents} />}
+        {tab === "metrics" && (
+          <div className="space-y-4">
+            <MetricsDashboard agents={agents} />
+            {/* Token 消耗统计 */}
+            {tokenUsage && (
+              <div className="border-t border-slate-700/50 pt-3 space-y-2">
+                <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">🔤 Prompt Token 监控</h3>
+                <p className="text-[10px] text-slate-500">裁判评分 + 任务生成（本进程调用），不含 Agent 子进程</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: "输入 (K)", value: (tokenUsage.prompt_tokens / 1000).toFixed(1) },
+                    { label: "输出 (K)", value: (tokenUsage.completion_tokens / 1000).toFixed(1) },
+                    { label: "合计 (K)", value: (tokenUsage.total_tokens / 1000).toFixed(1) },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="bg-slate-800/60 border border-slate-700/50 rounded-lg p-2 text-center">
+                      <div className="text-sm font-bold text-evo-accent">{value}</div>
+                      <div className="text-[9px] text-slate-500 mt-0.5">{label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!tokenUsage && (
+              <div className="border-t border-slate-700/50 pt-3">
+                <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">🔤 Prompt Token 监控</h3>
+                <p className="text-[10px] text-slate-500 italic">暂无数据（等待首次 LLM 调用）</p>
+              </div>
+            )}
+          </div>
+        )}
+
 
       </div>
 

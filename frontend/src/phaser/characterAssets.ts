@@ -517,8 +517,8 @@ const WDEFS: Record<string, WDef> = {
   lusu:     { head: HEAD_LS, sideHead: SIDE_LS, h: LSh, a: LSa, g: LSg, sk: F },
 };
 
-/** 预构建：6 武将 × 6 方向帧 */
-const WARRIOR_FRAMES: Record<string, Record<string, PixelRow[]>> = {};
+/** 预构建：13 武将 × 6 方向帧（export 供 LandingPage 立绘展示使用） */
+export const WARRIOR_FRAMES: Record<string, Record<string, PixelRow[]>> = {};
 for (const id of WARRIOR_IDS) {
   const d = WDEFS[id];
   WARRIOR_FRAMES[id] = {

@@ -148,6 +148,64 @@ class ChroniclePublishedMsg(TypedDict):
     preview: str   # 战报前 200 字，供前端气泡展示
 
 
+class AgentMessageMsg(TypedDict):
+    """Agent 间通信事件 — 一条 agent 发给另一个 agent 的社会消息"""
+    type: Literal["agent_message"]
+    from_id: str
+    from_name: str
+    to_id: str
+    to_name: str
+    content: str         # 消息正文（文言文风格，20-80字）
+    msg_type: str        # "greeting" | "challenge" | "alliance" | "strategy" | "chat"
+    ts: str              # ISO 时间戳
+
+
+class AgentDecisionMsg(TypedDict):
+    """Agent 自主社会决策事件 — LLM 自主更新 solo_preference / evolution_focus"""
+    type: Literal["agent_decision"]
+    agent_id: str
+    display_name: str
+    solo_preference: bool
+    evolution_focus: str          # 新的进化方向（空串=无偏好）
+    prev_evolution_focus: str     # 旧的进化方向（空串=无偏好）
+    reason: str                   # LLM 给出的决策理由（文言文风格，30-80字）
+    ts: str
+
+
+class AgentLastStandMsg(TypedDict):
+    """最后一战事件 — agent 余额首次归零，获得一次复活机会"""
+    type: Literal["agent_last_stand"]
+    agent_id: str
+    display_name: str
+    balance: int   # 复活后的余额（固定值，如 30）
+
+
+class SubtitleBroadcastMsg(TypedDict):
+    """直播大字幕事件 — 高优先级文本广播，供前端显示醒目字幕"""
+    type: Literal["subtitle_broadcast"]
+    text: str    # 字幕内容（60字以内）
+    level: str   # "info" | "last_stand" | "elimination" | "defection"
+
+
+class AgentDefectedMsg(TypedDict):
+    """叛逃事件 — agent 忠诚度崩溃，离队投奔更强队伍（或成为流民）"""
+    type: Literal["agent_defected"]
+    agent_id: str
+    display_name: str
+    old_team_id: str
+    old_team_name: str
+    new_team_id: str        # 空串表示成为流民
+    new_team_name: str      # "流民" 或目标队伍名称
+
+
+class TeamCreedGeneratedMsg(TypedDict):
+    """军团宗旨生成事件 — LLM 为队伍生成文言文信条，全服广播"""
+    type: Literal["team_creed_generated"]
+    team_id: str
+    team_name: str
+    creed: str              # LLM 生成的文言文宗旨（20-40汉字）
+
+
 # 服务端可广播的消息类型
 WsOutgoingMsg = (
     StateSnapshotMsg
@@ -166,6 +224,12 @@ WsOutgoingMsg = (
     | RescueNeededMsg
     | TeamReorganizedMsg
     | ChroniclePublishedMsg
+    | AgentMessageMsg
+    | AgentDecisionMsg
+    | AgentLastStandMsg
+    | SubtitleBroadcastMsg
+    | AgentDefectedMsg
+    | TeamCreedGeneratedMsg
 )
 
 

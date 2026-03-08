@@ -1,7 +1,8 @@
 /** 分享卡片组件 — 1080×1080px 进化里程碑卡片，支持预览 + 下载 */
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 
 export interface ShareCardProps {
+  agentId: string;
   agentName: string;
   balance: number;
   taskCount: number;
@@ -40,6 +41,7 @@ function canvasWrapText(
 }
 
 export function ShareCard({
+  agentId,
   agentName,
   balance,
   taskCount,
@@ -52,6 +54,32 @@ export function ShareCard({
 }: ShareCardProps) {
   const successRate = taskCount > 0 ? Math.round((successCount / taskCount) * 100) : 0;
   const epiphanyText = latestEpiphany || "持续进化中…";
+  const [serverLoading, setServerLoading] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+
+  /** 从后端下载 Pillow 生成的三国战报 PNG */
+  const downloadServerCard = useCallback(async () => {
+    setServerLoading(true);
+    setServerError(null);
+    try {
+      const res = await fetch(`/snapshot/card?agent_id=${encodeURIComponent(agentId)}`);
+      if (!res.ok) {
+        setServerError(`生成失败 (${res.status})`);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.download = `${agentName}-战报.png`;
+      a.href = url;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setServerError("网络错误，请重试");
+    } finally {
+      setServerLoading(false);
+    }
+  }, [agentId, agentName]);
 
   const downloadCanvas = useCallback(() => {
     const S = 1080;
@@ -201,10 +229,20 @@ export function ShareCard({
 
         {/* Actions */}
         <button
+          onClick={downloadServerCard}
+          disabled={serverLoading}
+          className="w-full py-2.5 rounded-lg text-sm font-medium bg-amber-700/80 hover:bg-amber-600 text-amber-100 border border-amber-600/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {serverLoading ? "生成中…" : "🏯 下载三国战报（后端高清）"}
+        </button>
+        {serverError && (
+          <p className="text-center text-rose-400 text-[10px]">{serverError}</p>
+        )}
+        <button
           onClick={downloadCanvas}
           className="w-full py-2.5 rounded-lg text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white transition-colors"
         >
-          ⬇ 下载 1080×1080
+          ⬇ 下载进化卡片 1080×1080
         </button>
         <p className="text-center text-slate-600 text-[10px]">下载后直接发布到社交媒体</p>
       </div>

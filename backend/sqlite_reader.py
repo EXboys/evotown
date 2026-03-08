@@ -402,7 +402,7 @@ async def get_skills(agent_home: str) -> list[dict[str, Any]]:
     result = list(by_name.values())
 
     result.sort(key=lambda s: (
-        0 if s["status"] == "installed" else (1 if s["status"] == "confirmed" else 2),
+        0 if s["status"] == "pending" else (1 if s["status"] == "confirmed" else 2),
         s["name"],
     ))
     return result

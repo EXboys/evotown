@@ -160,6 +160,88 @@ export function useWebSocket() {
               date: String(msg.date ?? ""),
               preview: String(msg.preview ?? ""),
             });
+          } else if (type === "agent_message") {
+            const smsg = {
+              from_id: String(msg.from_id ?? ""),
+              from_name: String(msg.from_name ?? ""),
+              to_id: String(msg.to_id ?? ""),
+              to_name: String(msg.to_name ?? ""),
+              content: String(msg.content ?? ""),
+              msg_type: String(msg.msg_type ?? "chat"),
+              ts: String(msg.ts ?? new Date().toISOString()),
+            };
+            store.pushSocialMessage(smsg);
+            evotownEvents.emit("agent_message", smsg);
+          } else if (type === "agent_decision") {
+            const dec = {
+              agent_id: String(msg.agent_id ?? ""),
+              display_name: String(msg.display_name ?? ""),
+              solo_preference: Boolean(msg.solo_preference),
+              evolution_focus: String(msg.evolution_focus ?? ""),
+              prev_evolution_focus: String(msg.prev_evolution_focus ?? ""),
+              reason: String(msg.reason ?? ""),
+              ts: String(msg.ts ?? new Date().toISOString()),
+            };
+            store.pushAgentDecision(dec);
+            evotownEvents.emit("agent_decision", dec);
+          } else if (type === "team_formed") {
+            // 结阵：批量更新 store 中 agent 的队伍归属 + 通知 Phaser 更新旗帜颜色
+            const teams = (msg.teams ?? []) as {
+              team_id: string;
+              name: string;
+              members: { agent_id: string; display_name: string }[];
+            }[];
+            store.setAgentTeams(teams);
+            evotownEvents.emit("team_formed", { teams });
+          } else if (type === "rescue_event") {
+            // 救援：emit 到 Phaser，播放施救动画
+            evotownEvents.emit("rescue_event", {
+              donor_id: String(msg.donor_id ?? ""),
+              donor_display_name: String(msg.donor_display_name ?? ""),
+              target_id: String(msg.target_id ?? ""),
+              target_display_name: String(msg.target_display_name ?? ""),
+              amount: Number(msg.amount ?? 0),
+              team_id: String(msg.team_id ?? ""),
+              team_name: String(msg.team_name ?? ""),
+            });
+            // 同时更新双方余额
+            const donorId = String(msg.donor_id ?? "");
+            const targetId = String(msg.target_id ?? "");
+            if (msg.donor_balance != null) store.updateAgentBalance(donorId, Number(msg.donor_balance));
+            if (msg.target_balance != null) store.updateAgentBalance(targetId, Number(msg.target_balance));
+          } else if (type === "agent_last_stand") {
+            // 最后一战：更新 store 余额 + emit 到 Phaser 播放红色脉冲特效
+            const agentId = String(msg.agent_id ?? "");
+            const balance = Number(msg.balance ?? 0);
+            store.updateAgentBalance(agentId, balance);
+            evotownEvents.emit("agent_last_stand", {
+              agent_id: agentId,
+              display_name: String(msg.display_name ?? agentId),
+              balance,
+            });
+          } else if (type === "subtitle_broadcast") {
+            // 直播大字幕：emit 到 Phaser 显示底部字幕条
+            evotownEvents.emit("subtitle_broadcast", {
+              text: String(msg.text ?? ""),
+              level: String(msg.level ?? "info"),
+            });
+          } else if (type === "agent_defected") {
+            // 叛逃事件：emit 到 Phaser 播放叛逃动画
+            evotownEvents.emit("agent_defected", {
+              agent_id: String(msg.agent_id ?? ""),
+              display_name: String(msg.display_name ?? msg.agent_id ?? ""),
+              old_team_id: String(msg.old_team_id ?? ""),
+              old_team_name: String(msg.old_team_name ?? ""),
+              new_team_id: String(msg.new_team_id ?? ""),
+              new_team_name: String(msg.new_team_name ?? "流民"),
+            });
+          } else if (type === "team_creed_generated") {
+            // 军团宗旨生成：emit 到 Phaser（目前仅日志，后续可展示 tooltip）
+            evotownEvents.emit("team_creed_generated", {
+              team_id: String(msg.team_id ?? ""),
+              team_name: String(msg.team_name ?? ""),
+              creed: String(msg.creed ?? ""),
+            });
           } else if (type === "evolution_event") {
             const agentId = String(msg.agent_id ?? "");
             const balance = msg.balance as number | undefined;

@@ -7,6 +7,15 @@ services:
       context: ..          # repo 根目录（包含 Cargo.toml + skilllite/ + crates/）
       dockerfile: evotown/Dockerfile.backend
     restart: unless-stopped
+    # ── 生产资源限制（防止单容器耗尽宿主机资源）──────────────────────
+    deploy:
+      resources:
+        limits:
+          cpus: "${BACKEND_CPU_LIMIT:-4.0}"
+          memory: "${BACKEND_MEM_LIMIT:-4G}"
+        reservations:
+          cpus: "0.5"
+          memory: 512M
     environment:
       # LLM API 密钥 — 支持两种命名：OPENAI_API_KEY 或 API_KEY（skilllite 本地 .env 惯例）
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -35,6 +44,16 @@ services:
       - EVOTOWN_PENALTY_FAIL=${EVOTOWN_PENALTY_FAIL:-5}
       - EVOTOWN_COST_ACCEPT=${EVOTOWN_COST_ACCEPT:-5}
       - EVOTOWN_ELIMINATE_ON_ZERO=${EVOTOWN_ELIMINATE_ON_ZERO:-true}
+      # ── 生产稳定性参数 ─────────────────────────────────────────────
+      # 数据目录（SQLite + social_log 写入路径，必须与 volumes 保持一致）
+      - EVOTOWN_DATA_DIR=/app/data
+      # LLM 并发限流（防止 429 突发；默认 5，高配机器可调至 8-10）
+      - LLM_MAX_CONCURRENCY=${LLM_MAX_CONCURRENCY:-5}
+      # 单任务最大工具调用步数（超限强制失败，防止 agent 死循环）
+      - EVOTOWN_MAX_TOOL_CALLS=${EVOTOWN_MAX_TOOL_CALLS:-25}
+      # Agent 进程内存看门狗（每 N 秒检查一次，超过阈值 MB 触发软重启）
+      - MEM_WATCHDOG_INTERVAL_SEC=${MEM_WATCHDOG_INTERVAL_SEC:-300}
+      - AGENT_MEM_THRESHOLD_MB=${AGENT_MEM_THRESHOLD_MB:-300}
       # 安全配置
       - ADMIN_TOKEN=${ADMIN_TOKEN:-}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
@@ -47,10 +66,13 @@ services:
     volumes:
       # 进化产物持久化
       - evotown_arena:/root/.skilllite/arena
-      # 实验数据持久化
-      - evotown_data:/app/data
+      # 实验数据持久化（SQLite WAL + social_log.jsonl）
+      # 关键：容器重启后数据不丢失；可直接在宿主机 ./data/ 查看/备份文件
+      - ./data:/app/data
       # 录制回放持久化
       - evotown_replays:/app/replays
+      # 运行日志持久化（便于宿主机直接 tail -f 或接入日志系统）
+      - ./logs:/app/logs
     expose:
       - "8765"
     healthcheck:
@@ -58,7 +80,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
-      start_period: 10s
+      start_period: 15s
 
   # ── Frontend: Nginx + React build ──────────────────────────────
   frontend:
@@ -76,6 +98,5 @@ services:
 
 volumes:
   evotown_arena:
-  evotown_data:
   evotown_replays:
 

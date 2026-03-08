@@ -37,15 +37,17 @@ RUN set -e && \
 # --mount=type=cache 持久化 pip wheel 缓存，--no-cache 也不会清除，跨次构建复用。
 COPY evotown/backend/requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
+    pip install --timeout=120 --retries=5 -r requirements.txt
 
 # 复制源码
 COPY evotown/backend/ .
 
 # 创建所需目录：
 #   /root/.skilllite/arena — 进化产物（volume: evotown_arena）
-#   /app/data             — arena_state.json 等持久化数据（volume: evotown_data）
-RUN mkdir -p /root/.skilllite/arena /app/data /app/replays
+#   /app/data             — SQLite WAL + social_log.jsonl（bind mount: ./data）
+#   /app/replays          — 战役回放（volume: evotown_replays）
+#   /app/logs             — 运行日志（bind mount: ./logs，便于宿主机 tail/接入日志系统）
+RUN mkdir -p /root/.skilllite/arena /app/data /app/replays /app/logs
 
 EXPOSE 8765
 

@@ -20,5 +20,8 @@
     "reorganize_interval_tasks": 20,
     "cost_stay": 10,
     "max_team_ratio": 0.4
+  },
+  "social": {
+    "decision_interval": 10
   }
 }

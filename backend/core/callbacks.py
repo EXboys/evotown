@@ -2,6 +2,8 @@
 import asyncio
 import logging
 import random
+import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from core.config import load_economy_config, load_evolution_config, load_timeout_config, load_team_config
@@ -44,6 +46,56 @@ from judge import JudgeResult
 logger = logging.getLogger("evotown.callbacks")
 
 
+# ── Event Bus ────────────────────────────────────────────────────────────────
+
+@dataclass
+class TaskDoneEvent:
+    """任务完成事件，携带所有后处理步骤所需的上下文。由 _post_task_pipeline 创建并发布。"""
+    agent_id: str
+    task_text: str
+    difficulty: str
+    task_id: str
+    response: str
+    tool_total: int
+    tool_failed: int
+    tool_calls: list
+    elapsed_ms: int
+    done_data: dict
+    judge_result: "JudgeResult"
+
+
+class TaskEventBus:
+    """任务完成事件总线。
+
+    订阅的处理器按注册顺序**串行**调用：单个处理器异常被捕获并记录，
+    不会阻断其后续处理器的执行——从根本上解决了单点故障问题。
+
+    使用方式::
+
+        bus = TaskEventBus()
+        bus.subscribe(my_async_handler)   # handler: async (TaskDoneEvent) -> None
+        await bus.publish(event)
+    """
+
+    def __init__(self) -> None:
+        self._handlers: list = []
+
+    def subscribe(self, handler) -> None:
+        """注册一个异步处理器。"""
+        self._handlers.append(handler)
+
+    async def publish(self, event: "TaskDoneEvent") -> None:
+        """依次调用所有处理器；某个处理器抛出异常时记录错误并继续执行下一个。"""
+        for handler in self._handlers:
+            try:
+                await handler(event)
+            except Exception as e:
+                logger.error(
+                    "[EventBus] handler '%s' failed for agent %s: %s",
+                    getattr(handler, "__name__", repr(handler)), event.agent_id, e,
+                )
+
+
 def _economy() -> dict:
     return load_economy_config()
 
@@ -79,9 +131,31 @@ async def broadcast_evolution_event(data: dict) -> None:
 
 
 async def _trigger_reorganize_background(global_count: int, team_cfg: dict) -> None:
-    """后台执行社会重组逻辑并广播结果。"""
+    """后台执行社会重组逻辑并广播结果。
+
+    在正式重组前，对所有在队 agent 运行叛逃检查：
+    loyalty 极低的成员可能主动离队，制造戏剧性高光时刻。
+    """
     cost_stay = team_cfg.get("cost_stay", 10)
     max_team_ratio = team_cfg.get("max_team_ratio", 0.4)
+
+    # ── 重组前叛逃检查（后台并发执行，异常不阻断主流程）──────────────────────
+    try:
+        from services.belief_engine import check_and_maybe_defect
+        agent_ids = list(arena.agents.keys())
+        defection_tasks = [
+            check_and_maybe_defect(aid, arena, ws)
+            for aid in agent_ids
+            if arena.get_agent(aid) and arena.get_agent(aid).team_id
+        ]
+        if defection_tasks:
+            results = await asyncio.gather(*defection_tasks, return_exceptions=True)
+            if any(r is True for r in results if not isinstance(r, Exception)):
+                _persist()
+                logger.info("[reorganize] pre-reorg defection sweep: some agents defected")
+    except Exception as e:
+        logger.warning("[reorganize] pre-reorg defection check failed: %s", e)
+
     try:
         result = arena.reorganize_teams(cost_stay=cost_stay, max_team_ratio=max_team_ratio)
         _persist()
@@ -295,12 +369,65 @@ def _run_social_reorganize() -> None:
         asyncio.create_task(_trigger_reorganize_background(global_count, team_cfg))
 
 
+_LAST_STAND_BALANCE = 30  # 最后一战：复活时给予的余额
+
+
+async def _generate_last_words(agent_id: str, display_name: str) -> str:
+    """调用 LLM 生成一句文言文遗言（30 字以内），带超时兜底。"""
+    try:
+        from llm_client import social_completion
+        prompt = (
+            f"你是三国武将【{display_name}】，军功耗尽，即将退出战场。"
+            "请用文言文，留下最后一句慷慨激昂的遗言（15-30汉字）。"
+            "要求：直接输出遗言正文，不带引号，不带任何说明，语言简练有力。"
+        )
+        messages = [
+            {"role": "system", "content": "你是进化小镇孔明传中的三国武将，即将被淘汰出局。"},
+            {"role": "user", "content": prompt},
+        ]
+        result = await asyncio.wait_for(
+            social_completion(messages, temperature=0.85, max_tokens=80),
+            timeout=15.0,
+        )
+        words = (result.get("raw") or "").strip()
+        if words and len(words) <= 80:
+            return words
+    except Exception as e:
+        logger.warning("[%s] last words generation failed: %s", agent_id, e)
+    return "吾虽败，然志不灭，来世再战。"
+
+
 async def _run_elimination_check(agent_id: str) -> None:
-    """步骤⑥：余额归零时淘汰 agent。"""
+    """步骤⑥：余额归零时淘汰 agent，但首次触发改为「最后一战」机会。
+
+    流程：
+    - 余额 ≤ 0 且 last_stand_used=False → 复活至 30，广播 agent_last_stand + subtitle
+    - 余额 ≤ 0 且 last_stand_used=True → LLM 生成遗言 → 正式淘汰 + subtitle
+    """
     cfg = _economy()
     a = arena.get_agent(agent_id)
     if a is None or not cfg["eliminate_on_zero"] or a.balance > 0:
         return
+
+    display_name = a.display_name or agent_id
+
+    # ── 首次归零：给予最后一战机会 ──────────────────────────────────────────
+    if not a.last_stand_used:
+        a.last_stand_used = True
+        arena.set_balance(agent_id, _LAST_STAND_BALANCE)
+        _persist()
+        logger.info("[%s] 最后一战触发：%s 余额恢复至 %d", agent_id, display_name, _LAST_STAND_BALANCE)
+        await ws.send_agent_last_stand(agent_id, display_name, _LAST_STAND_BALANCE)
+        await ws.send_subtitle_broadcast(
+            f"⚔ 最后一战！【{display_name}】垂死挣扎，军功复苏 {_LAST_STAND_BALANCE}",
+            level="last_stand",
+        )
+        return
+
+    # ── 二次归零：生成遗言，正式淘汰 ────────────────────────────────────────
+    last_words = await _generate_last_words(agent_id, display_name)
+    logger.info("[%s] 遗言：%s", agent_id, last_words)
+
     from infra.eliminated_agents import append_eliminated
     removed = arena.remove_agent(agent_id)
     if removed:
@@ -309,14 +436,168 @@ async def _run_elimination_check(agent_id: str) -> None:
             reason="balance_zero",
             final_balance=removed.balance,
             soul_type=removed.soul_type or "balanced",
-            display_name=removed.display_name or agent_id,
+            display_name=display_name,
         )
         if removed._observer:
             removed._observer.stop()
             await asyncio.to_thread(removed._observer.join, 2)
     await process_mgr.kill(agent_id)
     await ws.send_agent_eliminated(agent_id, "balance_zero")
+    await ws.send_subtitle_broadcast(
+        f'💀【{display_name}】兵败身死："{last_words}"',
+        level="elimination",
+    )
     _persist()
+
+
+async def _run_wisdom_extraction(agent_id: str, task_text: str, judge_reason: str) -> None:
+    """步骤⑦a：任务高分成功（completion >= 7）时，LLM 提炼一条文言文战术心得写入队伍共享智慧池。"""
+    try:
+        from llm_client import social_completion
+        a = arena.get_agent(agent_id)
+        if a is None:
+            return
+        agent_name = a.display_name or agent_id
+        prompt = (
+            f"你是三国武将【{agent_name}】，刚刚高质量完成了以下任务：\n"
+            f"任务：{task_text[:200]}\n"
+            f"裁判评语：{judge_reason[:300]}\n\n"
+            "请用文言文，提炼一条可传授给队友的战术心得（20-50汉字）。"
+            "要求：直接输出心得正文，不带引号，不带任何解释，语言简练有力。"
+        )
+        messages = [
+            {"role": "system", "content": "你是进化小镇孔明传中的三国武将，善于总结战术心得。"},
+            {"role": "user", "content": prompt},
+        ]
+        result = await social_completion(messages, temperature=0.7, max_tokens=100)
+        wisdom = (result.get("raw") or "").strip()
+        if not wisdom or len(wisdom) > 200:
+            return
+        written = arena.add_team_wisdom(agent_id, wisdom)
+        if written:
+            logger.info("[%s] wisdom extracted → team pool: %s", agent_name, wisdom[:50])
+    except Exception as e:
+        logger.warning("[%s] wisdom extraction failed: %s", agent_id, e)
+
+
+async def _run_agent_message(agent_id: str) -> None:
+    """步骤⑦b：双向对话优先 — 优先引用最近未回复的来信生成回复；无来信时主动发起新消息。
+
+    流程：
+    1. [优先] 调用 pick_reply_target：找到最近给我发信且我尚未回复的 agent
+       → 若找到，调用 generate_and_deliver_message(quote_msg=...) 生成引用回复
+    2. [降级] 若无待回复消息，调用 pick_message_targets 随机/队友选目标，主动发起新消息
+    """
+    try:
+        from services.agent_comms import (
+            generate_and_deliver_message,
+            pick_message_targets,
+            pick_reply_target,
+        )
+
+        # 优先模式：引用上条来信，升级为双向对话
+        reply_target, quote_msg = pick_reply_target(arena, agent_id)
+        if reply_target and quote_msg:
+            logger.debug("[%s] reply mode → %s", agent_id, reply_target)
+            await generate_and_deliver_message(
+                arena, ws, agent_id, reply_target, quote_msg=quote_msg
+            )
+            return
+
+        # 降级模式：无待回复消息，主动发起新消息
+        targets = pick_message_targets(arena, agent_id, max_targets=1)
+        for target_id in targets:
+            await generate_and_deliver_message(arena, ws, agent_id, target_id)
+    except Exception as e:
+        logger.warning("[%s] agent message step failed: %s", agent_id, e)
+
+
+async def _run_social_decision(agent_id: str) -> None:
+    """步骤⑧：每 N 个任务后 LLM 自主更新 solo_preference / evolution_focus（后台 task）。"""
+    try:
+        from services.social_decision import maybe_run_social_decision
+        task_count = arena.get_task_count(agent_id)
+        await maybe_run_social_decision(arena, ws, agent_id, task_count)
+    except Exception as e:
+        logger.warning("[%s] social decision step failed: %s", agent_id, e)
+
+
+# ── 事件处理器（每个独立失败，不影响其他）────────────────────────────────────
+
+async def _handler_balance_and_broadcast(event: TaskDoneEvent) -> None:
+    """② 更新余额并广播任务完成 WS 事件。"""
+    await _run_balance_and_broadcast(
+        event.agent_id, event.judge_result, event.task_text, event.difficulty, event.done_data
+    )
+
+
+async def _handler_record_and_context(event: TaskDoneEvent) -> None:
+    """③ 持久化历史记录 + 多样性上下文更新 + 技能共享。"""
+    _run_record(
+        event.agent_id, event.judge_result, event.task_text, event.difficulty,
+        event.task_id, event.elapsed_ms, event.done_data,
+    )
+    task_dispatcher.record_outcome(event.judge_result.completion >= 5)
+    _update_evolution_context()
+    _run_skill_sharing(event.agent_id, event.judge_result, event.tool_calls)
+
+
+async def _handler_evolution_check(event: TaskDoneEvent) -> None:
+    """④ 个体进化检查。"""
+    _run_evolution_check(event.agent_id, event.judge_result)
+
+
+async def _handler_social_reorganize(event: TaskDoneEvent) -> None:
+    """⑤ 社会重组检查。"""
+    _run_social_reorganize()
+
+
+async def _handler_elimination_check(event: TaskDoneEvent) -> None:
+    """⑥ 淘汰检查（余额归零时移除 agent）。"""
+    await _run_elimination_check(event.agent_id)
+
+
+async def _handler_social_tasks(event: TaskDoneEvent) -> None:
+    """⑦⑧ 知识传承 + Agent 间通信 + 自主社会决策（全部以后台 task 执行）。"""
+    if event.judge_result.completion >= 7:
+        asyncio.create_task(_run_wisdom_extraction(
+            event.agent_id, event.task_text, event.judge_result.reason
+        ))
+    if event.judge_result.completion >= 5:
+        asyncio.create_task(_run_agent_message(event.agent_id))
+    asyncio.create_task(_run_social_decision(event.agent_id))
+
+
+async def _handler_belief_update(event: TaskDoneEvent) -> None:
+    """⑨ 文化信仰层：任务完成后更新 loyalty，并检查是否触发叛逃（后台 task）。"""
+    asyncio.create_task(_run_belief_update(event.agent_id, event.judge_result.completion >= 5))
+
+
+async def _run_belief_update(agent_id: str, success: bool) -> None:
+    """更新 loyalty（成功/失败事件），再以概率触发叛逃检查。"""
+    try:
+        from services.belief_engine import update_loyalty, check_and_maybe_defect
+        a = arena.get_agent(agent_id)
+        if a is None:
+            return
+        event_type = "task_success" if success else "task_fail"
+        update_loyalty(a, event_type)
+        defected = await check_and_maybe_defect(agent_id, arena, ws)
+        if defected:
+            _persist()
+    except Exception as e:
+        logger.warning("[%s] belief update failed: %s", agent_id, e)
+
+
+# ── 全局事件总线实例（模块加载时注册，保持注册顺序即执行顺序）──────────────────
+_task_event_bus = TaskEventBus()
+_task_event_bus.subscribe(_handler_balance_and_broadcast)
+_task_event_bus.subscribe(_handler_record_and_context)
+_task_event_bus.subscribe(_handler_evolution_check)
+_task_event_bus.subscribe(_handler_social_reorganize)
+_task_event_bus.subscribe(_handler_elimination_check)
+_task_event_bus.subscribe(_handler_social_tasks)
+_task_event_bus.subscribe(_handler_belief_update)
 
 
 async def _post_task_pipeline(
@@ -331,24 +612,28 @@ async def _post_task_pipeline(
     elapsed_ms: int,
     done_data: dict,
 ) -> None:
-    """任务完成后的完整处理流水线（六步）。"""
-    # ① Judge
+    """任务完成后的处理流水线（事件总线驱动）。
+
+    ① Judge 步骤串行执行（后续步骤依赖其结果），之后通过 _task_event_bus 分发：
+    每个处理器独立运行，单个失败不会阻断其他步骤，彻底消除单点故障。
+    """
+    # ① Judge（串行，其余步骤依赖此结果）
     judge_result = await _run_judge(agent_id, task_text, response, tool_total, tool_failed, tool_calls)
-    # ② 余额更新 + WS 广播
-    await _run_balance_and_broadcast(agent_id, judge_result, task_text, difficulty, done_data)
-    # ③ 持久化历史
-    _run_record(agent_id, judge_result, task_text, difficulty, task_id, elapsed_ms, done_data)
-    # ── 多样性优化：将本次结果反馈给任务分发器 ──────────────────────────────
-    task_dispatcher.record_outcome(judge_result.completion >= 5)
-    _update_evolution_context()
-    # ③b 技能共享：成功工具写入队伍技能池
-    _run_skill_sharing(agent_id, judge_result, tool_calls)
-    # ④ 个体进化检查
-    _run_evolution_check(agent_id, judge_result)
-    # ⑤ 社会重组检查
-    _run_social_reorganize()
-    # ⑥ 淘汰检查
-    await _run_elimination_check(agent_id)
+    # ② ~ ⑧ 通过事件总线分发，各处理器隔离失败
+    event = TaskDoneEvent(
+        agent_id=agent_id,
+        task_text=task_text,
+        difficulty=difficulty,
+        task_id=task_id,
+        response=response,
+        tool_total=tool_total,
+        tool_failed=tool_failed,
+        tool_calls=tool_calls,
+        elapsed_ms=elapsed_ms,
+        done_data=done_data,
+        judge_result=judge_result,
+    )
+    await _task_event_bus.publish(event)
 
 
 async def on_task_done(
@@ -415,6 +700,82 @@ async def check_task_timeouts() -> None:
 
 def get_idle_agents() -> list[str]:
     return arena.get_idle_agent_ids()
+
+
+def _trim_system_prompt(prompt: str, max_tokens: int = 2000) -> str:
+    """按优先级截断 system prompt，确保不超过 max_tokens token 上限。
+
+    截断策略（优先级从低到高，先移除低优先级内容）：
+    1. 移除 ## Social Memory 段落（往来旧信，可再生）
+    2. 移除 ## Evolution Focus 段落（进化方向偏好）
+    3. 移除 Team Wisdom 子段落（智慧心得，仍保留其余 Team Context）
+    4. 兜底：强制按 token 截断（极少触发）
+
+    保证保留（最高优先级）：
+    - ## Arena Context（生存压力/经济规则，agent 核心决策依据）
+    - ## Incoming Messages（当前任务时段的来信，不可丢弃）
+    - ## Team Context（队伍生存状态，弱队警告等）
+    """
+    try:
+        import tiktoken
+        enc = tiktoken.get_encoding("cl100k_base")
+    except ImportError:
+        logger.debug("[trim_prompt] tiktoken not installed, skipping truncation")
+        return prompt
+
+    def _count(text: str) -> int:
+        return len(enc.encode(text))
+
+    if _count(prompt) <= max_tokens:
+        return prompt
+
+    # ── 1. 移除 Social Memory（最低优先级，历史可重建）─────────────────────────
+    trimmed = re.sub(
+        r"\n## Social Memory[^\n]*\n.*?(?=\n## |\Z)",
+        "",
+        prompt,
+        flags=re.DOTALL,
+    )
+    n = _count(trimmed)
+    if n <= max_tokens:
+        logger.debug("[trim_prompt] removed Social Memory (%d→%d tokens)", _count(prompt), n)
+        return trimmed
+    prompt = trimmed
+
+    # ── 2. 移除 Evolution Focus（进化偏好，任务执行期间次要）──────────────────
+    trimmed = re.sub(
+        r"\n## Evolution Focus[^\n]*\n.*?(?=\n## |\Z)",
+        "",
+        prompt,
+        flags=re.DOTALL,
+    )
+    n = _count(trimmed)
+    if n <= max_tokens:
+        logger.debug("[trim_prompt] removed Evolution Focus (%d→%d tokens)", _count(prompt), n)
+        return trimmed
+    prompt = trimmed
+
+    # ── 3. 移除 Team Wisdom 子段落（保留 Team Context 主体）─────────────────────
+    trimmed = re.sub(
+        r"\n- Team Wisdom[^\n]*\n.*?(?=\n- |\n## |\Z)",
+        "",
+        prompt,
+        flags=re.DOTALL,
+    )
+    n = _count(trimmed)
+    if n <= max_tokens:
+        logger.debug("[trim_prompt] removed Team Wisdom subsection (%d→%d tokens)", _count(prompt), n)
+        return trimmed
+    prompt = trimmed
+
+    # ── 4. 兜底：强制截断（极少触发）──────────────────────────────────────────
+    tokens = enc.encode(prompt)
+    if len(tokens) > max_tokens:
+        logger.warning(
+            "[trim_prompt] force-truncating prompt from %d to %d tokens", len(tokens), max_tokens
+        )
+        prompt = enc.decode(tokens[:max_tokens])
+    return prompt
 
 
 def _format_arena_context(
@@ -486,6 +847,12 @@ def _format_team_section(team_ctx: dict) -> str:
         if shared_skills else ""
     )
 
+    shared_wisdom = team_ctx.get("shared_wisdom", [])
+    wisdom_line = ""
+    if shared_wisdom:
+        wisdom_items = "\n".join(f"  · {w}" for w in shared_wisdom[-5:])
+        wisdom_line = f"\n- Team Wisdom (战术心得，队友亲历总结):\n{wisdom_items}"
+
     return (
         "\n## Team Context (社会生存压力)\n"
         f"- You belong to: {team_name} (Rank {rank} / {total} teams)\n"
@@ -493,6 +860,7 @@ def _format_team_section(team_ctx: dict) -> str:
         f"- {status_line}\n"
         f"- Tip: {tip}"
         f"{skills_line}"
+        f"{wisdom_line}"
     )
 
 
@@ -533,6 +901,39 @@ def _build_context_for_agent(agent_id: str, difficulty: str) -> dict | None:
     if a.evolution_focus:
         base += _format_evolution_focus_section(a.evolution_focus)
 
+    # ── 待读邮件注入（弹出并清空邮箱）──────────────────────────────────────────
+    pending_msgs = arena.pop_agent_messages(agent_id)
+    if pending_msgs:
+        lines = []
+        for m in pending_msgs:
+            lines.append(f"  [{m['msg_type']}] 来自【{m['from_name']}】: {m['content']}")
+        mail_section = (
+            "\n## Incoming Messages (来自盟友/对手的传信)\n"
+            + "\n".join(lines)
+            + "\n- You may factor these messages into your task approach or ignore them."
+        )
+        base += mail_section
+
+    # ── 社交历史记忆（从持久化日志加载最近3条，给 agent 长期上下文）──────────
+    try:
+        from infra.social_log import load_recent_received
+        history_msgs = load_recent_received(agent_id, limit=3)
+        # 只注入不在当前 pending_msgs 中的历史（避免重复）
+        pending_contents = {m["content"] for m in pending_msgs}
+        history_msgs = [m for m in history_msgs if m.get("content") not in pending_contents]
+        if history_msgs:
+            hist_lines = [
+                f"  [{m.get('msg_type', 'chat')}] 来自【{m.get('from_name', '?')}】: {m.get('content', '')}"
+                for m in history_msgs
+            ]
+            base += (
+                "\n## Social Memory (往来旧信，仅供参考)\n"
+                + "\n".join(hist_lines)
+                + "\n- These are past messages. Use them to understand your social relationships."
+            )
+    except Exception:
+        pass  # 历史记忆加载失败不阻断主流程
+
     # ── 队伍社会状态 ──────────────────────────────────────────────────────────
     team_ctx = arena.get_team_context(agent_id)
     if team_ctx:
@@ -552,6 +953,9 @@ def _build_context_for_agent(agent_id: str, difficulty: str) -> dict | None:
             "- You are currently a REFUGEE (流民) — not yet affiliated with any team.\n"
             "- Complete tasks to demonstrate your value and earn a place in a team at the next reorganization."
         )
+
+    # ── Prompt Token 膨胀防护：超过 2000 token 时按优先级截断 ───────────────────
+    base = _trim_system_prompt(base, max_tokens=2000)
 
     return {"append": base}
 

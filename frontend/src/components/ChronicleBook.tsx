@@ -6,7 +6,7 @@
  *   右栏：正文（文言文战报全文 + 武将军功表）
  */
 import { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { adminFetch } from "../hooks/useAdminToken";
 
 interface ChronicleListItem {
@@ -54,13 +54,19 @@ function RewardBadge({ value }: { value: number }) {
 
 export function ChronicleBook() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [list, setList] = useState<ChronicleListItem[]>([]);
   const [loadingList, setLoadingList] = useState(true);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(searchParams.get("date"));
   const [detail, setDetail] = useState<ChronicleDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [genMsg, setGenMsg] = useState("");
+
+  const handleSelectDate = useCallback((date: string) => {
+    setSelectedDate(date);
+    setSearchParams({ date }, { replace: true });
+  }, [setSearchParams]);
 
   const loadList = useCallback(() => {
     setLoadingList(true);
@@ -68,13 +74,15 @@ export function ChronicleBook() {
       .then((r) => r.json())
       .then((data) => {
         setList(Array.isArray(data) ? data : []);
-        if (Array.isArray(data) && data.length > 0 && !selectedDate) {
-          setSelectedDate(data[0].date);
+        if (Array.isArray(data) && data.length > 0) {
+          const urlDate = searchParams.get("date");
+          // Auto-select: prefer URL param → most recent entry
+          setSelectedDate((prev) => prev ?? urlDate ?? data[0].date);
         }
       })
       .catch(() => setList([]))
       .finally(() => setLoadingList(false));
-  }, [selectedDate]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { loadList(); }, []);
 
@@ -102,7 +110,7 @@ export function ChronicleBook() {
       const data = await r.json();
       setGenMsg(`✅ 已生成 ${data.date} 战报`);
       loadList();
-      setSelectedDate(data.date);
+      handleSelectDate(data.date);
     } catch (e) {
       setGenMsg(`❌ 网络错误：${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -132,27 +140,59 @@ export function ChronicleBook() {
       )}
 
       <div className="flex flex-1 min-h-0">
-        {/* 左侧目录 */}
-        <aside className="w-52 shrink-0 border-r border-amber-900/40 bg-[#0f0c08] overflow-y-auto">
-          <div className="px-4 py-3 text-xs text-amber-700 tracking-widest border-b border-amber-900/30">目 录</div>
+        {/* 左侧目录 — 时间线样式 */}
+        <aside className="w-56 shrink-0 border-r border-amber-900/40 bg-[#0f0c08] overflow-y-auto">
+          <div className="px-4 py-3 text-xs text-amber-700 tracking-widest border-b border-amber-900/30 flex items-center gap-2">
+            <span className="w-px h-3 bg-amber-800/60" />
+            <span>战 报 时 间 线</span>
+          </div>
           {loadingList && <div className="px-4 py-6 text-amber-800 text-xs animate-pulse">加载中…</div>}
           {!loadingList && list.length === 0 && (
             <div className="px-4 py-6 text-amber-800/60 text-xs text-center leading-relaxed">
               尚无战报<br/>点击右上角生成
             </div>
           )}
-          {list.map((item, idx) => (
-            <button
-              key={item.date}
-              onClick={() => setSelectedDate(item.date)}
-              className={`w-full text-left px-4 py-3 border-b border-amber-900/20 transition-colors group ${selectedDate === item.date ? "bg-amber-900/30 text-amber-200" : "hover:bg-amber-900/15 text-amber-600"}`}
-            >
-              <div className={`text-xs font-bold mb-1 ${selectedDate === item.date ? "text-amber-300" : "text-amber-700 group-hover:text-amber-500"}`}>
-                {chapterTitle(list.length - 1 - idx, item.date)}
-              </div>
-              <div className="text-[10px] text-amber-800/80 leading-relaxed line-clamp-2">{item.preview || "（无预览）"}</div>
-            </button>
-          ))}
+          {/* Timeline container */}
+          <div className="relative">
+            {/* Vertical connecting line */}
+            {list.length > 1 && (
+              <div className="absolute left-[22px] top-5 bottom-5 w-px bg-amber-900/35 pointer-events-none" />
+            )}
+            {list.map((item, idx) => {
+              const isSelected = selectedDate === item.date;
+              const isLatest = idx === 0;
+              return (
+                <button
+                  key={item.date}
+                  onClick={() => handleSelectDate(item.date)}
+                  className={`w-full text-left py-3 pr-3 pl-3 border-b border-amber-900/20 transition-colors group relative ${
+                    isSelected ? "bg-amber-900/30" : "hover:bg-amber-900/15"
+                  }`}
+                >
+                  {/* Timeline dot */}
+                  <div className={`absolute left-[17px] top-[18px] w-[11px] h-[11px] rounded-full z-10 transition-all ${
+                    isSelected
+                      ? "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]"
+                      : isLatest
+                        ? "bg-amber-700 border border-amber-600 animate-pulse"
+                        : "bg-[#1a1409] border border-amber-800/60"
+                  }`} />
+                  <div className="pl-6 min-w-0">
+                    {isLatest && (
+                      <span className="inline-block text-[9px] bg-amber-600/20 text-amber-500 px-1.5 py-0.5 rounded border border-amber-700/40 mb-1 tracking-wide leading-none">
+                        最新
+                      </span>
+                    )}
+                    <div className={`text-xs font-bold mb-1 leading-snug ${isSelected ? "text-amber-300" : "text-amber-700 group-hover:text-amber-500"}`}>
+                      {chapterTitle(list.length - 1 - idx, item.date)}
+                    </div>
+                    <div className="text-[10px] text-amber-800/80 leading-relaxed line-clamp-2">{item.preview || "（无预览）"}</div>
+                    <div className="text-[9px] text-amber-900/50 mt-1">军令 {item.total_tasks} 条</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </aside>
 
         {/* 右侧正文 */}

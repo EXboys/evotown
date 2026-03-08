@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from pydantic import BaseModel, ConfigDict, PrivateAttr
+
 from infra.persistence import load_state as load_persisted, save_state as save_persisted
 
 # 待办任务元数据：task, difficulty, task_id
@@ -61,7 +63,9 @@ class TeamRecord:
     team_id: str
     name: str                        # 三国队伍名，如「蜀汉联盟」
     members: list[str]               # agent_id 列表
-    shared_skills: list[str] = field(default_factory=list)  # 共享技能池
+    shared_skills: list[str] = field(default_factory=list)   # 共享工具名池
+    shared_wisdom: list[str] = field(default_factory=list)   # LLM 提炼的战术心得池
+    creed: str = ""                  # 军团宗旨（LLM 文言文生成，注入每次 LLM 决策）
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -72,56 +76,49 @@ class TeamRecord:
             "name": self.name,
             "members": list(self.members),
             "shared_skills": list(self.shared_skills),
+            "shared_wisdom": list(self.shared_wisdom),
+            "creed": self.creed,
             "created_at": self.created_at,
         }
 
 
-class AgentRecord:
-    """单个 Agent 的内存记录"""
+class AgentRecord(BaseModel):
+    """单个 Agent 的内存记录（Pydantic V2 模型）。
 
-    __slots__ = (
-        "agent_id", "display_name", "agent_home", "chat_dir",
-        "balance", "status", "in_task", "soul_type", "_observer",
-        # 结阵字段
-        "team_id", "rescue_given", "rescue_received",
-        # 自治与多样性字段
-        "solo_preference",   # True = 主动选择不加入队伍（自由人）
-        "evolution_focus",   # 期望进化方向，空串 = 无偏好，可选值见 EVOLUTION_FOCUS_OPTIONS
-    )
+    新增字段只需在此声明并提供默认值——Pydantic 自动处理验证、类型转换与
+    序列化，无需再手动同步 __slots__、__init__ 和 to_serializable 三处。
 
-    def __init__(
-        self,
-        agent_id: str,
-        agent_home: str,
-        chat_dir: str,
-        balance: int = 100,
-        status: str = "active",
-        in_task: bool = False,
-        soul_type: str = "balanced",
-        observer: Any = None,
-        display_name: str = "",
-        team_id: Optional[str] = None,
-        rescue_given: int = 0,
-        rescue_received: int = 0,
-        solo_preference: bool = False,
-        evolution_focus: str = "",
-    ) -> None:
-        self.agent_id = agent_id
-        self.display_name = display_name or agent_id
-        self.agent_home = agent_home
-        self.chat_dir = chat_dir
-        self.balance = balance
-        self.status = status
-        self.in_task = in_task
-        self.soul_type = soul_type
-        self._observer = observer
-        self.team_id = team_id
-        self.rescue_given = rescue_given
-        self.rescue_received = rescue_received
-        self.solo_preference = solo_preference
-        self.evolution_focus = evolution_focus
+    _observer 为运行时私有属性（watchdog Observer 线程），不参与序列化。
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    agent_id: str
+    display_name: str = ""
+    agent_home: str
+    chat_dir: str
+    balance: int = 100
+    status: str = "active"
+    in_task: bool = False
+    soul_type: str = "balanced"
+    team_id: Optional[str] = None
+    rescue_given: int = 0
+    rescue_received: int = 0
+    solo_preference: bool = False
+    evolution_focus: str = ""
+    last_stand_used: bool = False  # 最后一战机会是否已使用（仅触发一次）
+    loyalty: int = 100             # 对所属队伍的信仰值（0-100），影响叛逃概率
+
+    # 运行时私有属性：watchdog Observer 线程，不序列化、不校验
+    _observer: Any = PrivateAttr(default=None)
+
+    def model_post_init(self, __context: Any) -> None:
+        # 确保 display_name 始终非空
+        if not self.display_name:
+            self.display_name = self.agent_id
 
     def to_serializable(self) -> dict[str, Any]:
+        """返回可持久化的字段子集（排除运行时字段 agent_home / chat_dir / in_task）。"""
         return {
             "id": self.agent_id,
             "display_name": self.display_name,
@@ -133,11 +130,16 @@ class AgentRecord:
             "rescue_received": self.rescue_received,
             "solo_preference": self.solo_preference,
             "evolution_focus": self.evolution_focus,
+            "last_stand_used": self.last_stand_used,
+            "loyalty": self.loyalty,
         }
 
 
 class ArenaState:
     """竞技场内存状态"""
+
+    # ── 邮箱配置 ──────────────────────────────────────────────────────────────
+    _MAX_MAILBOX_SIZE: int = 5          # 每 agent 最多保留 5 条待读消息
 
     def __init__(self) -> None:
         self._agents: dict[str, AgentRecord] = {}
@@ -151,6 +153,8 @@ class ArenaState:
         self._used_names: set[str] = set()
         self._teams: dict[str, TeamRecord] = {}          # team_id → TeamRecord
         self._used_team_names: set[str] = set()
+        # ── Agent 间通信：内存邮箱（不持久化，重启后清空）─────────────────────
+        self._mailboxes: dict[str, list[dict[str, Any]]] = {}  # agent_id → list[message]
 
     def assign_display_name(self) -> str:
         """从名字池随机分配一个未被使用的展示名（池用尽后加数字后缀）"""
@@ -206,6 +210,11 @@ class ArenaState:
         if a := self._agents.get(agent_id):
             a.balance = a.balance + delta
 
+    def set_balance(self, agent_id: str, balance: int) -> None:
+        """直接设置 agent 余额（用于最后一战复活等场景）。"""
+        if a := self._agents.get(agent_id):
+            a.balance = balance
+
     def set_in_task(self, agent_id: str, in_task: bool) -> None:
         if a := self._agents.get(agent_id):
             a.in_task = in_task
@@ -240,6 +249,9 @@ class ArenaState:
     def inc_task_count(self, agent_id: str) -> int:
         self._agent_task_count[agent_id] = self._agent_task_count.get(agent_id, 0) + 1
         return self._agent_task_count[agent_id]
+
+    def get_task_count(self, agent_id: str) -> int:
+        return self._agent_task_count.get(agent_id, 0)
 
     def get_last_evolve_at(self, agent_id: str) -> int:
         return self._last_evolve_at.get(agent_id, 0)
@@ -284,6 +296,8 @@ class ArenaState:
                 name=name,
                 members=valid_members,
                 shared_skills=t.get("shared_skills", []),
+                shared_wisdom=t.get("shared_wisdom", []),
+                creed=t.get("creed", ""),
                 created_at=t.get("created_at", datetime.now(timezone.utc).isoformat()),
             )
             self._teams[tid] = team
@@ -455,11 +469,13 @@ class ArenaState:
             "global_avg": round(global_avg, 1),
             "is_strong": team_avg >= global_avg,
             "shared_skills": list(team.shared_skills),
+            "shared_wisdom": list(team.shared_wisdom),
         }
 
     # ── 技能共享 ──────────────────────────────────────────────────────────────────
 
     _MAX_SHARED_SKILLS = 20
+    _MAX_SHARED_WISDOM = 10
     _SKILL_IGNORE: frozenset[str] = frozenset({"update_task_plan"})
 
     def add_team_skill(self, agent_id: str, tool_names: list[str]) -> None:
@@ -477,6 +493,21 @@ class ArenaState:
                 team.shared_skills.append(name)
         if len(team.shared_skills) > self._MAX_SHARED_SKILLS:
             team.shared_skills = team.shared_skills[-self._MAX_SHARED_SKILLS:]
+
+    def add_team_wisdom(self, agent_id: str, wisdom: str) -> bool:
+        """将 LLM 提炼的战术心得写入所属队伍的共享智慧池（FIFO，最多 10 条）。
+        返回 True 表示写入成功，False 表示 agent 无所属队伍。
+        """
+        a = self._agents.get(agent_id)
+        if not a or not a.team_id:
+            return False
+        team = self._teams.get(a.team_id)
+        if not team:
+            return False
+        team.shared_wisdom.append(wisdom)
+        if len(team.shared_wisdom) > self._MAX_SHARED_WISDOM:
+            team.shared_wisdom = team.shared_wisdom[-self._MAX_SHARED_WISDOM:]
+        return True
 
     def inc_global_task_count(self) -> int:
         """全局任务计数 +1，返回最新值。每次任务完成后调用。"""
@@ -636,6 +667,47 @@ class ArenaState:
         donor.rescue_given += amount
         target.rescue_received += amount
         return True, f"{donor_id} → {target_id} 转移军功 {amount}"
+
+    # ── Agent 间通信：邮箱操作 ─────────────────────────────────────────────────
+
+    def send_agent_message(
+        self,
+        from_id: str,
+        to_id: str,
+        content: str,
+        msg_type: str = "chat",
+    ) -> bool:
+        """向 to_id 的邮箱投递一条消息。返回是否投递成功（to_id 不存在时 False）。
+
+        msg_type 约定值（仅用于分类显示，不作语义约束）：
+          "greeting" / "challenge" / "alliance" / "strategy" / "chat"
+        """
+        if to_id not in self._agents:
+            return False
+        from_agent = self._agents.get(from_id)
+        ts = datetime.now(timezone.utc).isoformat()
+        msg: dict[str, Any] = {
+            "from_id": from_id,
+            "from_name": from_agent.display_name if from_agent else from_id,
+            "content": content,
+            "msg_type": msg_type,
+            "ts": ts,
+        }
+        inbox = self._mailboxes.setdefault(to_id, [])
+        inbox.append(msg)
+        # 超出上限时丢弃最旧的消息（FIFO）
+        if len(inbox) > self._MAX_MAILBOX_SIZE:
+            self._mailboxes[to_id] = inbox[-self._MAX_MAILBOX_SIZE:]
+        return True
+
+    def peek_agent_messages(self, agent_id: str) -> list[dict[str, Any]]:
+        """查看但不消费邮箱消息（只读）。"""
+        return list(self._mailboxes.get(agent_id, []))
+
+    def pop_agent_messages(self, agent_id: str) -> list[dict[str, Any]]:
+        """消费并清空邮箱消息，返回所有待读消息。"""
+        msgs = self._mailboxes.pop(agent_id, [])
+        return msgs
 
     def persist(self, experiment_id: str | None = None) -> None:
         agents_payload = [a.to_serializable() for a in self._agents.values()]

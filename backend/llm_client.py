@@ -3,13 +3,15 @@
 使用 OpenAI SDK，兼容 Gemini、本地模型（Ollama）等 OpenAI 兼容 API。
 
 分层模型路由（token 成本优化）
-─────────────────────────────────────────────────
-角色              | 推荐模型         | 环境变量
-─────────────────────────────────────────────────
-主 Agent（Rust）  | 远端强力模型     | MODEL / BASE_URL / API_KEY
-裁判 Judge        | 本地 7B/14B      | JUDGE_MODEL / LOCAL_BASE_URL / LOCAL_API_KEY
-任务生成 Dispatch  | 本地 7B/14B     | DISPATCHER_MODEL / LOCAL_BASE_URL / LOCAL_API_KEY
-─────────────────────────────────────────────────
+─────────────────────────────────────────────────────────────────────────────
+角色                  | 推荐模型             | 环境变量
+─────────────────────────────────────────────────────────────────────────────
+主 Agent（Rust）      | 远端强力模型         | MODEL / BASE_URL / API_KEY
+裁判 Judge            | 本地 7B/14B          | JUDGE_MODEL / LOCAL_BASE_URL / LOCAL_API_KEY
+任务生成 Dispatcher   | 本地 7B/14B          | DISPATCHER_MODEL / LOCAL_BASE_URL / LOCAL_API_KEY
+社交决策 Social       | 本地 7B（可复用）    | SOCIAL_MODEL → fallback JUDGE_MODEL → 远端
+战报生成 Chronicle    | 远端强力模型         | CHRONICLE_MODEL → fallback MODEL → 远端
+─────────────────────────────────────────────────────────────────────────────
 
 M4 16GB 本地模型推荐（via Ollama）:
   - qwen2.5:7b    (~4.5 GB，适合裁判和任务生成，速度快)
@@ -26,6 +28,7 @@ M4 16GB 本地模型推荐（via Ollama）:
   JUDGE_MODEL=qwen2.5:7b
   DISPATCHER_MODEL=qwen2.5:7b
 """
+import asyncio
 import json
 import logging
 import os
@@ -116,58 +119,107 @@ _breakers: dict[str, _CircuitBreaker] = {
     "judge-main":       _CircuitBreaker("judge-main"),
     "dispatcher-local": _CircuitBreaker("dispatcher-local"),
     "dispatcher-main":  _CircuitBreaker("dispatcher-main"),
+    "social-local":     _CircuitBreaker("social-local"),
+    "social-main":      _CircuitBreaker("social-main"),
+    "chronicle":        _CircuitBreaker("chronicle"),
     "main":             _CircuitBreaker("main"),
 }
 
-# ── 主客户端（远端 API，供 agent 子进程使用，不在此进程直接调用）──
+# ── 全局并发限流 Semaphore ─────────────────────────────────────────────────────
+# 统一限制同时活跃的 LLM 网络请求数，防止 burst 请求触发 API 速率限制。
+# 默认 5，可通过环境变量 LLM_MAX_CONCURRENCY 调整（设为 0 禁用限流）。
+_LLM_MAX_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENCY", "5"))
+_LLM_SEMAPHORE: asyncio.Semaphore | None = None
+
+
+def _get_semaphore() -> asyncio.Semaphore | None:
+    """懒初始化 Semaphore（在异步上下文中首次调用，确保在正确的 event loop 下）。
+    MAX_CONCURRENCY=0 时返回 None，表示不限流。"""
+    global _LLM_SEMAPHORE
+    if _LLM_MAX_CONCURRENCY <= 0:
+        return None
+    if _LLM_SEMAPHORE is None:
+        _LLM_SEMAPHORE = asyncio.Semaphore(_LLM_MAX_CONCURRENCY)
+        logger.info("[throttle] LLM semaphore initialized: max_concurrency=%d", _LLM_MAX_CONCURRENCY)
+    return _LLM_SEMAPHORE
+
+# ── 主 API（各通道未单独配置时的最终 fallback）─────────────────────
 _BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
 _API_KEY = os.getenv("API_KEY", "")
 
-# ── 本地客户端（Ollama 或本地 OpenAI-compatible API）──
+# ── 本地 API（向后兼容：未配置通道专属 BASE_URL 时的次级 fallback）──
+# 仍可用，但建议迁移至通道专属变量 {CHANNEL}_BASE_URL
 _LOCAL_BASE_URL = os.getenv("LOCAL_BASE_URL", "").rstrip("/")
 _LOCAL_API_KEY = os.getenv("LOCAL_API_KEY", "ollama")
 
-# ── 模型选择 ──
-# 裁判：优先 JUDGE_MODEL → LOCAL 本地回退 → 远端 MODEL
-_JUDGE_MODEL = os.getenv("JUDGE_MODEL", "")
-# 任务生成：优先 DISPATCHER_MODEL → JUDGE_MODEL → LOCAL → 远端 MODEL
-_DISPATCHER_MODEL = os.getenv("DISPATCHER_MODEL", "")
-# 兜底：原有逻辑
-_DEFAULT_MODEL = os.getenv("JUDGE_MODEL") or os.getenv("MODEL", "gemini-2.5-flash")
+# ── 兜底模型（各通道未配置 MODEL 时使用）────────────────────────────
+_DEFAULT_MODEL = os.getenv("MODEL", "gemini-2.5-flash")
 
-_client: AsyncOpenAI | None = None
-_local_client: AsyncOpenAI | None = None
+# ── 客户端缓存（按 base_url+api_key 去重，避免重复创建连接池）──────
+_client_cache: dict[tuple[str, str], AsyncOpenAI] = {}
 
 
-def _get_client() -> AsyncOpenAI:
-    """获取主（远端）客户端"""
-    global _client
-    if _client is None:
-        _client = AsyncOpenAI(
-            base_url=_BASE_URL or None,
-            api_key=_API_KEY,
-            timeout=120.0,  # 文言文战报等长文本生成需要更长时间
+def _get_or_create_client(base_url: str, api_key: str) -> AsyncOpenAI:
+    """按 (base_url, api_key) 缓存并复用 AsyncOpenAI 实例。"""
+    cache_key = (base_url, api_key)
+    if cache_key not in _client_cache:
+        _client_cache[cache_key] = AsyncOpenAI(
+            base_url=base_url or None,
+            api_key=api_key or "none",
+            timeout=120.0,
         )
-    return _client
+    return _client_cache[cache_key]
 
 
-def _get_local_client() -> AsyncOpenAI | None:
-    """获取本地客户端（Ollama），未配置 LOCAL_BASE_URL 时返回 None"""
-    global _local_client
-    if not _LOCAL_BASE_URL:
-        return None
-    if _local_client is None:
-        _local_client = AsyncOpenAI(
-            base_url=_LOCAL_BASE_URL,
-            api_key=_LOCAL_API_KEY or "ollama",
-            timeout=120.0,  # 本地模型响应可能较慢
-        )
-    return _local_client
+def _resolve_channel(
+    prefix: str,
+    *,
+    fallback_model: str = "",
+    local_fallback: bool = False,
+) -> tuple[AsyncOpenAI, str, bool]:
+    """解析某通道的 (client, model, is_non_main_endpoint)。
+
+    优先级规则：
+      BASE_URL : {PREFIX}_BASE_URL → LOCAL_BASE_URL(*) → BASE_URL
+      API_KEY  : {PREFIX}_API_KEY  → LOCAL_API_KEY(*)  → API_KEY
+      MODEL    : {PREFIX}_MODEL    → fallback_model     → _DEFAULT_MODEL
+
+    (*) LOCAL_BASE_URL / LOCAL_API_KEY 仅在 local_fallback=True 时参与
+        （judge / dispatcher / social 保持向后兼容）。
+
+    返回第三个值 is_non_main_endpoint=True 表示使用了通道专属或本地 endpoint，
+    调用方可据此决定是否在失败时回退到主 API。
+    """
+    model = os.getenv(f"{prefix}_MODEL", "") or fallback_model or _DEFAULT_MODEL
+    channel_base = os.getenv(f"{prefix}_BASE_URL", "").rstrip("/")
+    channel_key = os.getenv(f"{prefix}_API_KEY", "")
+
+    # 1. 通道专属 endpoint
+    if channel_base:
+        client = _get_or_create_client(channel_base, channel_key or _API_KEY)
+        logger.debug("[%s] endpoint=%s model=%s", prefix.lower(), channel_base, model)
+        return client, model, True
+
+    # 2. LOCAL_BASE_URL（向后兼容，仅 judge/dispatcher/social 启用）
+    if local_fallback and _LOCAL_BASE_URL:
+        client = _get_or_create_client(_LOCAL_BASE_URL, channel_key or _LOCAL_API_KEY or _API_KEY)
+        logger.debug("[%s] endpoint=local(%s) model=%s", prefix.lower(), _LOCAL_BASE_URL, model)
+        return client, model, True
+
+    # 3. 主 API fallback
+    client = _get_or_create_client(_BASE_URL, channel_key or _API_KEY)
+    logger.debug("[%s] endpoint=main(%s) model=%s", prefix.lower(), _BASE_URL, model)
+    return client, model, False
 
 
 def has_local_llm() -> bool:
-    """是否配置了本地模型端点"""
-    return bool(_LOCAL_BASE_URL)
+    """是否配置了本地模型端点（LOCAL_BASE_URL 或任意通道专属 BASE_URL）"""
+    if _LOCAL_BASE_URL:
+        return True
+    for prefix in ("JUDGE", "DISPATCHER", "SOCIAL"):
+        if os.getenv(f"{prefix}_BASE_URL"):
+            return True
+    return False
 
 
 def _parse_json_from_content(content: str) -> dict[str, Any] | None:
@@ -250,7 +302,8 @@ async def _call_with_client(
     label: str,
 ) -> dict[str, Any]:
     """内部：使用指定客户端和模型发起调用，统计 token 并返回解析结果。
-    集成熔断器：熔断中时直接抛出，不发起网络请求。"""
+    集成熔断器：熔断中时直接抛出，不发起网络请求。
+    集成全局 Semaphore：限制同时并发 LLM 调用数，防止速率限制。"""
     # ── 熔断检查 ──────────────────────────────────────────────────────────────
     breaker = _breakers.get(label) or _breakers.setdefault(label, _CircuitBreaker(label))
     breaker.raise_if_open()
@@ -263,8 +316,14 @@ async def _call_with_client(
     }
     if response_format:
         kwargs["response_format"] = response_format
+
+    sem = _get_semaphore()
     try:
-        response = await client.chat.completions.create(**kwargs)
+        if sem is not None:
+            async with sem:
+                response = await client.chat.completions.create(**kwargs)
+        else:
+            response = await client.chat.completions.create(**kwargs)
     except Exception as e:
         breaker.record_failure()
         logger.error("[%s] LLM call failed (model=%s): %s", label, model, e)
@@ -292,22 +351,27 @@ async def judge_completion(
     max_tokens: int = 256,
     response_format: dict | None = None,
 ) -> dict[str, Any]:
-    """裁判专用调用 — 优先使用本地模型（LOCAL_BASE_URL + JUDGE_MODEL），
-    本地未配置时回退到主 API。
+    """裁判专用调用。
 
-    本地模型建议：qwen2.5:7b / llama3.1:8b（via Ollama）
+    路由优先级：JUDGE_BASE_URL → LOCAL_BASE_URL → BASE_URL
+    模型优先级：JUDGE_MODEL → MODEL
+    endpoint 非主 API 时失败自动回退主 API。
     """
-    local = _get_local_client()
-    if local and _JUDGE_MODEL:
-        model = _JUDGE_MODEL
-        logger.info("[judge] using local model: %s @ %s", model, _LOCAL_BASE_URL)
-        try:
-            return await _call_with_client(local, model, messages, temperature, max_tokens, response_format, "judge-local")
-        except Exception as e:
-            logger.warning("[judge] local model failed (%s), falling back to main API: %s", model, e)
-    # 回退到主 API
-    model = _JUDGE_MODEL or _DEFAULT_MODEL
-    return await _call_with_client(_get_client(), model, messages, temperature, max_tokens, response_format, "judge-main")
+    client, model, is_non_main = _resolve_channel(
+        "JUDGE", fallback_model=_DEFAULT_MODEL, local_fallback=True
+    )
+    logger.info("[judge] model=%s", model)
+    try:
+        return await _call_with_client(client, model, messages, temperature, max_tokens, response_format, "judge-primary")
+    except Exception as e:
+        if not is_non_main:
+            raise
+        logger.warning("[judge] primary endpoint failed (%s), falling back to main API: %s", model, e)
+    fallback_model = os.getenv("JUDGE_MODEL") or _DEFAULT_MODEL
+    return await _call_with_client(
+        _get_or_create_client(_BASE_URL, _API_KEY), fallback_model,
+        messages, temperature, max_tokens, response_format, "judge-main",
+    )
 
 
 async def dispatcher_completion(
@@ -316,19 +380,75 @@ async def dispatcher_completion(
     temperature: float = 0.95,
     max_tokens: int = 1200,
 ) -> dict[str, Any]:
-    """任务生成专用调用 — 优先使用本地模型（LOCAL_BASE_URL + DISPATCHER_MODEL），
-    本地未配置时回退到主 API。
+    """任务生成专用调用。
 
-    本地模型建议：qwen2.5:7b / qwen2.5:14b（via Ollama）
+    路由优先级：DISPATCHER_BASE_URL → LOCAL_BASE_URL → BASE_URL
+    模型优先级：DISPATCHER_MODEL → JUDGE_MODEL → MODEL
+    endpoint 非主 API 时失败自动回退主 API。
     """
-    local = _get_local_client()
-    dispatcher_model = _DISPATCHER_MODEL or _JUDGE_MODEL
-    if local and dispatcher_model:
-        logger.info("[dispatcher] using local model: %s @ %s", dispatcher_model, _LOCAL_BASE_URL)
-        try:
-            return await _call_with_client(local, dispatcher_model, messages, temperature, max_tokens, None, "dispatcher-local")
-        except Exception as e:
-            logger.warning("[dispatcher] local model failed (%s), falling back to main API: %s", dispatcher_model, e)
-    # 回退到主 API
-    model = dispatcher_model or _DEFAULT_MODEL
-    return await _call_with_client(_get_client(), model, messages, temperature, max_tokens, None, "dispatcher-main")
+    judge_model = os.getenv("JUDGE_MODEL", "")
+    client, model, is_non_main = _resolve_channel(
+        "DISPATCHER", fallback_model=judge_model or _DEFAULT_MODEL, local_fallback=True
+    )
+    logger.info("[dispatcher] model=%s", model)
+    try:
+        return await _call_with_client(client, model, messages, temperature, max_tokens, None, "dispatcher-primary")
+    except Exception as e:
+        if not is_non_main:
+            raise
+        logger.warning("[dispatcher] primary endpoint failed (%s), falling back to main API: %s", model, e)
+    fallback_model = os.getenv("DISPATCHER_MODEL") or judge_model or _DEFAULT_MODEL
+    return await _call_with_client(
+        _get_or_create_client(_BASE_URL, _API_KEY), fallback_model,
+        messages, temperature, max_tokens, None, "dispatcher-main",
+    )
+
+
+async def social_completion(
+    messages: list[dict[str, str]],
+    *,
+    temperature: float = 0.75,
+    max_tokens: int = 512,
+) -> dict[str, Any]:
+    """社交决策专用调用 — agent 间消息生成 & 自主社会决策。
+
+    路由优先级：SOCIAL_BASE_URL → LOCAL_BASE_URL → BASE_URL
+    模型优先级：SOCIAL_MODEL → JUDGE_MODEL → MODEL
+    温度稍高（0.75）以增加对话多样性。
+    """
+    judge_model = os.getenv("JUDGE_MODEL", "")
+    client, model, is_non_main = _resolve_channel(
+        "SOCIAL", fallback_model=judge_model or _DEFAULT_MODEL, local_fallback=True
+    )
+    logger.info("[social] model=%s", model)
+    try:
+        return await _call_with_client(client, model, messages, temperature, max_tokens, None, "social-primary")
+    except Exception as e:
+        if not is_non_main:
+            raise
+        logger.warning("[social] primary endpoint failed (%s), falling back to main API: %s", model, e)
+    fallback_model = os.getenv("SOCIAL_MODEL") or judge_model or _DEFAULT_MODEL
+    return await _call_with_client(
+        _get_or_create_client(_BASE_URL, _API_KEY), fallback_model,
+        messages, temperature, max_tokens, None, "social-main",
+    )
+
+
+async def chronicle_completion(
+    messages: list[dict[str, str]],
+    *,
+    temperature: float = 0.85,
+    max_tokens: int = 16000,
+    raw_only: bool = True,
+) -> dict[str, Any]:
+    """战报/标题生成专用调用。
+
+    路由优先级：CHRONICLE_BASE_URL → BASE_URL（不走 LOCAL，战报需要强模型）
+    模型优先级：CHRONICLE_MODEL → MODEL
+    raw_only=True 跳过 JSON 解析，直接返回纯文本。
+    """
+    client, model, _ = _resolve_channel(
+        "CHRONICLE", fallback_model=_DEFAULT_MODEL, local_fallback=False
+    )
+    logger.info("[chronicle] model=%s", model)
+    return await _call_with_client(client, model, messages, temperature, max_tokens, None, "chronicle")

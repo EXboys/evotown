@@ -3,6 +3,13 @@ import { useRef } from "react";
 import { useEvotownStore } from "../store/evotownStore";
 import { WarriorPortraitCanvas } from "./WarriorPortraitCanvas";
 
+/** 根据 team_id 哈希返回 NES 风格阵营颜色 */
+function teamBadgeColor(teamId: string): string {
+  const hash = teamId.split("").reduce((a, c) => ((a << 5) - a) + c.charCodeAt(0), 0);
+  const palette = ["#ef4444", "#3b82f6", "#22c55e", "#f97316", "#8b5cf6", "#eab308"];
+  return palette[Math.abs(hash) % palette.length];
+}
+
 
 export function Leaderboard() {
   const agents = useEvotownStore((s) => s.agents);
@@ -90,6 +97,17 @@ export function Leaderboard() {
                 >
                   {rank}
                 </span>
+
+                {/* 队伍颜色标识旗 */}
+                {agent.team_id && (
+                  <span
+                    title={agent.team_name ?? agent.team_id}
+                    style={{ backgroundColor: teamBadgeColor(agent.team_id) }}
+                    className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-sm text-[8px] font-bold text-white leading-none"
+                  >
+                    {(agent.team_name ?? agent.team_id).slice(0, 1)}
+                  </span>
+                )}
 
                 {/* 武将像素头像（32×48 → scale=1 → 32×48px，裁剪显示上半身） */}
                 <div className="shrink-0 overflow-hidden rounded-sm" style={{ width: 20, height: 28 }}>

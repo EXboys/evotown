@@ -83,11 +83,12 @@ async def lifespan(app: FastAPI):
                 status=a.get("status", "active"),
                 in_task=False,
                 soul_type=a.get("soul_type", "balanced"),
-                observer=observer,
                 display_name=display_name,
                 solo_preference=a.get("solo_preference", False),
                 evolution_focus=a.get("evolution_focus", ""),
+                loyalty=a.get("loyalty", 100),
             )
+            record._observer = observer
             arena.add_agent(record)
             logger.info("[%s] restored from disk (display_name=%s)", agent_id, display_name)
         except Exception as e:
@@ -177,44 +178,80 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
 
-    async def _chronicle_loop() -> None:
-        """每日 00:05 CST 自动生成文言文战报"""
-        from datetime import datetime, timezone, timedelta
-        from services.chronicle import generate_chronicle
-        from core.deps import ws as _ws
-        _cst = timezone(timedelta(hours=8))
+    async def _memory_watchdog() -> None:
+        """每 5 分钟检查各 agent 子进程 RSS，超过 300 MB 时触发受控软重启。
+
+        soft restart → _drain_stdout 快速路径（1 s 延迟，不计崩溃次数）→
+        新进程从零开始，消除 LLM 消息列表无限增长问题。
+        """
+        try:
+            import psutil as _psutil
+        except ImportError:
+            logger.warning("[watchdog] psutil not installed — memory watchdog disabled")
+            return
+        _MEM_THRESHOLD = int(os.environ.get("AGENT_MEM_THRESHOLD_MB", "300")) * 1024 * 1024
+        _INTERVAL = int(os.environ.get("MEM_WATCHDOG_INTERVAL_SEC", "300"))
+        logger.info("[watchdog] started (threshold=%d MB, interval=%ds)", _MEM_THRESHOLD // 1024 // 1024, _INTERVAL)
         try:
             while True:
-                now = datetime.now(_cst)
-                # 下一个 00:05 CST
-                next_run = now.replace(hour=0, minute=5, second=0, microsecond=0)
-                if next_run <= now:
-                    next_run += timedelta(days=1)
-                wait_secs = (next_run - now).total_seconds()
-                logger.info("[chronicle] next run in %.0f s (at %s CST)", wait_secs, next_run.strftime("%H:%M"))
-                await asyncio.sleep(wait_secs)
+                await asyncio.sleep(_INTERVAL)
+                for aid, proc in list(process_mgr._processes.items()):
+                    pid = getattr(proc, "pid", None)
+                    if pid is None:
+                        continue
+                    try:
+                        rss = _psutil.Process(pid).memory_info().rss
+                        if rss > _MEM_THRESHOLD:
+                            logger.warning(
+                                "[watchdog] agent %s RSS=%.0f MB > %d MB — triggering soft restart",
+                                aid, rss / 1024 / 1024, _MEM_THRESHOLD // 1024 // 1024,
+                            )
+                            await process_mgr._soft_restart_for_memory(aid)
+                    except (_psutil.NoSuchProcess, _psutil.AccessDenied):
+                        pass
+                    except Exception as exc:
+                        logger.error("[watchdog] error checking agent %s: %s", aid, exc)
+        except asyncio.CancelledError:
+            pass
+
+    async def _chronicle_loop() -> None:
+        """每 CHRONICLE_INTERVAL_HOURS 小时（默认 5h）自动生成下一回章回战报。"""
+        from services.chronicle import generate_chronicle
+        from core.deps import ws as _ws
+        interval_hours = float(os.environ.get("CHRONICLE_INTERVAL_HOURS", "5"))
+        interval_secs = interval_hours * 3600
+        logger.info("[chronicle] loop started — interval=%.1fh", interval_hours)
+        try:
+            while True:
+                await asyncio.sleep(interval_secs)
                 try:
                     agent_name_map = {aid: (rec.display_name or aid) for aid, rec in arena.agents.items()}
 
                     async def _bcast(data: dict) -> None:
                         await _ws.broadcast(data)
 
-                    await generate_chronicle(agent_name_map=agent_name_map, broadcast_fn=_bcast)
+                    await generate_chronicle(
+                        period_hours=interval_hours,
+                        agent_name_map=agent_name_map,
+                        broadcast_fn=_bcast,
+                    )
                 except Exception as e:
-                    logger.error("[chronicle] daily generation failed: %s", e)
+                    logger.error("[chronicle] generation failed: %s", e)
         except asyncio.CancelledError:
             pass
 
     _timeout_task = asyncio.create_task(_timeout_loop())
     _checkpoint_task = asyncio.create_task(_checkpoint_loop())
     _chronicle_task = asyncio.create_task(_chronicle_loop())
+    _watchdog_task = asyncio.create_task(_memory_watchdog())
 
     yield
 
     _timeout_task.cancel()
     _checkpoint_task.cancel()
     _chronicle_task.cancel()
-    for _t in (_timeout_task, _checkpoint_task, _chronicle_task):
+    _watchdog_task.cancel()
+    for _t in (_timeout_task, _checkpoint_task, _chronicle_task, _watchdog_task):
         try:
             await _t
         except asyncio.CancelledError:

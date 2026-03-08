@@ -976,6 +976,7 @@ export function AgentDetail({
             .find((e) => e.reason && e.reason.length > 5)?.reason ?? "";
         return (
           <ShareCard
+            agentId={agentId}
             agentName={agent?.display_name ?? agentId}
             balance={agent?.balance ?? 0}
             taskCount={agent?.task_count ?? 0}

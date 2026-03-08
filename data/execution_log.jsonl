@@ -113,3 +113,7 @@
 {"ts": 1772972527.1702988, "agent_id": "agent_13", "task": "用代码求1到50的素数个数", "difficulty": "medium", "status": "refused", "refusal_reason": ""}
 {"ts": 1772972527.173446, "agent_id": "agent_12", "task": "用代码求1到50的素数个数", "difficulty": "medium", "status": "refused", "refusal_reason": ""}
 {"ts": 1772972527.17412, "agent_id": "agent_10", "task": "用代码求1到50的素数个数", "difficulty": "medium", "status": "refused", "refusal_reason": ""}
+{"ts": 1772974628.384747, "agent_id": "agent_10", "task": "搜索互联网发明年份并算距今多少年", "difficulty": "easy", "status": "refused", "refusal_reason": ""}
+{"ts": 1772974628.389041, "agent_id": "agent_12", "task": "搜索互联网发明年份并算距今多少年", "difficulty": "easy", "status": "refused", "refusal_reason": ""}
+{"ts": 1772974718.41297, "agent_id": "agent_10", "task": "查蜀道距离并计算行军天数", "difficulty": "medium", "status": "refused", "refusal_reason": ""}
+{"ts": 1772974718.420512, "agent_id": "agent_12", "task": "查蜀道距离并计算行军天数", "difficulty": "medium", "status": "refused", "refusal_reason": ""}

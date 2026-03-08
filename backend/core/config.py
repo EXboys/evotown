@@ -86,7 +86,7 @@ def load_team_config() -> dict[str, Any]:
     team = data.get("team", {})
     defaults = {
         "reorganize_interval_tasks": int(team.get("reorganize_interval_tasks", 20)),
-        "cost_stay": int(team.get("cost_stay", 10)),
+        "cost_stay": int(team.get("cost_stay", 5)),
         "max_team_ratio": float(team.get("max_team_ratio", 0.4)),
     }
     env_map = {

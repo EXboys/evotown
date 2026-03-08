@@ -1,12 +1,12 @@
 {
   "agent_counter": 13,
   "task_counter": 163,
-  "global_task_counter": 42,
+  "global_task_counter": 53,
   "agents": [
     {
       "id": "agent_10",
       "display_name": "司马仲达",
-      "balance": 20,
+      "balance": 6,
       "status": "active",
       "soul_type": "balanced",
       "team_id": "0505d288",
@@ -14,7 +14,7 @@
       "rescue_received": 0,
       "solo_preference": false,
       "evolution_focus": "",
-      "loyalty": 80
+      "loyalty": 77
     },
     {
       "id": "agent_11",
@@ -27,12 +27,12 @@
       "rescue_received": 0,
       "solo_preference": false,
       "evolution_focus": "",
-      "loyalty": 24
+      "loyalty": 34
     },
     {
       "id": "agent_12",
       "display_name": "周公瑾",
-      "balance": 14,
+      "balance": 10,
       "status": "active",
       "soul_type": "balanced",
       "team_id": "0505d288",
@@ -40,12 +40,12 @@
       "rescue_received": 0,
       "solo_preference": false,
       "evolution_focus": "",
-      "loyalty": 46
+      "loyalty": 56
     },
     {
       "id": "agent_13",
       "display_name": "诸葛孔明",
-      "balance": 15,
+      "balance": 14,
       "status": "active",
       "soul_type": "balanced",
       "team_id": "c281bd05",
@@ -53,7 +53,7 @@
       "rescue_received": 0,
       "solo_preference": false,
       "evolution_focus": "",
-      "loyalty": 70
+      "loyalty": 95
     }
   ],
   "teams": [
@@ -69,14 +69,18 @@
         "run_command",
         "http_request",
         "write_file",
-        "write_output"
+        "write_output",
+        "calculator",
+        "list_directory"
       ],
       "shared_wisdom": [
         "察敌贵精准，勿滥施探马。虽得实情，然屡召工具，徒耗心神。谋定后动，一击必中，勿以繁术累身，精简乃胜。",
         "蜀道艰险，里程必察。行军之日关乎粮草成败。知远近则进退有据，算迟速则劳逸得宜。谋定后动，方克强敌。",
         "运筹帷幄之道，贵在精算无遗。数虽微渺，位必详验。善假利器，查微知著。虚实既明，方可决胜千里。",
         "布阵如整伍，贵在循序相邻。错位则易，往复推演。乱终成序，治军亦然。耐心为要，不可躁进，方得整肃。",
-        "历观战史年序，知兴衰有时。善战者隐忍待机，不争朝夕之利，待敌露隙，后发制人，此乃全胜之道。"
+        "历观战史年序，知兴衰有时。善战者隐忍待机，不争朝夕之利，待敌露隙，后发制人，此乃全胜之道。",
+        "察地之数，贵在精确。毫厘无差，去冗存真。知广狭之实，方能布阵得宜，运筹帷幄，决胜千里。",
+        "察地虽准，知敌营空，然未竟全功，非全胜也。行军须备万一，空营亦当确报，务求周全，方显大将之风。"
       ],
       "creed": "",
       "created_at": "2026-03-08T03:19:38.977589+00:00"
@@ -93,13 +97,19 @@
         "memory_search",
         "http_request",
         "calculator",
-        "write_file"
+        "write_file",
+        "agent_browser"
       ],
       "shared_wisdom": [
         "月径尚可精测，敌势岂容模糊？战必先算虚实，毫厘不差，方能青龙偃月，一刀定乾坤。",
         "曹军数倍于我，然赤壁终败于火。兵数非决胜之本，查敌乃寻破绽。知彼知己，顺势用谋，方以少胜多。",
         "兵家胜负，系于粮秣。官渡胜在断敌辎重，推演知之，消耗悬殊胜负定。察敌虚实，算尽粮草，必可制胜。",
-        "观孔明北伐，知成败之数。知己知彼，谋定后动。吾辈忠义同心，精研战术，则无往不胜。"
+        "观孔明北伐，知成败之数。知己知彼，谋定后动。吾辈忠义同心，精研战术，则无往不胜。",
+        "运筹帷幄之道，贵在确证无误。查算虽微，必显其果，陈其程，勿使半途中辍，方免谋略落空之患。",
+        "兵家之道，贵在知时算势。探敌情如算时日，毫厘不差，方可一击必中。谋定后动，方为大将之风。",
+        "用智如用兵，忌传令频仍。查探虚实，当统筹全局，并问为壹。勿虚耗粮草，谋定后动，一击必中，制胜之道。",
+        "用兵忌频倚外物，验证须详陈其理。例证虽确，过程不明难服众。当求简效，直击要害，勿使繁冗耗力。",
+        "兵势如算，贵在精确。去芜存菁，直击要害。勿生枝节，简以致胜。寻根本，一刀破敌，方显忠义本真，谨记。"
       ],
       "creed": "",
       "created_at": "2026-03-08T11:59:06.563530+00:00"

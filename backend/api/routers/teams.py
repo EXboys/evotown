@@ -408,3 +408,81 @@ async def get_social_graph(limit: int = 500):
         })
 
     return {"nodes": nodes, "edges": edges}
+
+
+@router.get("/social/messages")
+async def get_social_messages(
+    limit: int = 100,
+    agent_id: Optional[str] = None,
+    peer_id: Optional[str] = None,
+):
+    """获取社交消息详情列表。
+
+    Query 参数：
+    - limit: 返回最近 N 条消息（默认 100，最大 500）
+    - agent_id: 可选，只返回该 agent 发送或接收的消息
+    - peer_id: 可选，只返回与该 peer 之间的对话（需与 agent_id 配合使用）
+
+    返回格式：
+    {
+      "messages": [
+        {
+          "from_id": str,
+          "from_name": str,
+          "to_id": str,
+          "to_name": str,
+          "content": str,
+          "msg_type": str,
+          "ts": float
+        },
+        ...
+      ]
+    }
+    """
+    if not _SOCIAL_LOG_PATH.exists():
+        return {"messages": []}
+
+    messages: list[dict] = []
+
+    try:
+        with open(_SOCIAL_LOG_PATH, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        # 收集所有消息
+        all_messages: list[dict] = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = json.loads(line)
+                all_messages.append(r)
+            except (json.JSONDecodeError, KeyError):
+                continue
+
+        # 按时间倒序（最新的在前）
+        all_messages.sort(key=lambda x: x.get("ts", 0), reverse=True)
+
+        # 过滤
+        for msg in all_messages:
+            fid = msg.get("from_id", "")
+            tid = msg.get("to_id", "")
+
+            if agent_id:
+                # 只保留该 agent 发送或接收的消息
+                if fid != agent_id and tid != agent_id:
+                    continue
+                # 如果还指定了 peer_id，只保留两者之间的对话
+                if peer_id and fid != peer_id and tid != peer_id:
+                    continue
+
+            messages.append(msg)
+
+            if len(messages) >= limit:
+                break
+
+    except OSError as e:
+        logger.warning("Failed to read social log for messages: %s", e)
+        return {"messages": []}
+
+    return {"messages": messages}

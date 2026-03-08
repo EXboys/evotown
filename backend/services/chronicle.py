@@ -337,7 +337,7 @@ def _build_chapter_prompt(chapter_n: int, virtual_date: str, summary: dict[str, 
         f"虚拟纪年：{virtual_date}，开篇气势宏大，可仿「话说天下大势」起势，"
         f"三段结构：①擂台大势与时令氛围②两三位核心谋士的征战经过③「正是：」七字对联收尾，全文 500-650 字。"
         f"重点突出军功最高者事迹，其余简短带过。"
-        f"禁止：英文、agent_id、括号、markdown 符号、写"公元"或阿拉伯年份数字。"
+        f"禁止：英文、agent_id、括号、markdown 符号、写「公元」或阿拉伯年份数字。"
     )
     return "\n".join(lines)
 

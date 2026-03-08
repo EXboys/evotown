@@ -1,12 +1,12 @@
 {
   "agent_counter": 13,
   "task_counter": 163,
-  "global_task_counter": 6,
+  "global_task_counter": 15,
   "agents": [
     {
       "id": "agent_10",
       "display_name": "司马仲达",
-      "balance": 26,
+      "balance": 10,
       "status": "active",
       "soul_type": "balanced",
       "team_id": "0505d288",
@@ -14,11 +14,37 @@
       "rescue_received": 0,
       "solo_preference": false,
       "evolution_focus": "",
-      "loyalty": 92
+      "loyalty": 89
     },
     {
       "id": "agent_11",
       "display_name": "关云长",
+      "balance": 15,
+      "status": "active",
+      "soul_type": "balanced",
+      "team_id": "ff6623c5",
+      "rescue_given": 0,
+      "rescue_received": 0,
+      "solo_preference": false,
+      "evolution_focus": "",
+      "loyalty": 44
+    },
+    {
+      "id": "agent_12",
+      "display_name": "周公瑾",
+      "balance": 36,
+      "status": "active",
+      "soul_type": "balanced",
+      "team_id": "0505d288",
+      "rescue_given": 0,
+      "rescue_received": 0,
+      "solo_preference": false,
+      "evolution_focus": "",
+      "loyalty": 76
+    },
+    {
+      "id": "agent_13",
+      "display_name": "诸葛孔明",
       "balance": 18,
       "status": "active",
       "soul_type": "balanced",
@@ -27,33 +53,7 @@
       "rescue_received": 0,
       "solo_preference": false,
       "evolution_focus": "",
-      "loyalty": 68
-    },
-    {
-      "id": "agent_12",
-      "display_name": "周公瑾",
-      "balance": 52,
-      "status": "active",
-      "soul_type": "balanced",
-      "team_id": "0505d288",
-      "rescue_given": 0,
-      "rescue_received": 0,
-      "solo_preference": false,
-      "evolution_focus": "",
-      "loyalty": 100
-    },
-    {
-      "id": "agent_13",
-      "display_name": "诸葛孔明",
-      "balance": 37,
-      "status": "active",
-      "soul_type": "balanced",
-      "team_id": "ff6623c5",
-      "rescue_given": 0,
-      "rescue_received": 0,
-      "solo_preference": false,
-      "evolution_focus": "",
-      "loyalty": 92
+      "loyalty": 84
     }
   ],
   "teams": [
@@ -64,8 +64,12 @@
         "agent_10",
         "agent_12"
       ],
-      "shared_skills": [],
-      "shared_wisdom": [],
+      "shared_skills": [
+        "agent_browser"
+      ],
+      "shared_wisdom": [
+        "察敌贵精准，勿滥施探马。虽得实情，然屡召工具，徒耗心神。谋定后动，一击必中，勿以繁术累身，精简乃胜。"
+      ],
       "creed": "",
       "created_at": "2026-03-08T03:19:38.977589+00:00"
     },

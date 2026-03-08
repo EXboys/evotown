@@ -1,6 +1,10 @@
-"""实验 ID 与配置快照 — 支持可复现、可追溯"""
+"""实验 ID 与配置快照 — 支持可复现、可追溯
+
+路径：使用 EVOTOWN_DATA_DIR，确保容器重启后 experiment_id 不变，任务历史可正确过滤。
+"""
 import json
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,8 +14,11 @@ from core.config import load_economy_config, load_evolution_config, load_timeout
 
 logger = logging.getLogger("evotown.experiment")
 
-_EXPERIMENT_DIR = Path(__file__).parent.parent
-_META_PATH = _EXPERIMENT_DIR / "experiment_meta.json"
+_backend_dir = Path(__file__).resolve().parent.parent
+_evotown_data = _backend_dir.parent / "data"
+_DATA_DIR = Path(os.environ.get("EVOTOWN_DATA_DIR", _evotown_data if _evotown_data.is_dir() else _backend_dir / "data"))
+_META_PATH = _DATA_DIR / "experiment_meta.json"
+_LEGACY_META_PATH = Path(__file__).parent.parent / "experiment_meta.json"
 
 
 def generate_experiment_id() -> str:
@@ -19,8 +26,22 @@ def generate_experiment_id() -> str:
     return f"exp_{uuid.uuid4().hex[:12]}"
 
 
+def _migrate_experiment_meta() -> None:
+    """若新路径无文件但旧路径有，则迁移"""
+    if _META_PATH.exists() or not _LEGACY_META_PATH.exists():
+        return
+    try:
+        import shutil
+        _META_PATH.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(_LEGACY_META_PATH, _META_PATH)
+        logger.info("Migrated experiment_meta.json from legacy path to %s", _META_PATH)
+    except OSError as e:
+        logger.warning("Legacy experiment_meta migration failed: %s", e)
+
+
 def load_experiment_id() -> str | None:
     """从已有 meta 文件加载 experiment_id（恢复时使用）"""
+    _migrate_experiment_meta()
     if not _META_PATH.exists():
         return None
     try:
@@ -32,6 +53,7 @@ def load_experiment_id() -> str | None:
 
 def save_experiment_snapshot(experiment_id: str) -> None:
     """保存实验配置快照，便于复现与追溯"""
+    _META_PATH.parent.mkdir(parents=True, exist_ok=True)
     snapshot = {
         "experiment_id": experiment_id,
         "started_at": datetime.now(timezone.utc).isoformat(),

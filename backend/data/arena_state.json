@@ -13,7 +13,8 @@
       "rescue_given": 0,
       "rescue_received": 0,
       "solo_preference": false,
-      "evolution_focus": ""
+      "evolution_focus": "",
+      "loyalty": 100
     },
     {
       "id": "agent_11",
@@ -25,7 +26,8 @@
       "rescue_given": 0,
       "rescue_received": 0,
       "solo_preference": false,
-      "evolution_focus": ""
+      "evolution_focus": "",
+      "loyalty": 100
     },
     {
       "id": "agent_12",
@@ -37,7 +39,8 @@
       "rescue_given": 0,
       "rescue_received": 0,
       "solo_preference": false,
-      "evolution_focus": ""
+      "evolution_focus": "",
+      "loyalty": 100
     },
     {
       "id": "agent_13",
@@ -49,7 +52,8 @@
       "rescue_given": 0,
       "rescue_received": 0,
       "solo_preference": false,
-      "evolution_focus": ""
+      "evolution_focus": "",
+      "loyalty": 100
     }
   ],
   "teams": [
@@ -62,6 +66,7 @@
       ],
       "shared_skills": [],
       "shared_wisdom": [],
+      "creed": "",
       "created_at": "2026-03-07T16:05:21.941927+00:00"
     },
     {
@@ -73,6 +78,7 @@
       ],
       "shared_skills": [],
       "shared_wisdom": [],
+      "creed": "",
       "created_at": "2026-03-07T16:05:21.942030+00:00"
     }
   ],

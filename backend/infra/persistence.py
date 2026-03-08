@@ -26,7 +26,10 @@ from typing import Any, Optional
 logger = logging.getLogger("evotown.persistence")
 
 # ── 路径配置 ────────────────────────────────────────────────────────────────
-_DATA_DIR          = Path(os.environ.get("EVOTOWN_DATA_DIR", Path(__file__).parent.parent / "data"))
+# 优先 evotown/data（与 Docker 挂载一致），本地与 Docker 共用
+_backend_dir = Path(__file__).resolve().parent.parent
+_evotown_data = _backend_dir.parent / "data"
+_DATA_DIR = Path(os.environ.get("EVOTOWN_DATA_DIR", _evotown_data if _evotown_data.is_dir() else _backend_dir / "data"))
 _DB_PATH           = _DATA_DIR / "arena_state.db"
 _STATE_PATH        = _DATA_DIR / "arena_state.json"
 _LEGACY_STATE_PATH = Path(__file__).parent.parent / "arena_state.json"

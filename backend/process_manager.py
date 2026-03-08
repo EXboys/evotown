@@ -251,6 +251,8 @@ class ProcessManager:
         # ★ 禁用 agent-rpc 内置的周期/决策计数进化触发器 —— 进化统一由 Python 后端 trigger_evolve 管理，
         #   避免两个进程（agent-rpc 内 + trigger_evolve 外）同时写同一 agent 的 .skills/_evolved/
         agent_env["SKILLLITE_EVOLUTION"] = "0"
+        # ★ 竞技场无人值守：stdin 为 pipe 非 TTY，沙箱会阻塞确认。设置 AUTO_APPROVE 避免 "Execution cancelled by user"
+        agent_env["SKILLLITE_AUTO_APPROVE"] = "1"
         # 归一化 API 密钥：支持 API_KEY/BASE_URL/MODEL（本地 .env 惯例）和 OPENAI_* 两种命名
         if not agent_env.get("OPENAI_API_KEY") and agent_env.get("API_KEY"):
             agent_env["OPENAI_API_KEY"] = agent_env["API_KEY"]
@@ -330,6 +332,8 @@ class ProcessManager:
                                         agent_id, False,
                                         {"message": f"max_tool_calls ({self._max_tool_calls}) exceeded", "task_completed": False},
                                     )
+                                # 优化：立即软重启，终止子进程，避免继续浪费 token 跑完剩余迭代
+                                asyncio.create_task(self._soft_restart_for_memory(agent_id))
                     elif event == "done":
                         # ── P2-9: 步骤超限已提前处理，跳过此 done ──────────
                         if agent_id in self._tool_limit_exceeded:

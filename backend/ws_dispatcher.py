@@ -53,9 +53,12 @@ class ConnectionManager:
         return list(self._connections)
 
     async def broadcast(self, data: dict[str, Any]) -> None:
+        import asyncio
         for ws in self._connections:
             try:
-                await ws.send_json(data)
+                await asyncio.wait_for(ws.send_json(data), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("WebSocket broadcast timeout (5s), skipping connection")
             except Exception as e:
                 logger.warning("WebSocket broadcast failed: %s", e)
 

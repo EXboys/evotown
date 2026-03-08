@@ -1,15 +1,37 @@
-"""任务态度/执行记录 — 接受、拒绝、执行结果（含拒绝任务）"""
+"""任务态度/执行记录 — 接受、拒绝、执行结果（含拒绝任务）
+
+路径：使用 EVOTOWN_DATA_DIR，与 task_history 同目录，确保容器重启后不丢失。
+"""
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("evotown.execution_log")
 
+_backend_dir = Path(__file__).resolve().parent.parent
+_evotown_data = _backend_dir.parent / "data"
+_DATA_DIR = Path(os.environ.get("EVOTOWN_DATA_DIR", _evotown_data if _evotown_data.is_dir() else _backend_dir / "data"))
+_LEGACY_PATH = Path(__file__).parent.parent / "execution_log.jsonl"
+_migration_done = False
+
+
 def _path() -> Path:
-    """execution_log.jsonl 与 task_history.jsonl 同目录（backend/）"""
-    return Path(__file__).parent.parent / "execution_log.jsonl"
+    global _migration_done
+    p = _DATA_DIR / "execution_log.jsonl"
+    if not _migration_done:
+        _migration_done = True
+        if not p.exists() and _LEGACY_PATH.exists():
+            try:
+                import shutil
+                p.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(_LEGACY_PATH, p)
+                logger.info("Migrated execution_log.jsonl from legacy path to %s", p)
+            except OSError as e:
+                logger.warning("Legacy execution_log migration failed: %s", e)
+    return p
 
 
 def append_refusal(

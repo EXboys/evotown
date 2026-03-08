@@ -59,6 +59,8 @@ npm run dev
 
 Visit http://localhost:5174
 
+> **数据目录**：本地运行与 Docker 共用 `evotown/data/`，任务历史、arena 状态等持久化于此。若需指定其他目录，可设置 `EVOTOWN_DATA_DIR`。
+
 ## Economy Rules (Jungle Law)
 
 Configurable via `evotown_config.json` or environment variables:

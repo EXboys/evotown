@@ -17,6 +17,7 @@
 """
 import asyncio
 import logging
+import os
 import random
 import time
 from dataclasses import dataclass, field
@@ -36,6 +37,9 @@ TASK_BOARD_EXPIRY_SEC = 60 * 60
 
 # 任务板与任务 NPC 最多同时存在数量
 MAX_AVAILABLE_TASKS = 3
+
+# 派发停滞阈值：若连续 N 秒无任务被成功认领，触发全面复盘并生成新任务计划
+STUCK_THRESHOLD_SEC = 300  # 5 分钟，可通过 EVOTOWN_STUCK_THRESHOLD_SEC 覆盖
 
 # 三档拒绝机制：
 #   < REFUSAL_THRESHOLD_CHALLENGE  → 常规任务（正常预览，agent 可拒绝）
@@ -211,6 +215,8 @@ class TaskDispatcher:
     _evolution_context: str = field(default="")                        # agent 进化状态摘要（供 LLM 生成边界任务）
     _recent_outcomes: list[bool] = field(default_factory=list)         # 最近任务成功/失败记录（动态难度）
     _mandatory_task_texts: set[str] = field(default_factory=set)       # 拒绝次数 >= REFUSAL_MANDATORY_THRESHOLD 的强制任务
+    _last_successful_claim_at: float = field(default=0.0)              # 上次任务被成功认领的时间戳（用于 5 分钟停滞检测）
+    _stuck_recovery_mode: bool = field(default=False)                  # 是否处于「全面复盘」后的恢复模式（偏 easy）
 
     def configure(
         self,
@@ -259,13 +265,30 @@ class TaskDispatcher:
             return 0.6
         return sum(self._recent_outcomes) / len(self._recent_outcomes)
 
+    def _get_stuck_threshold_sec(self) -> float:
+        """派发停滞阈值（秒），可从 EVOTOWN_STUCK_THRESHOLD_SEC 覆盖。"""
+        val = os.environ.get("EVOTOWN_STUCK_THRESHOLD_SEC", str(int(STUCK_THRESHOLD_SEC)))
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return float(STUCK_THRESHOLD_SEC)
+
     def _difficulty_hint(self) -> str:
-        """根据近期成功率动态建议 easy/medium/hard 比例。"""
+        """根据近期成功率和恢复模式，循序渐进建议难度，避免陡然过难导致全员拒绝。
+
+        原则：任务目的是触发进化，需适度挑战；但难度应循序推进，不可陡然过难。
+        """
+        if self._stuck_recovery_mode:
+            return "全部 easy，无 medium/hard（派发停滞后全面复盘，先恢复信心）"
         rate = self._recent_success_rate()
         if rate >= 0.8:
             return "偏多 hard（成功率高，需要更难任务推动进化）"
         elif rate <= 0.35:
-            return "偏多 easy（成功率偏低，需要简单任务恢复信心和余额）"
+            return "全部或绝大部分 easy，无 hard（成功率偏低，需简单任务恢复）"
+        elif rate <= 0.5:
+            return "偏多 easy，少量 medium，无 hard（循序渐进）"
+        elif rate <= 0.7:
+            return "均衡 easy/medium，少量 hard（3:5:2）"
         else:
             return "均衡 easy/medium/hard（3:5:2）"
 
@@ -294,10 +317,11 @@ class TaskDispatcher:
         if self._running:
             return
         self._running = True
+        self._last_successful_claim_at = time.time()  # 启动时视为「刚有认领」，避免启动即触发停滞
         if self._stop_event is None:
             self._stop_event = asyncio.Event()
         self._stop_event.clear()
-        logger.info("Task dispatcher started (interval=%.1fs)", self._interval)
+        logger.info("Task dispatcher started (interval=%.1fs, stuck_threshold=%.0fs)", self._interval, self._get_stuck_threshold_sec())
         asyncio.create_task(self._loop())
 
     async def stop(self) -> None:
@@ -327,6 +351,16 @@ class TaskDispatcher:
     def _next_task_id(self) -> str:
         self._task_id_counter += 1
         return f"t_{self._task_id_counter}"
+
+    def _trigger_stuck_recovery(self) -> None:
+        """派发停滞 5 分钟后全面复盘：清空任务池，进入恢复模式，下次 refill 只生成 easy 任务。"""
+        self._task_pool.clear()
+        self._mandatory_task_texts.clear()
+        self._stuck_recovery_mode = True
+        logger.warning(
+            "[dispatcher] 派发停滞 %.0f 分钟，全面复盘：清空任务池，生成全新 easy 任务计划",
+            self._get_stuck_threshold_sec() / 60,
+        )
 
     def return_task_to_pool(self, task_text: str, difficulty: str) -> None:
         """将任务放回任务池。三档处理：
@@ -451,11 +485,18 @@ class TaskDispatcher:
         agent_id = await self._broadcast_assign_fn(task_id, task_text, difficulty)
 
         if agent_id:
+            self._last_successful_claim_at = time.time()
             del self._available_tasks[task_id]
             if self._on_task_taken:
                 await self._on_task_taken(task_id, agent_id, task_text)
         else:
             logger.info("No agent grabbed task, remains on board: %s", task_text[:50])
+            # 检测派发停滞：有空闲 agent 但无人认领，且距上次成功认领已超阈值
+            now = time.time()
+            threshold = self._get_stuck_threshold_sec()
+            if idle_agents and self._last_successful_claim_at > 0 and (now - self._last_successful_claim_at) >= threshold:
+                self._trigger_stuck_recovery()
+                await self._refill_pool()  # 立即补充 easy 任务
 
     def _parse_tasks(self, raw: Any) -> list[TaskItem]:
         """解析 LLM 返回的任务列表，支持新旧格式"""
@@ -533,14 +574,19 @@ class TaskDispatcher:
         return result
 
     def _seed_fallback(self, n: int = 5) -> list[TaskItem]:
-        """从未使用过的种子任务中选取 n 条作为 fallback，避免重复种子。"""
+        """从未使用过的种子任务中选取 n 条作为 fallback，避免重复种子。
+        恢复模式下优先选 easy，保证循序渐进而非陡然过难。"""
         unused = [s for s in SEED_TASKS if s[0] not in self._used_seed_texts]
         if not unused:
-            # 全部用完时重置，允许重新使用（但加入历史去重过滤）
             logger.info("All seed tasks used, resetting seed pool")
             self._used_seed_texts.clear()
             unused = list(SEED_TASKS)
-        chosen = random.sample(unused, min(n, len(unused)))
+        if self._stuck_recovery_mode:
+            easy_unused = [s for s in unused if (s[1] if len(s) > 1 else "medium") == "easy"]
+            pool = easy_unused if easy_unused else unused
+        else:
+            pool = unused
+        chosen = random.sample(pool, min(n, len(pool)))
         for item in chosen:
             self._used_seed_texts.add(item[0])
         return chosen
@@ -559,6 +605,8 @@ class TaskDispatcher:
             evolution_context_section=evolution_section,
         )
         user_msg = f"请生成任务列表。本次侧重主题：{theme}。"
+        if self._stuck_recovery_mode:
+            user_msg += "\n\n⚠️ 派发刚停滞复盘：需简单、可完成的任务，避免 agent 再次集体拒绝。"
         if existing_hint:
             user_msg += f"\n\n{existing_hint}"
         return [
@@ -588,6 +636,9 @@ class TaskDispatcher:
                     logger.debug("Filtered %d duplicate/similar tasks (n-gram+history)", dropped)
                 if filtered:
                     self._task_pool.extend(filtered)
+                    if self._stuck_recovery_mode:
+                        self._stuck_recovery_mode = False
+                        logger.info("[dispatcher] 全面复盘完成，恢复模式已解除")
                     logger.info(
                         "Refilled pool: +%d tasks (theme=%s, success_rate=%.0f%%, pool=%d)",
                         len(filtered), theme[:20], self._recent_success_rate() * 100, len(self._task_pool),
@@ -603,6 +654,9 @@ class TaskDispatcher:
         # Fallback：从未使用过的种子中选
         seeds = self._seed_fallback(5)
         self._task_pool.extend(seeds)
+        if self._stuck_recovery_mode:
+            self._stuck_recovery_mode = False
+            logger.info("[dispatcher] 全面复盘完成（seed fallback），恢复模式已解除")
         logger.info("Seed fallback: added %d unused seed tasks (pool=%d)", len(seeds), len(self._task_pool))
 
     async def generate_tasks(self, count: int = 5) -> list[dict[str, Any]]:

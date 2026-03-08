@@ -1,13 +1,45 @@
-"""任务/评分历史持久化 — 支持长期分析"""
+"""任务/评分历史持久化 — 支持长期分析
+
+路径：使用 EVOTOWN_DATA_DIR（Docker 下为 /app/data），与 arena_state 同目录，
+确保容器重启后历史不丢失。
+"""
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("evotown.task_history")
 
-_HISTORY_PATH = Path(__file__).parent.parent / "task_history.jsonl"
+# 数据目录：优先 evotown/data（与 Docker 挂载一致），本地与 Docker 共用；否则 backend/data
+_backend_dir = Path(__file__).resolve().parent.parent
+_evotown_data = _backend_dir.parent / "data"
+_DATA_DIR = Path(os.environ.get("EVOTOWN_DATA_DIR", _evotown_data if _evotown_data.is_dir() else _backend_dir / "data"))
+_HISTORY_PATH = _DATA_DIR / "task_history.jsonl"
+
+# 旧路径（backend/ 根目录），用于一次性迁移
+_LEGACY_PATH = Path(__file__).parent.parent / "task_history.jsonl"
+
+
+_migration_done = False
+
+
+def _migrate_from_legacy() -> None:
+    """若新路径无文件但旧路径有，则迁移（容器升级后保留历史）。仅执行一次。"""
+    global _migration_done
+    if _migration_done:
+        return
+    _migration_done = True
+    if _HISTORY_PATH.exists() or not _LEGACY_PATH.exists():
+        return
+    try:
+        import shutil
+        _HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(_LEGACY_PATH, _HISTORY_PATH)
+        logger.info("Migrated task_history.jsonl from legacy path to %s", _HISTORY_PATH)
+    except OSError as e:
+        logger.warning("Legacy task_history migration failed: %s", e)
 
 
 def append_task_record(
@@ -39,6 +71,7 @@ def append_task_record(
         "ts": time.time(),
     }
     try:
+        _HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(_HISTORY_PATH, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except OSError as e:
@@ -52,6 +85,7 @@ def load_task_history(
     limit: int = 1000,
 ) -> list[dict[str, Any]]:
     """加载任务历史，支持按 experiment_id、agent_id 过滤"""
+    _migrate_from_legacy()
     if not _HISTORY_PATH.exists():
         return []
     records: list[dict[str, Any]] = []
@@ -148,6 +182,7 @@ def append_task_dropped(
         "ts": time.time(),
     }
     try:
+        _HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(_HISTORY_PATH, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except OSError as e:

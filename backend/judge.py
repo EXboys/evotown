@@ -29,6 +29,11 @@ _JSON_WRAPPER_PATTERN = re.compile(
     r"^(?:Here is the JSON requested:\s*\n?)?```(?:json)?\s*\n?",
     re.IGNORECASE,
 )
+# 提取 ```json ... ``` 或 ``` ... ``` 之间的内容（含截断情况）
+_JSON_CODE_BLOCK_PATTERN = re.compile(
+    r"```(?:json)?\s*\n?([\s\S]*?)(?:```|\Z)",
+    re.IGNORECASE | re.DOTALL,
+)
 
 JUDGE_PROMPT = """\
 You are a strict but fair task-completion judge for an AI agent arena.
@@ -115,6 +120,12 @@ def _parse_judge_json(raw: str) -> dict[str, Any] | None:
     text = text.rstrip("`").strip()
 
     candidates: list[str] = [text, raw]
+
+    # 2b. 提取 ```json ... ``` 代码块内容（Gemini 常截断，块内可能不完整）
+    for m in _JSON_CODE_BLOCK_PATTERN.finditer(raw):
+        inner = m.group(1).strip()
+        if inner and ("completion" in inner or "{" in inner):
+            candidates.insert(0, inner)
 
     # 3. 提取 {...} 块（支持嵌套）
     block = _extract_json_block(text) or _extract_json_block(raw)

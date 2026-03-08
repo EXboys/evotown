@@ -990,6 +990,9 @@ async def broadcast_preview_and_assign(
     if not idle_agents:
         return None
 
+    # 打乱顺序，避免按 agent_id/插入顺序固定优先，实现公平随机分发
+    random.shuffle(idle_agents)
+
     # ── 强制任务快速路径：跳过预览，直接注入 ──────────────────────────────
     if task_dispatcher.is_mandatory_task(task_id):
         chosen = random.choice(idle_agents)

@@ -52,12 +52,12 @@ function PixelPortrait({ warriorId, scale = 4 }: { warriorId: string; scale?: nu
 
 export function LandingPage() {
   const navigate = useNavigate();
-  const [latestChronicle, setLatestChronicle] = useState<{ preview: string; date: string } | null>(null);
+  const [latestChronicle, setLatestChronicle] = useState<{ preview: string; chapter_label: string; virtual_date: string } | null>(null);
 
   useEffect(() => {
-    fetch("/chronicle")
+    fetch("/api/chronicle")
       .then((r) => r.json())
-      .then((d: { preview: string; date: string }[]) => {
+      .then((d: { preview: string; chapter_label: string; virtual_date: string }[]) => {
         if (Array.isArray(d) && d.length > 0) setLatestChronicle(d[0]);
       })
       .catch(() => {});
@@ -107,7 +107,7 @@ export function LandingPage() {
           <div className="max-w-3xl mx-auto">
             <div className="flex items-center gap-3 mb-2">
               <span className="text-amber-400 text-xs">◆ 最新战报</span>
-              <span className="text-slate-600 text-[10px]">{latestChronicle.date}</span>
+              <span className="text-slate-600 text-[10px]">{latestChronicle.chapter_label} · {latestChronicle.virtual_date}</span>
             </div>
             <div className="border border-amber-900/50 bg-amber-950/20 p-3">
               <p className="text-amber-200/80 text-xs leading-relaxed line-clamp-3">

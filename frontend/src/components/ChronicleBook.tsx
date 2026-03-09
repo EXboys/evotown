@@ -10,7 +10,9 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { adminFetch } from "../hooks/useAdminToken";
 
 interface ChronicleListItem {
-  date: string;
+  chapter: number;
+  chapter_label: string;
+  virtual_date: string;
   generated_at: string;
   total_tasks: number;
   preview: string;
@@ -26,7 +28,9 @@ interface AgentStat {
 }
 
 interface ChronicleDetail {
-  date: string;
+  chapter?: number;
+  chapter_label?: string;
+  virtual_date?: string;
   generated_at: string;
   title?: string;
   text: string;
@@ -34,13 +38,8 @@ interface ChronicleDetail {
   agent_stats: AgentStat[];
 }
 
-function chapterTitle(index: number, date: string): string {
-  const chNums = ["一","二","三","四","五","六","七","八","九","十",
-    "十一","十二","十三","十四","十五","十六","十七","十八","十九","二十",
-    "二十一","二十二","二十三","二十四","二十五","二十六","二十七","二十八","二十九","三十"];
-  const n = chNums[index] ?? `${index + 1}`;
-  const [, m, d] = date.split("-");
-  return `第${n}回 · ${m}月${d}日`;
+function formatChapterTitle(item: ChronicleListItem): string {
+  return `${item.chapter_label || `第${item.chapter}回`} · ${item.virtual_date || ""}`;
 }
 
 function RewardBadge({ value }: { value: number }) {
@@ -57,27 +56,32 @@ export function ChronicleBook() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [list, setList] = useState<ChronicleListItem[]>([]);
   const [loadingList, setLoadingList] = useState(true);
-  const [selectedDate, setSelectedDate] = useState<string | null>(searchParams.get("date"));
+  const urlChapter = searchParams.get("chapter");
+  const parsedUrl = urlChapter ? parseInt(urlChapter, 10) : NaN;
+  const [selectedChapter, setSelectedChapter] = useState<number | null>(
+    !isNaN(parsedUrl) ? parsedUrl : null
+  );
   const [detail, setDetail] = useState<ChronicleDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [genMsg, setGenMsg] = useState("");
 
-  const handleSelectDate = useCallback((date: string) => {
-    setSelectedDate(date);
-    setSearchParams({ date }, { replace: true });
+  const handleSelectChapter = useCallback((chapter: number) => {
+    setSelectedChapter(chapter);
+    setSearchParams({ chapter: String(chapter) }, { replace: true });
   }, [setSearchParams]);
 
   const loadList = useCallback(() => {
     setLoadingList(true);
-    fetch(`/chronicle`)
+    fetch(`/api/chronicle`)
       .then((r) => r.json())
       .then((data) => {
         setList(Array.isArray(data) ? data : []);
         if (Array.isArray(data) && data.length > 0) {
-          const urlDate = searchParams.get("date");
-          // Auto-select: prefer URL param → most recent entry
-          setSelectedDate((prev) => prev ?? urlDate ?? data[0].date);
+          const urlCh = searchParams.get("chapter");
+          const urlChapterNum = urlCh ? parseInt(urlCh, 10) : NaN;
+          const validUrl = !isNaN(urlChapterNum) && data.some((i: ChronicleListItem) => i.chapter === urlChapterNum);
+          setSelectedChapter((prev) => (prev != null ? prev : validUrl ? urlChapterNum : data[0].chapter));
         }
       })
       .catch(() => setList([]))
@@ -87,30 +91,30 @@ export function ChronicleBook() {
   useEffect(() => { loadList(); }, []);
 
   useEffect(() => {
-    if (!selectedDate) return;
+    if (selectedChapter == null) return;
     setLoadingDetail(true);
     setDetail(null);
-    fetch(`/chronicle/${selectedDate}`)
+    fetch(`/api/chronicle/${selectedChapter}`)
       .then((r) => r.json())
       .then((data) => setDetail(data))
       .catch(() => setDetail(null))
       .finally(() => setLoadingDetail(false));
-  }, [selectedDate]);
+  }, [selectedChapter]);
 
   const handleGenerate = async () => {
     setGenerating(true);
     setGenMsg("");
     try {
-      const r = await adminFetch(`/chronicle/generate`, { method: "POST", body: JSON.stringify({}) });
+      const r = await adminFetch(`/api/chronicle/generate`, { method: "POST", body: JSON.stringify({}) });
       if (!r.ok) {
         const errText = await r.text().catch(() => r.statusText);
         setGenMsg(`❌ 生成失败 (${r.status})：${errText.slice(0, 120)}`);
         return;
       }
       const data = await r.json();
-      setGenMsg(`✅ 已生成 ${data.date} 战报`);
+      setGenMsg(`✅ 已生成 ${data.chapter_label || `第${data.chapter}回`} 战报`);
       loadList();
-      handleSelectDate(data.date);
+      if (data.chapter != null) handleSelectChapter(data.chapter);
     } catch (e) {
       setGenMsg(`❌ 网络错误：${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -159,12 +163,12 @@ export function ChronicleBook() {
               <div className="absolute left-[22px] top-5 bottom-5 w-px bg-amber-900/35 pointer-events-none" />
             )}
             {list.map((item, idx) => {
-              const isSelected = selectedDate === item.date;
+              const isSelected = selectedChapter === item.chapter;
               const isLatest = idx === 0;
               return (
                 <button
-                  key={item.date}
-                  onClick={() => handleSelectDate(item.date)}
+                  key={item.chapter}
+                  onClick={() => handleSelectChapter(item.chapter)}
                   className={`w-full text-left py-3 pr-3 pl-3 border-b border-amber-900/20 transition-colors group relative ${
                     isSelected ? "bg-amber-900/30" : "hover:bg-amber-900/15"
                   }`}
@@ -184,7 +188,7 @@ export function ChronicleBook() {
                       </span>
                     )}
                     <div className={`text-xs font-bold mb-1 leading-snug ${isSelected ? "text-amber-300" : "text-amber-700 group-hover:text-amber-500"}`}>
-                      {chapterTitle(list.length - 1 - idx, item.date)}
+                      {formatChapterTitle(item)}
                     </div>
                     <div className="text-[10px] text-amber-800/80 leading-relaxed line-clamp-2">{item.preview || "（无预览）"}</div>
                     <div className="text-[9px] text-amber-900/50 mt-1">军令 {item.total_tasks} 条</div>
@@ -197,13 +201,18 @@ export function ChronicleBook() {
 
         {/* 右侧正文 */}
         <main className="flex-1 overflow-y-auto px-10 py-8 max-w-3xl mx-auto">
-          {!selectedDate && !loadingList && (
+          {selectedChapter == null && !loadingList && (
             <div className="text-center mt-32 text-amber-800/50 text-sm tracking-widest">选择左侧章节以阅读史记</div>
           )}
           {loadingDetail && (
             <div className="text-center mt-32 text-amber-700 text-sm animate-pulse tracking-widest">载入战报中…</div>
           )}
-          {detail && !loadingDetail && <ChapterContent detail={detail} chapterNum={list.length - list.findIndex(i => i.date === detail.date)} />}
+          {detail && !loadingDetail && (
+            <ChapterContent
+              detail={detail}
+              chapterNum={detail.chapter ?? list.length - list.findIndex((i) => i.chapter === selectedChapter)}
+            />
+          )}
         </main>
       </div>
     </div>
@@ -212,13 +221,13 @@ export function ChronicleBook() {
 
 function ChapterContent({ detail, chapterNum }: { detail: ChronicleDetail; chapterNum: number }) {
   const chNums = ["零","一","二","三","四","五","六","七","八","九","十","十一","十二","十三","十四","十五","十六","十七","十八","十九","二十"];
-  const [, m, d] = detail.date.split("-");
   const genTime = detail.generated_at ? new Date(detail.generated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "";
+  const fallbackTitle = detail.virtual_date ? `${detail.virtual_date} · 战场实录` : "战场实录";
   return (
     <article>
       {/* 回目标题 */}
       <div className="text-center mb-8">
-        <div className="text-xs text-amber-700 tracking-[0.5em] mb-3">第{chNums[chapterNum] ?? chapterNum}回</div>
+        <div className="text-xs text-amber-700 tracking-[0.5em] mb-3">{detail.chapter_label ?? `第${chNums[chapterNum] ?? chapterNum}回`}</div>
         {detail.title ? (
           /* 有 LLM 生成的回目标题：上下句竖排展示 */
           <div className="flex flex-col items-center gap-1 mb-2">
@@ -228,7 +237,7 @@ function ChapterContent({ detail, chapterNum }: { detail: ChronicleDetail; chapt
           </div>
         ) : (
           /* 旧战报无标题时兜底 */
-          <div className="text-xl font-bold text-amber-300 tracking-[0.2em] mb-1">{m}月{d}日 · 战场实录</div>
+          <div className="text-xl font-bold text-amber-300 tracking-[0.2em] mb-1">{fallbackTitle}</div>
         )}
         <div className="text-xs text-amber-800 mt-2">{genTime && `说书人注：录于 ${genTime}`}</div>
         <div className="mt-4 border-t border-amber-900/40" />

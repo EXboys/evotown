@@ -10,12 +10,25 @@
 import hashlib
 import json
 import logging
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("evotown.chronicle")
+
+
+def _strip_think_blocks(text: str) -> str:
+    """移除 MiniMax 等模型的 <think>...</think> 块，只保留正文。
+
+    MiniMax M2.5 等支持 Interleaved Thinking 的模型会在 content 中返回 <think> 包裹的推理过程，
+    战报正文需剔除这些内容，避免展示给用户。
+    """
+    if not text or not isinstance(text, str):
+        return text or ""
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
 
 _CHRONICLE_DIR = Path(__file__).parent.parent / "data" / "chronicle"
 _CHAPTER_META_PATH = Path(__file__).parent.parent / "data" / "chronicle_chapter.json"
@@ -424,8 +437,9 @@ async def generate_chronicle(
         result = await chronicle_completion(
             messages, temperature=0.85, max_tokens=16000
         )
-        text = result.get("raw", "")
-        logger.info("chronicle: %s text generated, len=%d", chapter_label, len(text))
+        raw = result.get("raw", "")
+        text = _strip_think_blocks(raw)
+        logger.info("chronicle: %s text generated, len=%d (raw=%d)", chapter_label, len(text), len(raw))
     except Exception as e:
         logger.error("chronicle: LLM call failed: %s", e)
         text = f"（{chapter_label}战报生成失败：{e}）"
@@ -446,7 +460,7 @@ async def generate_chronicle(
             title_result = await chronicle_completion(
                 title_messages, temperature=0.7, max_tokens=4096
             )
-            raw_title = title_result.get("raw", "").strip()
+            raw_title = _strip_think_blocks(title_result.get("raw", ""))
             title_lines = raw_title.splitlines()
             chapter_title = title_lines[0].strip() if title_lines else ""
             logger.info("chronicle: %s title: %s", chapter_label, chapter_title)

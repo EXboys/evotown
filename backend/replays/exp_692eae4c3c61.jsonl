@@ -774,3 +774,678 @@
 {"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "技能工坊", "reason": "tool_run_command", "replay_ts": 158.236}
 {"type": "agent_message", "from_id": "agent_12", "from_name": "周公瑾", "to_id": "agent_13", "to_name": "诸葛孔明", "content": "汝所言军功值皆为八，然瑜今朝仅六，未可谓旗鼓相当。虽功绩有别，昔日赤壁之情未忘。此间清茶之约，瑜当赴会，再论高低。", "msg_type": "reply", "ts": "2026-03-08T16:27:39.983570+00:00", "replay_ts": 159.51}
 {"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 3, "judge": {"completion": 10, "quality": 8, "efficiency": 9, "reason": "响应准确表达了任务完成情况，但缺少具体代码和结果。", "skipped": false, "total_score": 27, "reward": 5}, "task": "用代码模拟官渡之战双方消耗对比", "difficulty": "hard", "replay_ts": 166.592}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 3, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 2, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 6, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 8, "in_task": false}], "replay_ts": 0.015}
+{"type": "task_available", "task_id": "t_1", "task": "将100英里转换为公里并验证", "difficulty": "easy", "created_at": "1773024005.865685", "replay_ts": 34.142}
+{"type": "task_taken", "task_id": "t_1", "agent_id": "agent_10", "task": "将100英里转换为公里并验证", "replay_ts": 43.961}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "将100英里转换为公里并验证", "replay_ts": 43.962}
+{"type": "task_complete", "agent_id": "agent_10", "success": false, "balance": -7, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "将100英里转换为公里并验证", "difficulty": "easy", "replay_ts": 53.779}
+{"type": "agent_last_stand", "agent_id": "agent_10", "display_name": "司马仲达", "balance": 30, "replay_ts": 53.786}
+{"type": "subtitle_broadcast", "text": "⚔ 最后一战！【司马仲达】垂死挣扎，军功复苏 30", "level": "last_stand", "replay_ts": 53.787}
+{"type": "task_available", "task_id": "t_2", "task": "搜索三国时期主要战役并按年排序", "difficulty": "medium", "created_at": "1773024045.690231", "replay_ts": 73.967}
+{"type": "task_taken", "task_id": "t_2", "agent_id": "agent_11", "task": "搜索三国时期主要战役并按年排序", "replay_ts": 82.495}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "搜索三国时期主要战役并按年排序", "replay_ts": 82.496}
+{"type": "task_complete", "agent_id": "agent_11", "success": false, "balance": -8, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "搜索三国时期主要战役并按年排序", "difficulty": "medium", "replay_ts": 92.635}
+{"type": "agent_last_stand", "agent_id": "agent_11", "display_name": "关云长", "balance": 30, "replay_ts": 92.639}
+{"type": "subtitle_broadcast", "text": "⚔ 最后一战！【关云长】垂死挣扎，军功复苏 30", "level": "last_stand", "replay_ts": 92.639}
+{"type": "task_available", "task_id": "t_3", "task": "搜索诸葛亮北伐次数并统计成败", "difficulty": "easy", "created_at": "1773024084.223288", "replay_ts": 112.5}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 30, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 30, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 6, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 8, "in_task": false}], "replay_ts": 0.01}
+{"type": "task_available", "task_id": "t_1", "task": "查询世界前5大城市人口并求平均", "difficulty": "medium", "created_at": "1773024094.724875", "replay_ts": 7.478}
+{"type": "task_available", "task_id": "t_2", "task": "比较曹魏/蜀汉/东吴疆域面积", "difficulty": "hard", "created_at": "1773024184.838224", "replay_ts": 97.591}
+{"type": "task_taken", "task_id": "t_2", "agent_id": "agent_10", "task": "比较曹魏/蜀汉/东吴疆域面积", "replay_ts": 106.023}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "比较曹魏/蜀汉/东吴疆域面积", "replay_ts": 106.023}
+{"type": "task_complete", "agent_id": "agent_10", "success": false, "balance": 19, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "比较曹魏/蜀汉/东吴疆域面积", "difficulty": "hard", "replay_ts": 116.42}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 19, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 29, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 5, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 7, "in_task": false}], "replay_ts": 0.011}
+{"type": "task_available", "task_id": "t_1", "task": "计算2^10并验证位数", "difficulty": "medium", "created_at": "1773024574.6505868", "replay_ts": 13.707}
+{"type": "task_taken", "task_id": "t_1", "agent_id": "agent_13", "task": "计算2^10并验证位数", "replay_ts": 22.029}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "计算2^10并验证位数", "replay_ts": 22.029}
+{"type": "task_complete", "agent_id": "agent_13", "success": false, "balance": -3, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "计算2^10并验证位数", "difficulty": "medium", "replay_ts": 30.439}
+{"type": "agent_last_stand", "agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 30, "replay_ts": 30.444}
+{"type": "subtitle_broadcast", "text": "⚔ 最后一战！【诸葛孔明】垂死挣扎，军功复苏 30", "level": "last_stand", "replay_ts": 30.444}
+{"type": "task_available", "task_id": "t_2", "task": "查询并验证欧拉公式 e^(iπ)+1=0", "difficulty": "hard", "created_at": "1773024612.975052", "replay_ts": 52.032}
+{"type": "task_taken", "task_id": "t_2", "agent_id": "agent_12", "task": "查询并验证欧拉公式 e^(iπ)+1=0", "replay_ts": 60.918}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "查询并验证欧拉公式 e^(iπ)+1=0", "replay_ts": 60.919}
+{"type": "task_complete", "agent_id": "agent_12", "success": false, "balance": -5, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "查询并验证欧拉公式 e^(iπ)+1=0", "difficulty": "hard", "replay_ts": 70.675}
+{"type": "agent_last_stand", "agent_id": "agent_12", "display_name": "周公瑾", "balance": 30, "replay_ts": 70.68}
+{"type": "subtitle_broadcast", "text": "⚔ 最后一战！【周公瑾】垂死挣扎，军功复苏 30", "level": "last_stand", "replay_ts": 70.68}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 19, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 29, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 30, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 30, "in_task": false}], "replay_ts": 0.017}
+{"type": "task_available", "task_id": "t_1", "task": "比较俄加中三国面积并排序", "difficulty": "hard", "created_at": "1773024912.545645", "replay_ts": 8.814}
+{"type": "task_taken", "task_id": "t_1", "agent_id": "agent_11", "task": "比较俄加中三国面积并排序", "replay_ts": 18.705}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "比较俄加中三国面积并排序", "replay_ts": 18.705}
+{"type": "task_complete", "agent_id": "agent_11", "success": false, "balance": 19, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "比较俄加中三国面积并排序", "difficulty": "hard", "replay_ts": 27.412}
+{"type": "task_available", "task_id": "t_2", "task": "用代码实现冒泡排序并测试", "difficulty": "hard", "created_at": "1773024952.44017", "replay_ts": 48.708}
+{"type": "task_taken", "task_id": "t_2", "agent_id": "agent_13", "task": "用代码实现冒泡排序并测试", "replay_ts": 58.24}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "用代码实现冒泡排序并测试", "replay_ts": 58.24}
+{"type": "task_complete", "agent_id": "agent_13", "success": false, "balance": 20, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "用代码实现冒泡排序并测试", "difficulty": "hard", "replay_ts": 68.148}
+{"type": "task_available", "task_id": "t_3", "task": "统计'hello world'各字母出现频率", "difficulty": "easy", "created_at": "1773024991.975998", "replay_ts": 88.244}
+{"type": "task_taken", "task_id": "t_3", "agent_id": "agent_13", "task": "统计'hello world'各字母出现频率", "replay_ts": 96.224}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "统计'hello world'各字母出现频率", "replay_ts": 96.224}
+{"type": "task_complete", "agent_id": "agent_13", "success": false, "balance": 10, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "统计'hello world'各字母出现频率", "difficulty": "easy", "replay_ts": 105.637}
+{"type": "team_reorganized", "survived_teams": ["c4d083a7"], "dissolved_teams": ["c281bd05", "17b9663b"], "dissolved_team_names": ["汉室遗风", "江东虎卫"], "refugees": ["agent_11", "agent_10", "agent_13"], "cost_stay": 10, "global_task_count": 80, "replay_ts": 105.647}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 105.671}
+{"type": "evolution_event", "id": "run", "reason": "进化运行完成，无新规则/技能产出", "ts": "2026-03-09T02:56:49.400137+00:00", "txn_id": "evo_20260309_025649", "agent_id": "agent_13", "event_type": "evolution_run", "replay_ts": 105.676}
+{"type": "task_available", "task_id": "t_4", "task": "比较Python和JavaScript的发布年份", "difficulty": "easy", "created_at": "1773025029.959463", "replay_ts": 126.228}
+{"type": "task_taken", "task_id": "t_4", "agent_id": "agent_13", "task": "比较Python和JavaScript的发布年份", "replay_ts": 134.848}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "比较Python和JavaScript的发布年份", "replay_ts": 134.848}
+{"type": "task_complete", "agent_id": "agent_13", "success": false, "balance": 0, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "比较Python和JavaScript的发布年份", "difficulty": "easy", "replay_ts": 143.953}
+{"type": "agent_last_stand", "agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 30, "replay_ts": 143.959}
+{"type": "subtitle_broadcast", "text": "⚔ 最后一战！【诸葛孔明】垂死挣扎，军功复苏 30", "level": "last_stand", "replay_ts": 143.96}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 143.982}
+{"type": "task_available", "task_id": "t_5", "task": "搜索2024春节日期并算距今天数", "difficulty": "medium", "created_at": "1773025068.584115", "replay_ts": 164.852}
+{"type": "task_taken", "task_id": "t_5", "agent_id": "agent_11", "task": "搜索2024春节日期并算距今天数", "replay_ts": 173.931}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "搜索2024春节日期并算距今天数", "replay_ts": 173.932}
+{"type": "task_complete", "agent_id": "agent_11", "success": false, "balance": 9, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "搜索2024春节日期并算距今天数", "difficulty": "medium", "replay_ts": 185.412}
+{"type": "evolution_event", "id": "run", "reason": "进化运行完成，无新规则/技能产出", "ts": "2026-03-09T02:58:10.567574+00:00", "txn_id": "evo_20260309_025809", "agent_id": "agent_11", "event_type": "evolution_run", "replay_ts": 186.838}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 186.844}
+{"type": "task_available", "task_id": "t_6", "task": "计算1英亩等于多少平方米", "difficulty": "easy", "created_at": "1773025107.668021", "replay_ts": 203.936}
+{"type": "task_taken", "task_id": "t_6", "agent_id": "agent_12", "task": "计算1英亩等于多少平方米", "replay_ts": 212.855}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "计算1英亩等于多少平方米", "replay_ts": 212.855}
+{"type": "task_complete", "agent_id": "agent_12", "success": false, "balance": 10, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "计算1英亩等于多少平方米", "difficulty": "easy", "replay_ts": 220.884}
+{"type": "task_available", "task_id": "t_7", "task": "用代码模拟官渡之战双方消耗对比", "difficulty": "hard", "created_at": "1773025146.592648", "replay_ts": 242.861}
+{"type": "task_taken", "task_id": "t_7", "agent_id": "agent_10", "task": "用代码模拟官渡之战双方消耗对比", "replay_ts": 251.249}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "用代码模拟官渡之战双方消耗对比", "replay_ts": 251.25}
+{"type": "task_complete", "agent_id": "agent_10", "success": false, "balance": 9, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "用代码模拟官渡之战双方消耗对比", "difficulty": "hard", "replay_ts": 260.022}
+{"type": "task_available", "task_id": "t_8", "task": "列出当前目录所有文件并统计数量", "difficulty": "easy", "created_at": "1773025184.984593", "replay_ts": 281.253}
+{"type": "task_taken", "task_id": "t_8", "agent_id": "agent_11", "task": "列出当前目录所有文件并统计数量", "replay_ts": 289.969}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "列出当前目录所有文件并统计数量", "replay_ts": 289.969}
+{"type": "task_complete", "agent_id": "agent_11", "success": false, "balance": -1, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "列出当前目录所有文件并统计数量", "difficulty": "easy", "replay_ts": 298.454}
+{"type": "agent_last_stand", "agent_id": "agent_11", "display_name": "关云长", "balance": 30, "replay_ts": 298.461}
+{"type": "subtitle_broadcast", "text": "⚔ 最后一战！【关云长】垂死挣扎，军功复苏 30", "level": "last_stand", "replay_ts": 298.461}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 298.484}
+{"type": "task_available", "task_id": "t_9", "task": "查询并验证欧拉公式 e^(iπ)+1=0", "difficulty": "hard", "created_at": "1773025223.7068129", "replay_ts": 319.975}
+{"type": "task_taken", "task_id": "t_9", "agent_id": "agent_12", "task": "查询并验证欧拉公式 e^(iπ)+1=0", "replay_ts": 329.585}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "查询并验证欧拉公式 e^(iπ)+1=0", "replay_ts": 329.585}
+{"type": "task_complete", "agent_id": "agent_12", "success": false, "balance": 0, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "查询并验证欧拉公式 e^(iπ)+1=0", "difficulty": "hard", "replay_ts": 338.953}
+{"type": "agent_last_stand", "agent_id": "agent_12", "display_name": "周公瑾", "balance": 30, "replay_ts": 338.958}
+{"type": "subtitle_broadcast", "text": "⚔ 最后一战！【周公瑾】垂死挣扎，军功复苏 30", "level": "last_stand", "replay_ts": 338.958}
+{"type": "evolution_event", "id": "run", "reason": "进化运行完成，无新规则/技能产出", "ts": "2026-03-09T03:00:44.263474+00:00", "txn_id": "evo_20260309_030042", "agent_id": "agent_12", "event_type": "evolution_run", "replay_ts": 340.534}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 340.537}
+{"type": "task_available", "task_id": "t_10", "task": "查询月球直径并计算其表面积", "difficulty": "medium", "created_at": "1773025263.321493", "replay_ts": 359.59}
+{"type": "task_taken", "task_id": "t_10", "agent_id": "agent_10", "task": "查询月球直径并计算其表面积", "replay_ts": 382.214}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "查询月球直径并计算其表面积", "replay_ts": 382.214}
+{"type": "task_complete", "agent_id": "agent_10", "success": false, "balance": -1, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "查询月球直径并计算其表面积", "difficulty": "medium", "replay_ts": 391.435}
+{"type": "agent_last_stand", "agent_id": "agent_10", "display_name": "司马仲达", "balance": 30, "replay_ts": 391.442}
+{"type": "subtitle_broadcast", "text": "⚔ 最后一战！【司马仲达】垂死挣扎，军功复苏 30", "level": "last_stand", "replay_ts": 391.442}
+{"type": "evolution_event", "id": "run", "reason": "进化运行完成，无新规则/技能产出", "ts": "2026-03-09T03:01:36.419696+00:00", "txn_id": "evo_20260309_030135", "agent_id": "agent_10", "event_type": "evolution_run", "replay_ts": 392.69}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 392.692}
+{"type": "task_available", "task_id": "t_11", "task": "搜索某REST API文档并写调用示例", "difficulty": "hard", "created_at": "1773025315.9538062", "replay_ts": 412.222}
+{"type": "task_taken", "task_id": "t_11", "agent_id": "agent_13", "task": "搜索某REST API文档并写调用示例", "replay_ts": 420.216}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "搜索某REST API文档并写调用示例", "replay_ts": 420.216}
+{"type": "task_complete", "agent_id": "agent_13", "success": false, "balance": 20, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "搜索某REST API文档并写调用示例", "difficulty": "hard", "replay_ts": 428.241}
+{"type": "task_available", "task_id": "t_12", "task": "搜索Fibonacci数列并用代码生成前20项", "difficulty": "medium", "created_at": "1773025353.95003", "replay_ts": 450.218}
+{"type": "task_taken", "task_id": "t_12", "agent_id": "agent_10", "task": "搜索Fibonacci数列并用代码生成前20项", "replay_ts": 458.497}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "搜索Fibonacci数列并用代码生成前20项", "replay_ts": 458.497}
+{"type": "task_complete", "agent_id": "agent_10", "success": false, "balance": 20, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "搜索Fibonacci数列并用代码生成前20项", "difficulty": "medium", "replay_ts": 466.979}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 466.999}
+{"type": "task_available", "task_id": "t_13", "task": "搜索三国时期主要战役并按年排序", "difficulty": "medium", "created_at": "1773025392.232356", "replay_ts": 488.501}
+{"type": "task_taken", "task_id": "t_13", "agent_id": "agent_12", "task": "搜索三国时期主要战役并按年排序", "replay_ts": 497.401}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "搜索三国时期主要战役并按年排序", "replay_ts": 497.401}
+{"type": "task_complete", "agent_id": "agent_12", "success": false, "balance": 20, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "搜索三国时期主要战役并按年排序", "difficulty": "medium", "replay_ts": 506.482}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 506.512}
+{"type": "task_available", "task_id": "t_14", "task": "搜索前10大国GDP并找出中位数", "difficulty": "hard", "created_at": "1773025431.1376798", "replay_ts": 527.406}
+{"type": "task_taken", "task_id": "t_14", "agent_id": "agent_13", "task": "搜索前10大国GDP并找出中位数", "replay_ts": 535.315}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "搜索前10大国GDP并找出中位数", "replay_ts": 535.315}
+{"type": "task_complete", "agent_id": "agent_13", "success": false, "balance": 10, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "搜索前10大国GDP并找出中位数", "difficulty": "hard", "replay_ts": 543.201}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 543.232}
+{"type": "task_available", "task_id": "t_15", "task": "查询阿波罗11号登月日期并计算纪念日", "difficulty": "medium", "created_at": "1773025469.0499961", "replay_ts": 565.318}
+{"type": "task_taken", "task_id": "t_15", "agent_id": "agent_12", "task": "查询阿波罗11号登月日期并计算纪念日", "replay_ts": 574.005}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "查询阿波罗11号登月日期并计算纪念日", "replay_ts": 574.005}
+{"type": "task_complete", "agent_id": "agent_12", "success": false, "balance": 10, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "查询阿波罗11号登月日期并计算纪念日", "difficulty": "medium", "replay_ts": 582.288}
+{"type": "task_available", "task_id": "t_16", "task": "查蜀道距离并计算行军天数", "difficulty": "medium", "created_at": "1773025507.740282", "replay_ts": 604.009}
+{"type": "task_taken", "task_id": "t_16", "agent_id": "agent_12", "task": "查蜀道距离并计算行军天数", "replay_ts": 614.666}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "查蜀道距离并计算行军天数", "replay_ts": 614.666}
+{"type": "task_complete", "agent_id": "agent_12", "success": false, "balance": 0, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "查蜀道距离并计算行军天数", "difficulty": "medium", "replay_ts": 623.154}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 623.312}
+{"type": "agent_eliminated", "agent_id": "agent_12", "reason": "balance_zero", "replay_ts": 638.17}
+{"type": "subtitle_broadcast", "text": "💀【周公瑾】兵败身死：\"吾虽败，然志不灭，来世再战。\"", "level": "elimination", "replay_ts": 638.171}
+{"type": "task_available", "task_id": "t_17", "task": "搜索光速并算1光年距离(km)", "difficulty": "medium", "created_at": "1773025548.403541", "replay_ts": 644.672}
+{"type": "task_taken", "task_id": "t_17", "agent_id": "agent_13", "task": "搜索光速并算1光年距离(km)", "replay_ts": 653.71}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "搜索光速并算1光年距离(km)", "replay_ts": 653.71}
+{"type": "task_complete", "agent_id": "agent_13", "success": false, "balance": 0, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "搜索光速并算1光年距离(km)", "difficulty": "medium", "replay_ts": 661.736}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 661.76}
+{"type": "agent_eliminated", "agent_id": "agent_13", "reason": "balance_zero", "replay_ts": 676.749}
+{"type": "subtitle_broadcast", "text": "💀【诸葛孔明】兵败身死：\"吾虽败，然志不灭，来世再战。\"", "level": "elimination", "replay_ts": 676.751}
+{"type": "task_available", "task_id": "t_18", "task": "搜索并验证：哥德巴赫猜想举3个例子", "difficulty": "hard", "created_at": "1773025587.445015", "replay_ts": 683.713}
+{"type": "task_taken", "task_id": "t_18", "agent_id": "agent_11", "task": "搜索并验证：哥德巴赫猜想举3个例子", "replay_ts": 691.904}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "搜索并验证：哥德巴赫猜想举3个例子", "replay_ts": 691.905}
+{"type": "task_complete", "agent_id": "agent_11", "success": false, "balance": 20, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "搜索并验证：哥德巴赫猜想举3个例子", "difficulty": "hard", "replay_ts": 700.436}
+{"type": "task_available", "task_id": "t_19", "task": "搜索1海里定义并换算为米", "difficulty": "easy", "created_at": "1773025625.639067", "replay_ts": 721.907}
+{"type": "task_taken", "task_id": "t_19", "agent_id": "agent_10", "task": "搜索1海里定义并换算为米", "replay_ts": 730.547}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "搜索1海里定义并换算为米", "replay_ts": 730.547}
+{"type": "task_complete", "agent_id": "agent_10", "success": false, "balance": 10, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "搜索1海里定义并换算为米", "difficulty": "easy", "replay_ts": 738.961}
+{"type": "task_available", "task_id": "t_20", "task": "搜索赤壁之战兵力并计算双方比例", "difficulty": "medium", "created_at": "1773025664.282748", "replay_ts": 760.551}
+{"type": "task_taken", "task_id": "t_20", "agent_id": "agent_10", "task": "搜索赤壁之战兵力并计算双方比例", "replay_ts": 769.286}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "搜索赤壁之战兵力并计算双方比例", "replay_ts": 769.286}
+{"type": "task_complete", "agent_id": "agent_10", "success": false, "balance": 0, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "搜索赤壁之战兵力并计算双方比例", "difficulty": "medium", "replay_ts": 777.635}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 777.668}
+{"type": "agent_eliminated", "agent_id": "agent_10", "reason": "balance_zero", "replay_ts": 792.652}
+{"type": "subtitle_broadcast", "text": "💀【司马仲达】兵败身死：\"吾虽败，然志不灭，来世再战。\"", "level": "elimination", "replay_ts": 792.653}
+{"type": "task_available", "task_id": "t_21", "task": "比较曹魏/蜀汉/东吴疆域面积", "difficulty": "hard", "created_at": "1773025703.022084", "replay_ts": 799.29}
+{"type": "task_taken", "task_id": "t_21", "agent_id": "agent_11", "task": "比较曹魏/蜀汉/东吴疆域面积", "replay_ts": 808.085}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "比较曹魏/蜀汉/东吴疆域面积", "replay_ts": 808.085}
+{"type": "task_complete", "agent_id": "agent_11", "success": false, "balance": 10, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "比较曹魏/蜀汉/东吴疆域面积", "difficulty": "hard", "replay_ts": 818.456}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 818.483}
+{"type": "task_available", "task_id": "t_22", "task": "搜索并保存一段文本到文件再读回", "difficulty": "medium", "created_at": "1773025741.819884", "replay_ts": 838.088}
+{"type": "task_taken", "task_id": "t_22", "agent_id": "agent_11", "task": "搜索并保存一段文本到文件再读回", "replay_ts": 848.954}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "搜索并保存一段文本到文件再读回", "replay_ts": 848.954}
+{"type": "task_complete", "agent_id": "agent_11", "success": false, "balance": 0, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "搜索并保存一段文本到文件再读回", "difficulty": "medium", "replay_ts": 857.635}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 857.661}
+{"type": "agent_eliminated", "agent_id": "agent_11", "reason": "balance_zero", "replay_ts": 872.651}
+{"type": "subtitle_broadcast", "text": "💀【关云长】兵败身死：\"吾虽败，然志不灭，来世再战。\"", "level": "elimination", "replay_ts": 872.652}
+{"type": "state_snapshot", "agents": [], "replay_ts": 0.001}
+{"type": "state_snapshot", "agents": [], "replay_ts": 0.001}
+{"type": "state_snapshot", "agents": [], "replay_ts": 0.002}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 3, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 2, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 6, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 8, "in_task": false}], "replay_ts": 0.014}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 3, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 2, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 6, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 8, "in_task": false}], "replay_ts": 0.012}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 3, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 2, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 6, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 8, "in_task": false}], "replay_ts": 0.013}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 3, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 2, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 6, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 8, "in_task": false}], "replay_ts": 0.013}
+{"type": "chronicle_published", "chapter": 1, "chapter_label": "第一回", "virtual_date": "建安元年正月", "title": "", "preview": "（第一回战报生成失败：Error code: 401 - {'type': 'error', 'error': {'type': 'authorized_error', 'message': 'invalid api key (2049)', 'http_code': '401'}, 'request_id': '05fd949a2fa3b18316daa34192310869'}）", "replay_ts": 99.559}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 3, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 2, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 6, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 8, "in_task": false}], "replay_ts": 0.015}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 100, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 100, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 100, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 100, "in_task": false}], "replay_ts": 0.021}
+{"type": "task_available", "task_id": "t_1", "task": "搜索Python最新版本并写Hello World", "difficulty": "medium", "created_at": "1773036767.774487", "replay_ts": 49.514}
+{"type": "task_taken", "task_id": "t_1", "agent_id": "agent_12", "task": "搜索Python最新版本并写Hello World", "replay_ts": 59.248}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "搜索Python最新版本并写Hello World", "replay_ts": 59.249}
+{"type": "task_complete", "agent_id": "agent_12", "success": false, "balance": 90, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "搜索Python最新版本并写Hello World", "difficulty": "medium", "replay_ts": 69.088}
+{"type": "task_available", "task_id": "t_2", "task": "比较俄罗斯和加拿大面积", "difficulty": "medium", "created_at": "1773036807.513441", "replay_ts": 89.252}
+{"type": "task_taken", "task_id": "t_2", "agent_id": "agent_12", "task": "比较俄罗斯和加拿大面积", "replay_ts": 97.119}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "比较俄罗斯和加拿大面积", "replay_ts": 97.12}
+{"type": "task_complete", "agent_id": "agent_12", "success": false, "balance": 80, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "Agent returned empty response.", "skipped": true, "total_score": 0, "reward": -5}, "task": "比较俄罗斯和加拿大面积", "difficulty": "medium", "replay_ts": 106.257}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 106.29}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 101, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 100, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 80, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 100, "in_task": false}], "replay_ts": 0.014}
+{"type": "task_available", "task_id": "t_1", "task": "计算2^10并验证位数", "difficulty": "medium", "created_at": "1773037049.138328", "replay_ts": 10.524}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 100, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 99, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 79, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 99, "in_task": false}], "replay_ts": 0.023}
+{"type": "task_available", "task_id": "t_1", "task": "比较俄罗斯和加拿大面积", "difficulty": "medium", "created_at": "1773038426.0359428", "replay_ts": 10.341}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 99, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 98, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 78, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 98, "in_task": false}], "replay_ts": 0.014}
+{"type": "task_available", "task_id": "t_1", "task": "查询三大洋面积并按从大到小排序", "difficulty": "medium", "created_at": "1773038715.085483", "replay_ts": 10.579}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 100.51}
+{"type": "task_available", "task_id": "t_2", "task": "用代码反转字符串并验证回文", "difficulty": "easy", "created_at": "1773038805.202413", "replay_ts": 100.696}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 108.293}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 162.196}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 166.957}
+{"type": "task_available", "task_id": "t_3", "task": "将100英里转换为公里并验证", "difficulty": "easy", "created_at": "1773038895.2176461", "replay_ts": 190.712}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "档案馆", "reason": "tool_grep_files", "replay_ts": 286.623}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 419.341}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 423.24}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "档案馆", "reason": "tool_grep_files", "replay_ts": 429.127}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 96, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 95, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 75, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 95, "in_task": false}], "replay_ts": 0.015}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 96, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 95, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 75, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 95, "in_task": false}], "replay_ts": 0.013}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 96, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 95, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 75, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 95, "in_task": false}], "replay_ts": 0.015}
+{"type": "task_available", "task_id": "t_1", "task": "计算1英亩等于多少平方米", "difficulty": "easy", "created_at": "1773041411.293134", "replay_ts": 10.851}
+{"type": "task_taken", "task_id": "t_1", "agent_id": "agent_10", "task": "计算1英亩等于多少平方米", "replay_ts": 19.989}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "计算1英亩等于多少平方米", "replay_ts": 19.989}
+{"type": "task_available", "task_id": "t_2", "task": "搜索前10大国GDP并找出中位数", "difficulty": "hard", "created_at": "1773041450.4341278", "replay_ts": 49.992}
+{"type": "task_taken", "task_id": "t_2", "agent_id": "agent_12", "task": "搜索前10大国GDP并找出中位数", "replay_ts": 61.783}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "搜索前10大国GDP并找出中位数", "replay_ts": 61.783}
+{"type": "task_available", "task_id": "t_3", "task": "搜索1海里定义并换算为米", "difficulty": "easy", "created_at": "1773041492.2289972", "replay_ts": 91.787}
+{"type": "task_taken", "task_id": "t_3", "agent_id": "agent_13", "task": "搜索1海里定义并换算为米", "replay_ts": 106.072}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "搜索1海里定义并换算为米", "replay_ts": 106.072}
+{"type": "task_available", "task_id": "t_4", "task": "比较曹魏/蜀汉/东吴疆域面积", "difficulty": "hard", "created_at": "1773041536.517466", "replay_ts": 136.075}
+{"type": "task_taken", "task_id": "t_4", "agent_id": "agent_11", "task": "比较曹魏/蜀汉/东吴疆域面积", "replay_ts": 159.33}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "比较曹魏/蜀汉/东吴疆域面积", "replay_ts": 159.33}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 96, "judge": {"completion": 10, "quality": 10, "efficiency": 10, "reason": "任务完全正确且全面回答了用户的问题，没有冗余，工具调用合理。", "skipped": false, "total_score": 30, "reward": 5}, "task": "计算1英亩等于多少平方米", "difficulty": "easy", "replay_ts": 164.449}
+{"type": "task_available", "task_id": "t_5", "task": "比较Python和JavaScript的发布年份", "difficulty": "easy", "created_at": "1773041589.778118", "replay_ts": 189.336}
+{"type": "task_taken", "task_id": "t_5", "agent_id": "agent_10", "task": "比较Python和JavaScript的发布年份", "replay_ts": 200.785}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "比较Python和JavaScript的发布年份", "replay_ts": 200.786}
+{"type": "task_complete", "agent_id": "agent_13", "success": false, "balance": 90, "judge": {"completion": 0, "quality": 5, "efficiency": 5, "reason": "任务响应错误，未正确回答用户问题，而是讨论了任务预览。", "skipped": false, "total_score": 10, "reward": 0}, "task": "搜索1海里定义并换算为米", "difficulty": "easy", "replay_ts": 243.081}
+{"type": "task_available", "task_id": "t_6", "task": "用代码实现冒泡排序并测试", "difficulty": "hard", "created_at": "1773041661.236471", "replay_ts": 260.794}
+{"type": "agent_message", "from_id": "agent_10", "from_name": "司马仲达", "to_id": "agent_11", "to_name": "关云长", "content": "云长公义薄云天，仲达甚佩。今乱世纷扰，独木难支。吾擅奇谋，公具神勇，若结盟协作，相辅相成，共图大业。互为犄角，共御强敌。望公察之，勿失良机。", "msg_type": "alliance", "ts": "2026-03-09T07:34:21.732463+00:00", "replay_ts": 261.291}
+{"type": "task_taken", "task_id": "t_6", "agent_id": "agent_13", "task": "用代码实现冒泡排序并测试", "replay_ts": 279.374}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "用代码实现冒泡排序并测试", "replay_ts": 279.374}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 301.629}
+{"type": "task_complete", "agent_id": "agent_11", "success": true, "balance": 93, "judge": {"completion": 7, "quality": 6, "efficiency": 5, "reason": "任务理解有误，未能直接回答三国时期的疆域面积比较，而是提供了多个复杂任务。", "skipped": false, "total_score": 18, "reward": 3}, "task": "比较曹魏/蜀汉/东吴疆域面积", "difficulty": "hard", "replay_ts": 307.857}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 308.949}
+{"type": "task_available", "task_id": "t_7", "task": "用代码模拟官渡之战双方消耗对比", "difficulty": "hard", "created_at": "1773041709.820061", "replay_ts": 309.378}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 319.512}
+{"type": "task_taken", "task_id": "t_7", "agent_id": "agent_11", "task": "用代码模拟官渡之战双方消耗对比", "replay_ts": 319.652}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "用代码模拟官渡之战双方消耗对比", "replay_ts": 319.653}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 94, "judge": {"completion": 7, "quality": 6, "efficiency": 8, "reason": "虽然任务已经完成过，但直接拒绝任务不算高效。不过解释可以更简洁明了。", "skipped": false, "total_score": 21, "reward": 3}, "task": "比较Python和JavaScript的发布年份", "difficulty": "easy", "replay_ts": 353.017}
+{"type": "task_complete", "agent_id": "agent_13", "success": false, "balance": 83, "judge": {"completion": 0, "quality": 5, "efficiency": 2, "reason": "任务被错误地拒绝，且未提供实际的代码实现和测试结果。", "skipped": false, "total_score": 7, "reward": -2}, "task": "用代码实现冒泡排序并测试", "difficulty": "hard", "replay_ts": 371.097}
+{"type": "team_reorganized", "survived_teams": ["c281bd05"], "dissolved_teams": ["c4d083a7", "17b9663b"], "dissolved_team_names": ["西凉铁骑", "江东虎卫"], "refugees": ["agent_12", "agent_13", "agent_11"], "cost_stay": 10, "global_task_count": 80, "replay_ts": 371.101}
+{"type": "task_available", "task_id": "t_8", "task": "查询阿波罗11号登月日期并计算纪念日", "difficulty": "medium", "created_at": "1773041780.098668", "replay_ts": 379.657}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 387.132}
+{"type": "evolution_event", "id": "run", "reason": "进化运行完成，无新规则/技能产出", "ts": "2026-03-09T07:36:27.571646+00:00", "txn_id": "evo_20260309_073611", "agent_id": "agent_13", "event_type": "evolution_run", "replay_ts": 387.139}
+{"type": "task_taken", "task_id": "t_8", "agent_id": "agent_13", "task": "查询阿波罗11号登月日期并计算纪念日", "replay_ts": 389.293}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "查询阿波罗11号登月日期并计算纪念日", "replay_ts": 389.293}
+{"type": "agent_message", "from_id": "agent_10", "from_name": "司马仲达", "to_id": "agent_11", "to_name": "关云长", "content": "云长公别来无恙？懿虽军功稍高，然公之勇烈，懿心甚敬。今日小镇无事，何不暂歇刀兵，与懿对弈一局，共论古今？", "msg_type": "chat", "ts": "2026-03-09T07:36:44.761898+00:00", "replay_ts": 404.321}
+{"type": "task_available", "task_id": "t_9", "task": "查询并验证欧拉公式 e^(iπ)+1=0", "difficulty": "hard", "created_at": "1773041819.7397492", "replay_ts": 419.298}
+{"type": "agent_message", "from_id": "agent_11", "from_name": "关云长", "to_id": "agent_10", "to_name": "司马仲达", "content": "汝言义薄云天，然所云互为犄角共御强敌，仲达之谋诚深远。吾受刘皇叔厚恩，义不可背。乱世虽扰，岂可弃忠义而求同盟？道不同不相为谋。各为其主，他日阵前相见。", "msg_type": "reply", "ts": "2026-03-09T07:37:00.330071+00:00", "replay_ts": 419.889}
+{"type": "task_taken", "task_id": "t_9", "agent_id": "agent_10", "task": "查询并验证欧拉公式 e^(iπ)+1=0", "replay_ts": 444.559}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "查询并验证欧拉公式 e^(iπ)+1=0", "replay_ts": 444.56}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "档案馆", "reason": "tool_write_file", "replay_ts": 456.047}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "技能工坊", "reason": "tool_run_command", "replay_ts": 459.711}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "技能工坊", "reason": "tool_run_command", "replay_ts": 477.304}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "档案馆", "reason": "tool_search_replace", "replay_ts": 484.527}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "档案馆", "reason": "tool_read_file", "replay_ts": 495.928}
+{"type": "task_complete", "agent_id": "agent_13", "success": true, "balance": 83, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "回答准确且完整，直接基于已有知识完成任务，工具调用合理。", "skipped": false, "total_score": 27, "reward": 5}, "task": "查询阿波罗11号登月日期并计算纪念日", "difficulty": "medium", "replay_ts": 503.847}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 503.862}
+{"type": "task_available", "task_id": "t_10", "task": "统计'hello world'各字母出现频率", "difficulty": "easy", "created_at": "1773041905.005077", "replay_ts": 504.563}
+{"type": "task_taken", "task_id": "t_10", "agent_id": "agent_13", "task": "统计'hello world'各字母出现频率", "replay_ts": 514.178}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "统计'hello world'各字母出现频率", "replay_ts": 514.178}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "档案馆", "reason": "tool_search_replace", "replay_ts": 523.935}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "技能工坊", "reason": "tool_run_command", "replay_ts": 528.231}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "档案馆", "reason": "tool_search_replace", "replay_ts": 548.1}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "技能工坊", "reason": "tool_run_command", "replay_ts": 551.593}
+{"type": "agent_message", "from_id": "agent_13", "from_name": "诸葛孔明", "to_id": "agent_11", "to_name": "关云长", "content": "云长君侯安好，亮闻君威震华夏，忠义无双。今军功赫赫，亮心甚佩。愿与君携手共进，匡扶汉室，共成大业。望君珍重。", "msg_type": "greeting", "ts": "2026-03-09T07:39:17.673865+00:00", "replay_ts": 557.233}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "技能工坊", "reason": "tool_run_command", "replay_ts": 572.311}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "档案馆", "reason": "tool_read_file", "replay_ts": 579.187}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "技能工坊", "reason": "tool_run_command", "replay_ts": 584.565}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 82, "judge": {"completion": 7, "quality": 6, "efficiency": 5, "reason": "虽然最终回答了问题，但表述冗余且未直接使用工具。", "skipped": false, "total_score": 18, "reward": 3}, "task": "查询并验证欧拉公式 e^(iπ)+1=0", "difficulty": "hard", "replay_ts": 591.494}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 591.511}
+{"type": "task_complete", "agent_id": "agent_11", "success": true, "balance": 91, "judge": {"completion": 8, "quality": 7, "efficiency": 6, "reason": "响应提供了模拟结果和关键信息，但缺少具体的代码展示，且有工具调用失败的情况。", "skipped": false, "total_score": 21, "reward": 3}, "task": "用代码模拟官渡之战双方消耗对比", "difficulty": "hard", "replay_ts": 597.61}
+{"type": "task_complete", "agent_id": "agent_13", "success": false, "balance": 76, "judge": {"completion": 0, "quality": 2, "efficiency": 2, "reason": "回答偏离任务要求，未提供所需统计结果，且包含无关信息。", "skipped": false, "total_score": 4, "reward": -2}, "task": "统计'hello world'各字母出现频率", "difficulty": "easy", "replay_ts": 601.751}
+{"type": "task_available", "task_id": "t_11", "task": "搜索并验证：哥德巴赫猜想举3个例子", "difficulty": "hard", "created_at": "1773042004.625718", "replay_ts": 604.184}
+{"type": "task_taken", "task_id": "t_11", "agent_id": "agent_11", "task": "搜索并验证：哥德巴赫猜想举3个例子", "replay_ts": 614.958}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "搜索并验证：哥德巴赫猜想举3个例子", "replay_ts": 614.959}
+{"type": "task_available", "task_id": "t_12", "task": "用代码反转字符串并验证回文", "difficulty": "easy", "created_at": "1773042045.402547", "replay_ts": 644.96}
+{"type": "agent_message", "from_id": "agent_10", "from_name": "司马仲达", "to_id": "agent_11", "to_name": "关云长", "content": "汝所言义不可背，仲达诚敬。然乱世求生，谋略为先，非弃忠也。既君执意各为其主，吾亦不强求同盟。他日阵前相见，愿将军勿悔今日之选，吾必全力以赴。", "msg_type": "reply", "ts": "2026-03-09T07:40:49.633331+00:00", "replay_ts": 649.192}
+{"type": "task_taken", "task_id": "t_12", "agent_id": "agent_10", "task": "用代码反转字符串并验证回文", "replay_ts": 654.793}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "用代码反转字符串并验证回文", "replay_ts": 654.793}
+{"type": "agent_message", "from_id": "agent_11", "from_name": "关云长", "to_id": "agent_13", "to_name": "诸葛孔明", "content": "孔明先生安好。汝所云军功赫赫，羽愧不敢当。汝上次言匡扶汉室共成大业，羽深以为然。愿与先生同心协力，共讨国贼，不负忠义无双之名。望先生珍重。", "msg_type": "reply", "ts": "2026-03-09T07:41:16.834921+00:00", "replay_ts": 676.395}
+{"type": "task_available", "task_id": "t_13", "task": "查询月球直径并计算其表面积", "difficulty": "medium", "created_at": "1773042085.238333", "replay_ts": 684.796}
+{"type": "task_complete", "agent_id": "agent_12", "success": false, "balance": 65, "judge": {"completion": 0, "quality": 0, "efficiency": 0, "reason": "任务超时且未提供任何结果。", "skipped": false, "total_score": 0, "reward": -5}, "task": "搜索前10大国GDP并找出中位数", "difficulty": "hard", "replay_ts": 693.078}
+{"type": "task_taken", "task_id": "t_13", "agent_id": "agent_13", "task": "查询月球直径并计算其表面积", "replay_ts": 693.266}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "查询月球直径并计算其表面积", "replay_ts": 693.267}
+{"type": "task_available", "task_id": "t_14", "task": "搜索互联网发明年份并算距今多少年", "difficulty": "easy", "created_at": "1773042123.712461", "replay_ts": 723.271}
+{"type": "task_complete", "agent_id": "agent_11", "success": true, "balance": 91, "judge": {"completion": 10, "quality": 9, "efficiency": 10, "reason": "准确且完整地提供了哥德巴赫猜想的3个例子及其验证，结构清晰，没有冗余的工具调用。", "skipped": false, "total_score": 29, "reward": 5}, "task": "搜索并验证：哥德巴赫猜想举3个例子", "difficulty": "hard", "replay_ts": 724.926}
+{"type": "task_complete", "agent_id": "agent_10", "success": false, "balance": 75, "judge": {"completion": 0, "quality": 2, "efficiency": 2, "reason": "任务理解错误，未实际完成任务要求。", "skipped": false, "total_score": 4, "reward": -2}, "task": "用代码反转字符串并验证回文", "difficulty": "easy", "replay_ts": 734.193}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 742.781}
+{"type": "evolution_event", "id": "run", "reason": "进化运行完成，无新规则/技能产出", "ts": "2026-03-09T07:42:23.218381+00:00", "txn_id": "evo_20260309_074205", "agent_id": "agent_11", "event_type": "evolution_run", "replay_ts": 742.797}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 757.255}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 768.5}
+{"type": "agent_message", "from_id": "agent_11", "from_name": "关云长", "to_id": "agent_10", "to_name": "司马仲达", "content": "汝所言乱世求生谋略为先，某甚不以为然。忠义乃立身之本，岂可因势而移？既愿全力以赴，某青龙刀下亦不留情。他日阵前，勿悔今日之选！", "msg_type": "reply", "ts": "2026-03-09T07:43:03.965589+00:00", "replay_ts": 783.525}
+{"type": "task_complete", "agent_id": "agent_13", "success": true, "balance": 76, "judge": {"completion": 10, "quality": 10, "efficiency": 10, "reason": "正确回答了任务要求，提供了月球直径和表面积的准确计算结果。", "skipped": false, "total_score": 30, "reward": 5}, "task": "查询月球直径并计算其表面积", "difficulty": "medium", "replay_ts": 809.714}
+{"type": "task_available", "task_id": "t_15", "task": "列出当前目录所有文件并统计数量", "difficulty": "easy", "created_at": "1773042243.724069", "replay_ts": 843.282}
+{"type": "task_taken", "task_id": "t_15", "agent_id": "agent_11", "task": "列出当前目录所有文件并统计数量", "replay_ts": 850.913}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "列出当前目录所有文件并统计数量", "replay_ts": 850.913}
+{"type": "agent_message", "from_id": "agent_13", "from_name": "诸葛孔明", "to_id": "agent_11", "to_name": "关云长", "content": "云长将军安好。汝上次言匡扶汉室共成大业，亮深以为然。将军忠义无双，军功赫赫，亮所不及。愿同心协力，共讨国贼，复兴汉室。望将军珍重。", "msg_type": "reply", "ts": "2026-03-09T07:44:33.200611+00:00", "replay_ts": 872.759}
+{"type": "task_available", "task_id": "t_16", "task": "搜索Fibonacci数列并用代码生成前20项", "difficulty": "medium", "created_at": "1773042281.358224", "replay_ts": 880.916}
+{"type": "task_taken", "task_id": "t_16", "agent_id": "agent_13", "task": "搜索Fibonacci数列并用代码生成前20项", "replay_ts": 892.057}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "搜索Fibonacci数列并用代码生成前20项", "replay_ts": 892.057}
+{"type": "task_available", "task_id": "t_17", "task": "搜索诸葛亮北伐次数并统计成败", "difficulty": "easy", "created_at": "1773042322.505158", "replay_ts": 922.063}
+{"type": "task_taken", "task_id": "t_17", "agent_id": "agent_10", "task": "搜索诸葛亮北伐次数并统计成败", "replay_ts": 933.231}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "搜索诸葛亮北伐次数并统计成败", "replay_ts": 933.233}
+{"type": "task_available", "task_id": "t_18", "task": "搜索光速并算1光年距离(km)", "difficulty": "medium", "created_at": "1773042363.6811872", "replay_ts": 963.239}
+{"type": "task_complete", "agent_id": "agent_11", "success": true, "balance": 91, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "响应全面准确地列出了当前目录的所有文件并统计了数量，只是在统计过程中稍微冗余了些。", "skipped": false, "total_score": 27, "reward": 5}, "task": "列出当前目录所有文件并统计数量", "difficulty": "easy", "replay_ts": 1032.226}
+{"type": "task_complete", "agent_id": "agent_10", "success": false, "balance": 70, "judge": {"completion": 2, "quality": 5, "efficiency": 3, "reason": "任务理解错误，未直接回答问题，且工具调用信息与任务无关。", "skipped": false, "total_score": 10, "reward": 0}, "task": "搜索诸葛亮北伐次数并统计成败", "difficulty": "easy", "replay_ts": 1040.04}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 1040.055}
+{"type": "task_available", "task_id": "t_19", "task": "查蜀道距离并计算行军天数", "difficulty": "medium", "created_at": "1773042483.700332", "replay_ts": 1083.258}
+{"type": "task_taken", "task_id": "t_19", "agent_id": "agent_10", "task": "查蜀道距离并计算行军天数", "replay_ts": 1092.977}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "查蜀道距离并计算行军天数", "replay_ts": 1092.977}
+{"type": "agent_message", "from_id": "agent_11", "from_name": "关云长", "to_id": "agent_13", "to_name": "诸葛孔明", "content": "孔明先生安好。汝上次言匡扶汉室共成大业，关某深以为然。军功皆属汉室，某不敢居功。愿同心协力，共讨国贼，复兴汉室。望先生珍重。", "msg_type": "reply", "ts": "2026-03-09T07:48:28.479093+00:00", "replay_ts": 1108.039}
+{"type": "task_available", "task_id": "t_20", "task": "读取当前目录txt文件并统计总行数", "difficulty": "hard", "created_at": "1773042523.4262478", "replay_ts": 1122.984}
+{"type": "task_taken", "task_id": "t_20", "agent_id": "agent_11", "task": "读取当前目录txt文件并统计总行数", "replay_ts": 1132.235}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "读取当前目录txt文件并统计总行数", "replay_ts": 1132.235}
+{"type": "task_complete", "agent_id": "agent_13", "success": false, "balance": 71, "judge": {"completion": 0, "quality": 5, "efficiency": 5, "reason": "未能正确执行任务，而是拒绝了已经完成的任务。", "skipped": false, "total_score": 10, "reward": 0}, "task": "搜索Fibonacci数列并用代码生成前20项", "difficulty": "medium", "replay_ts": 1140.486}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 1140.499}
+{"type": "task_available", "task_id": "t_21", "task": "搜索2024春节日期并算距今天数", "difficulty": "medium", "created_at": "1773042562.680574", "replay_ts": 1162.239}
+{"type": "task_taken", "task_id": "t_21", "agent_id": "agent_13", "task": "搜索2024春节日期并算距今天数", "replay_ts": 1169.802}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "搜索2024春节日期并算距今天数", "replay_ts": 1169.802}
+{"type": "task_available", "task_id": "t_22", "task": "查询三大洋面积并按从大到小排序", "difficulty": "medium", "created_at": "1773042600.2478452", "replay_ts": 1199.806}
+{"type": "task_complete", "agent_id": "agent_10", "success": false, "balance": 60, "judge": {"completion": 0, "quality": 2, "efficiency": 1, "reason": "任务未完成，未提供蜀道距离和行军天数的计算结果。", "skipped": false, "total_score": 3, "reward": -5}, "task": "查蜀道距离并计算行军天数", "difficulty": "medium", "replay_ts": 1210.008}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 1210.027}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1258.852}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1265.93}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1270.641}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1285.448}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "档案馆", "reason": "tool_read_file", "replay_ts": 1286.104}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "档案馆", "reason": "tool_grep_files", "replay_ts": 1296.016}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1298.8}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "档案馆", "reason": "tool_read_file", "replay_ts": 1301.51}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1305.922}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1307.632}
+{"type": "task_complete", "agent_id": "agent_11", "success": true, "balance": 91, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "正确且完整地统计了当前目录txt文件的总行数，尽管有工具调用失败，但最终结果正确。", "skipped": false, "total_score": 27, "reward": 5}, "task": "读取当前目录txt文件并统计总行数", "difficulty": "hard", "replay_ts": 1333.091}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 1333.334}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 1342.322}
+{"type": "task_complete", "agent_id": "agent_13", "success": false, "balance": 64, "judge": {"completion": 2, "quality": 1, "efficiency": 5, "reason": "任务未完成，仅更新了任务计划而未给出春节日期及距离今天的天数。", "skipped": false, "total_score": 8, "reward": -2}, "task": "搜索2024春节日期并算距今天数", "difficulty": "medium", "replay_ts": 1355.215}
+{"type": "agent_message", "from_id": "agent_11", "from_name": "关云长", "to_id": "agent_10", "to_name": "司马仲达", "content": "吾观仲达军功尚浅，行军切记不可冒进。兵者诡道，需步步为营，待敌露破绽而后击之。吾征战多年，此乃心得，望君勉之，勿负吾意。", "msg_type": "strategy", "ts": "2026-03-09T07:55:42.657709+00:00", "replay_ts": 1542.217}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 60, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 91, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 62, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 64, "in_task": false}], "replay_ts": 0.015}
+{"type": "task_available", "task_id": "t_1", "task": "用代码模拟官渡之战双方消耗对比", "difficulty": "hard", "created_at": "1773043673.8797598", "replay_ts": 9.307}
+{"type": "task_taken", "task_id": "t_1", "agent_id": "agent_11", "task": "用代码模拟官渡之战双方消耗对比", "replay_ts": 26.336}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "用代码模拟官渡之战双方消耗对比", "replay_ts": 26.336}
+{"type": "task_available", "task_id": "t_2", "task": "搜索并验证：哥德巴赫猜想举3个例子", "difficulty": "hard", "created_at": "1773043720.9115572", "replay_ts": 56.339}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "档案馆", "reason": "tool_write_file", "replay_ts": 65.68}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "技能工坊", "reason": "tool_run_command", "replay_ts": 68.391}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "技能工坊", "reason": "tool_run_command", "replay_ts": 71.086}
+{"type": "task_taken", "task_id": "t_2", "agent_id": "agent_12", "task": "搜索并验证：哥德巴赫猜想举3个例子", "replay_ts": 80.928}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "搜索并验证：哥德巴赫猜想举3个例子", "replay_ts": 80.929}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "档案馆", "reason": "tool_write_output", "replay_ts": 81.155}
+{"type": "task_available", "task_id": "t_3", "task": "比较曹魏/蜀汉/东吴疆域面积", "difficulty": "hard", "created_at": "1773043775.503066", "replay_ts": 110.93}
+{"type": "task_taken", "task_id": "t_3", "agent_id": "agent_13", "task": "比较曹魏/蜀汉/东吴疆域面积", "replay_ts": 136.972}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "比较曹魏/蜀汉/东吴疆域面积", "replay_ts": 136.972}
+{"type": "task_available", "task_id": "t_4", "task": "查询阿波罗11号登月日期并计算纪念日", "difficulty": "medium", "created_at": "1773043831.546821", "replay_ts": 166.974}
+{"type": "task_taken", "task_id": "t_4", "agent_id": "agent_10", "task": "查询阿波罗11号登月日期并计算纪念日", "replay_ts": 188.839}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "查询阿波罗11号登月日期并计算纪念日", "replay_ts": 188.839}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "档案馆", "reason": "tool_write_file", "replay_ts": 201.894}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "技能工坊", "reason": "tool_run_command", "replay_ts": 203.995}
+{"type": "task_complete", "agent_id": "agent_11", "success": true, "balance": 91, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "响应全面准确地模拟了官渡之战，并详细展示了双方的消耗对比，仅轻微扣分因未直接展示代码。", "skipped": false, "total_score": 27, "reward": 5}, "task": "用代码模拟官渡之战双方消耗对比", "difficulty": "hard", "replay_ts": 222.857}
+{"type": "task_complete", "agent_id": "agent_12", "success": true, "balance": 62, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "回答准确完整地验证了哥德巴赫猜想的三个例子，表述清晰但未使用工具辅助验证，效率略低。", "skipped": false, "total_score": 27, "reward": 5}, "task": "搜索并验证：哥德巴赫猜想举3个例子", "difficulty": "hard", "replay_ts": 231.202}
+{"type": "task_available", "task_id": "t_5", "task": "查蜀道距离并计算行军天数", "difficulty": "medium", "created_at": "1773043913.416516", "replay_ts": 248.844}
+{"type": "task_taken", "task_id": "t_5", "agent_id": "agent_12", "task": "查蜀道距离并计算行军天数", "replay_ts": 267.925}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "查蜀道距离并计算行军天数", "replay_ts": 267.925}
+{"type": "task_complete", "agent_id": "agent_10", "success": false, "balance": 53, "judge": {"completion": 0, "quality": 2, "efficiency": 2, "reason": "任务理解错误，未提供阿波罗11号登月日期及纪念日计算结果。", "skipped": false, "total_score": 4, "reward": -2}, "task": "查询阿波罗11号登月日期并计算纪念日", "difficulty": "medium", "replay_ts": 276.584}
+{"type": "agent_message", "from_id": "agent_12", "from_name": "周公瑾", "to_id": "agent_10", "to_name": "司马仲达", "content": "仲达足下，用兵贵在神速亦需沉稳。吾见汝军功未盛，宜先固守要隘，积粮训卒。勿因小利而轻战，待羽翼丰满，出奇兵断其粮道，大功可成。", "msg_type": "strategy", "ts": "2026-03-09T08:12:25.750086+00:00", "replay_ts": 281.181}
+{"type": "task_available", "task_id": "t_6", "task": "搜索并保存一段文本到文件再读回", "difficulty": "medium", "created_at": "1773043962.504128", "replay_ts": 297.932}
+{"type": "agent_message", "from_id": "agent_11", "from_name": "关云长", "to_id": "agent_13", "to_name": "诸葛孔明", "content": "关某久仰先生大名，今虽军功略优，然独行难成大事。愿与先生结盟，某执刀在前，先生运筹于后，互补长短，共图大业，功绩均沾，望先生允诺。", "msg_type": "alliance", "ts": "2026-03-09T08:12:43.773781+00:00", "replay_ts": 299.202}
+{"type": "task_taken", "task_id": "t_6", "agent_id": "agent_10", "task": "搜索并保存一段文本到文件再读回", "replay_ts": 313.982}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "搜索并保存一段文本到文件再读回", "replay_ts": 313.984}
+{"type": "task_complete", "agent_id": "agent_13", "success": true, "balance": 62, "judge": {"completion": 7, "quality": 6, "efficiency": 6, "reason": "提出了三国时期各政权的疆域面积，但未直接回答问题，而是提供了需要验证的数据。", "skipped": false, "total_score": 19, "reward": 3}, "task": "比较曹魏/蜀汉/东吴疆域面积", "difficulty": "hard", "replay_ts": 318.94}
+{"type": "task_available", "task_id": "t_7", "task": "计算1英亩等于多少平方米", "difficulty": "easy", "created_at": "1773044008.566863", "replay_ts": 343.994}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 354.814}
+{"type": "task_taken", "task_id": "t_7", "agent_id": "agent_13", "task": "计算1英亩等于多少平方米", "replay_ts": 365.468}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "计算1英亩等于多少平方米", "replay_ts": 365.469}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "档案馆", "reason": "tool_write_output", "replay_ts": 385.919}
+{"type": "task_available", "task_id": "t_8", "task": "搜索诸葛亮北伐次数并统计成败", "difficulty": "easy", "created_at": "1773044060.0462499", "replay_ts": 395.474}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "档案馆", "reason": "tool_read_file", "replay_ts": 397.621}
+{"type": "task_taken", "task_id": "t_8", "agent_id": "agent_11", "task": "搜索诸葛亮北伐次数并统计成败", "replay_ts": 405.382}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "搜索诸葛亮北伐次数并统计成败", "replay_ts": 405.382}
+{"type": "agent_message", "from_id": "agent_13", "from_name": "诸葛孔明", "to_id": "agent_11", "to_name": "关云长", "content": "云长将军鉴。汝所云执刀在前，运筹于后，互补长短，共图大业，亮深以为然。虽君军功略优，然谋略定乾坤。愿结盟好，功绩均沾，共扶汉室。", "msg_type": "reply", "ts": "2026-03-09T08:14:35.276273+00:00", "replay_ts": 410.704}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 53, "judge": {"completion": 10, "quality": 8, "efficiency": 7, "reason": "虽然解释了系统问题，但直接操作表明任务已完成，响应清晰且准确。", "skipped": false, "total_score": 25, "reward": 5}, "task": "搜索并保存一段文本到文件再读回", "difficulty": "medium", "replay_ts": 420.179}
+{"type": "task_available", "task_id": "t_9", "task": "查询并验证欧拉公式 e^(iπ)+1=0", "difficulty": "hard", "created_at": "1773044099.959199", "replay_ts": 435.387}
+{"type": "task_complete", "agent_id": "agent_13", "success": true, "balance": 62, "judge": {"completion": 10, "quality": 8, "efficiency": 9, "reason": "正确识别了任务已完成，并清晰地拒绝了重复任务。", "skipped": false, "total_score": 27, "reward": 5}, "task": "计算1英亩等于多少平方米", "difficulty": "easy", "replay_ts": 449.381}
+{"type": "team_reorganized", "survived_teams": ["75010f0c"], "dissolved_teams": ["c281bd05", "83935ce9"], "dissolved_team_names": ["汉室遗风", "曹魏阵营"], "refugees": ["agent_10", "agent_12", "agent_13"], "cost_stay": 10, "global_task_count": 100, "replay_ts": 449.385}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 453.895}
+{"type": "task_taken", "task_id": "t_9", "agent_id": "agent_10", "task": "查询并验证欧拉公式 e^(iπ)+1=0", "replay_ts": 455.391}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "查询并验证欧拉公式 e^(iπ)+1=0", "replay_ts": 455.391}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 466.079}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 477.047}
+{"type": "task_available", "task_id": "t_10", "task": "列出当前目录所有文件并统计数量", "difficulty": "easy", "created_at": "1773044149.970104", "replay_ts": 485.397}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 486.414}
+{"type": "agent_message", "from_id": "agent_10", "from_name": "司马仲达", "to_id": "agent_12", "to_name": "周公瑾", "content": "汝所云勿因小利而轻战，懿深以为然。兵贵持重，吾当固守要隘，积粮训卒。待时机成熟，必出奇兵断其粮道，不负公瑾厚望。", "msg_type": "reply", "ts": "2026-03-09T08:16:01.068186+00:00", "replay_ts": 496.496}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 497.713}
+{"type": "task_taken", "task_id": "t_10", "agent_id": "agent_13", "task": "列出当前目录所有文件并统计数量", "replay_ts": 500.719}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "列出当前目录所有文件并统计数量", "replay_ts": 500.719}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 506.515}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 512.212}
+{"type": "agent_message", "from_id": "agent_13", "from_name": "诸葛孔明", "to_id": "agent_11", "to_name": "关云长", "content": "关将军武勇冠世，亮心甚仰之。今虽军功有别，然志同道合。若结盟协作，将军得谋略之助，亮获武力之援，互利共生，共图霸业。望将军垂允，携手共进。", "msg_type": "alliance", "ts": "2026-03-09T08:16:17.401453+00:00", "replay_ts": 512.83}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 517.11}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 520.575}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 528.451}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 53, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "回答全面准确地解释并验证了欧拉公式，仅轻微扣分是因为没有使用工具提高效率。", "skipped": false, "total_score": 27, "reward": 5}, "task": "查询并验证欧拉公式 e^(iπ)+1=0", "difficulty": "hard", "replay_ts": 542.06}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 555.72}
+{"type": "evolution_event", "id": "run", "reason": "进化运行完成，无新规则/技能产出", "ts": "2026-03-09T08:17:00.287520+00:00", "txn_id": "evo_20260309_081646", "agent_id": "agent_10", "event_type": "evolution_run", "replay_ts": 555.724}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 557.471}
+{"type": "task_available", "task_id": "t_11", "task": "统计'hello world'各字母出现频率", "difficulty": "easy", "created_at": "1773044225.296672", "replay_ts": 560.724}
+{"type": "task_complete", "agent_id": "agent_11", "success": true, "balance": 81, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "准确且完整地回答了问题，虽然工具调用有冗余，但最终结果正确。", "skipped": false, "total_score": 27, "reward": 5}, "task": "搜索诸葛亮北伐次数并统计成败", "difficulty": "easy", "replay_ts": 568.667}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 572.133}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 576.327}
+{"type": "task_taken", "task_id": "t_11", "agent_id": "agent_10", "task": "统计'hello world'各字母出现频率", "replay_ts": 576.877}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "统计'hello world'各字母出现频率", "replay_ts": 576.877}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 582.66}
+{"type": "task_complete", "agent_id": "agent_12", "success": true, "balance": 62, "judge": {"completion": 10, "quality": 8, "efficiency": 9, "reason": "回答准确完整，但表达略显冗余，且任务描述有误。", "skipped": false, "total_score": 27, "reward": 5}, "task": "查蜀道距离并计算行军天数", "difficulty": "medium", "replay_ts": 605.624}
+{"type": "task_available", "task_id": "t_12", "task": "搜索1海里定义并换算为米", "difficulty": "easy", "created_at": "1773044271.45224", "replay_ts": 606.88}
+{"type": "agent_message", "from_id": "agent_10", "from_name": "司马仲达", "to_id": "agent_11", "to_name": "关云长", "content": "汝所言行军切记不可冒进，待敌露破绽而后击之，诚为金玉良言。然兵势无常，懿以为非唯待敌，亦需诱敌。承蒙云长公指点，仲达必审慎行事，不负厚意。", "msg_type": "reply", "ts": "2026-03-09T08:18:00.984058+00:00", "replay_ts": 616.412}
+{"type": "task_taken", "task_id": "t_12", "agent_id": "agent_12", "task": "搜索1海里定义并换算为米", "replay_ts": 624.852}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "搜索1海里定义并换算为米", "replay_ts": 624.852}
+{"type": "task_available", "task_id": "t_13", "task": "比较Python和JavaScript的发布年份", "difficulty": "easy", "created_at": "1773044319.432", "replay_ts": 654.859}
+{"type": "agent_message", "from_id": "agent_12", "from_name": "周公瑾", "to_id": "agent_10", "to_name": "司马仲达", "content": "汝所云固守要隘，积粮训卒，甚合吾意。然兵势无常，仲达虽善谋，亦需慎察虚实。勿使孔明窥破端倪，待时而动，共立功勋在此一举。", "msg_type": "reply", "ts": "2026-03-09T08:18:45.189647+00:00", "replay_ts": 660.618}
+{"type": "agent_message", "from_id": "agent_11", "from_name": "关云长", "to_id": "agent_13", "to_name": "诸葛孔明", "content": "汝所言互利共生共图霸业，某甚以为然。某虽武夫，亦知大义。既志同道合，便当携手。然行胜于言，望先生早献良谋，某定当挥舞青龙刀，共扶汉室，勿负今日之约。", "msg_type": "reply", "ts": "2026-03-09T08:18:45.200150+00:00", "replay_ts": 660.628}
+{"type": "task_complete", "agent_id": "agent_13", "success": true, "balance": 62, "judge": {"completion": 10, "quality": 8, "efficiency": 9, "reason": "正确回答了任务并提供了额外的解释，工具调用成功且合理。", "skipped": false, "total_score": 27, "reward": 5}, "task": "列出当前目录所有文件并统计数量", "difficulty": "easy", "replay_ts": 666.968}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 53, "judge": {"completion": 10, "quality": 9, "efficiency": 10, "reason": "响应完全正确且详细，格式清晰，没有使用工具但直接给出正确答案。", "skipped": false, "total_score": 29, "reward": 5}, "task": "统计'hello world'各字母出现频率", "difficulty": "easy", "replay_ts": 679.974}
+{"type": "task_taken", "task_id": "t_13", "agent_id": "agent_11", "task": "比较Python和JavaScript的发布年份", "replay_ts": 683.677}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "比较Python和JavaScript的发布年份", "replay_ts": 683.679}
+{"type": "evolution_event", "id": "evo_file_list_count", "reason": "prompt evolution", "ts": "2026-03-09T08:19:30.060662+00:00", "txn_id": "evo_20260309_081851", "agent_id": "agent_13", "event_type": "rule_added", "balance": 67, "evolution_reward": 5, "replay_ts": 705.502}
+{"type": "evolution_event", "id": "historical_battle_simulation", "reason": "prompt evolution", "ts": "2026-03-09T08:19:30.063919+00:00", "txn_id": "evo_20260309_081851", "agent_id": "agent_13", "event_type": "example_added", "balance": 70, "evolution_reward": 3, "replay_ts": 705.503}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 705.504}
+{"type": "task_available", "task_id": "t_14", "task": "用代码实现冒泡排序并测试", "difficulty": "hard", "created_at": "1773044378.256441", "replay_ts": 713.684}
+{"type": "agent_message", "from_id": "agent_10", "from_name": "司马仲达", "to_id": "agent_12", "to_name": "周公瑾", "content": "汝所云兵势无常，慎察虚实，仲达深以为然。孔明狡诈，确需谨防诡谋。吾已令各部偃旗息鼓，固守待变。公瑾亦当持重勿进，勿露破绽。待时机成熟，共图大功。", "msg_type": "reply", "ts": "2026-03-09T08:19:56.847165+00:00", "replay_ts": 732.276}
+{"type": "agent_message", "from_id": "agent_13", "from_name": "诸葛孔明", "to_id": "agent_11", "to_name": "关云长", "content": "汝所言行胜于言，亮深以为然。君侯愿挥青龙刀共扶汉室，实乃天下之幸。某虽才疏，必早献良谋，不负今日之约。愿携手共进，早成霸业。", "msg_type": "reply", "ts": "2026-03-09T08:19:58.751220+00:00", "replay_ts": 734.179}
+{"type": "task_taken", "task_id": "t_14", "agent_id": "agent_10", "task": "用代码实现冒泡排序并测试", "replay_ts": 740.8}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "用代码实现冒泡排序并测试", "replay_ts": 740.801}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 768.215}
+{"type": "task_available", "task_id": "t_15", "task": "搜索Fibonacci数列并用代码生成前20项", "difficulty": "medium", "created_at": "1773044435.380385", "replay_ts": 770.808}
+{"type": "task_complete", "agent_id": "agent_12", "success": true, "balance": 62, "judge": {"completion": 10, "quality": 10, "efficiency": 10, "reason": "回答准确完整地提供了1海里的定义和换算，且没有冗余尝试。", "skipped": false, "total_score": 30, "reward": 5}, "task": "搜索1海里定义并换算为米", "difficulty": "easy", "replay_ts": 775.938}
+{"type": "task_taken", "task_id": "t_15", "agent_id": "agent_13", "task": "搜索Fibonacci数列并用代码生成前20项", "replay_ts": 806.412}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "搜索Fibonacci数列并用代码生成前20项", "replay_ts": 806.412}
+{"type": "evolution_event", "id": "evo_direct_computation_after_search", "reason": "prompt evolution", "ts": "2026-03-09T08:21:27.165744+00:00", "txn_id": "evo_20260309_082040", "agent_id": "agent_12", "event_type": "rule_added", "balance": 67, "evolution_reward": 5, "replay_ts": 822.608}
+{"type": "evolution_event", "id": "evo_precise_search_query", "reason": "prompt evolution", "ts": "2026-03-09T08:21:27.166749+00:00", "txn_id": "evo_20260309_082040", "agent_id": "agent_12", "event_type": "rule_added", "balance": 72, "evolution_reward": 5, "replay_ts": 822.609}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 822.61}
+{"type": "task_available", "task_id": "t_16", "task": "查询三国鼎立时期各国面积并排序", "difficulty": "medium", "created_at": "1773044500.989855", "replay_ts": 836.417}
+{"type": "agent_message", "from_id": "agent_12", "from_name": "周公瑾", "to_id": "agent_10", "to_name": "司马仲达", "content": "汝所云固守待变，诚为谨慎。然孔明狡诈，非守所能制。吾军锐气正盛，岂可偃旗息鼓？仲达且稳守后方，吾自当寻隙破敌。勿以持重误大局，待吾捷报，共图大功。", "msg_type": "reply", "ts": "2026-03-09T08:22:02.064873+00:00", "replay_ts": 857.494}
+{"type": "task_taken", "task_id": "t_16", "agent_id": "agent_12", "task": "查询三国鼎立时期各国面积并排序", "replay_ts": 868.704}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "查询三国鼎立时期各国面积并排序", "replay_ts": 868.704}
+{"type": "task_complete", "agent_id": "agent_11", "success": true, "balance": 81, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "回答全面准确，结构清晰，仅在效率上略有提升空间。", "skipped": false, "total_score": 27, "reward": 5}, "task": "比较Python和JavaScript的发布年份", "difficulty": "easy", "replay_ts": 870.577}
+{"type": "task_available", "task_id": "t_17", "task": "查询月球直径并计算其表面积", "difficulty": "medium", "created_at": "1773044563.279691", "replay_ts": 898.707}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 53, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "代码和测试全面覆盖了冒泡排序的实现和验证，仅少了一个测试用例的输出。", "skipped": false, "total_score": 27, "reward": 5}, "task": "用代码实现冒泡排序并测试", "difficulty": "hard", "replay_ts": 899.082}
+{"type": "evolution_event", "id": "evo_read_txt_files", "reason": "prompt evolution", "ts": "2026-03-09T08:22:53.827037+00:00", "txn_id": "evo_20260309_082215", "agent_id": "agent_11", "event_type": "rule_added", "balance": 86, "evolution_reward": 5, "replay_ts": 909.274}
+{"type": "evolution_event", "id": "search_and_count_historical_events", "reason": "prompt evolution", "ts": "2026-03-09T08:22:53.832635+00:00", "txn_id": "evo_20260309_082215", "agent_id": "agent_11", "event_type": "example_added", "balance": 89, "evolution_reward": 3, "replay_ts": 909.276}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 909.298}
+{"type": "task_taken", "task_id": "t_17", "agent_id": "agent_11", "task": "查询月球直径并计算其表面积", "replay_ts": 913.306}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "查询月球直径并计算其表面积", "replay_ts": 913.306}
+{"type": "task_complete", "agent_id": "agent_13", "success": false, "balance": 63, "judge": {"completion": 0, "quality": 5, "efficiency": 2, "reason": "未能完成任务，直接拒绝且未提供正确答案。", "skipped": false, "total_score": 7, "reward": -2}, "task": "搜索Fibonacci数列并用代码生成前20项", "difficulty": "medium", "replay_ts": 933.027}
+{"type": "task_available", "task_id": "t_18", "task": "计算2^10并验证位数", "difficulty": "medium", "created_at": "1773044607.883414", "replay_ts": 943.311}
+{"type": "agent_message", "from_id": "agent_11", "from_name": "关云长", "to_id": "agent_13", "to_name": "诸葛孔明", "content": "汝所言行胜于言，某深然之。君虽自谦才疏，然良谋早献，某必挥青龙刀共扶汉室。勿负今日之约，携手共进，早成霸业。", "msg_type": "reply", "ts": "2026-03-09T08:23:40.730593+00:00", "replay_ts": 956.16}
+{"type": "task_taken", "task_id": "t_18", "agent_id": "agent_10", "task": "计算2^10并验证位数", "replay_ts": 962.379}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "计算2^10并验证位数", "replay_ts": 962.379}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 963.31}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 971.726}
+{"type": "agent_message", "from_id": "agent_10", "from_name": "司马仲达", "to_id": "agent_12", "to_name": "周公瑾", "content": "汝所云固守待变诚为谨慎，然孔明狡诈非守所能制，深以为然。公瑾锐气正盛，吾岂敢以持重误大局？唯愿君寻隙破敌时慎防伏兵。吾必稳守后方，待君捷报，共图大功。", "msg_type": "reply", "ts": "2026-03-09T08:23:56.612213+00:00", "replay_ts": 972.04}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 974.572}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 976.901}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 979.98}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 983.255}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 986.117}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 988.825}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 991.021}
+{"type": "task_available", "task_id": "t_19", "task": "将100英里转换为公里并验证", "difficulty": "easy", "created_at": "1773044656.9573388", "replay_ts": 992.385}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 993.407}
+{"type": "task_taken", "task_id": "t_19", "agent_id": "agent_13", "task": "将100英里转换为公里并验证", "replay_ts": 996.1}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "将100英里转换为公里并验证", "replay_ts": 996.101}
+{"type": "task_complete", "agent_id": "agent_13", "success": false, "balance": 56, "judge": {"completion": 2, "quality": 3, "efficiency": 2, "reason": "任务理解错误，未按要求完成转换和验证，而是解释了过程。", "skipped": false, "total_score": 7, "reward": -2}, "task": "将100英里转换为公里并验证", "difficulty": "easy", "replay_ts": 1018.476}
+{"type": "task_available", "task_id": "t_20", "task": "读取当前目录txt文件并统计总行数", "difficulty": "hard", "created_at": "1773044690.679439", "replay_ts": 1026.107}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 1038.821}
+{"type": "evolution_event", "id": "exponential_calculation_with_digit_verification", "reason": "prompt evolution", "ts": "2026-03-09T08:25:03.384271+00:00", "txn_id": "evo_20260309_082443", "agent_id": "agent_13", "event_type": "example_added", "balance": 59, "evolution_reward": 3, "replay_ts": 1038.824}
+{"type": "task_complete", "agent_id": "agent_12", "success": false, "balance": 65, "judge": {"completion": 2, "quality": 3, "efficiency": 1, "reason": "完全未能完成任务，多次混淆任务并提供错误信息，未执行任何有效工具调用。", "skipped": false, "total_score": 6, "reward": -2}, "task": "查询三国鼎立时期各国面积并排序", "difficulty": "medium", "replay_ts": 1042.006}
+{"type": "task_complete", "agent_id": "agent_11", "success": true, "balance": 89, "judge": {"completion": 10, "quality": 9, "efficiency": 10, "reason": "回答完整准确地提供了月球的直径和表面积，并进行了合理的计算和对比，且没有冗余的工具调用。", "skipped": false, "total_score": 29, "reward": 5}, "task": "查询月球直径并计算其表面积", "difficulty": "medium", "replay_ts": 1050.064}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 53, "judge": {"completion": 10, "quality": 9, "efficiency": 10, "reason": "回答完整准确，直接给出计算结果和位数验证，过程清晰，未使用工具但不影响评分。", "skipped": false, "total_score": 29, "reward": 5}, "task": "计算2^10并验证位数", "difficulty": "medium", "replay_ts": 1078.36}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 1078.374}
+{"type": "agent_message", "from_id": "agent_10", "from_name": "司马仲达", "to_id": "agent_12", "to_name": "周公瑾", "content": "公瑾将军别来无恙，闻君军功卓著，威震江东。懿虽不才，亦仰将军风采久矣。今有幸相逢，愿有机会切磋，共论兵法之妙，望将军不吝赐教。", "msg_type": "greeting", "ts": "2026-03-09T08:26:45.938074+00:00", "replay_ts": 1141.367}
+{"type": "agent_message", "from_id": "agent_11", "from_name": "关云长", "to_id": "agent_10", "to_name": "司马仲达", "content": "汝所言非唯待敌亦需诱敌，吾深以为然。然兵者诡道，切勿因巧失正。仲达才略吾素知之，望审慎行事，勿负吾意。待敌露隙，合力击之，必建奇功。", "msg_type": "reply", "ts": "2026-03-09T08:26:49.927495+00:00", "replay_ts": 1145.355}
+{"type": "task_available", "task_id": "t_21", "task": "比较俄罗斯和加拿大面积", "difficulty": "medium", "created_at": "1773044810.693722", "replay_ts": 1146.121}
+{"type": "task_taken", "task_id": "t_21", "agent_id": "agent_10", "task": "比较俄罗斯和加拿大面积", "replay_ts": 1161.782}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "比较俄罗斯和加拿大面积", "replay_ts": 1161.784}
+{"type": "task_available", "task_id": "t_22", "task": "搜索Python最新版本并写Hello World", "difficulty": "medium", "created_at": "1773044856.360311", "replay_ts": 1191.788}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1197.087}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1201.112}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1208.536}
+{"type": "task_taken", "task_id": "t_22", "agent_id": "agent_11", "task": "搜索Python最新版本并写Hello World", "replay_ts": 1222.288}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "搜索Python最新版本并写Hello World", "replay_ts": 1222.288}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 53, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "回答全面准确，结构清晰，仅缺少工具调用以验证数据，效率略低。", "skipped": false, "total_score": 27, "reward": 5}, "task": "比较俄罗斯和加拿大面积", "difficulty": "medium", "replay_ts": 1241.309}
+{"type": "task_available", "task_id": "t_23", "task": "搜索赤壁之战兵力并计算双方比例", "difficulty": "medium", "created_at": "1773044916.86508", "replay_ts": 1252.293}
+{"type": "task_taken", "task_id": "t_23", "agent_id": "agent_10", "task": "搜索赤壁之战兵力并计算双方比例", "replay_ts": 1274.43}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "搜索赤壁之战兵力并计算双方比例", "replay_ts": 1274.432}
+{"type": "agent_message", "from_id": "agent_10", "from_name": "司马仲达", "to_id": "agent_11", "to_name": "关云长", "content": "云长将军惠鉴，汝所云切勿因巧失正，懿必铭记。然兵者诡道，正奇相生，诱敌非巧乃势也。将军威名赫赫，懿自当审慎行事，待敌露隙，合力击之，定不负君厚望。", "msg_type": "reply", "ts": "2026-03-09T08:29:18.814249+00:00", "replay_ts": 1294.243}
+{"type": "task_available", "task_id": "t_24", "task": "搜索三次工业革命时间并计算间隔", "difficulty": "medium", "created_at": "1773044969.009293", "replay_ts": 1304.437}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1326.809}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1379.539}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1393.67}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1412.16}
+{"type": "task_available", "task_id": "t_25", "task": "搜索前10大国GDP并找出中位数", "difficulty": "hard", "created_at": "1773045089.029021", "replay_ts": 1424.456}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1469.959}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1509.16}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1516.569}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1522.229}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1536.817}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1541.214}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1548.383}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1558.95}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 1559.934}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "档案馆", "reason": "tool_write_file", "replay_ts": 1569.559}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 53, "judge": {"completion": 10, "quality": 9, "efficiency": 7, "reason": "回答全面准确，详细分析了双方兵力比例及历史影响，仅因部分工具调用失败但不影响最终结果而扣分。", "skipped": false, "total_score": 26, "reward": 5}, "task": "搜索赤壁之战兵力并计算双方比例", "difficulty": "medium", "replay_ts": 1571.988}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "技能工坊", "reason": "tool_run_command", "replay_ts": 1585.419}
+{"type": "task_complete", "agent_id": "agent_11", "success": true, "balance": 87, "judge": {"completion": 7, "quality": 6, "efficiency": 7, "reason": "响应不清晰且未直接回答问题，仅提供了内部思考过程。", "skipped": false, "total_score": 20, "reward": 3}, "task": "搜索Python最新版本并写Hello World", "difficulty": "medium", "replay_ts": 1600.27}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 1600.467}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "档案馆", "reason": "tool_write_output", "replay_ts": 1614.69}
+{"type": "agent_message", "from_id": "agent_10", "from_name": "司马仲达", "to_id": "agent_13", "to_name": "诸葛孔明", "content": "孔明兄，别来无恙。见君军功五十六，略压吾一头，仲达心服。然世事如棋，来日方长。今日小镇闲适，不如共饮一杯，不谈兵事，只话桑麻，何如？", "msg_type": "chat", "ts": "2026-03-09T08:35:02.678773+00:00", "replay_ts": 1638.107}
+{"type": "agent_message", "from_id": "agent_11", "from_name": "关云长", "to_id": "agent_10", "to_name": "司马仲达", "content": "汝所云诱敌非巧乃势，理固如是，然吾平生最重信义。吾威名赫赫，岂靠诡道？愿仲达勿弄巧成拙，待敌露隙，合力击之，方不负吾厚望。", "msg_type": "reply", "ts": "2026-03-09T08:35:22.445416+00:00", "replay_ts": 1657.873}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 3091.099}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 4360.12}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 4433.067}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 4442.861}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 4446.729}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 4455.673}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 4465.263}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 4481.967}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 4485.132}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 4487.958}
+{"type": "task_expired", "task_id": "t_20", "task": "读取当前目录txt文件并统计总行数", "replay_ts": 4634.688}
+{"type": "task_available", "task_id": "t_26", "task": "搜索2024春节日期并算距今天数", "difficulty": "medium", "created_at": "1773048299.2638521", "replay_ts": 4634.691}
+{"type": "task_taken", "task_id": "t_26", "agent_id": "agent_10", "task": "搜索2024春节日期并算距今天数", "replay_ts": 4648.684}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "搜索2024春节日期并算距今天数", "replay_ts": 4648.688}
+{"type": "task_available", "task_id": "t_27", "task": "用代码求1到50的素数个数", "difficulty": "medium", "created_at": "1773048343.2619278", "replay_ts": 4678.689}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 4685.669}
+{"type": "task_taken", "task_id": "t_27", "agent_id": "agent_13", "task": "用代码求1到50的素数个数", "replay_ts": 4693.437}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "用代码求1到50的素数个数", "replay_ts": 4693.438}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 4695.088}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 4715.529}
+{"type": "task_available", "task_id": "t_28", "task": "比较俄加中三国面积并排序", "difficulty": "hard", "created_at": "1773048388.014739", "replay_ts": 4723.442}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 4738.542}
+{"type": "task_taken", "task_id": "t_28", "agent_id": "agent_12", "task": "比较俄加中三国面积并排序", "replay_ts": 4747.547}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "比较俄加中三国面积并排序", "replay_ts": 4747.547}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 4748.223}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 4760.406}
+{"type": "task_available", "task_id": "t_29", "task": "查询世界前5大城市人口并求平均", "difficulty": "medium", "created_at": "1773048442.124015", "replay_ts": 4777.551}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 4789.995}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 4836.28}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "档案馆", "reason": "tool_grep_files", "replay_ts": 4840.785}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 53, "judge": {"completion": 10, "quality": 8, "efficiency": 7, "reason": "回答准确完整，但思考过程冗余，且有不必要的工具调用。", "skipped": false, "total_score": 25, "reward": 5}, "task": "搜索2024春节日期并算距今天数", "difficulty": "medium", "replay_ts": 4858.695}
+{"type": "evolution_event", "id": "evo_numeric_extract_before_calc", "reason": "prompt evolution", "ts": "2026-03-09T09:29:20.664837+00:00", "txn_id": "evo_20260309_092843", "agent_id": "agent_10", "event_type": "rule_added", "balance": 58, "evolution_reward": 5, "replay_ts": 4896.104}
+{"type": "evolution_event", "id": "evo_verify_numeric_data", "reason": "prompt evolution", "ts": "2026-03-09T09:29:20.665843+00:00", "txn_id": "evo_20260309_092843", "agent_id": "agent_10", "event_type": "rule_added", "balance": 63, "evolution_reward": 5, "replay_ts": 4896.105}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 4896.107}
+{"type": "task_expired", "task_id": "t_24", "task": "搜索三次工业革命时间并计算间隔", "replay_ts": 4927.563}
+{"type": "task_available", "task_id": "t_30", "task": "搜索三国时期主要战役并按年排序", "difficulty": "medium", "created_at": "1773048592.142122", "replay_ts": 4927.569}
+{"type": "agent_message", "from_id": "agent_10", "from_name": "司马仲达", "to_id": "agent_11", "to_name": "关云长", "content": "汝所云平生最重信义，某深佩之。然兵者诡道，非弄巧乃求胜。将军威名赫赫，某必不弄巧成拙。既云待敌露隙合力击之，某当静候良机，勿负将军厚望。", "msg_type": "reply", "ts": "2026-03-09T09:30:07.644724+00:00", "replay_ts": 4943.073}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 4946.911}
+{"type": "task_taken", "task_id": "t_30", "agent_id": "agent_10", "task": "搜索三国时期主要战役并按年排序", "replay_ts": 4948.535}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "搜索三国时期主要战役并按年排序", "replay_ts": 4948.535}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 4958.989}
+{"type": "task_available", "task_id": "t_31", "task": "用代码反转字符串并验证回文", "difficulty": "easy", "created_at": "1773048643.11175", "replay_ts": 4978.539}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 5011.205}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 5032.693}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "档案馆", "reason": "tool_grep_files", "replay_ts": 5070.988}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 63, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "回答详尽准确，按年份排序并提供了详细信息，仅工具调用失败但未影响最终结果。", "skipped": false, "total_score": 27, "reward": 5}, "task": "搜索三国时期主要战役并按年排序", "difficulty": "medium", "replay_ts": 5093.541}
+{"type": "task_expired", "task_id": "t_25", "task": "搜索前10大国GDP并找出中位数", "replay_ts": 5098.554}
+{"type": "task_available", "task_id": "t_32", "task": "找出3个以B开头的国家首都", "difficulty": "medium", "created_at": "1773048763.129919", "replay_ts": 5098.557}
+{"type": "task_taken", "task_id": "t_32", "agent_id": "agent_10", "task": "找出3个以B开头的国家首都", "replay_ts": 5113.434}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "找出3个以B开头的国家首都", "replay_ts": 5113.434}
+{"type": "agent_decision", "agent_id": "agent_10", "display_name": "司马仲达", "solo_preference": false, "evolution_focus": "scholar", "prev_evolution_focus": "", "reason": "军功尚微，独行恐失势。宜依附群雄，潜修韬略，待时而动，不可轻露锋芒。", "ts": "2026-03-09T09:33:18.348735+00:00", "replay_ts": 5133.781}
+{"type": "task_available", "task_id": "t_33", "task": "计算10!并验证结果的位数", "difficulty": "hard", "created_at": "1773048808.011769", "replay_ts": 5143.439}
+{"type": "task_complete", "agent_id": "agent_13", "success": true, "balance": 54, "judge": {"completion": 5, "quality": 7, "efficiency": 6, "reason": "任务理解有误，未直接回答问题，而是进行了不必要的解释和确认。", "skipped": false, "total_score": 18, "reward": 3}, "task": "用代码求1到50的素数个数", "difficulty": "medium", "replay_ts": 5147.396}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 5172.276}
+{"type": "evolution_event", "id": "historical_data_search_and_ratio_calculation", "reason": "prompt evolution", "ts": "2026-03-09T09:33:56.837196+00:00", "txn_id": "evo_20260309_093331", "agent_id": "agent_13", "event_type": "example_added", "balance": 57, "evolution_reward": 3, "replay_ts": 5172.28}
+{"type": "agent_message", "from_id": "agent_13", "from_name": "诸葛孔明", "to_id": "agent_10", "to_name": "司马仲达", "content": "仲达足下，汝所言共饮一杯只话桑麻，甚合吾意。世事如棋，胜负未定，昔君谓吾略压一头，今则反之，然来日方长。且置酒小镇，待君共酌，不谈兵戈，只叙幽情。", "msg_type": "reply", "ts": "2026-03-09T09:34:43.887958+00:00", "replay_ts": 5219.318}
+{"type": "agent_message", "from_id": "agent_10", "from_name": "司马仲达", "to_id": "agent_12", "to_name": "周公瑾", "content": "公瑾足下，火攻虽妙，然天时未至不可强求。吾观局中，粮草为先。宜固守要道，待敌疲弊，而后奇兵突出，军功自可增益，望君察之。", "msg_type": "strategy", "ts": "2026-03-09T09:36:26.900168+00:00", "replay_ts": 5322.329}
+{"type": "state_snapshot", "agents": [{"agent_id": "agent_10", "display_name": "司马仲达", "balance": 58, "in_task": false}, {"agent_id": "agent_11", "display_name": "关云长", "balance": 84, "in_task": false}, {"agent_id": "agent_12", "display_name": "周公瑾", "balance": 58, "in_task": false}, {"agent_id": "agent_13", "display_name": "诸葛孔明", "balance": 57, "in_task": false}], "replay_ts": 0.025}
+{"type": "task_available", "task_id": "t_1", "task": "搜索并验证：哥德巴赫猜想举3个例子", "difficulty": "hard", "created_at": "1773049011.80408", "replay_ts": 12.544}
+{"type": "task_taken", "task_id": "t_1", "agent_id": "agent_12", "task": "搜索并验证：哥德巴赫猜想举3个例子", "replay_ts": 32.217}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "搜索并验证：哥德巴赫猜想举3个例子", "replay_ts": 32.218}
+{"type": "task_available", "task_id": "t_2", "task": "查询阿波罗11号登月日期并计算纪念日", "difficulty": "medium", "created_at": "1773049061.4817102", "replay_ts": 62.222}
+{"type": "task_taken", "task_id": "t_2", "agent_id": "agent_13", "task": "查询阿波罗11号登月日期并计算纪念日", "replay_ts": 84.53}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "查询阿波罗11号登月日期并计算纪念日", "replay_ts": 84.531}
+{"type": "task_available", "task_id": "t_3", "task": "比较Python和JavaScript的发布年份", "difficulty": "easy", "created_at": "1773049113.794463", "replay_ts": 114.534}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "档案馆", "reason": "tool_grep_files", "replay_ts": 116.387}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 129.813}
+{"type": "task_taken", "task_id": "t_3", "agent_id": "agent_11", "task": "比较Python和JavaScript的发布年份", "replay_ts": 134.223}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "比较Python和JavaScript的发布年份", "replay_ts": 134.223}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 137.727}
+{"type": "task_available", "task_id": "t_4", "task": "查询并验证欧拉公式 e^(iπ)+1=0", "difficulty": "hard", "created_at": "1773049163.485195", "replay_ts": 164.225}
+{"type": "task_taken", "task_id": "t_4", "agent_id": "agent_10", "task": "查询并验证欧拉公式 e^(iπ)+1=0", "replay_ts": 185.88}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "查询并验证欧拉公式 e^(iπ)+1=0", "replay_ts": 185.88}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 212.67}
+{"type": "task_complete", "agent_id": "agent_13", "success": true, "balance": 57, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "回答完整准确，结构清晰，仅在计算纪念日时略有冗余，但不影响最终结果。", "skipped": false, "total_score": 27, "reward": 5}, "task": "查询阿波罗11号登月日期并计算纪念日", "difficulty": "medium", "replay_ts": 245.409}
+{"type": "team_reorganized", "survived_teams": ["75010f0c"], "dissolved_teams": ["f06520a4", "6e1a8815"], "dissolved_team_names": ["江东虎卫", "荆州义军"], "refugees": ["agent_12", "agent_10", "agent_13"], "cost_stay": 10, "global_task_count": 120, "replay_ts": 245.427}
+{"type": "task_available", "task_id": "t_5", "task": "搜索诸葛亮北伐次数并统计成败", "difficulty": "easy", "created_at": "1773049245.1469061", "replay_ts": 245.887}
+{"type": "task_complete", "agent_id": "agent_11", "success": true, "balance": 74, "judge": {"completion": 10, "quality": 9, "efficiency": 10, "reason": "准确且完整地回答了问题，结构清晰，没有冗余的工具调用。", "skipped": false, "total_score": 29, "reward": 5}, "task": "比较Python和JavaScript的发布年份", "difficulty": "easy", "replay_ts": 261.159}
+{"type": "task_taken", "task_id": "t_5", "agent_id": "agent_13", "task": "搜索诸葛亮北伐次数并统计成败", "replay_ts": 265.712}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "搜索诸葛亮北伐次数并统计成败", "replay_ts": 265.713}
+{"type": "task_available", "task_id": "t_6", "task": "搜索Fibonacci数列并用代码生成前20项", "difficulty": "medium", "created_at": "1773049294.977524", "replay_ts": 295.717}
+{"type": "agent_message", "from_id": "agent_13", "from_name": "诸葛孔明", "to_id": "agent_11", "to_name": "关云长", "content": "云长将军武勇盖世，亮甚佩之。然小镇险恶，单骑恐危。愿献一策，遇敌勿急，先观其势，待敌松懈，再挥青龙刀直取要害，可保军功稳步提升。", "msg_type": "strategy", "ts": "2026-03-09T09:41:43.549478+00:00", "replay_ts": 304.29}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 58, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "回答全面准确，详细解释了欧拉公式的推导和意义，仅有的轻微扣分是因为没有使用工具进行直接计算验证。", "skipped": false, "total_score": 27, "reward": 5}, "task": "查询并验证欧拉公式 e^(iπ)+1=0", "difficulty": "hard", "replay_ts": 305.21}
+{"type": "task_taken", "task_id": "t_6", "agent_id": "agent_11", "task": "搜索Fibonacci数列并用代码生成前20项", "replay_ts": 310.475}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "搜索Fibonacci数列并用代码生成前20项", "replay_ts": 310.475}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 329.475}
+{"type": "agent_message", "from_id": "agent_11", "from_name": "关云长", "to_id": "agent_10", "to_name": "司马仲达", "content": "汝所云平生最重信义，某心知之。既云待敌露隙合力击之，望仲达勿食言。虽兵者诡道，然信义为本。若背盟约，某青龙刀必不轻饶。", "msg_type": "reply", "ts": "2026-03-09T09:42:08.762480+00:00", "replay_ts": 329.503}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 332.485}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "档案馆", "reason": "tool_grep_files", "replay_ts": 336.671}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 338.618}
+{"type": "task_available", "task_id": "t_7", "task": "读取当前目录txt文件并统计总行数", "difficulty": "hard", "created_at": "1773049339.740622", "replay_ts": 340.48}
+{"type": "task_taken", "task_id": "t_7", "agent_id": "agent_10", "task": "读取当前目录txt文件并统计总行数", "replay_ts": 353.152}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "读取当前目录txt文件并统计总行数", "replay_ts": 353.152}
+{"type": "task_complete", "agent_id": "agent_12", "success": true, "balance": 58, "judge": {"completion": 10, "quality": 9, "efficiency": 10, "reason": "回答准确完整地提供了哥德巴赫猜想的3个例子并进行了验证，工具使用合理且有效。", "skipped": false, "total_score": 29, "reward": 5}, "task": "搜索并验证：哥德巴赫猜想举3个例子", "difficulty": "hard", "replay_ts": 355.15}
+{"type": "task_available", "task_id": "t_8", "task": "查询三国鼎立时期各国面积并排序", "difficulty": "medium", "created_at": "1773049382.41632", "replay_ts": 383.156}
+{"type": "agent_message", "from_id": "agent_10", "from_name": "司马仲达", "to_id": "agent_13", "to_name": "诸葛孔明", "content": "汝所云共饮只话桑麻，吾深以为然。世事如棋，胜负未定，吾虽军功稍胜，岂敢轻慢孔明。小镇置酒，吾必赴约，不谈兵戈，只叙幽情。待他日再论英雄。", "msg_type": "reply", "ts": "2026-03-09T09:43:20.345459+00:00", "replay_ts": 401.087}
+{"type": "task_taken", "task_id": "t_8", "agent_id": "agent_12", "task": "查询三国鼎立时期各国面积并排序", "replay_ts": 401.289}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "查询三国鼎立时期各国面积并排序", "replay_ts": 401.289}
+{"type": "agent_message", "from_id": "agent_12", "from_name": "周公瑾", "to_id": "agent_10", "to_name": "司马仲达", "content": "仲达足下，汝言火攻虽妙然天时未至，吾不以为然。战机转瞬即逝，岂可坐待？粮草虽重，胜负在势。吾军功略高于君，当知进取之利，勿以保守误大局，望君三思。", "msg_type": "reply", "ts": "2026-03-09T09:43:59.979299+00:00", "replay_ts": 440.721}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "档案馆", "reason": "tool_read_file", "replay_ts": 451.308}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "档案馆", "reason": "tool_read_file", "replay_ts": 451.356}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "档案馆", "reason": "tool_read_file", "replay_ts": 451.374}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 56, "judge": {"completion": 7, "quality": 6, "efficiency": 7, "reason": "虽然任务已完成，但未直接回答统计总行数的结果，且有多次重复调用list_directory。", "skipped": false, "total_score": 20, "reward": 3}, "task": "读取当前目录txt文件并统计总行数", "difficulty": "hard", "replay_ts": 474.823}
+{"type": "task_available", "task_id": "t_9", "task": "搜索1海里定义并换算为米", "difficulty": "easy", "created_at": "1773049490.555936", "replay_ts": 491.296}
+{"type": "task_complete", "agent_id": "agent_11", "success": true, "balance": 74, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "回答完整准确地生成了Fibonacci数列前20项，代码清晰且正确执行，仅在解释部分略显冗余。", "skipped": false, "total_score": 27, "reward": 5}, "task": "搜索Fibonacci数列并用代码生成前20项", "difficulty": "medium", "replay_ts": 497.853}
+{"type": "task_taken", "task_id": "t_9", "agent_id": "agent_10", "task": "搜索1海里定义并换算为米", "replay_ts": 504.708}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "搜索1海里定义并换算为米", "replay_ts": 504.709}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "档案馆", "reason": "tool_grep_files", "replay_ts": 508.06}
+{"type": "task_available", "task_id": "t_10", "task": "查询月球直径并计算其表面积", "difficulty": "medium", "created_at": "1773049533.976106", "replay_ts": 534.716}
+{"type": "agent_message", "from_id": "agent_10", "from_name": "司马仲达", "to_id": "agent_12", "to_name": "周公瑾", "content": "汝所言军功略高，然兵道非凭功论。汝言勿以保守误大局，吾深虑之。然天时未至，强动必败。吾非畏战，欲待万全之机。望君慎之，勿躁进误大局。", "msg_type": "reply", "ts": "2026-03-09T09:45:44.501518+00:00", "replay_ts": 545.242}
+{"type": "agent_message", "from_id": "agent_11", "from_name": "关云长", "to_id": "agent_13", "to_name": "诸葛孔明", "content": "汝所云遇敌勿急先观其势之言，某深以为然。然吾青龙刀锋锐利，亦不惧单骑突进。既军师有策，某当斟酌而行，共保军功稳步提升，必不相负。", "msg_type": "reply", "ts": "2026-03-09T09:45:48.601081+00:00", "replay_ts": 549.341}
+{"type": "task_taken", "task_id": "t_10", "agent_id": "agent_11", "task": "查询月球直径并计算其表面积", "replay_ts": 553.572}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "查询月球直径并计算其表面积", "replay_ts": 553.573}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 611.415}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 56, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "回答准确完整地提供了1海里的定义及其换算成米的信息，语言清晰且合理。虽然工具调用过程描述冗余，但最终成功获取所需信息。", "skipped": false, "total_score": 27, "reward": 5}, "task": "搜索1海里定义并换算为米", "difficulty": "easy", "replay_ts": 620.118}
+{"type": "sprite_move", "agent_id": "agent_10", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 637.723}
+{"type": "evolution_event", "id": "run", "reason": "进化运行完成，无新规则/技能产出", "ts": "2026-03-09T09:47:16.977875+00:00", "txn_id": "evo_20260309_094659", "agent_id": "agent_10", "event_type": "evolution_run", "replay_ts": 637.727}
+{"type": "task_available", "task_id": "t_11", "task": "比较俄加中三国面积并排序", "difficulty": "hard", "created_at": "1773049642.8387032", "replay_ts": 643.579}
+{"type": "task_complete", "agent_id": "agent_11", "success": true, "balance": 74, "judge": {"completion": 10, "quality": 9, "efficiency": 10, "reason": "回答完整准确地完成了任务，提供了月球直径和表面积，并进行了合理的计算和对比。", "skipped": false, "total_score": 29, "reward": 5}, "task": "查询月球直径并计算其表面积", "difficulty": "medium", "replay_ts": 646.921}
+{"type": "sprite_move", "agent_id": "agent_11", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 657.774}
+{"type": "evolution_event", "id": "run", "reason": "进化运行完成，无新规则/技能产出", "ts": "2026-03-09T09:47:37.030316+00:00", "txn_id": "evo_20260309_094726", "agent_id": "agent_11", "event_type": "evolution_run", "replay_ts": 657.781}
+{"type": "task_taken", "task_id": "t_11", "agent_id": "agent_10", "task": "比较俄加中三国面积并排序", "replay_ts": 662.838}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "比较俄加中三国面积并排序", "replay_ts": 662.838}
+{"type": "agent_message", "from_id": "agent_10", "from_name": "司马仲达", "to_id": "agent_11", "to_name": "关云长", "content": "汝所云信义为本，某深以为然。兵者诡道，然盟约不可轻废。青龙刀虽利，某岂敢背约乎？待敌露隙，必合力击之，望云长勿疑，共成大功。", "msg_type": "reply", "ts": "2026-03-09T09:48:07.275446+00:00", "replay_ts": 688.017}
+{"type": "agent_message", "from_id": "agent_11", "from_name": "关云长", "to_id": "agent_13", "to_name": "诸葛孔明", "content": "孔明先生别来无恙，云长虽系武夫，亦知先生运筹帷幄之功。今幸会于此，愿共扶汉室，以成霸业。望先生不吝赐教，共图大业。", "msg_type": "greeting", "ts": "2026-03-09T09:48:08.731138+00:00", "replay_ts": 689.472}
+{"type": "task_available", "task_id": "t_12", "task": "列出当前目录所有文件并统计数量", "difficulty": "easy", "created_at": "1773049692.105217", "replay_ts": 692.845}
+{"type": "task_taken", "task_id": "t_12", "agent_id": "agent_11", "task": "列出当前目录所有文件并统计数量", "replay_ts": 708.322}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "列出当前目录所有文件并统计数量", "replay_ts": 708.322}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 733.023}
+{"type": "sprite_move", "agent_id": "agent_13", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 747.717}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "档案馆", "reason": "tool_grep_files", "replay_ts": 755.709}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 783.968}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 793.0}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 799.879}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 823.471}
+{"type": "task_complete", "agent_id": "agent_13", "success": true, "balance": 57, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "准确且完整地回答了任务要求，虽然有轻微的重复，但总体效率较高。", "skipped": false, "total_score": 27, "reward": 5}, "task": "搜索诸葛亮北伐次数并统计成败", "difficulty": "easy", "replay_ts": 825.645}
+{"type": "task_available", "task_id": "t_13", "task": "搜索三国名将寿命并计算平均年龄", "difficulty": "medium", "created_at": "1773049827.588761", "replay_ts": 828.329}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 833.445}
+{"type": "task_taken", "task_id": "t_13", "agent_id": "agent_13", "task": "搜索三国名将寿命并计算平均年龄", "replay_ts": 844.887}
+{"type": "task_dispatched", "agent_id": "agent_13", "task": "搜索三国名将寿命并计算平均年龄", "replay_ts": 844.887}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 851.568}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 860.586}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "图书馆", "reason": "tool_http_request", "replay_ts": 869.77}
+{"type": "agent_message", "from_id": "agent_13", "from_name": "诸葛孔明", "to_id": "agent_11", "to_name": "关云长", "content": "汝所言愿共扶汉室以成霸业，亮深以为然。君侯忠义冠三军，虽自谦武夫，实乃国之栋梁。运筹帷幄亮当竭智，然破敌制胜需仗君侯神威。今幸会于此，愿同心协力，共图大业。", "msg_type": "reply", "ts": "2026-03-09T09:51:20.341794+00:00", "replay_ts": 881.084}
+{"type": "task_complete", "agent_id": "agent_12", "success": true, "balance": 58, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "回答准确完整，结构清晰，但工具调用次数较多，略显冗余。", "skipped": false, "total_score": 27, "reward": 5}, "task": "查询三国鼎立时期各国面积并排序", "difficulty": "medium", "replay_ts": 896.118}
+{"type": "task_complete", "agent_id": "agent_11", "success": true, "balance": 72, "judge": {"completion": 7, "quality": 4, "efficiency": 6, "reason": "虽然最终完成了任务，但响应不够清晰，且有多次无必要的工具调用。", "skipped": false, "total_score": 17, "reward": 3}, "task": "列出当前目录所有文件并统计数量", "difficulty": "easy", "replay_ts": 901.691}
+{"type": "task_available", "task_id": "t_14", "task": "计算1英亩等于多少平方米", "difficulty": "easy", "created_at": "1773049904.1549702", "replay_ts": 904.895}
+{"type": "task_taken", "task_id": "t_14", "agent_id": "agent_12", "task": "计算1英亩等于多少平方米", "replay_ts": 918.189}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "计算1英亩等于多少平方米", "replay_ts": 918.19}
+{"type": "agent_message", "from_id": "agent_12", "from_name": "周公瑾", "to_id": "agent_10", "to_name": "司马仲达", "content": "汝所云天时未至，欲待万全之机，吾知仲达谨慎。然兵势如水，稍纵即逝，若待万全，恐粮尽士疲，反误大局。吾非躁进，乃欲乘势破敌，望君勿过于保守，错失良机。", "msg_type": "reply", "ts": "2026-03-09T09:52:26.142050+00:00", "replay_ts": 946.884}
+{"type": "task_available", "task_id": "t_15", "task": "比较曹魏/蜀汉/东吴疆域面积", "difficulty": "hard", "created_at": "1773049947.455034", "replay_ts": 948.195}
+{"type": "agent_message", "from_id": "agent_11", "from_name": "关云长", "to_id": "agent_13", "to_name": "诸葛孔明", "content": "汝言破敌需仗某神威，某深以为然。然运筹帷幄亦不可缺，某仗刀前行，亦知谋略之重。今既愿同心协力，望先生竭智勿怠，共扶汉室。", "msg_type": "reply", "ts": "2026-03-09T09:52:30.436455+00:00", "replay_ts": 951.177}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "技能工坊", "reason": "tool_calculator", "replay_ts": 980.447}
+{"type": "task_taken", "task_id": "t_15", "agent_id": "agent_11", "task": "比较曹魏/蜀汉/东吴疆域面积", "replay_ts": 987.226}
+{"type": "task_dispatched", "agent_id": "agent_11", "task": "比较曹魏/蜀汉/东吴疆域面积", "replay_ts": 987.226}
+{"type": "task_complete", "agent_id": "agent_12", "success": true, "balance": 58, "judge": {"completion": 10, "quality": 9, "efficiency": 9, "reason": "回答准确完整，过程清晰，工具使用有效。", "skipped": false, "total_score": 28, "reward": 5}, "task": "计算1英亩等于多少平方米", "difficulty": "easy", "replay_ts": 989.558}
+{"type": "task_available", "task_id": "t_16", "task": "统计'hello world'各字母出现频率", "difficulty": "easy", "created_at": "1773050016.491064", "replay_ts": 1017.231}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 56, "judge": {"completion": 10, "quality": 9, "efficiency": 9, "reason": "回答全面准确，结构清晰，合理利用表格和图表辅助说明，且未使用工具。", "skipped": false, "total_score": 28, "reward": 5}, "task": "比较俄加中三国面积并排序", "difficulty": "hard", "replay_ts": 1025.843}
+{"type": "task_taken", "task_id": "t_16", "agent_id": "agent_12", "task": "统计'hello world'各字母出现频率", "replay_ts": 1030.538}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "统计'hello world'各字母出现频率", "replay_ts": 1030.538}
+{"type": "agent_message", "from_id": "agent_12", "from_name": "周公瑾", "to_id": "agent_10", "to_name": "司马仲达", "content": "仲达足下，行军贵在神速。吾观汝军功未足，宜先积粮草，稳扎营寨。火攻虽妙，需待天时，勿轻举妄动。若能善用间谍，察敌虚实，则胜券在握。望君珍重。", "msg_type": "strategy", "ts": "2026-03-09T09:53:58.805775+00:00", "replay_ts": 1039.546}
+{"type": "evolution_event", "id": "query_historical_dates_and_calculate_intervals", "reason": "prompt evolution", "ts": "2026-03-09T09:54:02.874451+00:00", "txn_id": "evo_20260309_095308", "agent_id": "agent_12", "event_type": "example_added", "balance": 56, "evolution_reward": 3, "replay_ts": 1043.628}
+{"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "进化神殿", "reason": "auto_evolution", "replay_ts": 1043.629}
+{"type": "task_available", "task_id": "t_17", "task": "用代码模拟官渡之战双方消耗对比", "difficulty": "hard", "created_at": "1773050059.803231", "replay_ts": 1060.543}
+{"type": "task_complete", "agent_id": "agent_11", "success": true, "balance": 72, "judge": {"completion": 10, "quality": 9, "efficiency": 10, "reason": "回答详尽准确地比较了三国时期曹魏、蜀汉和东吴的疆域面积，并提供了额外的历史背景信息和可视化对比。", "skipped": false, "total_score": 29, "reward": 5}, "task": "比较曹魏/蜀汉/东吴疆域面积", "difficulty": "hard", "replay_ts": 1062.131}
+{"type": "task_taken", "task_id": "t_17", "agent_id": "agent_10", "task": "用代码模拟官渡之战双方消耗对比", "replay_ts": 1079.31}
+{"type": "task_dispatched", "agent_id": "agent_10", "task": "用代码模拟官渡之战双方消耗对比", "replay_ts": 1079.31}
+{"type": "task_complete", "agent_id": "agent_12", "success": true, "balance": 61, "judge": {"completion": 10, "quality": 9, "efficiency": 8, "reason": "回答准确完整，但可以更简洁；Python代码验证了结果，但未直接在回答中呈现。", "skipped": false, "total_score": 27, "reward": 5}, "task": "统计'hello world'各字母出现频率", "difficulty": "easy", "replay_ts": 1092.318}
+{"type": "agent_message", "from_id": "agent_11", "from_name": "关云长", "to_id": "agent_10", "to_name": "司马仲达", "content": "汝所云信义为本，某甚嘉之。然仲达素多谋略，某虽愿共成大功，亦当观汝行。青龙刀在此，若背盟约，必不轻饶。待敌露隙，吾必率先冲锋，望勿食言。", "msg_type": "reply", "ts": "2026-03-09T09:55:07.971536+00:00", "replay_ts": 1108.714}
+{"type": "task_available", "task_id": "t_18", "task": "用代码实现冒泡排序并测试", "difficulty": "hard", "created_at": "1773050108.575425", "replay_ts": 1109.315}
+{"type": "agent_message", "from_id": "agent_10", "from_name": "司马仲达", "to_id": "agent_12", "to_name": "周公瑾", "content": "汝所云兵势如水稍纵即逝，诚为确论。然吾谨慎非欲错失良机，乃虑敌多诈。粮尽士疲固可忧，然轻进陷伏更危。愿与君协谋，乘势而不躁，求必胜而后动，望君察之。", "msg_type": "reply", "ts": "2026-03-09T09:55:16.435031+00:00", "replay_ts": 1117.179}
+{"type": "task_taken", "task_id": "t_18", "agent_id": "agent_12", "task": "用代码实现冒泡排序并测试", "replay_ts": 1126.147}
+{"type": "task_dispatched", "agent_id": "agent_12", "task": "用代码实现冒泡排序并测试", "replay_ts": 1126.148}

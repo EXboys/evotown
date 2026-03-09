@@ -115,3 +115,19 @@ async def update_agent_soul(agent_id: str, body: dict):
     if not ok:
         return {"ok": False, "error": "agent not found"}
     return {"ok": True}
+
+
+@router.put("/{agent_id}/balance", dependencies=[Depends(require_admin)])
+async def set_agent_balance(agent_id: str, body: dict):
+    """直接设置 agent 余额"""
+    balance = body.get("balance")
+    if balance is None:
+        return {"ok": False, "error": "balance is required"}
+    try:
+        balance = int(balance)
+    except (ValueError, TypeError):
+        return {"ok": False, "error": "balance must be an integer"}
+    ok = await agent_service.set_agent_balance(agent_id, balance)
+    if not ok:
+        return {"ok": False, "error": "agent not found"}
+    return {"ok": True, "balance": balance}

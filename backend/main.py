@@ -9,7 +9,7 @@ from pathlib import Path
 try:
     from dotenv import load_dotenv
     _env_path = Path(__file__).resolve().parent.parent / ".env"
-    load_dotenv(dotenv_path=_env_path, override=False)  # override=False: 系统环境变量优先
+    load_dotenv(dotenv_path=_env_path, override=True)  # override=True: evotown/.env 优先，避免 shell 旧 API_KEY 覆盖
 except ImportError:
     pass
 

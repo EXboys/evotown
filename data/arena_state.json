@@ -1,129 +1,130 @@
 {
   "agent_counter": 13,
   "task_counter": 163,
-  "global_task_counter": 73,
+  "global_task_counter": 133,
   "agents": [
     {
       "id": "agent_10",
       "display_name": "司马仲达",
-      "balance": 3,
+      "balance": 51,
       "status": "active",
       "soul_type": "balanced",
-      "team_id": "c281bd05",
+      "team_id": "81152c50",
       "rescue_given": 0,
       "rescue_received": 0,
       "solo_preference": false,
-      "evolution_focus": "",
+      "evolution_focus": "scholar",
       "loyalty": 100
     },
     {
       "id": "agent_11",
       "display_name": "关云长",
-      "balance": 2,
+      "balance": 72,
       "status": "active",
       "soul_type": "balanced",
-      "team_id": "c281bd05",
-      "rescue_given": 0,
-      "rescue_received": 0,
-      "solo_preference": false,
-      "evolution_focus": "",
-      "loyalty": 46
-    },
-    {
-      "id": "agent_12",
-      "display_name": "周公瑾",
-      "balance": 6,
-      "status": "active",
-      "soul_type": "balanced",
-      "team_id": "c4d083a7",
-      "rescue_given": 0,
-      "rescue_received": 0,
-      "solo_preference": false,
-      "evolution_focus": "",
-      "loyalty": 81
-    },
-    {
-      "id": "agent_13",
-      "display_name": "诸葛孔明",
-      "balance": 8,
-      "status": "active",
-      "soul_type": "balanced",
-      "team_id": "17b9663b",
+      "team_id": "75010f0c",
       "rescue_given": 0,
       "rescue_received": 0,
       "solo_preference": false,
       "evolution_focus": "",
       "loyalty": 100
+    },
+    {
+      "id": "agent_12",
+      "display_name": "周公瑾",
+      "balance": 61,
+      "status": "active",
+      "soul_type": "balanced",
+      "team_id": "46da353d",
+      "rescue_given": 0,
+      "rescue_received": 0,
+      "solo_preference": false,
+      "evolution_focus": "",
+      "loyalty": 79
+    },
+    {
+      "id": "agent_13",
+      "display_name": "诸葛孔明",
+      "balance": 52,
+      "status": "active",
+      "soul_type": "balanced",
+      "team_id": "75010f0c",
+      "rescue_given": 0,
+      "rescue_received": 0,
+      "solo_preference": false,
+      "evolution_focus": "",
+      "loyalty": 84
     }
   ],
   "teams": [
     {
-      "team_id": "c281bd05",
-      "name": "汉室遗风",
+      "team_id": "75010f0c",
+      "name": "蜀汉联盟",
       "members": [
         "agent_11",
+        "agent_13"
+      ],
+      "shared_skills": [
+        "write_file",
+        "run_command",
+        "search_replace",
+        "read_file",
+        "list_directory",
+        "grep_files",
+        "http_request"
+      ],
+      "shared_wisdom": [
+        "夫战者必先察虚实。目录如营盘，文件皆兵卒，清点确切，而后运筹帷幄，方能无往不利。",
+        "辨器须溯源，布阵贵清晰。然兵贵神速，效率稍逊失先机。当磨砺锋刃，求快求精，方可纵横无敌。",
+        "察敌如测月，虚实须分明。行军忌冗余，直捣要害处。谋定方能胜，妄动必遭擒。吾当效此法，百战不殆。",
+        "临阵决机，贵在执行。思虑纷繁，反误战机。当如青龙偃月，一刀断敌，莫作无谓沉吟，直取要害。",
+        "侦敌务求确凿，算路切勿冗杂。去繁就简，直击要害，方显运筹帷幄之功。",
+        "知器之源犹知敌本，察源流如观天时。去冗存真，一击必中，勿耗余力，此乃大将之道。",
+        "战阵贵精，兵贵神速。数列如阵，勿需冗言。吾辈当效刀锋，直取要害，切忌拖泥带水，反误战机。",
+        "诸君谨记，精算为本。犹测月之径表，毫厘不可差。知敌我方圆，明地形虚实，算无遗策，刀下绝无虚发。",
+        "军情贵在确，详查往昔成败以为镜鉴。探察勿冗，谋定而后动，方能运筹帷幄，决胜千里。",
+        "行军最忌拖沓，号令务必清明。勿作无用之功，切忌反复试探。刀锋所指，一击必中，方显吾青龙之威。"
+      ],
+      "creed": "",
+      "created_at": "2026-03-09T07:36:11.542806+00:00"
+    },
+    {
+      "team_id": "81152c50",
+      "name": "西凉铁骑",
+      "members": [
         "agent_10"
       ],
       "shared_skills": [
-        "run_command",
-        "memory_search",
-        "http_request",
-        "calculator",
-        "write_file",
-        "agent_browser",
+        "list_directory",
         "read_file",
-        "list_directory"
+        "http_request"
       ],
       "shared_wisdom": [
-        "用兵忌频倚外物，验证须详陈其理。例证虽确，过程不明难服众。当求简效，直击要害，勿使繁冗耗力。",
-        "兵势如算，贵在精确。去芜存菁，直击要害。勿生枝节，简以致胜。寻根本，一刀破敌，方显忠义本真，谨记。",
-        "治军贵在循序，相邻相较，错位则换。层层推进，乱中取序。稳扎稳打，勿求速成，反复锤炼，终致大胜。",
-        "军情贵在确凿，犹探敌不可误。善用利器精算，毫厘差则胜负分。吾辈当详核慎断，运筹帷幄，以固胜基。",
-        "行军贵在知势，查天下大邑之数，算均数以明虚实。善用利器，精准无误，方能运筹帷幄决胜千里。诸君勉之",
-        "寻踪存牍，务求明晰无误。复盘查阅，切忌繁文缛节。军情瞬息，言简意赅，方制胜机。",
-        "策算贵精，言辞忌冗。兵机瞬息，繁则失势。丈量虽准，奏报须简。去芜存菁，直击要害，勿以辞费误战机。",
-        "兵道贵在实证，勿信虚言。察敌如验数，必究其理。三察虚实，待隙而发，隐忍蓄势，雷霆一击，方可全胜。",
-        "算略虽成，无果何益？官渡决胜，重在粮耗明示。演算必显其果，虚实皆需有据，勿使妙计成空，方可制胜。",
-        "行军贵在明察，列物如布阵。数目分明则粮草可计，用兵无冗犹兵不血刃。去繁就简，方为制胜之机。"
+        "推演纵精，未可轻信。必借器验算，方知虚实。兵无常势，数无常理，实测为要，勿蹈空谈，方保万全。",
+        "行军侦敌忌反复，徒耗军机。战果须直陈其数，勿隐实情。谋定后动，一击必中，方为上策。",
+        "运筹帷幄，度量须精。兵贵神速，冗步当除。去繁就简，直取要害，决胜千里，不失毫厘。"
       ],
       "creed": "",
-      "created_at": "2026-03-08T11:59:06.563530+00:00"
+      "created_at": "2026-03-09T09:40:44.686828+00:00"
     },
     {
-      "team_id": "c4d083a7",
-      "name": "西凉铁骑",
+      "team_id": "46da353d",
+      "name": "江东虎卫",
       "members": [
         "agent_12"
       ],
       "shared_skills": [
-        "agent_browser",
-        "calculator",
+        "grep_files",
         "http_request",
-        "run_command"
+        "calculator"
       ],
       "shared_wisdom": [
-        "兵贵神速，亦贵精算。光行一岁尚可量，敌阵千里岂难知？明远近，察迟速，运筹帷幄，决胜无疑。",
-        "察敌如观月，测算贵精微。工具迭用勿冗，犹调兵遣将。毫厘不差方制胜，谋定后动，乃全胜之道。",
-        "兵贵神速，器用宜简。已知之事勿屡探，徒耗心力。临阵当机立断，去繁就简，方得制胜之机。"
+        "用兵如证数，贵在严谨。军情必三验而后信，孤证不可凭。多方推演识破虚妄，谋定后动，方可制胜。",
+        "察地势贵在精准，勿屡试而耗神。谋定后动，当去冗存精，一击即中，勿以繁复之举误战机。",
+        "行军度地，贵在精确。毫厘之差，胜败攸关。善用器械以明算，详察换算而知疆。数准则谋成，地明则兵胜。"
       ],
       "creed": "",
-      "created_at": "2026-03-08T15:49:33.199546+00:00"
-    },
-    {
-      "team_id": "17b9663b",
-      "name": "江东虎卫",
-      "members": [
-        "agent_13"
-      ],
-      "shared_skills": [],
-      "shared_wisdom": [
-        "运筹度量须精，验证勿疏。然军务务实，无关之进勿陈，免扰军机，失其要害。",
-        "器有先后，术分新旧。察其源流，知彼时序，因势择器，方能运筹帷幄，决胜千里。",
-        "道本至简，何须冗器。去伪存真，算无遗策。万象归一，精准方可制胜。",
-        "夫战者必察秋毫，字母频数犹敌兵分布。不恃利器，唯凭心智明辨疏密。知彼虚实，谋定后动，方能百战不殆。"
-      ],
-      "creed": "",
-      "created_at": "2026-03-08T15:49:33.199559+00:00"
+      "created_at": "2026-03-09T09:40:44.686838+00:00"
     }
   ],
   "experiment_id": "exp_692eae4c3c61"

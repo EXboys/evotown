@@ -370,6 +370,16 @@ async def update_soul(agent_id: str, content: str) -> bool:
     return True
 
 
+async def set_agent_balance(agent_id: str, balance: int) -> bool:
+    """直接设置 agent 余额"""
+    a = arena.get_agent(agent_id)
+    if not a:
+        return False
+    arena.set_balance(agent_id, balance)
+    arena.persist()
+    return True
+
+
 def _archived_chat_root(agent_id: str) -> Path:
     """已淘汰 agent 的 chat 目录（磁盘上可能仍存在）"""
     return Path.home() / ".skilllite" / "arena" / agent_id / "chat"

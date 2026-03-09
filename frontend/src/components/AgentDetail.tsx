@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { evotownEvents } from "../phaser/events";
 import { useEvotownStore } from "../store/evotownStore";
+import { adminFetch } from "../hooks/useAdminToken";
 import { ShareCard } from "./ShareCard";
 import { AgentHeader, TabBar } from "./agent/AgentHeader";
 import { ExecutionTab } from "./agent/ExecutionTab";
@@ -188,6 +189,24 @@ export function AgentDetail({
     }
   };
 
+  const handleUpdateBalance = async (newBalance: number) => {
+    try {
+      const res = await adminFetch(`/agents/${agentId}/balance`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ balance: newBalance }),
+      });
+      // adminFetch 内部已处理 403 错误并弹窗，此处不再重复提示
+      if (res.ok) {
+        setAgent((prev) => prev ? { ...prev, balance: newBalance } : prev);
+        evotownEvents.emit("request_sync", {});
+      }
+    } catch (err) {
+      console.error("更新军功失败:", err);
+      alert("修改军功失败");
+    }
+  };
+
   const renderTabContent = () => {
     if (loading) {
       return <p className="text-sm text-slate-500">加载中...</p>;
@@ -226,6 +245,8 @@ export function AgentDetail({
         onDelete={handleDelete}
         deleting={deleting}
         onShowShare={() => setShowShare(true)}
+        onUpdateBalance={handleUpdateBalance}
+        onClose={onClose}
       />
       <TabBar currentTab={tab} onTabChange={setTab} />
       <div className="flex-1 overflow-y-auto p-3">

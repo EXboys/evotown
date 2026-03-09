@@ -17,9 +17,22 @@ interface AgentHeaderProps {
   onDelete: () => void;
   deleting: boolean;
   onShowShare: () => void;
+  onUpdateBalance: (newBalance: number) => void;
+  onClose: () => void;
 }
 
-export function AgentHeader({ agentId, agent, onDelete, deleting, onShowShare }: AgentHeaderProps) {
+export function AgentHeader({ agentId, agent, onDelete, deleting, onShowShare, onUpdateBalance, onClose }: AgentHeaderProps) {
+  const [showBalanceInput, setShowBalanceInput] = useState(false);
+  const [balanceInput, setBalanceInput] = useState(agent?.balance?.toString() ?? "");
+
+  const handleBalanceSubmit = () => {
+    const newBalance = parseInt(balanceInput, 10);
+    if (!isNaN(newBalance) && newBalance >= 0) {
+      onUpdateBalance(newBalance);
+      setShowBalanceInput(false);
+    }
+  };
+
   return (
     <div className="border-b border-slate-600/50 bg-gradient-to-b from-slate-900 to-slate-950 p-3">
       <div className="flex items-center justify-between gap-2">
@@ -30,7 +43,29 @@ export function AgentHeader({ agentId, agent, onDelete, deleting, onShowShare }:
           {agent && (
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
               <span className="text-[10px] text-slate-400">
-                ⚔️ <span className="text-amber-400 font-medium">{agent.balance} 军功</span>
+                ⚔️{" "}
+                {showBalanceInput ? (
+                  <input
+                    type="number"
+                    value={balanceInput}
+                    onChange={(e) => setBalanceInput(e.target.value)}
+                    onBlur={handleBalanceSubmit}
+                    onKeyDown={(e) => e.key === "Enter" && handleBalanceSubmit()}
+                    autoFocus
+                    className="w-14 px-1 py-0.5 text-[10px] bg-slate-800 border border-amber-500/50 rounded text-amber-400 font-medium"
+                  />
+                ) : (
+                  <span
+                    className="text-amber-400 font-medium cursor-pointer hover:underline"
+                    onClick={() => {
+                      setBalanceInput(agent.balance?.toString() ?? "");
+                      setShowBalanceInput(true);
+                    }}
+                    title="点击修改军功"
+                  >
+                    {agent.balance} 军功
+                  </span>
+                )}
               </span>
               <span className="text-[10px] text-slate-500">
                 📋 {agent.success_count ?? 0}/{agent.task_count ?? 0}
@@ -42,6 +77,13 @@ export function AgentHeader({ agentId, agent, onDelete, deleting, onShowShare }:
           )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={onClose}
+            className="px-2 py-1 text-[10px] font-medium rounded bg-slate-700/60 text-slate-400 border border-slate-600/50 hover:bg-slate-600/60"
+            title="返回"
+          >
+            ←
+          </button>
           <button
             onClick={onShowShare}
             className="px-2 py-1 text-[10px] font-medium rounded bg-violet-600/20 text-violet-400 border border-violet-600/30 hover:bg-violet-600/40"

@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -13,8 +14,17 @@ from typing import Awaitable, Callable, Optional
 
 logger = logging.getLogger("evotown.process")
 
-# 预览请求超时（秒）
-PREVIEW_TIMEOUT_SEC = 60
+
+def _strip_think_blocks(text: str) -> str:
+    """剥离 <think>…</think> 推理块，只保留最终输出文本。
+
+    MiniMax / DeepSeek / Qwen3 等推理模型会在 content 中返回 <think> 块，
+    其中的分析文本可能包含 "拒绝"/"REFUSE" 等词，导致 ACCEPT/REFUSE 检测误判。
+    """
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+# 预览请求超时（秒）—— 预览只需单轮 LLM 调用（无规划、单迭代），通常 <30s
+PREVIEW_TIMEOUT_SEC = 90
 
 # 单进程完成多少个任务后触发受控软重启（清空 LLM 消息历史）
 _TASKS_PER_SOFT_RESTART = 20
@@ -262,19 +272,34 @@ class ProcessManager:
         chat_root = self._ensure_agent_structure(agent_home, soul_type)
 
         # 启动 skilllite agent-rpc 子进程（仅设 SKILLLITE_WORKSPACE，不覆盖 HOME）
+        # ★ 显式加载 evotown/.env，确保 API_KEY/BASE_URL/MODEL 传入子进程（避免 shell 旧值覆盖）
+        _evotown_env = Path(__file__).resolve().parent.parent / ".env"
+        if _evotown_env.exists():
+            try:
+                from dotenv import dotenv_values
+                _env_vars = dotenv_values(dotenv_path=_evotown_env)
+                for k, v in _env_vars.items():
+                    if v is not None and k in ("API_KEY", "BASE_URL", "MODEL", "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL"):
+                        os.environ[k] = v
+            except Exception:
+                pass
         agent_env = {**os.environ}
         # ★ 禁用 agent-rpc 内置的周期/决策计数进化触发器 —— 进化统一由 Python 后端 trigger_evolve 管理，
         #   避免两个进程（agent-rpc 内 + trigger_evolve 外）同时写同一 agent 的 .skills/_evolved/
         agent_env["SKILLLITE_EVOLUTION"] = "0"
         # ★ 竞技场无人值守：stdin 为 pipe 非 TTY，沙箱会阻塞确认。设置 AUTO_APPROVE 避免 "Execution cancelled by user"
         agent_env["SKILLLITE_AUTO_APPROVE"] = "1"
-        # 归一化 API 密钥：支持 API_KEY/BASE_URL/MODEL（本地 .env 惯例）和 OPENAI_* 两种命名
-        if not agent_env.get("OPENAI_API_KEY") and agent_env.get("API_KEY"):
+        # 归一化 API 密钥：API_KEY/BASE_URL/MODEL 强制同步到 OPENAI_* 和 SKILLLITE_*
+        # 确保 evotown/.env 的值优先于 shell 环境中的旧值
+        if agent_env.get("API_KEY"):
             agent_env["OPENAI_API_KEY"] = agent_env["API_KEY"]
-        if not agent_env.get("OPENAI_BASE_URL") and agent_env.get("BASE_URL"):
+            agent_env["SKILLLITE_API_KEY"] = agent_env["API_KEY"]
+        if agent_env.get("BASE_URL"):
             agent_env["OPENAI_BASE_URL"] = agent_env["BASE_URL"]
-        if not agent_env.get("OPENAI_MODEL") and agent_env.get("MODEL"):
+            agent_env["SKILLLITE_API_BASE"] = agent_env["BASE_URL"]
+        if agent_env.get("MODEL"):
             agent_env["OPENAI_MODEL"] = agent_env["MODEL"]
+            agent_env["SKILLLITE_MODEL"] = agent_env["MODEL"]
         agent_env["SKILLLITE_WORKSPACE"] = str(agent_home)
         proc = await asyncio.create_subprocess_exec(
             "skilllite",
@@ -608,21 +633,41 @@ class ProcessManager:
         if proc.returncode is not None or proc.stdin is None:
             return False, ""
 
-        preview_msg = f"【任务预览】{task.strip()}\n\n请回复 ACCEPT 或 REFUSE，并简要说明理由。不要调用任何工具。"
+        preview_msg = f"""【任务预览】{task.strip()}
+
+## 当前阶段：决策阶段
+你只需要判断是否接受此任务，**不要执行任务**，**不要给出答案**。
+
+## 输出格式
+请严格按以下格式输出：
+```
+ACCEPT
+理由：<简要说明为什么接受/拒绝，1-2句话>
+```
+或
+```
+REFUSE
+理由：<简要说明为什么拒绝>
+```
+不要输出其他内容，不要调用任何工具。"""
         fut: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         self._pending_preview[agent_id] = fut
 
         agent_home = self._agent_homes.get(agent_id)
         skill_dirs = [str(Path(agent_home) / ".skills")] if agent_home else []
         soul_path_str = str(Path(agent_home) / "SOUL.md") if agent_home else None
+        import time
+        preview_session = f"{agent_id}_preview_{int(time.time())}"
         params: dict = {
             "message": preview_msg,
-            "session_key": agent_id,
+            "session_key": preview_session,
             "skill_dirs": skill_dirs,
             "config": {
                 "workspace": agent_home,
                 "soul_path": soul_path_str,
                 "skip_history_for_planning": True,
+                "enable_task_planning": False,
+                "max_iterations": 50,
             },
         }
         if context and context.get("append"):
@@ -647,11 +692,13 @@ class ProcessManager:
             raise
 
         # 解析：REFUSE/拒绝 -> 拒绝；否则视为接受
-        resp_upper = (response or "").upper()
-        if "REFUSE" in resp_upper or "拒绝" in response:
-            logger.info("[%s] preview REFUSED: %s", agent_id, (response or "")[:80])
+        # ★ 先剥离 <think>…</think> 推理块，避免推理文本中的"拒绝"/"REFUSE"触发误判
+        clean = _strip_think_blocks(response or "")
+        clean_upper = clean.upper()
+        if "REFUSE" in clean_upper or "拒绝" in clean:
+            logger.info("[%s] preview REFUSED: %s", agent_id, clean[:120])
             return False, response
-        logger.info("[%s] preview ACCEPTED: %s", agent_id, (response or "")[:80])
+        logger.info("[%s] preview ACCEPTED: %s", agent_id, clean[:120])
         return True, response
 
     async def _send_confirm(self, agent_id: str, approved: bool) -> None:
@@ -702,7 +749,7 @@ class ProcessManager:
         try:
             soul_path_str = str(Path(agent_home) / "SOUL.md") if agent_home else None
             params: dict = {
-                "message": task.strip(),
+                "message": f"【执行任务】{task.strip()}\n\n请执行此任务，完成后输出结果。",
                 "session_key": agent_id,
                 "skill_dirs": skill_dirs,
                 "config": {
@@ -786,12 +833,15 @@ class ProcessManager:
             agent_id, agent_home, Path(agent_home) / ".skills",
         )
         evolve_env = {**os.environ}
-        if not evolve_env.get("OPENAI_API_KEY") and evolve_env.get("API_KEY"):
+        if evolve_env.get("API_KEY"):
             evolve_env["OPENAI_API_KEY"] = evolve_env["API_KEY"]
-        if not evolve_env.get("OPENAI_BASE_URL") and evolve_env.get("BASE_URL"):
+            evolve_env["SKILLLITE_API_KEY"] = evolve_env["API_KEY"]
+        if evolve_env.get("BASE_URL"):
             evolve_env["OPENAI_BASE_URL"] = evolve_env["BASE_URL"]
-        if not evolve_env.get("OPENAI_MODEL") and evolve_env.get("MODEL"):
+            evolve_env["SKILLLITE_API_BASE"] = evolve_env["BASE_URL"]
+        if evolve_env.get("MODEL"):
             evolve_env["OPENAI_MODEL"] = evolve_env["MODEL"]
+            evolve_env["SKILLLITE_MODEL"] = evolve_env["MODEL"]
         evolve_env["SKILLLITE_WORKSPACE"] = agent_home
         proc = await asyncio.create_subprocess_exec(
             "skilllite",

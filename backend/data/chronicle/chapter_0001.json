@@ -1,0 +1,14 @@
+{
+  "chapter": 1,
+  "chapter_label": "第一回",
+  "virtual_date": "建安元年正月",
+  "generated_at": "2026-03-09T13:57:27.029947+08:00",
+  "title": "",
+  "text": "（第一回战报生成失败：Error code: 401 - {'type': 'error', 'error': {'type': 'authorized_error', 'message': 'invalid api key (2049)', 'http_code': '401'}, 'request_id': '05fd949a2fa3b18316daa34192310869'}）",
+  "summary": {
+    "total_tasks": 0,
+    "total_completed": 0,
+    "total_failed": 0
+  },
+  "agent_stats": []
+}

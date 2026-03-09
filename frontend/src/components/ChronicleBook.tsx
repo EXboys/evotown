@@ -64,6 +64,7 @@ export function ChronicleBook() {
   const [detail, setDetail] = useState<ChronicleDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [genMsg, setGenMsg] = useState("");
 
   const handleSelectChapter = useCallback((chapter: number) => {
@@ -100,6 +101,31 @@ export function ChronicleBook() {
       .catch(() => setDetail(null))
       .finally(() => setLoadingDetail(false));
   }, [selectedChapter]);
+
+  const handleRegenerate = async (chapter: number) => {
+    setRegenerating(true);
+    setGenMsg("");
+    try {
+      const r = await adminFetch(`/api/chronicle/${chapter}/regenerate`, { method: "POST" });
+      if (!r.ok) {
+        const errText = await r.text().catch(() => r.statusText);
+        setGenMsg(`❌ 重新生成失败 (${r.status})：${errText.slice(0, 120)}`);
+        return;
+      }
+      const data = await r.json();
+      setGenMsg(`✅ 已重新生成 ${data.chapter_label || `第${data.chapter}回`} 战报`);
+      loadList();
+      setDetail(null);
+      setLoadingDetail(true);
+      const res = await fetch(`/api/chronicle/${chapter}`);
+      const updated = await res.json();
+      setDetail(updated);
+    } catch (e) {
+      setGenMsg(`❌ 网络错误：${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setRegenerating(false);
+    }
+  };
 
   const handleGenerate = async () => {
     setGenerating(true);
@@ -207,10 +233,12 @@ export function ChronicleBook() {
           {loadingDetail && (
             <div className="text-center mt-32 text-amber-700 text-sm animate-pulse tracking-widest">载入战报中…</div>
           )}
-          {detail && !loadingDetail && (
+          {detail && !loadingDetail && selectedChapter != null && (
             <ChapterContent
               detail={detail}
               chapterNum={detail.chapter ?? list.length - list.findIndex((i) => i.chapter === selectedChapter)}
+              onRegenerate={() => handleRegenerate(selectedChapter)}
+              regenerating={regenerating}
             />
           )}
         </main>
@@ -219,7 +247,17 @@ export function ChronicleBook() {
   );
 }
 
-function ChapterContent({ detail, chapterNum }: { detail: ChronicleDetail; chapterNum: number }) {
+function ChapterContent({
+  detail,
+  chapterNum,
+  onRegenerate,
+  regenerating,
+}: {
+  detail: ChronicleDetail;
+  chapterNum: number;
+  onRegenerate: () => void;
+  regenerating: boolean;
+}) {
   const chNums = ["零","一","二","三","四","五","六","七","八","九","十","十一","十二","十三","十四","十五","十六","十七","十八","十九","二十"];
   const genTime = detail.generated_at ? new Date(detail.generated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "";
   const fallbackTitle = detail.virtual_date ? `${detail.virtual_date} · 战场实录` : "战场实录";
@@ -239,7 +277,16 @@ function ChapterContent({ detail, chapterNum }: { detail: ChronicleDetail; chapt
           /* 旧战报无标题时兜底 */
           <div className="text-xl font-bold text-amber-300 tracking-[0.2em] mb-1">{fallbackTitle}</div>
         )}
-        <div className="text-xs text-amber-800 mt-2">{genTime && `说书人注：录于 ${genTime}`}</div>
+        <div className="flex items-center justify-center gap-4 mt-2">
+          <span className="text-xs text-amber-800">{genTime && `说书人注：录于 ${genTime}`}</span>
+          <button
+            onClick={onRegenerate}
+            disabled={regenerating}
+            className="text-xs px-2.5 py-1 rounded border border-amber-800/60 text-amber-600 hover:border-amber-500 hover:text-amber-400 transition-colors disabled:opacity-40"
+          >
+            {regenerating ? "重新生成中…" : "重新生成"}
+          </button>
+        </div>
         <div className="mt-4 border-t border-amber-900/40" />
       </div>
 

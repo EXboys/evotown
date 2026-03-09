@@ -10,6 +10,7 @@
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -30,10 +31,16 @@ def _strip_think_blocks(text: str) -> str:
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
 
+# 数据目录：与 task_history / execution_log 一致，使用 evotown/data（或 EVOTOWN_DATA_DIR）
+# 否则 chronicle 会读到空的 backend/task_history.jsonl，导致「0 军令」等
+_backend_dir = Path(__file__).resolve().parent.parent
+_evotown_data = _backend_dir.parent / "data"
+_DATA_DIR = Path(os.environ.get("EVOTOWN_DATA_DIR", _evotown_data if _evotown_data.is_dir() else _backend_dir / "data"))
+
 _CHRONICLE_DIR = Path(__file__).parent.parent / "data" / "chronicle"
 _CHAPTER_META_PATH = Path(__file__).parent.parent / "data" / "chronicle_chapter.json"
-_TASK_HISTORY_PATH = Path(__file__).parent.parent / "task_history.jsonl"
-_EXEC_LOG_PATH = Path(__file__).parent.parent / "execution_log.jsonl"
+_TASK_HISTORY_PATH = _DATA_DIR / "task_history.jsonl"
+_EXEC_LOG_PATH = _DATA_DIR / "execution_log.jsonl"
 _CST = timezone(timedelta(hours=8))
 
 # ── 章回计数器 ─────────────────────────────────────────────────────────────────
@@ -487,6 +494,107 @@ async def generate_chronicle(
         json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     logger.info("chronicle: saved %s → chapter_%04d.json (%d chars)", chapter_label, chapter_n, len(text))
+
+    if broadcast_fn is not None:
+        try:
+            await broadcast_fn({
+                "type": "chronicle_published",
+                "chapter": chapter_n,
+                "chapter_label": chapter_label,
+                "virtual_date": virtual_date,
+                "title": chapter_title,
+                "preview": text[:200],
+            })
+        except Exception as e:
+            logger.warning("chronicle: broadcast failed: %s", e)
+
+    return record
+
+
+async def regenerate_chronicle(
+    chapter_n: int,
+    *,
+    period_hours: float = 24.0,
+    agent_name_map: dict[str, str] | None = None,
+    broadcast_fn=None,
+) -> dict[str, Any] | None:
+    """重新生成指定章回的战报正文与回目标题，从 task_history 实时拉取数据。
+
+    与 generate_chronicle 一致，从最近 period_hours 小时的 task_history 采集数据，
+    确保战报内容与 evotown 实际日志一致。章回号、虚拟纪年保持不变。
+    """
+    from llm_client import chronicle_completion
+
+    data = load_chronicle(chapter_n)
+    if data is None:
+        return None
+
+    chapter_label = data.get("chapter_label") or _chapter_num_chinese(chapter_n)
+    virtual_date = data.get("virtual_date") or _virtual_sanguo_date(chapter_n)
+
+    # 从 task_history 实时拉取数据，而非使用已保存的 summary
+    start_ts, end_ts = _period_bounds(int(period_hours))
+    summary = _build_chapter_summary(chapter_n, start_ts, end_ts, agent_name_map)
+
+    logger.info(
+        "chronicle: regenerate %s (%s) tasks=%d window=%.1fh",
+        chapter_label, virtual_date, summary["total_tasks"], period_hours,
+    )
+
+    messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": _build_chapter_prompt(chapter_n, virtual_date, summary)},
+    ]
+    try:
+        result = await chronicle_completion(
+            messages, temperature=0.85, max_tokens=16000
+        )
+        raw = result.get("raw", "")
+        text = _strip_think_blocks(raw)
+        logger.info("chronicle: regenerate %s text len=%d", chapter_label, len(text))
+    except Exception as e:
+        logger.error("chronicle: regenerate LLM failed: %s", e)
+        text = f"（{chapter_label}战报重新生成失败：{e}）"
+
+    chapter_title = ""
+    if text and not text.startswith("（"):
+        try:
+            title_messages = [
+                {"role": "system", "content": (
+                    "你是《三国演义》的章回体编者。根据用户提供的战报正文，"
+                    "仿照《三国演义》回目格式，生成一行标题：上句与下句各七个汉字，中间用一个空格分隔。"
+                    "只输出这一行标题，不要任何其他文字、标点或解释。"
+                    "示例：骁将奋勇三军克敌 败将折戟军功大损"
+                )},
+                {"role": "user", "content": f"战报正文：\n{text[:400]}"},
+            ]
+            title_result = await chronicle_completion(
+                title_messages, temperature=0.7, max_tokens=4096
+            )
+            raw_title = _strip_think_blocks(title_result.get("raw", ""))
+            title_lines = raw_title.splitlines()
+            chapter_title = title_lines[0].strip() if title_lines else ""
+        except Exception as e:
+            logger.warning("chronicle: regenerate title failed: %s", e)
+
+    record = {
+        **data,
+        "generated_at": datetime.now(_CST).isoformat(),
+        "title": chapter_title,
+        "text": text,
+        "summary": {
+            "total_tasks": summary["total_tasks"],
+            "total_completed": summary["total_completed"],
+            "total_failed": summary["total_failed"],
+        },
+        "agent_stats": summary["agent_stats"],
+    }
+
+    _CHRONICLE_DIR.mkdir(parents=True, exist_ok=True)
+    chronicle_path(chapter_n).write_text(
+        json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    logger.info("chronicle: regenerated %s tasks=%d", chapter_label, summary["total_tasks"])
 
     if broadcast_fn is not None:
         try:

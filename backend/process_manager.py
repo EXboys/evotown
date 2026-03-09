@@ -146,7 +146,13 @@ class ProcessManager:
     def __init__(self) -> None:
         self._processes: dict[str, asyncio.subprocess.Process] = {}
         self._agent_homes: dict[str, str] = {}  # agent_id -> agent_home
-        self._arena_root = Path.home() / ".skilllite" / "arena"
+        # 支持 EVOTOWN_ARENA_ROOT 配置 arena 根目录（Docker 可挂载 volume 持久化）
+        # 默认 ~/.skilllite/arena；可设为 evotown/data/arena 或 /data/arena
+        _arena_env = os.environ.get("EVOTOWN_ARENA_ROOT")
+        if _arena_env:
+            self._arena_root = Path(_arena_env).resolve()
+        else:
+            self._arena_root = Path.home() / ".skilllite" / "arena"
         self._on_task_done: Optional[Callable[[str, bool, dict], Awaitable[None]]] = None
         self._on_event: Optional[Callable[[str, str, dict], None]] = None
         self._on_process_exit: Optional[Callable[[str], None]] = None
@@ -301,6 +307,9 @@ class ProcessManager:
             agent_env["OPENAI_MODEL"] = agent_env["MODEL"]
             agent_env["SKILLLITE_MODEL"] = agent_env["MODEL"]
         agent_env["SKILLLITE_WORKSPACE"] = str(agent_home)
+        # 显式设置 output 目录，确保 write_output / agent-browser 等写入 agent_home/chat/output
+        chat_root = self._chat_root(agent_home)
+        agent_env["SKILLLITE_OUTPUT_DIR"] = str(chat_root / "output")
         proc = await asyncio.create_subprocess_exec(
             "skilllite",
             "agent-rpc",

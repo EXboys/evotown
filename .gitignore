@@ -1,5 +1,7 @@
-# Evotown
+# Evotown - local test data
 backend/arena_state.json
+backend/replays/
+data/
 
 # Python
 __pycache__/

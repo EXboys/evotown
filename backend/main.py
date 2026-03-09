@@ -180,41 +180,8 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
 
-    async def _memory_watchdog() -> None:
-        """每 5 分钟检查各 agent 子进程 RSS，超过 300 MB 时触发受控软重启。
-
-        soft restart → _drain_stdout 快速路径（1 s 延迟，不计崩溃次数）→
-        新进程从零开始，消除 LLM 消息列表无限增长问题。
-        """
-        try:
-            import psutil as _psutil
-        except ImportError:
-            logger.warning("[watchdog] psutil not installed — memory watchdog disabled")
-            return
-        _MEM_THRESHOLD = int(os.environ.get("AGENT_MEM_THRESHOLD_MB", "300")) * 1024 * 1024
-        _INTERVAL = int(os.environ.get("MEM_WATCHDOG_INTERVAL_SEC", "300"))
-        logger.info("[watchdog] started (threshold=%d MB, interval=%ds)", _MEM_THRESHOLD // 1024 // 1024, _INTERVAL)
-        try:
-            while True:
-                await asyncio.sleep(_INTERVAL)
-                for aid, proc in list(process_mgr._processes.items()):
-                    pid = getattr(proc, "pid", None)
-                    if pid is None:
-                        continue
-                    try:
-                        rss = _psutil.Process(pid).memory_info().rss
-                        if rss > _MEM_THRESHOLD:
-                            logger.warning(
-                                "[watchdog] agent %s RSS=%.0f MB > %d MB — triggering soft restart",
-                                aid, rss / 1024 / 1024, _MEM_THRESHOLD // 1024 // 1024,
-                            )
-                            await process_mgr._soft_restart_for_memory(aid)
-                    except (_psutil.NoSuchProcess, _psutil.AccessDenied):
-                        pass
-                    except Exception as exc:
-                        logger.error("[watchdog] error checking agent %s: %s", aid, exc)
-        except asyncio.CancelledError:
-            pass
+    # 注意：内存看门狗已移至 ProcessManager 内部，由 process_mgr.spawn() 自动启动
+    # 如需停止，调用 await process_mgr.stop_memory_watchdog()
 
     async def _chronicle_loop() -> None:
         """每 CHRONICLE_INTERVAL_HOURS 小时（默认 5h）自动生成下一回章回战报。"""
@@ -245,19 +212,20 @@ async def lifespan(app: FastAPI):
     _timeout_task = asyncio.create_task(_timeout_loop())
     _checkpoint_task = asyncio.create_task(_checkpoint_loop())
     _chronicle_task = asyncio.create_task(_chronicle_loop())
-    _watchdog_task = asyncio.create_task(_memory_watchdog())
+    # 注意：内存看门狗在 ProcessManager 内部自动启动（spawn 时调用 _start_memory_watchdog）
 
     yield
 
     _timeout_task.cancel()
     _checkpoint_task.cancel()
     _chronicle_task.cancel()
-    _watchdog_task.cancel()
-    for _t in (_timeout_task, _checkpoint_task, _chronicle_task, _watchdog_task):
+    for _t in (_timeout_task, _checkpoint_task, _chronicle_task):
         try:
             await _t
         except asyncio.CancelledError:
             pass
+    # 停止内存看门狗
+    await process_mgr.stop_memory_watchdog()
     from infra.replay import stop_session as _stop_replay
     _stop_replay()
     await task_dispatcher.stop()

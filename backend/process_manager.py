@@ -10,7 +10,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 logger = logging.getLogger("evotown.process")
 
@@ -30,10 +30,10 @@ PREVIEW_TIMEOUT_SEC = 90
 _TASKS_PER_SOFT_RESTART = 20
 
 # ── 内存看门狗配置 ─────────────────────────────────────────────────────────────
-# 检查间隔（秒）
-MEMORY_WATCHDOG_INTERVAL_SEC = 60
-# 内存阈值（MB），超过此值触发软重启
-MEMORY_WATCHDOG_THRESHOLD_MB = 200
+# 检查间隔（秒），可通过环境变量 MEM_WATCHDOG_INTERVAL_SEC 覆盖
+_MEMORY_WATCHDOG_INTERVAL_SEC = int(os.environ.get("MEM_WATCHDOG_INTERVAL_SEC", "60"))
+# 内存阈值（MB），超过此值触发软重启，可通过环境变量 AGENT_MEM_THRESHOLD_MB 覆盖
+_MEMORY_WATCHDOG_THRESHOLD_MB = int(os.environ.get("AGENT_MEM_THRESHOLD_MB", "200"))
 
 # 每个 agent 的 agent_home 下：chat/（数据）、.skills/（技能，独立进化）
 
@@ -557,13 +557,21 @@ class ProcessManager:
 
     async def _memory_watchdog_loop(self) -> None:
         """内存看门狗：定期检查子进程内存使用，超阈值触发软重启"""
+        # 优先使用 psutil（更高效），回退到 ps 命令
+        _psutil = None
+        try:
+            import psutil as _psutil
+        except ImportError:
+            logger.warning("[watchdog] psutil not installed, using ps command (less efficient)")
+            _psutil = None
+
         logger.info(
-            "memory watchdog started: interval=%ds, threshold=%dMB",
-            MEMORY_WATCHDOG_INTERVAL_SEC, MEMORY_WATCHDOG_THRESHOLD_MB
+            "memory watchdog started: interval=%ds, threshold=%dMB (psutil=%s)",
+            _MEMORY_WATCHDOG_INTERVAL_SEC, _MEMORY_WATCHDOG_THRESHOLD_MB, _psutil is not None
         )
         while True:
             try:
-                await asyncio.sleep(MEMORY_WATCHDOG_INTERVAL_SEC)
+                await asyncio.sleep(_MEMORY_WATCHDOG_INTERVAL_SEC)
             except asyncio.CancelledError:
                 break
 
@@ -577,20 +585,28 @@ class ProcessManager:
                     continue
 
                 try:
-                    memory_mb = await self._get_process_memory_mb(proc.pid)
-                    if memory_mb > MEMORY_WATCHDOG_THRESHOLD_MB:
+                    memory_mb = await self._get_process_memory_mb(proc.pid, _psutil)
+                    if memory_mb > _MEMORY_WATCHDOG_THRESHOLD_MB:
                         logger.warning(
                             "[%s] memory usage %dMB exceeds threshold %dMB — scheduling soft restart",
-                            agent_id, memory_mb, MEMORY_WATCHDOG_THRESHOLD_MB
+                            agent_id, memory_mb, _MEMORY_WATCHDOG_THRESHOLD_MB
                         )
                         await self._soft_restart_for_memory(agent_id)
                 except Exception as e:
                     logger.debug("[%s] failed to get process memory: %s", agent_id, e)
 
-    async def _get_process_memory_mb(self, pid: int) -> float:
-        """获取进程内存使用（MB）"""
+    async def _get_process_memory_mb(self, pid: int, _psutil: Any = None) -> float:
+        """获取进程内存使用（MB），优先使用 psutil"""
+        # 方式1: 使用 psutil（更高效）
+        if _psutil is not None:
+            try:
+                proc = _psutil.Process(pid)
+                return proc.memory_info().rss / (1024 * 1024)  # bytes -> MB
+            except (_psutil.NoSuchProcess, _psutil.AccessDenied):
+                return 0.0
+
+        # 方式2: 回退到 ps 命令
         try:
-            # 使用 ps 命令获取 RSS（Resident Set Size）
             result = await asyncio.create_subprocess_exec(
                 "ps", "-o", "rss=", "-p", str(pid),
                 stdout=asyncio.subprocess.PIPE,

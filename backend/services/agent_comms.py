@@ -99,7 +99,8 @@ async def generate_and_deliver_message(
     ]
 
     try:
-        result = await social_completion(messages, temperature=0.85, max_tokens=150)
+        # max_tokens=400：MiniMax 在 max_tokens 过小或缺失时易截断，Gemini/Qwen 无此问题
+        result = await social_completion(messages, temperature=0.85, max_tokens=400)
         content = (result.get("raw") or "").strip()
         if not content or len(content) > 300:
             logger.warning("[comms] LLM returned empty/too-long message, skipping")

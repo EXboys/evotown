@@ -128,6 +128,7 @@ export function useWebSocket() {
               team_name?: string;
             }[];
             // 先更新 store（setAgents 内部会将英文名转为三国中文名，并保留已有队伍信息）
+            const previousAgents = store.agents; // 保存同步前的 agent 列表
             store.setAgents(agentList.map((a) => ({
               id: a.agent_id,
               display_name: a.display_name,
@@ -138,11 +139,15 @@ export function useWebSocket() {
             })));
             const agents = useEvotownStore.getState().agents;
             agents.forEach((a) => {
-              evotownEvents.emit("agent_created", {
-                agent_id: a.id,
-                balance: a.balance,
-                display_name: a.display_name,
-              });
+              const isNew = !previousAgents.some((p) => p.id === a.id);
+              // 只在新 agent 首次创建时触发入阵事件
+              if (isNew) {
+                evotownEvents.emit("agent_created", {
+                  agent_id: a.id,
+                  balance: a.balance,
+                  display_name: a.display_name,
+                });
+              }
               evotownEvents.emit("sprite_move", {
                 agent_id: a.id,
                 from: "",
@@ -234,8 +239,8 @@ export function useWebSocket() {
             const displayName = String(msg.display_name ?? agentId);
             if (!store.agents.some((a) => a.id === agentId)) {
               store.addAgent({ id: agentId, display_name: displayName, balance });
+              evotownEvents.emit("agent_created", { agent_id: agentId, balance, display_name: displayName });
             }
-            evotownEvents.emit("agent_created", { agent_id: agentId, balance, display_name: displayName });
           } else if (type === "chronicle_published") {
             useChronicleStore.getState().setLatestPublished({
               date: String(msg.date ?? ""),
@@ -323,6 +328,18 @@ export function useWebSocket() {
               team_name: String(msg.team_name ?? ""),
               creed: String(msg.creed ?? ""),
             });
+          } else if (type === "task_log") {
+            // 任务执行日志：实时广播 tool_call 和 tool_result
+            evotownEvents.emit("task_log", {
+              agent_id: String(msg.agent_id ?? ""),
+              agent_name: String(msg.agent_name ?? msg.agent_id ?? ""),
+              event: (msg.event === "tool_call" || msg.event === "tool_result") ? msg.event : "tool_call",
+              tool_name: String(msg.tool_name ?? ""),
+              arguments: String(msg.arguments ?? ""),
+              result: String(msg.result ?? ""),
+              is_error: Boolean(msg.is_error ?? false),
+              task: String(msg.task ?? ""),
+            });
           } else if (type === "evolution_event") {
             const agentId = String(msg.agent_id ?? "");
             const balance = msg.balance as number | undefined;
@@ -335,8 +352,11 @@ export function useWebSocket() {
                 a.id === agentId ? { ...a, balance } : a
               ));
               // 从 store 取中文名一起传给 Phaser，避免 label 被重置为英文
+              // 注意：这里不触发 agent_created 事件，避免重复显示"入阵"
               const displayName = useEvotownStore.getState().agents.find((a) => a.id === agentId)?.display_name;
-              evotownEvents.emit("agent_created", { agent_id: agentId, balance, display_name: displayName });
+              if (displayName) {
+                evotownEvents.emit("sprite_move", { agent_id: agentId, from: "", to: "广场", reason: "evolution" });
+              }
             }
             store.pushEvolutionEvent({
               agent_id: agentId,

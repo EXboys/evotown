@@ -29,6 +29,7 @@ from ws_messages import (
     SubtitleBroadcastMsg,
     AgentDefectedMsg,
     TeamCreedGeneratedMsg,
+    TaskLogMsg,
 )
 
 logger = logging.getLogger("evotown.ws")
@@ -479,6 +480,46 @@ class WsDispatcher:
         creed: str,
     ) -> None:
         await self.broadcast(self.team_creed_generated(team_id, team_name, creed))
+
+    # ── 任务执行日志 ───────────────────────────────────────────────────────────
+
+    def task_log(
+        self,
+        agent_id: str,
+        agent_name: str,
+        event: str,
+        tool_name: str,
+        arguments: str,
+        result: str,
+        is_error: bool,
+        task: str,
+    ) -> TaskLogMsg:
+        return {
+            "type": "task_log",
+            "agent_id": agent_id,
+            "agent_name": agent_name,
+            "event": event,
+            "tool_name": tool_name,
+            "arguments": arguments[:200],
+            "result": result[:300],
+            "is_error": is_error,
+            "task": task[:100],
+        }
+
+    async def send_task_log(
+        self,
+        agent_id: str,
+        agent_name: str,
+        event: str,
+        tool_name: str,
+        arguments: str,
+        result: str,
+        is_error: bool,
+        task: str,
+    ) -> None:
+        await self.broadcast(
+            self.task_log(agent_id, agent_name, event, tool_name, arguments, result, is_error, task)
+        )
 
 
 # 入站消息处理器类型

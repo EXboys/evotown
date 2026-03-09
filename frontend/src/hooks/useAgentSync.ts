@@ -8,6 +8,9 @@ import { useEvotownStore, type AgentInfo } from "../store/evotownStore";
 
 const LOG = import.meta.env.DEV;
 
+// 跟踪已同步到 Phaser 的 agent，避免重复触发 agent_created 事件
+const _syncedAgents = new Set<string>();
+
 function log(msg: string, ...args: unknown[]) {
   if (LOG) console.info(`[evotown:sync] ${msg}`, ...args);
 }
@@ -38,7 +41,11 @@ async function fetchAgents(): Promise<AgentInfo[]> {
 /** 将 store 中的 agents 同步到 Phaser（emit 事件） */
 function syncStoreToPhaser(agents: AgentInfo[]) {
   agents.forEach((a) => {
-    evotownEvents.emit("agent_created", { agent_id: a.id, balance: a.balance, display_name: a.display_name });
+    // 只在新 agent 首次同步时触发"入阵"事件
+    if (!_syncedAgents.has(a.id)) {
+      _syncedAgents.add(a.id);
+      evotownEvents.emit("agent_created", { agent_id: a.id, balance: a.balance, display_name: a.display_name });
+    }
     evotownEvents.emit("sprite_move", {
       agent_id: a.id,
       from: "",
@@ -103,10 +110,14 @@ export function useAgentSync() {
     doFullSync(setAgents);
   }, [setAgents]);
 
-  // 2. phaser_ready：从 store 同步到 Phaser（Phaser 可能晚于 fetch 就绪）
+  // 2. phaser_ready：清空已同步集合后重新同步到 Phaser
+  //    修复竞态：初始 fetch 可能在 TownScene 注册 listener 之前完成，
+  //    导致 agent_created 事件丢失；phaser_ready 时重置确保重新发出
   useEffect(() => {
-    const handler = () =>
+    const handler = () => {
+      _syncedAgents.clear();
       syncFromStoreToPhaser(() => useEvotownStore.getState().agents);
+    };
     evotownEvents.on("phaser_ready", handler);
     return () => evotownEvents.off("phaser_ready", handler);
   }, []);

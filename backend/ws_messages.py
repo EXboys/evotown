@@ -206,6 +206,19 @@ class AgentDefectedMsg(TypedDict):
     new_team_name: str      # "流民" 或目标队伍名称
 
 
+class TaskLogMsg(TypedDict):
+    """任务执行日志 — 实时广播每个 tool_call/tool_result"""
+    type: Literal["task_log"]
+    agent_id: str
+    agent_name: str
+    event: str  # "tool_call" | "tool_result"
+    tool_name: str
+    arguments: str   # 截断至 200 字
+    result: str      # 截断至 300 字
+    is_error: bool
+    task: str        # 任务简述，截断至 100 字
+
+
 class TeamCreedGeneratedMsg(TypedDict):
     """军团宗旨生成事件 — LLM 为队伍生成文言文信条，全服广播"""
     type: Literal["team_creed_generated"]
@@ -239,6 +252,7 @@ WsOutgoingMsg = (
     | SubtitleBroadcastMsg
     | AgentDefectedMsg
     | TeamCreedGeneratedMsg
+    | TaskLogMsg
 )
 
 

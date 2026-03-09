@@ -69,12 +69,22 @@ export function EventTicker() {
       push("🧠", `${d.display_name} 自决·${stance}·${detail}`, "#c4b5fd");
     };
 
+    // 任务执行日志：实时显示 tool_call 和 tool_result
+    const onTaskLog = (d: { agent_id: string; agent_name: string; event: string; tool_name: string; arguments: string; result: string; is_error: boolean }) => {
+      const icon = d.event === "tool_call" ? "🔧" : "📤";
+      const color = d.is_error ? "#f87171" : "#60a5fa";
+      // 截断参数显示
+      const args = d.arguments.length > 30 ? d.arguments.slice(0, 30) + "…" : d.arguments;
+      push(icon, `${d.agent_name} ${d.tool_name}(${args})`, color);
+    };
+
     evotownEvents.on("agent_eliminated", onEliminated);
     evotownEvents.on("evolution_event", onEvolution);
     evotownEvents.on("task_complete", onTaskComplete);
     evotownEvents.on("agent_created", onCreated);
     evotownEvents.on("agent_message", onAgentMessage);
     evotownEvents.on("agent_decision", onAgentDecision);
+    evotownEvents.on("task_log", onTaskLog);
 
     return () => {
       evotownEvents.off("agent_eliminated", onEliminated);
@@ -83,6 +93,7 @@ export function EventTicker() {
       evotownEvents.off("agent_created", onCreated);
       evotownEvents.off("agent_message", onAgentMessage);
       evotownEvents.off("agent_decision", onAgentDecision);
+      evotownEvents.off("task_log", onTaskLog);
     };
   }, []);
 

@@ -70,6 +70,17 @@ export type EvotownEventMap = {
     team_name: string;
     creed: string;
   };
+  /** 任务执行日志 — 实时广播每个 tool_call/tool_result */
+  task_log: {
+    agent_id: string;
+    agent_name: string;
+    event: "tool_call" | "tool_result";
+    tool_name: string;
+    arguments: string;
+    result: string;
+    is_error: boolean;
+    task: string;
+  };
 };
 
 type Listener<T> = (data: T) => void;

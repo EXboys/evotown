@@ -190,14 +190,29 @@ async def trigger_evolve_background(agent_id: str, agent_home: str) -> None:
 
 def on_agent_event(agent_id: str, event: str, data: dict) -> None:
     monitor.process_event(agent_id, event, data)
+
+    # 调试日志：确认事件触发
+    if event in ("tool_call", "tool_result"):
+        logger.info("[task_log] event=%s agent=%s data=%s", event, agent_id, data)
+
+    # 获取 agent 名称
+    agent = arena.agents.get(agent_id)
+    agent_name = agent.display_name if agent else agent_id
+
+    # 获取当前任务文本
+    meta = arena.get_pending_task(agent_id) or {}
+    exe = monitor.get_execution(agent_id)
+    task_text = ""
+    if meta:
+        task_text = meta.get("task", "")
+    elif exe:
+        task_text = exe.task or ""
+
     # 每次 tool_result 立即持久化，一字不少，不管任务完成/失败/超时/崩溃
     if event == "tool_result":
-        exe = monitor.get_execution(agent_id)
         if exe and exe.tool_calls:
             last = exe.tool_calls[-1]
-            meta = arena.get_pending_task(agent_id) or {}
-            task_text = meta.get("task", exe.task) or exe.task or ""
-            task_id = meta.get("task_id", "") or ""
+            task_id = meta.get("task_id", "") if meta else ""
             name = last.get("name", data.get("name", ""))
             if name and name not in ("update_task_plan",):
                 append_tool_entry(
@@ -209,6 +224,18 @@ def on_agent_event(agent_id: str, event: str, data: dict) -> None:
                     result=last.get("result") or data.get("result", "") or "",
                     is_error=last.get("is_error", data.get("is_error", False)),
                 )
+                # 实时广播任务日志到前端
+                _broadcast_task_log(
+                    agent_id=agent_id,
+                    agent_name=agent_name,
+                    event="tool_result",
+                    tool_name=name,
+                    arguments=last.get("arguments", "") or "",
+                    result=(last.get("result") or data.get("result", "") or "")[:500],
+                    is_error=last.get("is_error", data.get("is_error", False)),
+                    task=task_text or "",
+                )
+
     # 工具调用时：agent 进入对应建筑（图书馆/工坊/档案馆/记忆仓库）；仅 tool_call 触发，避免与 tool_result 重复
     if event == "tool_call":
         tool_name = (data.get("name") or "").strip()
@@ -222,6 +249,50 @@ def on_agent_event(agent_id: str, event: str, data: dict) -> None:
                     )
                 except RuntimeError:
                     pass
+            # 实时广播任务日志（tool_call 事件）
+            if tool_name not in ("update_task_plan",):
+                _broadcast_task_log(
+                    agent_id=agent_id,
+                    agent_name=agent_name,
+                    event="tool_call",
+                    tool_name=tool_name,
+                    arguments=data.get("arguments", "") or "",
+                    result="",
+                    is_error=False,
+                    task=task_text or "",
+                )
+
+
+def _broadcast_task_log(
+    agent_id: str,
+    agent_name: str,
+    event: str,
+    tool_name: str,
+    arguments: str,
+    result: str,
+    is_error: bool,
+    task: str,
+) -> None:
+    """异步广播任务日志到前端"""
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(
+            ws.send_task_log(
+                agent_id=agent_id,
+                agent_name=agent_name,
+                event=event,
+                tool_name=tool_name,
+                arguments=arguments,
+                result=result,
+                is_error=is_error,
+                task=task,
+            )
+        )
+        logger.debug("[task_log] broadcast: %s %s %s", agent_name, event, tool_name)
+    except RuntimeError:
+        pass
+    except Exception as e:
+        logger.warning("[task_log] broadcast failed: %s", e)
 
 
 def _update_evolution_context() -> None:

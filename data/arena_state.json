@@ -1,12 +1,12 @@
 {
   "agent_counter": 13,
   "task_counter": 163,
-  "global_task_counter": 72,
+  "global_task_counter": 73,
   "agents": [
     {
       "id": "agent_10",
       "display_name": "司马仲达",
-      "balance": -2,
+      "balance": 3,
       "status": "active",
       "soul_type": "balanced",
       "team_id": "c281bd05",
@@ -27,7 +27,7 @@
       "rescue_received": 0,
       "solo_preference": false,
       "evolution_focus": "",
-      "loyalty": 41
+      "loyalty": 46
     },
     {
       "id": "agent_12",

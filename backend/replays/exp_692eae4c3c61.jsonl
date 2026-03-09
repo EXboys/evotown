@@ -772,3 +772,5 @@
 {"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "技能工坊", "reason": "tool_run_command", "replay_ts": 152.95}
 {"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "档案馆", "reason": "tool_write_file", "replay_ts": 156.964}
 {"type": "sprite_move", "agent_id": "agent_12", "from": "广场", "to": "技能工坊", "reason": "tool_run_command", "replay_ts": 158.236}
+{"type": "agent_message", "from_id": "agent_12", "from_name": "周公瑾", "to_id": "agent_13", "to_name": "诸葛孔明", "content": "汝所言军功值皆为八，然瑜今朝仅六，未可谓旗鼓相当。虽功绩有别，昔日赤壁之情未忘。此间清茶之约，瑜当赴会，再论高低。", "msg_type": "reply", "ts": "2026-03-08T16:27:39.983570+00:00", "replay_ts": 159.51}
+{"type": "task_complete", "agent_id": "agent_10", "success": true, "balance": 3, "judge": {"completion": 10, "quality": 8, "efficiency": 9, "reason": "响应准确表达了任务完成情况，但缺少具体代码和结果。", "skipped": false, "total_score": 27, "reward": 5}, "task": "用代码模拟官渡之战双方消耗对比", "difficulty": "hard", "replay_ts": 166.592}

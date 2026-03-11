@@ -796,10 +796,11 @@ REFUSE
             logger.error("[%s] inject_task FAILED to write stdin: %s", agent_id, e)
             return False
 
-    def repair_skills(self, agent_home: str) -> tuple[bool, str]:
+    def repair_skills(self, agent_home: str, skill_names: list[str] | None = None) -> tuple[bool, str]:
         """调用 skilllite evolution repair-skills 修复 agent 的 .skills 目录中的技能。
 
         不覆盖、不同步 arena_skills；仅对 agent 已有的技能做测试，失败时由 LLM 修复。
+        skill_names: 若非空则仅验证/修复这些技能，缩短执行时间；空或 None 则修复全部失败技能。
         """
         # 防御：若误传 chat_dir（以 /chat 结尾），修正为 agent_home
         if agent_home.rstrip("/").endswith("/chat"):
@@ -820,9 +821,12 @@ REFUSE
             evolve_env["OPENAI_MODEL"] = evolve_env["MODEL"]
             evolve_env["SKILLLITE_MODEL"] = evolve_env["MODEL"]
         evolve_env["SKILLLITE_WORKSPACE"] = agent_home
+        cmd = ["skilllite", "evolution", "repair-skills"]
+        if skill_names:
+            cmd.extend(skill_names)
         try:
             result = subprocess.run(
-                ["skilllite", "evolution", "repair-skills"],
+                cmd,
                 env=evolve_env,
                 cwd=agent_home,
                 capture_output=True,
@@ -841,8 +845,10 @@ REFUSE
         except Exception as e:
             return False, str(e)[:200]
 
-    async def repair_skills_stream(self, agent_home: str) -> AsyncIterator[str]:
-        """流式执行 skilllite repair-skills，逐行 yield 输出，便于前端展示进度。"""
+    async def repair_skills_stream(self, agent_home: str, skill_names: list[str] | None = None) -> AsyncIterator[str]:
+        """流式执行 skilllite repair-skills，逐行 yield 输出，便于前端展示进度。
+        skill_names: 若非空则仅验证/修复这些技能；空或 None 则修复全部失败技能。
+        """
         if agent_home.rstrip("/").endswith("/chat"):
             agent_home = str(Path(agent_home).parent)
         evolve_env = {**os.environ}
@@ -856,11 +862,12 @@ REFUSE
             evolve_env["OPENAI_MODEL"] = evolve_env["MODEL"]
             evolve_env["SKILLLITE_MODEL"] = evolve_env["MODEL"]
         evolve_env["SKILLLITE_WORKSPACE"] = agent_home
+        cmd: list[str] = ["skilllite", "evolution", "repair-skills"]
+        if skill_names:
+            cmd.extend(skill_names)
         try:
             proc = await asyncio.create_subprocess_exec(
-                "skilllite",
-                "evolution",
-                "repair-skills",
+                *cmd,
                 env=evolve_env,
                 cwd=agent_home,
                 stdout=asyncio.subprocess.PIPE,

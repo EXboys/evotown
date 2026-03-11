@@ -55,6 +55,26 @@ const WIDTH = 340;
 const HEIGHT = 280;
 const NODE_R = 14;
 
+/** 边用二次贝塞尔曲线，控制点沿中垂线偏移，多条边时错开避免完全重叠 */
+function edgePath(
+  src: { x: number; y: number },
+  tgt: { x: number; y: number },
+  edgeIndex: number
+): string {
+  const mx = (src.x + tgt.x) / 2;
+  const my = (src.y + tgt.y) / 2;
+  const dx = tgt.x - src.x;
+  const dy = tgt.y - src.y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const perpX = -dy / len;
+  const perpY = dx / len;
+  const spread = 12;
+  const offset = (edgeIndex % 3 - 1) * spread;
+  const cx = mx + perpX * offset;
+  const cy = my + perpY * offset;
+  return `M ${src.x} ${src.y} Q ${cx} ${cy} ${tgt.x} ${tgt.y}`;
+}
+
 export function SocialGraph() {
   const [data, setData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -229,25 +249,33 @@ export function SocialGraph() {
       {!loading && data && nodes.length > 0 && (
         <div className="rounded border border-slate-700/50 overflow-hidden bg-slate-900/80" style={{ imageRendering: "pixelated" }}>
           <svg width={WIDTH} height={HEIGHT} style={{ display: "block" }}>
-            {/* 边 */}
+            {/* 边：曲线 + 选中时弱化无关边，降低线宽与透明度减轻密集感 */}
             {data.edges.map((e, i) => {
               const src = nodes.find((n) => n.id === e.source);
               const tgt = nodes.find((n) => n.id === e.target);
               if (!src || !tgt) return null;
-              const w = Math.min(Math.max(e.weight, 1), 5);
               const isHighlight = selectedNode && (e.source === selectedNode || e.target === selectedNode);
+              const dimmed = selectedNode && !isHighlight;
+              const strokeW = Math.min(1 + e.weight * 0.35, 2.2);
+              const opacity = dimmed ? 0.12 : (isHighlight ? 0.85 : 0.32);
+              const stroke = isHighlight ? "#f59e0b" : "#475569";
+              const midX = (src.x + tgt.x) / 2;
+              const midY = (src.y + tgt.y) / 2;
               return (
                 <g key={i}>
-                  <line
-                    x1={src.x} y1={src.y} x2={tgt.x} y2={tgt.y}
-                    stroke={isHighlight ? "#f59e0b" : "#475569"}
-                    strokeWidth={w}
-                    strokeOpacity={isHighlight ? 0.8 : 0.5}
+                  <path
+                    d={edgePath(src, tgt, i)}
+                    fill="none"
+                    stroke={stroke}
+                    strokeWidth={strokeW}
+                    strokeOpacity={opacity}
+                    strokeLinecap="round"
                   />
-                  <text x={(src.x + tgt.x) / 2} y={(src.y + tgt.y) / 2}
-                    fontSize={7} fill={isHighlight ? "#f59e0b" : "#94a3b8"} textAnchor="middle" dominantBaseline="middle">
-                    {edgeLabel(e.types)}
-                  </text>
+                  {!dimmed && (
+                    <text x={midX} y={midY} fontSize={6} fill={isHighlight ? "#f59e0b" : "#64748b"} textAnchor="middle" dominantBaseline="middle">
+                      {edgeLabel(e.types)}
+                    </text>
+                  )}
                 </g>
               );
             })}
@@ -332,7 +360,7 @@ export function SocialGraph() {
                         {msgTypeLabel[msg.msg_type] || msg.msg_type}
                       </span>
                     </div>
-                    <p className="text-slate-400 leading-relaxed line-clamp-3" title={msg.content}>
+                    <p className="text-slate-400 leading-relaxed line-clamp-6 break-words" title={msg.content}>
                       {msg.content}
                     </p>
                     <p className="text-[10px] text-slate-600 mt-1">

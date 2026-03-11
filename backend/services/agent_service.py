@@ -1,6 +1,7 @@
 """Agent 业务服务"""
 import asyncio
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from core.config import load_economy_config
@@ -169,14 +170,22 @@ async def get_execution_log_data(agent_id: str, limit: int = 30):
             "difficulty": r.get("difficulty", "medium"),
         })
 
+    # 已由 transcript 覆盖的 task，不再用 decisions 重复
+    task_seen_from_transcript: set[str] = set()
     for e in transcript_exec:
         task = (e.get("task") or "").strip()
         ts_num = e.get("ts_num", 0)
         h = task_history_by_task.get(task) if task else None
         d = decisions_by_task.get(task) if task else None
         success = h.get("success") if h else e.get("task_completed")
+        ts_raw = e.get("ts")
+        # 保证前端能正确显示日期：无效 ts 时用 ts_num 转成 ISO 字符串
+        if ts_raw is None or (isinstance(ts_raw, str) and not ts_raw.strip()):
+            ts_display = datetime.fromtimestamp(ts_num, tz=timezone.utc).isoformat() if ts_num else ""
+        else:
+            ts_display = ts_raw
         items.append({
-            "ts": e.get("ts"),
+            "ts": ts_display,
             "ts_num": ts_num,
             "task": task or e.get("task", ""),
             "status": "executed",
@@ -185,6 +194,35 @@ async def get_execution_log_data(agent_id: str, limit: int = 30):
             "failed_tools": d.get("failed_tools", 0) if d else 0,
             "elapsed_ms": h.get("elapsed_ms") if h else None,
             "id": d.get("id") if d else None,
+        })
+        if task:
+            task_seen_from_transcript.add(task)
+
+    # 兜底：transcript 可能为空（路径/环境导致），用 decisions 表补全「已执行」记录
+    for desc, d in decisions_by_task.items():
+        if not desc or desc in task_seen_from_transcript:
+            continue
+        ts_str = d.get("ts") or ""
+        try:
+            if ts_str:
+                dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")[:26])
+                ts_num = dt.timestamp()
+            else:
+                ts_num = 0
+        except (ValueError, TypeError):
+            ts_num = 0
+        h = task_history_by_task.get(desc)
+        success = h.get("success") if h else d.get("task_completed", True)
+        items.append({
+            "ts": ts_str or (f"{ts_num:.0f}" if ts_num else ""),
+            "ts_num": ts_num,
+            "task": desc,
+            "status": "executed",
+            "task_completed": bool(success),
+            "total_tools": d.get("total_tools", 0),
+            "failed_tools": d.get("failed_tools", 0),
+            "elapsed_ms": h.get("elapsed_ms") if h else None,
+            "id": d.get("id"),
         })
 
     items.sort(key=lambda x: x["ts_num"], reverse=True)
@@ -283,24 +321,28 @@ async def get_skill_content(agent_id: str, skill_name: str) -> dict | None:
     return result
 
 
-async def repair_skills_action(agent_id: str) -> tuple[bool, str]:
-    """调用 skilllite evolution repair-skills 修复 agent 的 .skills 目录中的技能。"""
+async def repair_skills_action(agent_id: str, skill_names: list[str] | None = None) -> tuple[bool, str]:
+    """调用 skilllite evolution repair-skills 修复 agent 的 .skills 目录中的技能。
+    skill_names: 非空时仅修复这些技能；空或 None 时修复全部失败技能。
+    """
     a = arena.get_agent(agent_id)
     if not a:
         return False, "agent not found"
     agent_home = a.agent_home or a.chat_dir
-    ok, msg = await asyncio.to_thread(process_mgr.repair_skills, agent_home)
+    ok, msg = await asyncio.to_thread(process_mgr.repair_skills, agent_home, skill_names)
     return ok, msg
 
 
-async def repair_skills_stream(agent_id: str):
-    """流式执行 repair-skills，逐行 yield JSON 供前端实时展示进度。"""
+async def repair_skills_stream(agent_id: str, skill_names: list[str] | None = None):
+    """流式执行 repair-skills，逐行 yield JSON 供前端实时展示进度。
+    skill_names: 非空时仅修复这些技能；空或 None 时修复全部失败技能。
+    """
     a = arena.get_agent(agent_id)
     if not a:
         yield json.dumps({"t": "done", "ok": False, "error": "agent not found"}) + "\n"
         return
     agent_home = a.agent_home or a.chat_dir
-    async for line in process_mgr.repair_skills_stream(agent_home):
+    async for line in process_mgr.repair_skills_stream(agent_home, skill_names):
         yield line + "\n"
 
 

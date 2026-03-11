@@ -4,6 +4,7 @@ import { useEvotownStore } from "../../store/evotownStore";
 
 export interface Skill {
   name: string;
+  /** installed=内置, pending=进化待确认, confirmed=进化已启用 */
   status: string;
   description?: string;
   created_at?: string;
@@ -26,6 +27,8 @@ export function SkillTab({ agentId, skills, onSkillsChange }: SkillTabProps) {
   const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
   const [skillContent, setSkillContent] = useState<Record<string, SkillContent>>({});
   const [skillContentLoading, setSkillContentLoading] = useState<string | null>(null);
+  /** 勾选后修复时仅修复这些技能；空则修复全部失败技能 */
+  const [repairSelected, setRepairSelected] = useState<Set<string>>(new Set());
   const repairState = useEvotownStore((s) => s.repairStateByAgent[agentId]) ?? {
     repairing: false,
     log: [] as string[],
@@ -35,10 +38,25 @@ export function SkillTab({ agentId, skills, onSkillsChange }: SkillTabProps) {
   const appendRepairLog = useEvotownStore((s) => s.appendRepairLog);
   const { repairing, log: repairLog, msg: repairMsg } = repairState;
 
+  const toggleRepairSelected = (name: string) => {
+    setRepairSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+  const selectAllForRepair = () => setRepairSelected(new Set(skills.map((s) => s.name)));
+  const clearRepairSelected = () => setRepairSelected(new Set());
+
   const handleRepair = async () => {
     setRepairState(agentId, { repairing: true, log: [], msg: null });
+    const skillNames = repairSelected.size > 0 ? Array.from(repairSelected) : [];
+    const query = skillNames.length > 0 ? "?" + skillNames.map((n) => "skill_names=" + encodeURIComponent(n)).join("&") : "";
     try {
-      const res = await adminFetch(`/agents/${agentId}/repair-skills/stream`, { method: "POST" });
+      const res = await adminFetch(`/agents/${agentId}/repair-skills/stream${query}`, {
+        method: "POST",
+      });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setRepairState(agentId, { repairing: false, msg: `❌ ${(data as { error?: string }).error ?? "请求失败"}` });
@@ -69,9 +87,9 @@ export function SkillTab({ agentId, skills, onSkillsChange }: SkillTabProps) {
               const msg = ok ? "✅ 修复完成" : `❌ ${obj.error ?? "修复失败"}`;
               setRepairState(agentId, { repairing: false, msg });
             }
-      } catch {
-        appendRepairLog(agentId, line);
-      }
+          } catch {
+            appendRepairLog(agentId, line);
+          }
         }
       }
       if (buf.trim()) {
@@ -146,16 +164,41 @@ export function SkillTab({ agentId, skills, onSkillsChange }: SkillTabProps) {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[11px] text-slate-500">内置技能 + 进化技能</span>
-        <button
-          onClick={handleRepair}
-          disabled={repairing}
-          className="px-2 py-1 text-[10px] font-medium rounded bg-sky-600/20 text-sky-400 border border-sky-600/30 hover:bg-sky-600/40 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          title="测试每个技能，失败时由 LLM 修复（skilllite evolution repair-skills）"
-        >
-          {repairing ? "修复中…" : "🔧 修复技能"}
-        </button>
+      <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
+        <span className="text-[11px] text-slate-500">
+          <span className="text-sky-400/90">内置</span>
+          <span className="text-slate-500 mx-1">+</span>
+          <span className="text-amber-400/90">进化</span>
+          技能
+        </span>
+        <div className="flex items-center gap-1.5">
+          {skills.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={selectAllForRepair}
+                className="text-[10px] text-slate-500 hover:text-slate-400"
+              >
+                全选
+              </button>
+              <button
+                type="button"
+                onClick={clearRepairSelected}
+                className="text-[10px] text-slate-500 hover:text-slate-400"
+              >
+                取消
+              </button>
+            </>
+          )}
+          <button
+            onClick={handleRepair}
+            disabled={repairing}
+            className="px-2 py-1 text-[10px] font-medium rounded bg-sky-600/20 text-sky-400 border border-sky-600/30 hover:bg-sky-600/40 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title={repairSelected.size > 0 ? `仅修复选中的 ${repairSelected.size} 个技能` : "测试每个技能，失败时由 LLM 修复（全部）"}
+          >
+            {repairing ? "修复中…" : repairSelected.size > 0 ? `🔧 修复选中 (${repairSelected.size})` : "🔧 修复全部失败技能"}
+          </button>
+        </div>
       </div>
 
       {(repairing || repairLog.length > 0 || repairMsg) && (
@@ -197,24 +240,47 @@ export function SkillTab({ agentId, skills, onSkillsChange }: SkillTabProps) {
             >
               <div className="p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <button
-                    onClick={() => handleExpand(s.name)}
-                    className="flex items-center gap-2 min-w-0 flex-1 text-left hover:opacity-80 transition-opacity"
-                  >
-                    <span className="text-slate-500 text-[10px] shrink-0">{isExpanded ? "▼" : "▶"}</span>
-                    <span className="font-mono text-slate-200 font-medium truncate">{s.name}</span>
-                    <span
-                      className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                        s.status === "pending"
-                          ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                          : s.status === "installed"
-                          ? "bg-sky-500/20 text-sky-400 border border-sky-500/30"
-                          : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                      }`}
+                  <label className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer hover:opacity-80 transition-opacity">
+                    <input
+                      type="checkbox"
+                      checked={repairSelected.has(s.name)}
+                      onChange={() => toggleRepairSelected(s.name)}
+                      onClick={(e) => e.stopPropagation()}
+                      title="修复时包含此技能"
+                      className="rounded border-slate-600 bg-slate-800 text-sky-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleExpand(s.name)}
+                      className="flex items-center gap-2 min-w-0 flex-1 text-left"
                     >
-                      {s.status === "pending" ? "待确认" : s.status === "installed" ? "内置" : "已启用"}
-                    </span>
-                  </button>
+                      <span className="text-slate-500 text-[10px] shrink-0">{isExpanded ? "▼" : "▶"}</span>
+                      <span className="font-mono text-slate-200 font-medium truncate">{s.name}</span>
+                      {/* 来源：内置 vs 进化 */}
+                      <span
+                        className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                          s.status === "installed"
+                            ? "bg-sky-500/20 text-sky-400 border border-sky-500/30"
+                            : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                        }`}
+                        title={s.status === "installed" ? "预装于 .skills 根目录" : "由进化产生于 .skills/_evolved"}
+                      >
+                        {s.status === "installed" ? "内置" : "进化"}
+                      </span>
+                      {/* 状态：待确认 / 已启用（仅进化有「待确认」） */}
+                      <span
+                        className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                          s.status === "pending"
+                            ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                            : s.status === "installed"
+                            ? "bg-slate-600/30 text-slate-400 border border-slate-500/40"
+                            : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                        }`}
+                      >
+                        {s.status === "pending" ? "待确认" : s.status === "installed" ? "—" : "已启用"}
+                      </span>
+                    </button>
+                  </label>
                   {s.status === "pending" && (
                     <div className="flex gap-1.5 shrink-0">
                       <button

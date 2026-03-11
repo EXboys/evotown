@@ -55,3 +55,8 @@ class SpriteMoveEvent(BaseModel):
     from_: str = Field(alias="from")
     to: str
     reason: str
+
+
+class RepairSkillsBody(BaseModel):
+    """仅修复指定技能时传 skill_names；不传或空数组则修复全部失败技能。"""
+    skill_names: list[str] = []

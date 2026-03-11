@@ -1,5 +1,5 @@
 """Agent 路由"""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from core.auth import require_admin, validate_soul_content
@@ -88,10 +88,14 @@ async def repair_agent_skills(agent_id: str):
 
 
 @router.post("/{agent_id}/repair-skills/stream", dependencies=[Depends(require_admin)])
-async def repair_agent_skills_stream(agent_id: str):
-    """流式执行 repair-skills，实时返回 skilllite 输出，便于前端展示进度和日志。"""
+async def repair_agent_skills_stream(
+    agent_id: str,
+    skill_names: list[str] = Query(default=[], description="仅修复这些技能；不传或空=修复全部失败"),
+):
+    """流式执行 repair-skills。用 Query 传 skill_names 避免流式响应时 body 被代理/网关丢弃。"""
+    skill_list = skill_names if skill_names else None  # None = 全部
     return StreamingResponse(
-        agent_service.repair_skills_stream(agent_id),
+        agent_service.repair_skills_stream(agent_id, skill_list),
         media_type="application/x-ndjson",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

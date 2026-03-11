@@ -19,6 +19,8 @@ from sqlite_reader import (
     get_decisions,
     get_evolution_log,
     get_metrics,
+    get_egl_rolling,
+    get_egl_all_time,
     get_rules_with_skill_status,
     get_skills,
     get_prompts,
@@ -54,8 +56,21 @@ async def list_agents() -> list[AgentInfo]:
             evolution_success_count=stats["evolution_success_count"],
             team_id=rec.team_id,
             team_name=team_name,
+            evolution_division=rec.evolution_division or "all",
         ))
     return result
+
+
+def _resolve_evolution_division(body: AgentCreate) -> str:
+    """创建时确定分工：优先请求体（含显式 all），否则系统分配（当前最少人方向）。"""
+    if body.evolution_division is not None:
+        return body.evolution_division
+    # 系统分配：选当前人数最少的分工
+    counts: dict[str, int] = {"all": 0, "prompts": 0, "skills": 0, "memory": 0}
+    for rec in arena.agents.values():
+        d = (rec.evolution_division or "all").strip() or "all"
+        counts[d] = counts.get(d, 0) + 1
+    return min(counts, key=lambda k: counts[k])
 
 
 async def create_agent(body: AgentCreate) -> AgentInfo:
@@ -63,6 +78,7 @@ async def create_agent(body: AgentCreate) -> AgentInfo:
     agent_id = arena.next_agent_id()
     display_name = arena.assign_display_name()
     soul_type = body.soul_type or "balanced"
+    evolution_division = _resolve_evolution_division(body)
     agent_home, chat_root = await process_mgr.spawn(agent_id, body.chat_dir, soul_type=soul_type)
     loop = asyncio.get_event_loop()
     observer = start_watching(chat_root, agent_id, broadcast_evolution_event, loop)
@@ -76,12 +92,20 @@ async def create_agent(body: AgentCreate) -> AgentInfo:
         in_task=False,
         soul_type=soul_type,
         display_name=display_name,
+        evolution_division=evolution_division,
     )
     record._observer = observer
     arena.add_agent(record)
     await ws.send_agent_created(agent_id, balance, display_name)
     arena.persist()
-    return AgentInfo(id=agent_id, chat_dir=chat_root, balance=balance, status="active", soul_type=soul_type)
+    return AgentInfo(
+        id=agent_id,
+        chat_dir=chat_root,
+        balance=balance,
+        status="active",
+        soul_type=soul_type,
+        evolution_division=evolution_division,
+    )
 
 
 async def delete_agent(agent_id: str) -> None:
@@ -108,16 +132,21 @@ async def trigger_evolve(agent_id: str) -> tuple[bool, str]:
     if not a:
         return False, "agent not found"
     agent_home = a.agent_home or a.chat_dir
-    ok, message = await process_mgr.trigger_evolve(agent_id, agent_home)
+    evolution_division = a.evolution_division or "all"
+    ok, message = await process_mgr.trigger_evolve(agent_id, agent_home, evolution_division=evolution_division)
     await ws.send_sprite_move(agent_id, "广场", "进化神殿", "forced_evolution")
     return ok, message
 
 
 async def get_metrics_data(agent_id: str, limit: int = 100):
+    """返回每日指标 + 近7天累计 EGL + 全量 EGL，供前端趋势与全局展示。"""
     a = arena.get_agent(agent_id)
     if not a:
-        return []
-    return await get_metrics(a.chat_dir, limit)
+        return {"daily": [], "egl_7d": 0.0, "egl_all_time": 0.0}
+    daily = await get_metrics(a.chat_dir, limit)
+    egl_7d = await get_egl_rolling(a.chat_dir, 7)
+    egl_all_time = await get_egl_all_time(a.chat_dir)
+    return {"daily": daily, "egl_7d": egl_7d, "egl_all_time": egl_all_time}
 
 
 async def get_decisions_data(agent_id: str, limit: int = 50):
@@ -125,6 +154,19 @@ async def get_decisions_data(agent_id: str, limit: int = 50):
     if not a:
         return []
     return await get_decisions(a.chat_dir, limit)
+
+
+def _extract_core_task(raw: str) -> str:
+    """从【执行任务】/【任务预览】等包装中提取核心任务文本，用于展示和去重"""
+    s = (raw or "").strip()
+    for prefix in ("【执行任务】", "【任务预览】"):
+        if prefix in s:
+            s = s.split(prefix, 1)[-1].strip()
+    # 去掉尾部说明（请执行/请回复 等）
+    for sep in ("\n\n请执行", "\n\n## ", "\n\n请回复", "请回复 ACCEPT", "请执行此任务"):
+        if sep in s:
+            s = s.split(sep)[0].strip()
+    return s[:500] if s else (raw[:500] if raw else "")
 
 
 async def get_execution_log_data(agent_id: str, limit: int = 30):
@@ -139,20 +181,28 @@ async def get_execution_log_data(agent_id: str, limit: int = 30):
     transcript_exec = await asyncio.to_thread(
         get_transcript_executions, a.chat_dir, agent_id, limit=limit * 2
     )
-    # 补充：task_history（judge/success）、decisions（工具明细）
-    task_history = await asyncio.to_thread(load_task_history, None, agent_id, limit=limit * 2)
-    decisions = await get_decisions(a.chat_dir, limit=limit * 2)
+    # 补充：task_history（judge/success，Python 后端在任务完成时写入，最可靠）、decisions（工具明细）
+    task_history = await asyncio.to_thread(
+        load_task_history, None, agent_id, outcome="claimed", limit=limit * 2
+    )
+    decisions = await get_decisions(a.chat_dir, limit=100)  # 与决策 tab 同源，多取确保含最新
 
+    # task_history 的 task 是原始任务文本；decisions 的 task_description 可能是【执行任务】xxx 全文
     task_history_by_task: dict[str, dict] = {}
     for h in task_history:
         t = (h.get("task") or "").strip()
         if t and t not in task_history_by_task:
             task_history_by_task[t] = h
     decisions_by_task: dict[str, dict] = {}
+    decisions_by_core: dict[str, dict] = {}  # 用核心任务文本建索引，便于匹配
     for d in decisions:
         desc = (d.get("task_description") or "").strip()
-        if desc and desc not in decisions_by_task:
-            decisions_by_task[desc] = d
+        if desc:
+            if desc not in decisions_by_task:
+                decisions_by_task[desc] = d
+            core = _extract_core_task(desc)
+            if core and core not in decisions_by_core:
+                decisions_by_core[core] = d
 
     items = []
     for r in refusals:
@@ -170,63 +220,87 @@ async def get_execution_log_data(agent_id: str, limit: int = 30):
             "difficulty": r.get("difficulty", "medium"),
         })
 
-    # 已由 transcript 覆盖的 task，不再用 decisions 重复
-    task_seen_from_transcript: set[str] = set()
+    # 优先用 decisions（与决策 tab 同源，含 ts、total_tools 等完整数据），再补 transcript / task_history
+    task_seen: set[str] = set()
+
+    def _add_executed(core: str, ts_display, ts_num: float, task_completed: bool, total_tools=0, failed_tools=0, elapsed_ms=None, d=None):
+        if not core or core in task_seen:
+            return
+        task_seen.add(core)
+        items.append({
+            "ts": ts_display,
+            "ts_num": ts_num,
+            "task": core,
+            "status": "executed",
+            "task_completed": task_completed,
+            "total_tools": d.get("total_tools", total_tools) if d else total_tools,
+            "failed_tools": d.get("failed_tools", failed_tools) if d else failed_tools,
+            "elapsed_ms": elapsed_ms,
+            "id": d.get("id") if d else None,
+        })
+
+    # 1. decisions 优先（与决策 tab 同源，含 3 月 11 日等最新数据）
+    for desc, d in decisions_by_task.items():
+        core = _extract_core_task(desc)
+        ts_str = (d.get("ts") or "").strip()
+        try:
+            ts_num = datetime.fromisoformat(ts_str.replace("Z", "+00:00")[:26]).timestamp() if ts_str else 0
+        except (ValueError, TypeError):
+            ts_num = 0
+        # 统一为 ISO 格式，避免前端 Invalid Date（SQLite 的 "YYYY-MM-DD HH:MM:SS" 转成 "YYYY-MM-DDTHH:MM:SS"）
+        if ts_str and "T" not in ts_str[:10]:
+            ts_str = ts_str.replace(" ", "T", 1)
+        ts_display = ts_str or (datetime.fromtimestamp(ts_num, tz=timezone.utc).isoformat() if ts_num else "")
+        h = task_history_by_task.get(core) or task_history_by_task.get(desc)
+        success = h.get("success") if h else d.get("task_completed", True)
+        _add_executed(core, ts_display, ts_num, bool(success), elapsed_ms=h.get("elapsed_ms") if h else None, d=d)
+
+    # 2. transcript 补全（仅 decisions 没有的任务）
     for e in transcript_exec:
-        task = (e.get("task") or "").strip()
+        raw_task = (e.get("task") or "").strip()
+        core_task = _extract_core_task(raw_task) or raw_task
         ts_num = e.get("ts_num", 0)
-        h = task_history_by_task.get(task) if task else None
-        d = decisions_by_task.get(task) if task else None
+        h = task_history_by_task.get(core_task) or task_history_by_task.get(raw_task)
+        d = decisions_by_core.get(core_task) or decisions_by_task.get(raw_task)
         success = h.get("success") if h else e.get("task_completed")
         ts_raw = e.get("ts")
-        # 保证前端能正确显示日期：无效 ts 时用 ts_num 转成 ISO 字符串
         if ts_raw is None or (isinstance(ts_raw, str) and not ts_raw.strip()):
             ts_display = datetime.fromtimestamp(ts_num, tz=timezone.utc).isoformat() if ts_num else ""
         else:
             ts_display = ts_raw
-        items.append({
-            "ts": ts_display,
-            "ts_num": ts_num,
-            "task": task or e.get("task", ""),
-            "status": "executed",
-            "task_completed": success if success is not None else True,  # 无 judge 时默认完成
-            "total_tools": d.get("total_tools", 0) if d else 0,
-            "failed_tools": d.get("failed_tools", 0) if d else 0,
-            "elapsed_ms": h.get("elapsed_ms") if h else None,
-            "id": d.get("id") if d else None,
-        })
-        if task:
-            task_seen_from_transcript.add(task)
+        _add_executed(core_task, ts_display, ts_num, success if success is not None else True,
+                      total_tools=d.get("total_tools", 0) if d else 0,
+                      failed_tools=d.get("failed_tools", 0) if d else 0,
+                      elapsed_ms=h.get("elapsed_ms") if h else None, d=d)
 
-    # 兜底：transcript 可能为空（路径/环境导致），用 decisions 表补全「已执行」记录
-    for desc, d in decisions_by_task.items():
-        if not desc or desc in task_seen_from_transcript:
+    # 3. task_history 兜底（仅 decisions/transcript 都没有的任务）
+    for h in task_history:
+        if h.get("in_progress"):  # 跳过尚未完成的分配记录
             continue
-        ts_str = d.get("ts") or ""
+        core = (h.get("task") or "").strip()
+        if not core or core in task_seen:
+            continue
+        ts_val = h.get("ts", 0)
         try:
-            if ts_str:
-                dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")[:26])
-                ts_num = dt.timestamp()
-            else:
-                ts_num = 0
+            ts_num = float(ts_val) if ts_val else 0
         except (ValueError, TypeError):
             ts_num = 0
-        h = task_history_by_task.get(desc)
-        success = h.get("success") if h else d.get("task_completed", True)
-        items.append({
-            "ts": ts_str or (f"{ts_num:.0f}" if ts_num else ""),
-            "ts_num": ts_num,
-            "task": desc,
-            "status": "executed",
-            "task_completed": bool(success),
-            "total_tools": d.get("total_tools", 0),
-            "failed_tools": d.get("failed_tools", 0),
-            "elapsed_ms": h.get("elapsed_ms") if h else None,
-            "id": d.get("id"),
-        })
+        success = h.get("success", False)
+        ts_display = datetime.fromtimestamp(ts_num, tz=timezone.utc).isoformat() if ts_num else str(ts_val)
+        _add_executed(core, ts_display, ts_num, success, elapsed_ms=h.get("elapsed_ms"))
 
+    # 按时间排序后，保证「已执行」不被大量「拒绝」挤出：优先展示接令任务
     items.sort(key=lambda x: x["ts_num"], reverse=True)
-    return items[:limit]
+    refused = [x for x in items if x["status"] == "refused"]
+    executed = [x for x in items if x["status"] == "executed"]
+    # 最多展示 limit 条：至少一半给已执行（若有），其余按时间填满
+    cap_executed = max(limit // 2, 15)
+    cap_refused = limit - cap_executed
+    top_executed = executed[:cap_executed]
+    top_refused = refused[:cap_refused]
+    merged = top_executed + top_refused
+    merged.sort(key=lambda x: x["ts_num"], reverse=True)
+    return merged[:limit]
 
 
 async def get_rules_data(agent_id: str):

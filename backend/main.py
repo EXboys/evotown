@@ -87,6 +87,7 @@ async def lifespan(app: FastAPI):
                 display_name=display_name,
                 solo_preference=a.get("solo_preference", False),
                 evolution_focus=a.get("evolution_focus", ""),
+                evolution_division=a.get("evolution_division", "all"),
                 loyalty=a.get("loyalty", 100),
             )
             record._observer = observer
@@ -123,6 +124,7 @@ async def lifespan(app: FastAPI):
                 logger.warning("Auto team assignment failed: %s", e)
 
         # 启动后立即持久化（含队伍结构 + global_task_counter）
+        # 兼容旧数据：老 agent 恢复时缺 evolution_division 已用 "all"，此处写回磁盘即完成升级
         arena.persist(experiment_id=deps.experiment_id)
         logger.info("Arena state persisted to data volume")
 

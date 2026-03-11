@@ -44,7 +44,9 @@ export function MetricsDashboard({ agents }: { agents: { id: string; display_nam
       for (const a of agents) {
         try {
           const r = await fetch(`/agents/${a.id}/metrics?limit=50`);
-          const rows: MetricsPoint[] = await r.json();
+          const raw = await r.json();
+          // 兼容：接口返回 { daily, egl_7d, egl_all_time } 或旧版直接为数组
+          const rows: MetricsPoint[] = Array.isArray(raw) ? raw : (raw?.daily ?? []);
           setMetricsCache(a.id, rows);
           all[a.id] = rows;
         } catch (err) {
@@ -125,7 +127,9 @@ export function MetricsDashboard({ agents }: { agents: { id: string; display_nam
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <p className="text-[10px] text-slate-500">EGL 收敛曲线 · 虚线 y=0.7 为达标线</p>
+      <p className="text-[10px] text-slate-500">
+        EGL = 每千次决策的进化产出数（规则/示例/技能）。约 10～100 表示有稳定学习；结合成功率与纠正率综合看。
+      </p>
     </div>
   );
 }

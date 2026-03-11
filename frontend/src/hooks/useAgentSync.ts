@@ -35,6 +35,7 @@ async function fetchAgents(): Promise<AgentInfo[]> {
     soul_type: a.soul_type,
     team_id: a.team_id,
     team_name: a.team_name,
+    evolution_division: a.evolution_division,
   }));
 }
 

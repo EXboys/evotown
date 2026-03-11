@@ -50,6 +50,7 @@ export function AgentDetail({
   const [decisions, setDecisions] = useState<{ id?: number; ts?: string; total_tools?: number; failed_tools?: number; replans?: number; elapsed_ms?: number; task_completed?: boolean; feedback?: string; evolved?: boolean; task_description?: string; tools_detail?: string; [k: string]: unknown }[]>([]);
   const [executionLog, setExecutionLog] = useState<ExecutionLogItem[]>([]);
   const [evolutionLog, setEvolutionLog] = useState<EvolutionLogItem[]>([]);
+  const [metrics, setMetrics] = useState<{ daily: { date?: string; first_success_rate?: number; avg_replans?: number; user_correction_rate?: number; egl?: number }[]; egl_7d: number; egl_all_time: number } | null>(null);
   const [soul, setSoul] = useState<SoulData | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
@@ -78,13 +79,14 @@ export function AgentDetail({
     const load = async () => {
       if (!cancelled) setLoading(true);
       try {
-        const [rRes, sRes, dRes, exeRes, soulRes, evoRes] = await Promise.all([
+        const [rRes, sRes, dRes, exeRes, soulRes, evoRes, metricsRes] = await Promise.all([
           fetch(`/agents/${agentId}/rules`),
           fetch(`/agents/${agentId}/skills`),
           fetch(`/agents/${agentId}/decisions?limit=50`),
           fetch(`/agents/${agentId}/execution_log?limit=30`),
           fetch(`/agents/${agentId}/soul`),
           fetch(`/agents/${agentId}/evolution_log?limit=100`),
+          fetch(`/agents/${agentId}/metrics?limit=7`),
         ]);
         if (cancelled) return;
 
@@ -145,6 +147,25 @@ export function AgentDetail({
           setSoul(soulData as SoulData);
         } else {
           setSoul(null);
+        }
+
+        const metricsData = await safeJson(metricsRes, null);
+        if (metricsData && typeof metricsData === "object" && "daily" in (metricsData as Record<string, unknown>)) {
+          const m = metricsData as { daily?: unknown[]; egl_7d?: number; egl_all_time?: number };
+          const dailyRows = Array.isArray(m.daily) ? m.daily : [];
+          setMetrics({
+            daily: dailyRows as { date?: string; first_success_rate?: number; avg_replans?: number; user_correction_rate?: number; egl?: number }[],
+            egl_7d: typeof m.egl_7d === "number" ? m.egl_7d : 0,
+            egl_all_time: typeof m.egl_all_time === "number" ? m.egl_all_time : 0,
+          });
+        } else if (Array.isArray(metricsData)) {
+          setMetrics({
+            daily: metricsData as { date?: string; first_success_rate?: number; avg_replans?: number; user_correction_rate?: number; egl?: number }[],
+            egl_7d: 0,
+            egl_all_time: 0,
+          });
+        } else {
+          setMetrics(null);
         }
       } catch (err) {
         if (cancelled) return;
@@ -214,12 +235,7 @@ export function AgentDetail({
 
     switch (tab) {
       case "executions":
-        return (
-          <div className="space-y-2">
-            <p className="text-xs text-slate-500">军令态度与执行（最近 30 条：拒绝 / 接令并执行）</p>
-            <ExecutionTab logs={executionLog} />
-          </div>
-        );
+        return <ExecutionTab logs={executionLog} />;
       case "rules":
         return <RuleTab rules={rules} />;
       case "prompts":
@@ -227,7 +243,7 @@ export function AgentDetail({
       case "skills":
         return <SkillTab agentId={agentId} skills={skills} onSkillsChange={setSkills} />;
       case "evolution":
-        return <EvolutionTab evolutionLog={evolutionLog} />;
+        return <EvolutionTab evolutionLog={evolutionLog} metrics={metrics} />;
       case "soul":
         return <SoulTab agentId={agentId} soul={soul} onSoulChange={setSoul} />;
       case "decisions":

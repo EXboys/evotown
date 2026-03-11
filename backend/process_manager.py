@@ -900,8 +900,14 @@ REFUSE
         except Exception as e:
             yield json.dumps({"t": "done", "ok": False, "error": str(e)[:200]})
 
-    async def trigger_evolve(self, agent_id: str, agent_home: str) -> tuple[bool, str]:
-        """主动触发进化: skilllite evolution run，使用该 agent 独立的 .skills
+    async def trigger_evolve(
+        self,
+        agent_id: str,
+        agent_home: str,
+        evolution_division: str = "all",
+    ) -> tuple[bool, str]:
+        """主动触发进化: skilllite evolution run，使用该 agent 独立的 .skills。
+        evolution_division 仅用于身份/展示（进化方向），不限制进化模块：始终允许规则+技能+记忆全量进化。
         返回 (成功与否, 输出信息供前端展示)
         """
         # ★ 防御检查：agent_home 不应以 /chat 结尾（chat_dir 误传），且路径中应包含 agent_id
@@ -918,8 +924,8 @@ REFUSE
                 agent_id, agent_home,
             )
         logger.info(
-            "[%s] trigger_evolve: agent_home=%s, skills_dir=%s",
-            agent_id, agent_home, Path(agent_home) / ".skills",
+            "[%s] trigger_evolve: agent_home=%s, evolution_direction=%s (no module limit)",
+            agent_id, agent_home, evolution_division,
         )
         evolve_env = {**os.environ}
         if evolve_env.get("API_KEY"):
@@ -932,6 +938,8 @@ REFUSE
             evolve_env["OPENAI_MODEL"] = evolve_env["MODEL"]
             evolve_env["SKILLLITE_MODEL"] = evolve_env["MODEL"]
         evolve_env["SKILLLITE_WORKSPACE"] = agent_home
+        # 进化模块不限制：始终全量进化（进化方向仅作身份/展示用）
+        evolve_env["SKILLLITE_EVOLUTION"] = "1"
         proc = await asyncio.create_subprocess_exec(
             "skilllite",
             "evolution",

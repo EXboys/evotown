@@ -106,6 +106,8 @@ class AgentRecord(BaseModel):
     rescue_received: int = 0
     solo_preference: bool = False
     evolution_focus: str = ""
+    """社会分工：进化方向。all=全能, prompts=规则与示例, skills=技能, memory=记忆。触发进化时约束 SKILLLITE_EVOLUTION。"""
+    evolution_division: str = "all"
     last_stand_used: bool = False  # 最后一战机会是否已使用（仅触发一次）
     loyalty: int = 100             # 对所属队伍的信仰值（0-100），影响叛逃概率
 
@@ -130,6 +132,7 @@ class AgentRecord(BaseModel):
             "rescue_received": self.rescue_received,
             "solo_preference": self.solo_preference,
             "evolution_focus": self.evolution_focus,
+            "evolution_division": self.evolution_division,
             "last_stand_used": self.last_stand_used,
             "loyalty": self.loyalty,
         }

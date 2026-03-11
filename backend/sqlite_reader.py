@@ -35,6 +35,61 @@ async def get_metrics(chat_root: str, limit: int = 100) -> list[dict[str, Any]]:
             return [dict(r) for r in rows]
 
 
+async def get_egl_rolling(chat_root: str, days: int = 7) -> float:
+    """过去 N 天内 (新增进化条数 / 触发数) * 1000"""
+    db = _db_path(chat_root)
+    if not db.exists():
+        return 0.0
+    modifier = f"-{days} days"
+    async with aiosqlite.connect(str(db)) as conn:
+        new_items = 0
+        total_triggers = 0
+        async with conn.execute(
+            "SELECT COUNT(*) FROM evolution_log "
+            "WHERE date(ts) >= date('now', ?) AND type IN ('rule_added', 'example_added', 'skill_generated')",
+            (modifier,),
+        ) as cur:
+            row = await cur.fetchone()
+            if row:
+                new_items = row[0] or 0
+        async with conn.execute(
+            "SELECT COUNT(*) FROM decisions WHERE date(ts) >= date('now', ?) AND total_tools >= 1",
+            (modifier,),
+        ) as cur:
+            row = await cur.fetchone()
+            if row:
+                total_triggers = row[0] or 0
+        if total_triggers == 0:
+            return 0.0
+        return (new_items / total_triggers) * 1000.0
+
+
+async def get_egl_all_time(chat_root: str) -> float:
+    """全量 (新增进化条数 / 触发数) * 1000"""
+    db = _db_path(chat_root)
+    if not db.exists():
+        return 0.0
+    async with aiosqlite.connect(str(db)) as conn:
+        new_items = 0
+        total_triggers = 0
+        async with conn.execute(
+            "SELECT COUNT(*) FROM evolution_log "
+            "WHERE type IN ('rule_added', 'example_added', 'skill_generated')",
+        ) as cur:
+            row = await cur.fetchone()
+            if row:
+                new_items = row[0] or 0
+        async with conn.execute(
+            "SELECT COUNT(*) FROM decisions WHERE total_tools >= 1",
+        ) as cur:
+            row = await cur.fetchone()
+            if row:
+                total_triggers = row[0] or 0
+        if total_triggers == 0:
+            return 0.0
+        return (new_items / total_triggers) * 1000.0
+
+
 def _list_transcript_files(transcripts_dir: Path, session_key: str) -> list[Path]:
     """列出 session 的 transcript 文件，按日期升序（旧→新）"""
     if not transcripts_dir.exists():

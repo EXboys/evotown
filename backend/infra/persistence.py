@@ -75,6 +75,7 @@ def _ensure_conn() -> sqlite3.Connection:
             rescue_received  INTEGER DEFAULT 0,
             solo_preference  INTEGER DEFAULT 0,
             evolution_focus  TEXT    DEFAULT '',
+            evolution_division TEXT  DEFAULT 'all',
             loyalty          INTEGER DEFAULT 100,
             updated_at       TEXT    DEFAULT (datetime('now'))
         );
@@ -92,6 +93,7 @@ def _ensure_conn() -> sqlite3.Connection:
     # ── 旧库迁移：为已存在的表补列（SQLite 不支持 IF NOT EXISTS for columns）──
     for ddl in [
         "ALTER TABLE agents ADD COLUMN loyalty INTEGER DEFAULT 100",
+        "ALTER TABLE agents ADD COLUMN evolution_division TEXT DEFAULT 'all'",
         "ALTER TABLE teams  ADD COLUMN creed   TEXT    DEFAULT ''",
     ]:
         try:
@@ -135,17 +137,18 @@ def _load_from_sqlite(conn: sqlite3.Connection, experiment_id: str | None) -> di
     for row in conn.execute("SELECT * FROM agents"):
         r = dict(row)
         result["agents"].append({
-            "id":              r["id"],
-            "display_name":    r["display_name"] or "",
-            "balance":         int(r["balance"] or 100),
-            "status":          r["status"] or "active",
-            "soul_type":       r["soul_type"] or "balanced",
-            "team_id":         r["team_id"],
-            "rescue_given":    int(r["rescue_given"] or 0),
-            "rescue_received": int(r["rescue_received"] or 0),
-            "solo_preference": bool(r["solo_preference"]),
-            "evolution_focus": r["evolution_focus"] or "",
-            "loyalty":         int(r["loyalty"]) if r.get("loyalty") is not None else 100,
+            "id":                   r["id"],
+            "display_name":         r["display_name"] or "",
+            "balance":              int(r["balance"] or 100),
+            "status":               r["status"] or "active",
+            "soul_type":            r["soul_type"] or "balanced",
+            "team_id":              r["team_id"],
+            "rescue_given":         int(r["rescue_given"] or 0),
+            "rescue_received":      int(r["rescue_received"] or 0),
+            "solo_preference":      bool(r["solo_preference"]),
+            "evolution_focus":      r["evolution_focus"] or "",
+            "evolution_division":   r.get("evolution_division") or "all",
+            "loyalty":              int(r["loyalty"]) if r.get("loyalty") is not None else 100,
         })
 
     for row in conn.execute("SELECT * FROM teams"):
@@ -205,8 +208,8 @@ def _save_to_sqlite(
             """INSERT OR REPLACE INTO agents
                (id, display_name, balance, status, soul_type,
                 team_id, rescue_given, rescue_received, solo_preference,
-                evolution_focus, loyalty, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                evolution_focus, evolution_division, loyalty, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
             [
                 (
                     a.get("id"),
@@ -219,6 +222,7 @@ def _save_to_sqlite(
                     int(a.get("rescue_received", 0)),
                     1 if a.get("solo_preference") else 0,
                     a.get("evolution_focus", ""),
+                    a.get("evolution_division", "all"),
                     int(a.get("loyalty", 100)),
                 )
                 for a in agents if a.get("id")
@@ -309,17 +313,18 @@ def _load_from_json(experiment_id: str | None) -> dict[str, Any] | None:
             continue
         try:
             result["agents"].append({
-                "id":              str(agent_id),
-                "display_name":    str(raw.get("display_name", "") or ""),
-                "balance":         _int(raw.get("balance"), 100),
-                "status":          str(raw.get("status", "active") or "active"),
-                "soul_type":       str(raw.get("soul_type", "balanced") or "balanced"),
-                "team_id":         raw.get("team_id"),
-                "rescue_given":    _int(raw.get("rescue_given"), 0),
-                "rescue_received": _int(raw.get("rescue_received"), 0),
-                "solo_preference": bool(raw.get("solo_preference", False)),
-                "evolution_focus": str(raw.get("evolution_focus", "") or ""),
-                "loyalty":         _int(raw.get("loyalty"), 100),
+                "id":                   str(agent_id),
+                "display_name":         str(raw.get("display_name", "") or ""),
+                "balance":              _int(raw.get("balance"), 100),
+                "status":               str(raw.get("status", "active") or "active"),
+                "soul_type":            str(raw.get("soul_type", "balanced") or "balanced"),
+                "team_id":              raw.get("team_id"),
+                "rescue_given":         _int(raw.get("rescue_given"), 0),
+                "rescue_received":      _int(raw.get("rescue_received"), 0),
+                "solo_preference":      bool(raw.get("solo_preference", False)),
+                "evolution_focus":      str(raw.get("evolution_focus", "") or ""),
+                "evolution_division":   str(raw.get("evolution_division", "all") or "all"),
+                "loyalty":              _int(raw.get("loyalty"), 100),
             })
         except Exception as e:
             logger.warning("Skipping agent %s due to parse error: %s", agent_id, e)
@@ -352,6 +357,7 @@ def _save_to_json_backup(
                 "rescue_received": a.get("rescue_received", 0),
                 "solo_preference": a.get("solo_preference", False),
                 "evolution_focus": a.get("evolution_focus", ""),
+                "evolution_division": a.get("evolution_division", "all"),
                 "loyalty":         a.get("loyalty", 100),
             }
             for a in agents

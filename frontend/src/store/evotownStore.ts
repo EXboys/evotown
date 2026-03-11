@@ -48,6 +48,8 @@ export interface AgentInfo {
   /** 队伍信息（结阵后由 team_formed WS 事件填充） */
   team_id?: string;
   team_name?: string;
+  /** 社会分工：进化方向 all|prompts|skills|memory */
+  evolution_division?: string;
 }
 
 export interface EvolutionEventItem {

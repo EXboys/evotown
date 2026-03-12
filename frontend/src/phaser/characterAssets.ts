@@ -588,9 +588,9 @@ export function registerCharacterTextures(scene: Phaser.Scene): void {
   add("char_helmet", HELMET_FRONT);
 }
 
-/** 角色布局常量 */
+/** 角色布局常量 — scale 1.8 略缩小，同屏可容纳更多 agent，与 NPC 用颜色区分即可 */
 export const CHAR_LAYOUT = {
-  scale: 2,
+  scale: 1.8,
   depth: 400,
   labelOffsetY: 14,
 } as const;

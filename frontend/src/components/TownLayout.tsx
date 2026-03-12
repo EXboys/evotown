@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { PhaserTownCanvas } from "./PhaserTownCanvas";
+import { ScanlineOverlay } from "./ScanlineOverlay";
 import { EventTicker } from "./EventTicker";
 import { useAgentSync } from "../hooks/useAgentSync";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -14,7 +15,10 @@ export function TownLayout() {
 
   return (
     <div className="flex-1 flex flex-col relative border-r border-slate-600/50 min-w-0">
-      <PhaserTownCanvas />
+      <div className="relative flex-1 flex flex-col min-h-0 overflow-hidden">
+        <PhaserTownCanvas />
+        <ScanlineOverlay />
+      </div>
       <EventTicker />
       {/* 史记入口按钮 — 悬浮在游戏画面右上角 */}
       <button

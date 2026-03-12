@@ -8,18 +8,18 @@ import { CHAR_LAYOUT } from "./characterAssets";
 
 /** NPC 生成点 — 分散在四角与边缘（世界坐标，均在可走区域内） */
 const SPAWN_ZONES: { x: number; y: number }[] = [
-  { x: 140, y: 115 },   // 左上
-  { x: 450, y: 115 },   // 右上（避开河流）
-  { x: 140, y: 340 },   // 左下
-  { x: 450, y: 340 },   // 右下（避开河流）
-  { x: 200, y: 95 },    // 上中左
-  { x: 400, y: 95 },    // 上中右
-  { x: 135, y: 220 },   // 左中
-  { x: 450, y: 220 },   // 右中
-  { x: 200, y: 345 },   // 下中左
-  { x: 400, y: 345 },   // 下中右
-  { x: 280, y: 160 },   // 中心偏左上
-  { x: 360, y: 290 },   // 中心偏右下
+  { x: 140, y: 115 },
+  { x: 450, y: 115 },
+  { x: 140, y: 340 },
+  { x: 450, y: 340 },
+  { x: 200, y: 95 },
+  { x: 400, y: 95 },
+  { x: 135, y: 220 },
+  { x: 450, y: 220 },
+  { x: 200, y: 345 },
+  { x: 400, y: 345 },
+  { x: 280, y: 160 },
+  { x: 360, y: 290 },
 ];
 
 /** NPC 之间最小距离（避免扎堆） */
@@ -194,6 +194,9 @@ export class TaskNpcManager {
         color,
         name,
       );
+      // NPC 略小于主角，避免与武将/烘焙图同 scale 时显得比主角大（通用 char 与武将图源尺寸可能不同）
+      const NPC_SCALE = CHAR_LAYOUT.scale * 0.9;
+      container.setScale(NPC_SCALE);
       this.parent.add(container);
       container.setDepth(CHAR_LAYOUT.depth - 10);
 
@@ -327,8 +330,8 @@ export class TaskNpcManager {
     return dx > 0 ? "right" : "left";
   }
 
-  /** 每帧更新 — 随机行走 + 朝向 + 身体浮动/脚步动画 */
-  update(time: number, delta: number): void {
+  /** 每帧更新 — 随机行走 + 朝向；NPC 不做呼吸/脚步帧动画，避免一闪一闪 */
+  update(_time: number, delta: number): void {
     const moveThreshold = 0.8;
     this.npcs.forEach((npc) => {
       const isMoving = !npc.assignedAgentId;
@@ -337,8 +340,7 @@ export class TaskNpcManager {
         const dy = npc.target.y - npc.container.y;
         if (Math.abs(dx) > moveThreshold || Math.abs(dy) > moveThreshold) {
           npc.facing = this.getFacing(dx, dy);
-          const walkFrame = Math.floor((time + npc.phaseOffset) * 0.003) % 2;
-          setCharFacing(npc.base, npc.helmet, npc.facing, walkFrame);
+          setCharFacing(npc.base, npc.helmet, npc.facing, 0);
           npc.container.x += Phaser.Math.Clamp(dx, -WALK_SPEED, WALK_SPEED);
           npc.container.y += Phaser.Math.Clamp(dy, -WALK_SPEED, WALK_SPEED);
         }
@@ -358,9 +360,6 @@ export class TaskNpcManager {
       }
 
       if (!isMoving) setCharFacing(npc.base, npc.helmet, npc.facing, 0);
-      const t = (time + npc.phaseOffset) * 0.001;
-      const scaleDelta = isMoving ? Math.sin(t * 8) * 0.006 : Math.sin(t * 2.5) * 0.005;
-      npc.body.setScale(1 + scaleDelta);
     });
   }
 

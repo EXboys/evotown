@@ -142,7 +142,44 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
     registerHandler("team_creed_generated", h14);
   }
 
+  /** 关键事件时镜头短暂聚焦到该 agent，再拉回默认视角 */
+  private focusCameraOnAgent(agentId: string, zoomIn = 1.1, focusDurationMs = 1600) {
+    const agent = this.agentManager.get(agentId);
+    if (!agent) return;
+    const w = this.scale.width;
+    const h = this.scale.height;
+    const defX = w / 2;
+    const defY = h / 2;
+    const zoomScale = VIEW_FILL_SCALE * zoomIn;
+    const targetX = defX - agent.container.x * zoomScale;
+    const targetY = defY - agent.container.y * VIEW_SCALE_Y * zoomScale;
+    const world = this.worldContainer;
+    this.tweens.add({
+      targets: world,
+      x: targetX,
+      y: targetY,
+      scaleX: zoomScale,
+      scaleY: zoomScale,
+      duration: 400,
+      ease: "Cubic.easeOut",
+      onComplete: () => {
+        this.time.delayedCall(focusDurationMs, () => {
+          this.tweens.add({
+            targets: world,
+            x: defX,
+            y: defY,
+            scaleX: VIEW_FILL_SCALE,
+            scaleY: VIEW_FILL_SCALE,
+            duration: 500,
+            ease: "Cubic.easeOut",
+          });
+        });
+      },
+    });
+  }
+
   private onEvolutionEvent(data: { agent_id: string; event_type?: string; [k: string]: unknown }) {
+    this.focusCameraOnAgent(data.agent_id);
     this.eventEffects.playEvolutionEvent(data);
   }
 
@@ -357,10 +394,12 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
       this.agentManager.delete(data.agent_id);
       return;
     }
+    this.focusCameraOnAgent(data.agent_id, 1.1, 1200);
     this.eventEffects.playAgentEliminated(data.agent_id);
   }
 
   private onAgentLastStand(data: { agent_id: string; display_name: string; balance: number }) {
+    this.focusCameraOnAgent(data.agent_id, 1.12, 2000);
     this.eventEffects.playAgentLastStand(data.agent_id, data.display_name, data.balance);
   }
 
@@ -371,6 +410,7 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
       agent.teamName = data.new_team_name || undefined;
       agent.label.setText(this.agentLabel(agent.displayName, data.agent_id, data.new_team_name));
     }
+    this.focusCameraOnAgent(data.agent_id, 1.08, 1400);
     this.eventEffects.playAgentDefected(data.agent_id, data.display_name, data.new_team_name);
   }
 
@@ -379,6 +419,32 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
   }
 
   update(time: number, delta: number) {
+    const defX = this.scale.width / 2;
+    const defY = this.scale.height / 2;
+    const dx = this.worldContainer.x - defX;
+    const dy = this.worldContainer.y - defY;
+    this.terrainRenderer.setParallaxOffset(dx, dy);
+    this.terrainRenderer.updateAmbient(time);
+
+    const cx = defX;
+    const cy = defY;
+    const activeBuildings = new Set<string>();
+    this.agentManager.getAll().forEach((agent, _id) => {
+      if (agent.taskPhase !== "execute") return;
+      const ax = agent.container.x;
+      const ay = agent.container.y;
+      for (const [key, pos] of Object.entries(LABEL_TO_XY)) {
+        if (key === "task") continue;
+        const ddx = ax - (pos.x - cx);
+        const ddy = ay - (pos.y - cy);
+        if (Math.sqrt(ddx * ddx + ddy * ddy) < 48) {
+          activeBuildings.add(key);
+          break;
+        }
+      }
+    });
+    this.terrainRenderer.setActiveBuildings(activeBuildings);
+
     this.taskNpcManager.update(time, delta);
     this.agentManager.update(time, delta);
   }

@@ -566,7 +566,6 @@ export function drawForestClusters(
     }
   });
 
-  // 森林边缘散落稀疏树
   const edgeTrees = [
     { x: 140, y: 110 }, { x: 150, y: 130 }, { x: 135, y: 155 },
     { x: 530, y: 110 }, { x: 520, y: 135 },
@@ -592,27 +591,21 @@ export function drawMountainClusters(
   const cx = originX;
   const cy = originY;
 
-  // 山峰位置 — 密集层叠排列
   const peakGroups = [
-    // 右上山脉群
     { peaks: [
       { x: 540, y: 130 }, { x: 550, y: 140 }, { x: 560, y: 128 },
       { x: 548, y: 148 }, { x: 536, y: 145 }, { x: 556, y: 155 },
     ]},
-    // 左上山脉群
     { peaks: [
       { x: 85, y: 132 }, { x: 95, y: 142 }, { x: 78, y: 148 },
       { x: 90, y: 155 }, { x: 100, y: 150 },
     ]},
-    // 上方中间
     { peaks: [
       { x: 318, y: 56 }, { x: 330, y: 62 }, { x: 325, y: 50 },
     ]},
-    // 右下（避开河流）
     { peaks: [
       { x: 510, y: 370 }, { x: 500, y: 378 },
     ]},
-    // 左下
     { peaks: [
       { x: 85, y: 368 }, { x: 72, y: 378 }, { x: 94, y: 380 },
     ]},
@@ -628,14 +621,12 @@ export function drawMountainClusters(
     });
   });
 
-  // 山脚岩石 — 散落在山脉底部和森林边缘
   const rockPositions = [
     { x: 530, y: 160 }, { x: 555, y: 162 }, { x: 545, y: 166 },
     { x: 75, y: 160 }, { x: 95, y: 163 }, { x: 85, y: 168 },
     { x: 315, y: 68 }, { x: 332, y: 72 },
     { x: 500, y: 390 },
     { x: 78, y: 388 }, { x: 92, y: 392 },
-    // 森林边缘岩石
     { x: 128, y: 100 }, { x: 520, y: 100 },
     { x: 128, y: 385 }, { x: 480, y: 388 },
   ];
@@ -741,7 +732,6 @@ export function drawRiverAndPond(
   const ox = originX;
   const oy = originY;
 
-  // 河流岸线坐标（左岸，右侧始终为画布边缘 640）
   const shoreEdge = [
     { x: 640, y: 200 }, { x: 632, y: 256 }, { x: 616, y: 320 },
     { x: 576, y: 376 }, { x: 520, y: 416 }, { x: 480, y: 448 },
@@ -757,7 +747,6 @@ export function drawRiverAndPond(
     return 640;
   };
 
-  // 岸线黑色描边
   g.lineStyle(3, NES.BLACK, 1);
   g.beginPath();
   g.moveTo(640 - ox, 198 - oy);
@@ -768,7 +757,6 @@ export function drawRiverAndPond(
   g.lineTo(478 - ox, 448 - oy);
   g.strokePath();
 
-  // 河流主体 — 深蓝底色
   g.fillStyle(NES.WATER_DEEP, 1);
   g.beginPath();
   g.moveTo(640 - ox, 200 - oy);
@@ -782,7 +770,6 @@ export function drawRiverAndPond(
   g.closePath();
   g.fillPath();
 
-  // 中层水色
   g.fillStyle(NES.WATER_MID, 1);
   g.beginPath();
   g.moveTo(640 - ox, 224 - oy);
@@ -795,7 +782,6 @@ export function drawRiverAndPond(
   g.closePath();
   g.fillPath();
 
-  // 浅水高光
   g.fillStyle(NES.WATER_LIGHT, 1);
   g.beginPath();
   g.moveTo(640 - ox, 256 - oy);
@@ -807,9 +793,6 @@ export function drawRiverAndPond(
   g.closePath();
   g.fillPath();
 
-  // 小波浪标记 — 散布 "~" 形亮蓝白纹，NES 像素风
-  // 每个波浪：██··  ← 上半行
-  //           ··██ ← 下半行（右移2px），组成 "~" 形
   const waveGapX = 14;
   const waveGapY = 8;
   g.fillStyle(NES.WATER_WAVE, 1);
@@ -822,7 +805,6 @@ export function drawRiverAndPond(
     }
   }
 
-  // 水池
   const pcx = 544 - ox;
   const pcy = 416 - oy;
   g.fillStyle(NES.WATER_DEEP, 1);
@@ -833,7 +815,6 @@ export function drawRiverAndPond(
   g.fillStyle(NES.WATER_LIGHT, 1);
   g.fillRect(pcx - 16, pcy - 6, 32, 12);
 
-  // 水池小波浪
   g.fillStyle(NES.WATER_WAVE, 1);
   for (let wy = -16; wy < 16; wy += waveGapY) {
     const off = (Math.floor((wy + 16) / waveGapY) % 2) * (waveGapX / 2);

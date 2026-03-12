@@ -3,6 +3,7 @@ import { NES } from "./nesColors";
 import { AgentState } from "./AgentManager";
 import { BUILDINGS, VIEW_SCALE_Y, LABEL_TO_XY, TO_LABEL } from "./sceneAssets";
 import { getRandomWanderPoint } from "./taskNpc";
+import { CHAR_LAYOUT } from "./characterAssets";
 
 export interface EventEffectsConfig {
   scene: Phaser.Scene;
@@ -92,7 +93,7 @@ export class EventEffects {
       });
     }
 
-    // 5. 角色头顶气泡
+    // 5. 角色头顶气泡 — 进化专用：金色圆角徽章
     const agent = this.getAgents().get(data.agent_id);
     if (agent) {
       const et = data.event_type as string;
@@ -106,10 +107,10 @@ export class EventEffects {
       bubble.setScale(0.3);
       bubble.setDepth(800);
       const bg = this.scene.add.graphics();
-      bg.fillStyle(NES.BLACK, 1);
-      bg.fillRect(-68, -14, 136, 28);
-      bg.lineStyle(2, NES.GOLD, 1);
-      bg.strokeRect(-68, -14, 136, 28);
+      bg.fillStyle(0x1a1505, 0.98);
+      bg.fillRoundedRect(-72, -16, 144, 32, 8);
+      bg.lineStyle(3, NES.GOLD, 1);
+      bg.strokeRoundedRect(-72, -16, 144, 32, 8);
       const txt = this.scene.add.text(0, 0, msg, {
         fontSize: "13px",
         color: "#FBBF24",
@@ -135,21 +136,20 @@ export class EventEffects {
       });
     }
 
-    // 6. Toast 通知
+    // 6. Toast 通知 — 进化：圆角金色框
     const agentName = this.getAgents().get(data.agent_id)?.displayName ?? data.agent_id;
     const toastMsg = data.event_type === "rule_added" ? `🧠 ${agentName} 获得新规则！`
       : data.event_type === "skill_generated" ? `⚡ ${agentName} 生成新技能！`
       : `✨ ${agentName} 进化完成！`;
-    const w = this.scene.scale.width;
     const toast = this.scene.add.container(-200, 30);
     toast.setDepth(950);
     toast.setScrollFactor(0);
     const toastBg = this.scene.add.graphics();
-    toastBg.fillStyle(NES.BLACK, 0.92);
-    toastBg.fillRect(0, 0, 188, 28);
-    toastBg.lineStyle(2, NES.GOLD, 1);
-    toastBg.strokeRect(0, 0, 188, 28);
-    const toastTxt = this.scene.add.text(94, 14, toastMsg, {
+    toastBg.fillStyle(0x1a1505, 0.95);
+    toastBg.fillRoundedRect(0, 0, 196, 32, 6);
+    toastBg.lineStyle(3, NES.GOLD, 1);
+    toastBg.strokeRoundedRect(0, 0, 196, 32, 6);
+    const toastTxt = this.scene.add.text(98, 16, toastMsg, {
       fontSize: "11px",
       color: "#FBBF24",
       fontStyle: "bold",
@@ -185,30 +185,59 @@ export class EventEffects {
     agent.eliminating = true;
     agent.taskPhase = "idle";
 
-    // Step 1: 红色闪烁
+    // 被击败迷你过场：敌方虚影从一侧移入 → 一击（闪光+震动）→ 再接原有骷髅旗等
+    const shadow = this.scene.add.graphics();
+    shadow.fillStyle(0x220000, 0.95);
+    shadow.fillRect(-12, -18, 24, 36);
+    shadow.lineStyle(2, 0xff2222, 1);
+    shadow.strokeRect(-12, -18, 24, 36);
+    shadow.setPosition(screenX + 48, screenY);
+    shadow.setDepth(755);
     this.scene.tweens.add({
-      targets: agent.container,
-      alpha: 0.2,
-      duration: 120,
-      yoyo: true,
-      repeat: 4,
-      ease: "Linear",
-      onStart: () => {
-        agent.base.setTint(0xff2222);
-        agent.helmet.setTint(0xff2222);
+      targets: shadow,
+      x: screenX,
+      duration: 380,
+      ease: "Cubic.easeIn",
+      onComplete: () => {
+        this.scene.cameras.main.shake(220, 0.012);
+        this.scene.cameras.main.flash(180, 255, 0, 0, false);
+        this.scene.time.delayedCall(200, () => {
+          shadow.destroy();
+        });
       },
     });
 
-    // Step 2: 气泡和特效
-    this.scene.time.delayedCall(200, () => {
+    const preludeMs = 850;
+
+    // Step 1: 红色闪烁（延后至被击败过场后）
+    this.scene.time.delayedCall(preludeMs, () => {
+      this.scene.tweens.add({
+        targets: agent.container,
+        alpha: 0.2,
+        duration: 120,
+        yoyo: true,
+        repeat: 4,
+        ease: "Linear",
+        onStart: () => {
+          agent.base.setTint(0xff2222);
+          agent.helmet.setTint(0xff2222);
+        },
+      });
+    });
+
+    // Step 2: 气泡和特效 — 淘汰：深红黑、尖角死亡风格
+    this.scene.time.delayedCall(preludeMs + 200, () => {
       const name = agent.displayName;
       const bubble = this.scene.add.container(screenX, screenY - 30);
       const bg = this.scene.add.graphics();
-      bg.fillStyle(0x000000, 0.92);
-      bg.fillRect(-60, -14, 120, 28);
-      bg.lineStyle(2, 0xff4444, 1);
-      bg.strokeRect(-60, -14, 120, 28);
-      const skull = this.scene.add.text(-46, 0, "💀", { fontSize: "14px" }).setOrigin(0.5).setResolution(2);
+      bg.fillStyle(0x0a0000, 0.98);
+      bg.fillRect(-64, -16, 128, 32);
+      // 双线边框，死亡感
+      bg.lineStyle(1, 0x440000, 0.8);
+      bg.strokeRect(-65, -17, 130, 34);
+      bg.lineStyle(2, 0xff2222, 1);
+      bg.strokeRect(-64, -16, 128, 32);
+      const skull = this.scene.add.text(-46, 0, "💀", { fontSize: "16px" }).setOrigin(0.5).setResolution(2);
       const txt = this.scene.add.text(12, 0, `${name} 兵败身死`, {
         fontSize: "9px",
         color: "#FF4444",
@@ -263,13 +292,13 @@ export class EventEffects {
     });
 
     // Step 3: 相机震动
-    this.scene.time.delayedCall(300, () => {
+    this.scene.time.delayedCall(preludeMs + 300, () => {
       this.scene.cameras.main.shake(400, 0.008);
       this.scene.cameras.main.flash(300, 255, 0, 0, false);
     });
 
     // Step 4: 精灵渐隐消失
-    this.scene.time.delayedCall(600, () => {
+    this.scene.time.delayedCall(preludeMs + 600, () => {
       this.scene.tweens.add({
         targets: agent.container,
         alpha: 0,
@@ -320,10 +349,10 @@ export class EventEffects {
 
       const bubble = this.scene.add.container(screenX, screenY - 36);
       const bg = this.scene.add.graphics();
-      bg.fillStyle(0x1a0000, 0.95);
-      bg.fillRect(-52, -13, 104, 26);
-      bg.lineStyle(2, 0xff2222, 1);
-      bg.strokeRect(-52, -13, 104, 26);
+      bg.fillStyle(0x0a0000, 0.98);
+      bg.fillRoundedRect(-56, -14, 112, 28, 4);
+      bg.lineStyle(2, 0xff3333, 1);
+      bg.strokeRoundedRect(-56, -14, 112, 28, 4);
       const txt = this.scene.add.text(0, 0, `⚔ ${displayName} 最后一战！`, {
         fontSize: "9px", color: "#ff6666", fontStyle: "bold",
       }).setOrigin(0.5).setResolution(2);
@@ -349,11 +378,12 @@ export class EventEffects {
     const cy = this.getCy();
     const w = this.scene.scale.width;
     const bubble = this.scene.add.container(w / 2, cy - 60);
+    // 结阵：横幅风格，宽扁圆角
     const bg = this.scene.add.graphics();
-    bg.fillStyle(0x000000, 0.88);
-    bg.fillRect(-70, -12, 140, 24);
+    bg.fillStyle(0x1a0f00, 0.92);
+    bg.fillRoundedRect(-80, -14, 160, 28, 6);
     bg.lineStyle(2, 0xf97316, 1);
-    bg.strokeRect(-70, -12, 140, 24);
+    bg.strokeRoundedRect(-80, -14, 160, 28, 6);
     const txt = this.scene.add.text(0, 0, `⚔ 结阵完成 — ${teams.length} 支队伍`, {
       fontSize: "10px", color: "#f97316", fontStyle: "bold",
     }).setOrigin(0.5).setResolution(2);
@@ -384,12 +414,12 @@ export class EventEffects {
       const screenX = cx + target.container.x;
       const screenY = cy + target.container.y * VIEW_SCALE_Y - 24;
       const bubble = this.scene.add.container(screenX, screenY);
-
+      // 救援：绿色圆角爱心风格
       const bg = this.scene.add.graphics();
-      bg.fillStyle(0x000000, 0.85);
-      bg.fillRect(-46, -12, 92, 24);
+      bg.fillStyle(0x051a08, 0.92);
+      bg.fillRoundedRect(-50, -14, 100, 28, 8);
       bg.lineStyle(2, 0x22c55e, 1);
-      bg.strokeRect(-46, -12, 92, 24);
+      bg.strokeRoundedRect(-50, -14, 100, 28, 8);
       const heart = this.scene.add.text(-32, 0, "❤", { fontSize: "12px" }).setOrigin(0.5).setResolution(2);
       const coin = this.scene.add.text(-14, 0, "🪙", { fontSize: "12px" }).setOrigin(0.5).setResolution(2);
       const txt = this.scene.add.text(16, 0, `+${amount}`, {
@@ -441,12 +471,13 @@ export class EventEffects {
       });
     }
 
+    // 叛逃：橙红火焰风格圆角
     const bubble = this.scene.add.container(screenX, screenY - 36);
     const bg = this.scene.add.graphics();
-    bg.fillStyle(0x1a0500, 0.95);
-    bg.fillRect(-52, -13, 104, 26);
+    bg.fillStyle(0x1a0800, 0.96);
+    bg.fillRoundedRect(-56, -14, 112, 28, 6);
     bg.lineStyle(2, 0xff6600, 1);
-    bg.strokeRect(-52, -13, 104, 26);
+    bg.strokeRoundedRect(-56, -14, 112, 28, 6);
     const destName = newTeamName || "流民";
     const txt = this.scene.add.text(0, 0, `🔥 ${displayName} 叛逃！`, {
       fontSize: "9px", color: "#ff9933", fontStyle: "bold",
@@ -518,14 +549,36 @@ export class EventEffects {
     const screenY = cy + agent.container.y * VIEW_SCALE_Y;
 
     if (success) {
-      // 胜利：头顶“军令达成！”气泡 + 角色轻微弹跳
+      // 胜利：举手欢呼图标（短暂弹出）+ 金色圆角徽章 + 轻微弹跳
+      const raiseHand = this.scene.add.text(screenX, screenY - 36, "✌", {
+        fontSize: "14px", color: "#FBBF24",
+      }).setOrigin(0.5).setDepth(901).setResolution(2);
+      raiseHand.setScale(0.3);
+      this.scene.tweens.add({
+        targets: raiseHand,
+        scaleX: 1,
+        scaleY: 1,
+        y: screenY - 48,
+        duration: 200,
+        ease: "Back.easeOut",
+      });
+      this.scene.tweens.add({
+        targets: raiseHand,
+        alpha: 0,
+        y: screenY - 64,
+        duration: 400,
+        delay: 350,
+        ease: "Cubic.easeIn",
+        onComplete: () => raiseHand.destroy(),
+      });
+
       const bubble = this.scene.add.container(screenX, screenY - 32);
       bubble.setDepth(900);
       const bg = this.scene.add.graphics();
-      bg.fillStyle(NES.BLACK, 0.92);
-      bg.fillRect(-52, -12, 104, 24);
+      bg.fillStyle(0x0a1505, 0.95);
+      bg.fillRoundedRect(-56, -14, 112, 28, 8);
       bg.lineStyle(2, NES.GOLD, 1);
-      bg.strokeRect(-52, -12, 104, 24);
+      bg.strokeRoundedRect(-56, -14, 112, 28, 8);
       const txt = this.scene.add.text(0, 0, "⚔ 军令达成！", {
         fontSize: "10px", color: "#FBBF24", fontStyle: "bold",
       }).setOrigin(0.5).setResolution(2);
@@ -535,21 +588,22 @@ export class EventEffects {
         ease: "Cubic.easeOut", delay: 200,
         onComplete: () => bubble.destroy(),
       });
-      // 用无 overshoot 的缓动，避免 yoyo 回弹时 Back.easeOut 把 scale 带到 1 以下导致角色变小
+      // 用无 overshoot 的缓动；onComplete 恢复角色原始缩放（CHAR_LAYOUT.scale），避免 setScale(1) 导致人物变小
+      const baseScale = CHAR_LAYOUT.scale;
       this.scene.tweens.add({
         targets: agent.container,
-        scaleX: 1.18, scaleY: 1.18, duration: 120, yoyo: true, ease: "Cubic.easeOut",
-        onComplete: () => { agent.container.setScale(1); },
+        scaleX: baseScale * 1.18, scaleY: baseScale * 1.18, duration: 120, yoyo: true, ease: "Cubic.easeOut",
+        onComplete: () => { agent.container.setScale(baseScale); },
       });
     } else {
-      // 失败：头顶“未竟”气泡 + 后退一步 + 红闪
+      // 失败：深红尖角气泡，与淘汰风格呼应
       const bubble = this.scene.add.container(screenX, screenY - 32);
       bubble.setDepth(900);
       const bg = this.scene.add.graphics();
-      bg.fillStyle(0x1a0000, 0.92);
-      bg.fillRect(-40, -12, 80, 24);
+      bg.fillStyle(0x0a0000, 0.96);
+      bg.fillRect(-44, -14, 88, 28);
       bg.lineStyle(2, 0xff4444, 1);
-      bg.strokeRect(-40, -12, 80, 24);
+      bg.strokeRect(-44, -14, 88, 28);
       const txt = this.scene.add.text(0, 0, "未竟", {
         fontSize: "10px", color: "#ff6666", fontStyle: "bold",
       }).setOrigin(0.5).setResolution(2);
@@ -587,11 +641,12 @@ export class EventEffects {
       const summary = taskSummary.length > 20 ? taskSummary.slice(0, 20) + "…" : taskSummary;
       const npcBubble = this.scene.add.container(npcScreenX, npcScreenY - 28);
       npcBubble.setDepth(920);
+      // NPC 任务气泡：黄铜色圆角
       const npcBg = this.scene.add.graphics();
-      npcBg.fillStyle(NES.BLACK, 0.9);
-      npcBg.fillRect(-72, -10, 144, 20);
+      npcBg.fillStyle(0x0f0a00, 0.92);
+      npcBg.fillRoundedRect(-76, -12, 152, 24, 6);
       npcBg.lineStyle(2, 0xe8a317, 1);
-      npcBg.strokeRect(-72, -10, 144, 20);
+      npcBg.strokeRoundedRect(-76, -12, 152, 24, 6);
       const npcTxt = this.scene.add.text(0, 0, summary, {
         fontSize: "9px", color: "#fcd34d", wordWrap: { width: 136 }, align: "center",
       }).setOrigin(0.5).setResolution(2);
@@ -603,25 +658,34 @@ export class EventEffects {
       });
     }
 
-    // Agent 头顶：「接令！」
+    // Agent 头顶：「接令！」— 金色圆角 + 弹跳进入
     if (agent && !agent.eliminating) {
       const ax = cx + agent.container.x;
       const ay = cy + agent.container.y * VIEW_SCALE_Y - 28;
       const agentBubble = this.scene.add.container(ax, ay);
       agentBubble.setDepth(921);
+      agentBubble.setScale(0.5);
       const agentBg = this.scene.add.graphics();
-      agentBg.fillStyle(0x0a1a0a, 0.95);
-      agentBg.fillRect(-32, -10, 64, 20);
+      agentBg.fillStyle(0x0a1505, 0.96);
+      agentBg.fillRoundedRect(-36, -12, 72, 24, 8);
       agentBg.lineStyle(2, NES.GOLD, 1);
-      agentBg.strokeRect(-32, -10, 64, 20);
+      agentBg.strokeRoundedRect(-36, -12, 72, 24, 8);
       const agentTxt = this.scene.add.text(0, 0, "接令！", {
         fontSize: "10px", color: "#FBBF24", fontStyle: "bold",
       }).setOrigin(0.5).setResolution(2);
       agentBubble.add([agentBg, agentTxt]);
+      // 接令气泡：弹跳进入
       this.scene.tweens.add({
-        targets: agentBubble, y: agentBubble.y - 22, alpha: 0, duration: 2000,
-        ease: "Cubic.easeOut", delay: 200,
-        onComplete: () => agentBubble.destroy(),
+        targets: agentBubble,
+        scaleX: 1, scaleY: 1,
+        duration: 180, ease: "Back.easeOut",
+      });
+      this.scene.time.delayedCall(200, () => {
+        this.scene.tweens.add({
+          targets: agentBubble, y: agentBubble.y - 22, alpha: 0, duration: 2000,
+          ease: "Cubic.easeOut",
+          onComplete: () => agentBubble.destroy(),
+        });
       });
     }
   }
@@ -645,15 +709,15 @@ export class EventEffects {
       });
     }
 
-    // 军功气泡
+    // 军功气泡 — 圆角金色
     if (pendingBalance !== null) {
       const balBubble = this.scene.add.container(screenX, screenY - 26);
       balBubble.setDepth(860);
       const balBg = this.scene.add.graphics();
-      balBg.fillStyle(NES.BLACK, 0.9);
-      balBg.fillRect(-38, -11, 76, 22);
+      balBg.fillStyle(0x0a1005, 0.94);
+      balBg.fillRoundedRect(-42, -13, 84, 26, 6);
       balBg.lineStyle(2, NES.GOLD, 1);
-      balBg.strokeRect(-38, -11, 76, 22);
+      balBg.strokeRoundedRect(-42, -13, 84, 26, 6);
       const balTxt = this.scene.add.text(0, 0, `⭐ ${pendingBalance}`, {
         fontSize: "10px", color: "#fbbf24", fontStyle: "bold",
       }).setOrigin(0.5).setResolution(2);

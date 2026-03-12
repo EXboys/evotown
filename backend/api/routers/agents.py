@@ -113,6 +113,19 @@ async def reject_skill(agent_id: str, skill_name: str):
     return {"ok": ok, "message": msg}
 
 
+@router.get("/{agent_id}/compactions")
+async def get_agent_compactions(agent_id: str, limit: int = 50):
+    """按 agent 返回记忆压缩记录（type=compaction），供详情页「记忆压缩」Tab 展示。"""
+    return await agent_service.get_compaction_entries_data(agent_id, limit)
+
+
+@router.get("/{agent_id}/compactions/debug")
+async def get_agent_compactions_debug(agent_id: str):
+    """返回 transcript 目录与条目统计，用于排查「无压缩记录」。
+    压缩由 SkillLite 自动执行并写入磁盘，当对话条数达到阈值（默认 16 条）时触发。"""
+    return await agent_service.get_compaction_debug(agent_id)
+
+
 @router.get("/{agent_id}/soul")
 async def get_agent_soul(agent_id: str):
     data = await agent_service.get_soul_data(agent_id)

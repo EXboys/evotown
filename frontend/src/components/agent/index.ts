@@ -8,3 +8,4 @@ export { PromptTab, PromptDiffView } from "./agent/PromptTab";
 export { SkillTab, type Skill } from "./agent/SkillTab";
 export { EvolutionTab, type EvolutionLogItem } from "./agent/EvolutionTab";
 export { SoulTab, type SoulData } from "./agent/SoulTab";
+export { CompactionTab, type CompactionItem } from "./CompactionTab";

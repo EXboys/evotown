@@ -130,6 +130,7 @@ const TABS = [
   { key: "prompts", label: "Prompts" },
   { key: "skills", label: "技能" },
   { key: "evolution", label: "进化" },
+  { key: "compaction", label: "记忆压缩" },
   { key: "soul", label: "Soul" },
 ] as const;
 

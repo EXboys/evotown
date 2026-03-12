@@ -160,6 +160,13 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
 
   private onTaskTaken(data: { task_id: string; agent_id: string; task: string }) {
     this.taskNpcManager.assignAgentToTaskNpc(data.agent_id, data.task_id);
+    const npcPos = this.taskNpcManager.getAssignedNpcPosition(data.agent_id);
+    this.eventEffects.playTaskTakenBubbles(
+      data.agent_id,
+      npcPos?.x ?? null,
+      npcPos?.y ?? null,
+      data.task || "军令",
+    );
   }
 
   private onTaskExpired(data: { task_id: string; task: string }) {
@@ -241,6 +248,7 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
         wanderTimer: 0,
         facing: "front",
         pendingBalance: null,
+        pendingSuccess: null,
         eliminating: false,
       };
       this.agentManager.getAll().set(agentId, agent);
@@ -306,6 +314,7 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
     }
 
     agent.pendingBalance = data.balance;
+    agent.pendingSuccess = data.success;
     const npcPos = this.taskNpcManager.getAssignedNpcPosition(data.agent_id);
     if (npcPos) {
       agent.taskPhase = "deliver";
@@ -313,7 +322,10 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
       const cy = this.scale.height / 2;
       agent.target = { x: npcPos.x - cx, y: npcPos.y - cy };
     } else {
+      // 无 NPC 时在当前位置直接播胜负过场
+      this.eventEffects.playTaskResult(data.agent_id, data.success);
       agent.pendingBalance = null;
+      agent.pendingSuccess = null;
       agent.taskPhase = "idle";
       const cx = this.scale.width / 2;
       const cy = this.scale.height / 2;
@@ -324,11 +336,16 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
   }
 
   private onDeliverComplete(agent: AgentState, cx: number, cy: number, agentId: string) {
+    const success = agent.pendingSuccess ?? true;
+    this.eventEffects.playTaskResult(agentId, success);
     const screenX = cx + agent.container.x;
     const screenY = cy + agent.container.y * VIEW_SCALE_Y;
-    this.eventEffects.playDeliveryEffect(screenX, screenY, agent.pendingBalance);
+    if (success) {
+      this.eventEffects.playDeliveryEffect(screenX, screenY, agent.pendingBalance);
+    }
     this.taskNpcManager.despawnByAgent(agentId);
     agent.pendingBalance = null;
+    agent.pendingSuccess = null;
     agent.taskPhase = "idle";
     agent.wanderTimer = 0;
     const wander = getRandomWanderPoint();

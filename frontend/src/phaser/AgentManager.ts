@@ -19,6 +19,8 @@ export interface AgentState {
   wanderTimer: number;
   facing: CharFacing;
   pendingBalance: number | null;
+  /** 本次交付的胜负，在 onDeliverComplete 时用于播放胜负过场 */
+  pendingSuccess: boolean | null;
   eliminating: boolean;
   rescueTarget?: { x: number; y: number };
   teamId?: string;

@@ -259,6 +259,18 @@ function TaskDetailPanel({ detail, agentNameMap }: { detail: TaskDetail; agentNa
         ) : (
           <div className="space-y-3 font-mono text-xs">
             {detail.transcript.map((e, j) => {
+              // 记忆压缩条目不在任务明细中展示（后端已过滤；此处兜底并做简短提示）
+              if ((e as { type?: string }).type === "compaction") {
+                const tokensBefore = (e as { tokens_before?: number }).tokens_before;
+                return (
+                  <div key={j} className="p-2 rounded-lg bg-slate-800/50 border border-slate-600/30">
+                    <span className="text-slate-500 text-[10px]">此前对话已压缩</span>
+                    {tokensBefore != null && (
+                      <span className="text-slate-600 text-[10px] ml-2">约 {Math.round(tokensBefore / 500)} 条</span>
+                    )}
+                  </div>
+                );
+              }
               const role = e.role ?? e.type;
               const content = e.content ?? "";
               const toolCalls = e.tool_calls;

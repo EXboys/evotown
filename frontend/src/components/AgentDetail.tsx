@@ -12,8 +12,9 @@ import { PromptTab } from "./agent/PromptTab";
 import { SkillTab, type Skill } from "./agent/SkillTab";
 import { EvolutionTab, type EvolutionLogItem } from "./agent/EvolutionTab";
 import { SoulTab, type SoulData } from "./agent/SoulTab";
+import { CompactionTab, type CompactionItem } from "./agent/CompactionTab";
 
-type TabType = "executions" | "decisions" | "rules" | "prompts" | "skills" | "evolution" | "soul";
+type TabType = "executions" | "decisions" | "rules" | "prompts" | "skills" | "evolution" | "compaction" | "soul";
 
 interface PromptItem {
   name: string;
@@ -50,6 +51,7 @@ export function AgentDetail({
   const [decisions, setDecisions] = useState<{ id?: number; ts?: string; total_tools?: number; failed_tools?: number; replans?: number; elapsed_ms?: number; task_completed?: boolean; feedback?: string; evolved?: boolean; task_description?: string; tools_detail?: string; [k: string]: unknown }[]>([]);
   const [executionLog, setExecutionLog] = useState<ExecutionLogItem[]>([]);
   const [evolutionLog, setEvolutionLog] = useState<EvolutionLogItem[]>([]);
+  const [compactions, setCompactions] = useState<CompactionItem[]>([]);
   const [metrics, setMetrics] = useState<{ daily: { date?: string; first_success_rate?: number; avg_replans?: number; user_correction_rate?: number; egl?: number }[]; egl_7d: number; egl_all_time: number } | null>(null);
   const [soul, setSoul] = useState<SoulData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,13 +81,14 @@ export function AgentDetail({
     const load = async () => {
       if (!cancelled) setLoading(true);
       try {
-        const [rRes, sRes, dRes, exeRes, soulRes, evoRes, metricsRes] = await Promise.all([
+        const [rRes, sRes, dRes, exeRes, soulRes, evoRes, compRes, metricsRes] = await Promise.all([
           fetch(`/agents/${agentId}/rules`),
           fetch(`/agents/${agentId}/skills`),
           fetch(`/agents/${agentId}/decisions?limit=50`),
           fetch(`/agents/${agentId}/execution_log?limit=30`),
           fetch(`/agents/${agentId}/soul`),
           fetch(`/agents/${agentId}/evolution_log?limit=100`),
+          fetch(`/agents/${agentId}/compactions?limit=50`),
           fetch(`/agents/${agentId}/metrics?limit=7`),
         ]);
         if (cancelled) return;
@@ -141,6 +144,9 @@ export function AgentDetail({
               }))
             : []
         );
+
+        const compRaw = (await safeJson(compRes, [])) as CompactionItem[];
+        setCompactions(Array.isArray(compRaw) ? compRaw : []);
 
         const soulData = await safeJson(soulRes, null);
         if (soulData && typeof soulData === "object" && "content" in (soulData as Record<string, unknown>)) {
@@ -219,7 +225,6 @@ export function AgentDetail({
       });
       // adminFetch 内部已处理 403 错误并弹窗，此处不再重复提示
       if (res.ok) {
-        setAgent((prev) => prev ? { ...prev, balance: newBalance } : prev);
         evotownEvents.emit("request_sync", {});
       }
     } catch (err) {
@@ -244,6 +249,8 @@ export function AgentDetail({
         return <SkillTab agentId={agentId} skills={skills} onSkillsChange={setSkills} />;
       case "evolution":
         return <EvolutionTab evolutionLog={evolutionLog} metrics={metrics} />;
+      case "compaction":
+        return <CompactionTab agentId={agentId} compactions={compactions} />;
       case "soul":
         return <SoulTab agentId={agentId} soul={soul} onSoulChange={setSoul} />;
       case "decisions":
@@ -264,7 +271,7 @@ export function AgentDetail({
         onUpdateBalance={handleUpdateBalance}
         onClose={onClose}
       />
-      <TabBar currentTab={tab} onTabChange={setTab} />
+      <TabBar currentTab={tab} onTabChange={(t) => setTab(t as TabType)} />
       <div className="flex-1 overflow-y-auto p-3">
         {renderTabContent()}
       </div>

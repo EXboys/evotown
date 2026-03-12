@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { adminFetch } from "../../hooks/useAdminToken";
 
-interface SoulData {
+export interface SoulData {
   content: string;
   soul_type: string;
 }

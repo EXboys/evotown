@@ -16,6 +16,9 @@ from infra.tool_execution_stream import load_execution_log_for_task
 from sqlite_reader import (
     get_transcript_executions,
     get_transcript_excerpt_for_task,
+    get_compaction_entries,
+    get_compaction_entries_from_all_files,
+    get_transcript_stats,
     get_decisions,
     get_evolution_log,
     get_metrics,
@@ -468,10 +471,16 @@ async def get_task_execution_detail(
             th_record = {}
         th_record["execution_log"] = execution_log
 
+    # 任务明细中不展示记忆压缩条目（compaction 含大段 summary，干扰阅读）
+    transcript_for_detail = [
+        e for e in transcript_entries
+        if (e.get("type") or "") != "compaction"
+    ]
+
     return {
         "agent_id": agent_id,
         "task": task_text,
-        "transcript": transcript_entries,
+        "transcript": transcript_for_detail,
         "decision": decision,
         "task_history": th_record,
     }
@@ -488,6 +497,63 @@ async def get_soul_data(agent_id: str) -> dict | None:
         return {"content": "", "soul_type": a.soul_type}
     content = soul_path.read_text(encoding="utf-8")
     return {"content": content, "soul_type": a.soul_type}
+
+
+async def get_compaction_entries_data(agent_id: str, limit: int = 50) -> list[dict]:
+    """按 agent 获取记忆压缩记录（供「记忆压缩」Tab 单独展示）。
+    使用 agent 的 chat_dir；若为空则回退到 agent_home/chat（与 process_manager 布局一致）。
+    会尝试 session_key=agent_id 与 session_key=run（evolution 可能写入 run），合并去重后返回。
+    """
+    a = arena.get_agent(agent_id)
+    if not a:
+        return []
+    chat_root = (a.chat_dir or "").strip()
+    if not chat_root and getattr(a, "agent_home", None):
+        chat_root = str(Path(a.agent_home) / "chat")
+    if not chat_root:
+        return []
+    # 先按 session_key（agent_id、run）查；若为空则扫描该目录下所有 .jsonl（兜底：实际可能用 default 等）
+    out: list[dict] = []
+    seen_ids: set[str] = set()
+    for session_key in (agent_id, "run"):
+        part = await asyncio.to_thread(get_compaction_entries, chat_root, session_key, limit)
+        for e in part:
+            eid = e.get("id") or ""
+            if eid and eid not in seen_ids:
+                seen_ids.add(eid)
+                out.append(e)
+    if not out:
+        part = await asyncio.to_thread(get_compaction_entries_from_all_files, chat_root, limit)
+        for e in part:
+            eid = e.get("id") or ""
+            if eid and eid not in seen_ids:
+                seen_ids.add(eid)
+                out.append(e)
+    out = out[-limit:] if limit else out
+    return out
+
+
+async def get_compaction_debug(agent_id: str) -> dict:
+    """返回该 agent 的 transcript 目录与条目统计，用于排查「无压缩记录」。
+    说明：压缩由 SkillLite 自动执行并写入磁盘（transcript 文件），不是仅内存；
+    当对话条数达到阈值（默认 16 条）时自动触发。
+    """
+    a = arena.get_agent(agent_id)
+    if not a:
+        return {"error": "agent not found", "transcript_dir": "", "chat_root_used": "", "exists": False, "hint": ""}
+    chat_root = (a.chat_dir or "").strip()
+    if not chat_root and getattr(a, "agent_home", None):
+        chat_root = str(Path(a.agent_home) / "chat")
+    if not chat_root:
+        return {
+            "transcript_dir": "",
+            "chat_root_used": "",
+            "exists": False,
+            "hint": "无法解析 chat 目录（chat_dir 与 agent_home 均为空）。",
+        }
+    result = await asyncio.to_thread(get_transcript_stats, chat_root, [agent_id, "run"])
+    result["chat_root_used"] = chat_root
+    return result
 
 
 async def update_soul(agent_id: str, content: str) -> bool:

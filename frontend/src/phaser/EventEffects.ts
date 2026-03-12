@@ -506,6 +506,126 @@ export class EventEffects {
     });
   }
 
+  /** 任务完成时的胜负过场：成功则庆祝气泡+轻微弹跳，失败则“未竟”气泡+后退+红闪 */
+  playTaskResult(agentId: string, success: boolean) {
+    const agents = this.getAgents();
+    const agent = agents.get(agentId);
+    if (!agent || agent.eliminating) return;
+
+    const cx = this.getCx();
+    const cy = this.getCy();
+    const screenX = cx + agent.container.x;
+    const screenY = cy + agent.container.y * VIEW_SCALE_Y;
+
+    if (success) {
+      // 胜利：头顶“军令达成！”气泡 + 角色轻微弹跳
+      const bubble = this.scene.add.container(screenX, screenY - 32);
+      bubble.setDepth(900);
+      const bg = this.scene.add.graphics();
+      bg.fillStyle(NES.BLACK, 0.92);
+      bg.fillRect(-52, -12, 104, 24);
+      bg.lineStyle(2, NES.GOLD, 1);
+      bg.strokeRect(-52, -12, 104, 24);
+      const txt = this.scene.add.text(0, 0, "⚔ 军令达成！", {
+        fontSize: "10px", color: "#FBBF24", fontStyle: "bold",
+      }).setOrigin(0.5).setResolution(2);
+      bubble.add([bg, txt]);
+      this.scene.tweens.add({
+        targets: bubble, y: bubble.y - 24, alpha: 0, duration: 2200,
+        ease: "Cubic.easeOut", delay: 200,
+        onComplete: () => bubble.destroy(),
+      });
+      // 用无 overshoot 的缓动，避免 yoyo 回弹时 Back.easeOut 把 scale 带到 1 以下导致角色变小
+      this.scene.tweens.add({
+        targets: agent.container,
+        scaleX: 1.18, scaleY: 1.18, duration: 120, yoyo: true, ease: "Cubic.easeOut",
+        onComplete: () => { agent.container.setScale(1); },
+      });
+    } else {
+      // 失败：头顶“未竟”气泡 + 后退一步 + 红闪
+      const bubble = this.scene.add.container(screenX, screenY - 32);
+      bubble.setDepth(900);
+      const bg = this.scene.add.graphics();
+      bg.fillStyle(0x1a0000, 0.92);
+      bg.fillRect(-40, -12, 80, 24);
+      bg.lineStyle(2, 0xff4444, 1);
+      bg.strokeRect(-40, -12, 80, 24);
+      const txt = this.scene.add.text(0, 0, "未竟", {
+        fontSize: "10px", color: "#ff6666", fontStyle: "bold",
+      }).setOrigin(0.5).setResolution(2);
+      bubble.add([bg, txt]);
+      this.scene.tweens.add({
+        targets: bubble, y: bubble.y - 28, alpha: 0, duration: 2400,
+        ease: "Cubic.easeOut", delay: 300,
+        onComplete: () => bubble.destroy(),
+      });
+      this.scene.cameras.main.flash(280, 180, 0, 0, false);
+      this.scene.cameras.main.shake(200, 0.005);
+      const origY = agent.container.y;
+      this.scene.tweens.add({
+        targets: agent.container,
+        y: origY + 8, duration: 150, ease: "Cubic.easeOut",
+        onStart: () => { agent.base.setTint(0xff4444); agent.helmet.setTint(0xff4444); },
+        onComplete: () => {
+          this.scene.tweens.add({
+            targets: agent.container, y: origY, duration: 180, ease: "Cubic.easeIn",
+            onComplete: () => { agent.base.clearTint(); agent.helmet.clearTint(); },
+          });
+        },
+      });
+    }
+  }
+
+  /** 接任务时的对话泡泡：NPC 头顶任务摘要，Agent 头顶「接令！」 */
+  playTaskTakenBubbles(agentId: string, npcScreenX: number | null, npcScreenY: number | null, taskSummary: string) {
+    const agents = this.getAgents();
+    const agent = agents.get(agentId);
+    const cx = this.getCx();
+    const cy = this.getCy();
+
+    if (npcScreenX != null && npcScreenY != null) {
+      const summary = taskSummary.length > 20 ? taskSummary.slice(0, 20) + "…" : taskSummary;
+      const npcBubble = this.scene.add.container(npcScreenX, npcScreenY - 28);
+      npcBubble.setDepth(920);
+      const npcBg = this.scene.add.graphics();
+      npcBg.fillStyle(NES.BLACK, 0.9);
+      npcBg.fillRect(-72, -10, 144, 20);
+      npcBg.lineStyle(2, 0xe8a317, 1);
+      npcBg.strokeRect(-72, -10, 144, 20);
+      const npcTxt = this.scene.add.text(0, 0, summary, {
+        fontSize: "9px", color: "#fcd34d", wordWrap: { width: 136 }, align: "center",
+      }).setOrigin(0.5).setResolution(2);
+      npcBubble.add([npcBg, npcTxt]);
+      this.scene.tweens.add({
+        targets: npcBubble, y: npcBubble.y - 20, alpha: 0, duration: 2200,
+        ease: "Cubic.easeOut", delay: 400,
+        onComplete: () => npcBubble.destroy(),
+      });
+    }
+
+    // Agent 头顶：「接令！」
+    if (agent && !agent.eliminating) {
+      const ax = cx + agent.container.x;
+      const ay = cy + agent.container.y * VIEW_SCALE_Y - 28;
+      const agentBubble = this.scene.add.container(ax, ay);
+      agentBubble.setDepth(921);
+      const agentBg = this.scene.add.graphics();
+      agentBg.fillStyle(0x0a1a0a, 0.95);
+      agentBg.fillRect(-32, -10, 64, 20);
+      agentBg.lineStyle(2, NES.GOLD, 1);
+      agentBg.strokeRect(-32, -10, 64, 20);
+      const agentTxt = this.scene.add.text(0, 0, "接令！", {
+        fontSize: "10px", color: "#FBBF24", fontStyle: "bold",
+      }).setOrigin(0.5).setResolution(2);
+      agentBubble.add([agentBg, agentTxt]);
+      this.scene.tweens.add({
+        targets: agentBubble, y: agentBubble.y - 22, alpha: 0, duration: 2000,
+        ease: "Cubic.easeOut", delay: 200,
+        onComplete: () => agentBubble.destroy(),
+      });
+    }
+  }
+
   playDeliveryEffect(screenX: number, screenY: number, pendingBalance: number | null) {
     // 金色星星爆炸
     for (let i = 0; i < 8; i++) {

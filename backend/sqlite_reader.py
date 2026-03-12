@@ -217,6 +217,92 @@ def _parse_all_entries(paths: list[Path]) -> list[dict[str, Any]]:
     return all_entries
 
 
+def _compaction_from_entry(e: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": e.get("id") or "",
+        "parent_id": e.get("parent_id"),
+        "first_kept_entry_id": e.get("first_kept_entry_id") or "",
+        "tokens_before": e.get("tokens_before"),
+        "summary": e.get("summary") or "",
+    }
+
+
+def get_compaction_entries(
+    chat_root: str, session_key: str, limit: int = 50
+) -> list[dict[str, Any]]:
+    """按 agent 获取记忆压缩记录（仅 type=compaction 的条目），按出现顺序返回，最多 limit 条。"""
+    transcripts_dir = Path(chat_root) / "transcripts"
+    paths = _list_transcript_files(transcripts_dir, session_key)
+    if not paths:
+        return []
+    entries = _parse_all_entries(paths)
+    compactions = [_compaction_from_entry(e) for e in entries if (e.get("type") or "") == "compaction"]
+    return compactions[-limit:] if limit else compactions
+
+
+def get_compaction_entries_from_all_files(chat_root: str, limit: int = 50) -> list[dict[str, Any]]:
+    """扫描 transcript 目录下所有 .jsonl 文件，收集全部 compaction 条目（不按 session_key 过滤）。
+    用于当按 session_key 查不到时兜底——例如实际写入的 session_key 与预期不符（如 default）。"""
+    transcripts_dir = Path(chat_root) / "transcripts"
+    if not transcripts_dir.exists():
+        return []
+    paths = sorted(transcripts_dir.glob("*.jsonl"), key=lambda p: p.stem)
+    if not paths:
+        return []
+    entries = _parse_all_entries(paths)
+    compactions = [_compaction_from_entry(e) for e in entries if (e.get("type") or "") == "compaction"]
+    return compactions[-limit:] if limit else compactions
+
+
+def get_transcript_stats(chat_root: str, session_keys: list[str]) -> dict[str, Any]:
+    """返回 transcript 目录与条目统计，用于调试「无压缩记录」。
+    说明：压缩由 SkillLite 在磁盘 transcript 中自动写入，不是仅内存；达到阈值（默认 16 条 user+assistant）时自动执行。
+    """
+    transcripts_dir = Path(chat_root) / "transcripts"
+    out: dict[str, Any] = {
+        "transcript_dir": str(transcripts_dir),
+        "exists": transcripts_dir.exists(),
+        "session_keys_tried": list(session_keys),
+        "file_count": 0,
+        "file_names": [],
+        "message_count": 0,
+        "compaction_count": 0,
+        "compaction_count_all_files": 0,
+        "hint": "",
+    }
+    if not transcripts_dir.exists():
+        out["hint"] = "transcript 目录不存在；请确认该 Agent 已执行过任务（transcript 在任务执行时写入磁盘）。"
+        return out
+    # 按 session_key 统计
+    all_entries: list[dict[str, Any]] = []
+    for sk in session_keys:
+        paths = _list_transcript_files(transcripts_dir, sk)
+        out["file_count"] += len(paths)
+        all_entries.extend(_parse_all_entries(paths))
+    out["message_count"] = sum(1 for e in all_entries if (e.get("type") or "") == "message")
+    out["compaction_count"] = sum(1 for e in all_entries if (e.get("type") or "") == "compaction")
+    # 扫描目录下所有 .jsonl 文件名 + 全量 compaction 数（用于排查 session_key 不一致）
+    all_paths = sorted(transcripts_dir.glob("*.jsonl"), key=lambda p: p.stem)
+    out["file_names"] = [p.name for p in all_paths]
+    all_entries_any = _parse_all_entries(all_paths)
+    out["compaction_count_all_files"] = sum(1 for e in all_entries_any if (e.get("type") or "") == "compaction")
+    if out["compaction_count"] > 0:
+        out["hint"] = ""
+    elif out["compaction_count_all_files"] > 0:
+        out["hint"] = (
+            f"按 session_key 未找到压缩记录，但目录下全部文件中共有 {out['compaction_count_all_files']} 条。"
+            "已改为扫描全部 transcript 文件显示压缩记录；若仍无数据请刷新。"
+        )
+    elif out["message_count"] < 16:
+        out["hint"] = (
+            "压缩是自动的且写入磁盘。当前对话条数未达到阈值（默认 16 条），"
+            "多执行一些任务后会自动触发压缩并在此显示。"
+        )
+    else:
+        out["hint"] = "已有足够对话条数但未发现压缩记录，可能由旧版 SkillLite 或阈值配置导致。"
+    return out
+
+
 def _extract_excerpt(entries: list[dict[str, Any]], start_idx: int) -> list[dict[str, Any]]:
     """从 start_idx 处提取一段对话：当前 user 消息 + 后续非 user 消息"""
     excerpt: list[dict[str, Any]] = [entries[start_idx]]

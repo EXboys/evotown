@@ -1,5 +1,6 @@
 services:
   # ── Backend: FastAPI + uvicorn ──────────────────────────────────
+  
   backend:
     build:
       context: ..          # repo 根目录（包含 Cargo.toml + skilllite/ + crates/）

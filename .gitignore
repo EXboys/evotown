@@ -20,6 +20,7 @@ frontend/dist/
 npm-debug.log*
 
 # IDE
+
 .idea/
 .vscode/
 *.swp

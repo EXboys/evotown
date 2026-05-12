@@ -2,6 +2,7 @@
 # ── 单 Stage：Python backend + 从 GitHub Release 下载预编译 skilllite 二进制 ──
 FROM python:3.11-slim
 
+
 WORKDIR /app
 
 # TARGETARCH 由 BuildKit 自动注入：arm64（Apple Silicon）或 amd64（Intel/AMD）

@@ -98,10 +98,12 @@ function syncFromStoreToPhaser(
 }
 
 const SYNC_FALLBACK_INTERVAL_MS = 15_000;
+const SYNC_CONNECTED_INTERVAL_MS = 60_000;
 
 export function useAgentSync() {
   const setAgents = useEvotownStore((s) => s.setAgents);
   const agents = useEvotownStore((s) => s.agents);
+  const wsConnected = useEvotownStore((s) => s.wsConnected);
   const didInitialFetch = useRef(false);
 
   // 1. 挂载时拉取一次
@@ -136,12 +138,13 @@ export function useAgentSync() {
       syncFromStoreToPhaser(() => useEvotownStore.getState().agents);
   }, [agents.length, agents.map((a) => `${a.id}:${a.team_id ?? ""}`).join(",")]);
 
-  // 5. 15s 兜底轮询（WS 未连接或时序异常时）
+  // 5. 兜底轮询：WS 已连接时降低频率，断线时保持较快同步
   useEffect(() => {
+    const intervalMs = wsConnected ? SYNC_CONNECTED_INTERVAL_MS : SYNC_FALLBACK_INTERVAL_MS;
     const id = setInterval(
       () => doFullSync(setAgents),
-      SYNC_FALLBACK_INTERVAL_MS,
+      intervalMs,
     );
     return () => clearInterval(id);
-  }, [setAgents]);
+  }, [setAgents, wsConnected]);
 }

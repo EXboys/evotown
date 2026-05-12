@@ -64,9 +64,9 @@ export interface EvolutionEventItem {
 
 export interface MetricsPoint {
   date: string;
-  egl?: number;
   first_success_rate?: number;
   avg_replans?: number;
+  user_correction_rate?: number;
 }
 
 export interface JudgeScore {
@@ -144,6 +144,8 @@ interface EvotownState {
   agentDecisions: AgentDecision[];
   /** 技能修复状态（按 agentId），切 tab 后回来仍可见 */
   repairStateByAgent: Record<string, { repairing: boolean; log: string[]; msg: string | null }>;
+  /** WebSocket 已连接时前端可降低 REST 兜底轮询频率 */
+  wsConnected: boolean;
 
   /** 手动触发过期数据清理 */
   cleanupExpiredEvents: () => void;
@@ -178,6 +180,7 @@ interface EvotownState {
   setRepairState: (agentId: string, state: Partial<{ repairing: boolean; log: string[]; msg: string | null }>) => void;
   appendRepairLog: (agentId: string, line: string) => void;
   getRepairState: (agentId: string) => { repairing: boolean; log: string[]; msg: string | null };
+  setWsConnected: (connected: boolean) => void;
 }
 
 export const useEvotownStore = create<EvotownState>((set, get) => ({
@@ -194,8 +197,10 @@ export const useEvotownStore = create<EvotownState>((set, get) => ({
   socialMessages: [],
   agentDecisions: [],
   repairStateByAgent: {},
+  wsConnected: false,
 
   setReplayMode: (mode) => set({ replayMode: mode }),
+  setWsConnected: (connected) => set({ wsConnected: connected }),
   setAgentTeams: (teams) =>
     set((s) => {
       // 构建 agent_id -> {team_id, team_name} 映射

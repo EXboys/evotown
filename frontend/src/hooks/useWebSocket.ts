@@ -30,6 +30,7 @@ function logError(msg: string, err: unknown) {
 
 export function useWebSocket() {
   const [connected, setConnected] = useState(false);
+  const setWsConnected = useEvotownStore((s) => s.setWsConnected);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   /** 重试计数 */
@@ -82,6 +83,7 @@ export function useWebSocket() {
           requestSync();
         }
         setConnected(true);
+        setWsConnected(true);
         log("connected");
       };
 
@@ -89,6 +91,7 @@ export function useWebSocket() {
         if (cancelled) return;
 
         setConnected(false);
+        setWsConnected(false);
         wsRef.current = null;
 
         // 清除 pong 超时定时器
@@ -385,9 +388,10 @@ export function useWebSocket() {
       clearTimeout(reconnectTimeoutRef.current);
       const ws = wsRef.current;
       wsRef.current = null;
+      setWsConnected(false);
       if (ws?.readyState === WebSocket.OPEN) ws.close();
     };
-  }, [getNextDelay, requestSync]);
+  }, [getNextDelay, requestSync, setWsConnected]);
 
   return { connected };
 }

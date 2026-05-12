@@ -409,6 +409,24 @@ def _run_record(
 
 def _run_evolution_check(agent_id: str, judge_result: "JudgeResult") -> None:
     """步骤④：按配置判断是否触发个体进化（后台 task，不 await）。"""
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(
+            broadcast_evolution_event(
+                {
+                    "agent_id": agent_id,
+                    "event_type": "evolution_judgement",
+                    "reason": judge_result.reason,
+                    "completion": judge_result.completion,
+                    "quality": judge_result.quality,
+                    "efficiency": judge_result.efficiency,
+                    "reward": judge_result.reward,
+                }
+            )
+        )
+    except RuntimeError:
+        pass
+
     evo_cfg = load_evolution_config()
     if not evo_cfg["auto_trigger"]:
         return

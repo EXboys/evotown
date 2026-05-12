@@ -23,6 +23,7 @@ function eventLabel(type: string): string {
     example_added: "示例+",
     auto_rollback: "回滚",
     evolution_run: "运行",
+    evolution_judgement: "判断",
   };
   return map[type] ?? type;
 }

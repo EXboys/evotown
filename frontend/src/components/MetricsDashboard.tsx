@@ -1,5 +1,5 @@
-/** EGL 收敛曲线 + 成功率趋势图 */
-import { useEffect, useState } from "react";
+/** 成功率 / 重规划 / 纠正率趋势图 */
+import { useEffect, useRef, useState } from "react";
 import {
   LineChart,
   Line,
@@ -9,7 +9,6 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  ReferenceLine,
 } from "recharts";
 import { useEvotownStore, type MetricsPoint } from "../store/evotownStore";
 
@@ -20,6 +19,8 @@ const AGENT_COLORS: Record<string, string> = {
   agent_4: "#fbbf24",
   agent_5: "#f87171",
 };
+
+const METRICS_CACHE_TTL_MS = 60_000;
 
 function agentColor(id: string) {
   return AGENT_COLORS[id] ?? "#94a3b8";
@@ -34,27 +35,42 @@ function formatDate(d: string): string {
   }
 }
 
+async function fetchMetrics(agentId: string): Promise<MetricsPoint[]> {
+  const r = await fetch(`/agents/${agentId}/metrics?limit=50`);
+  const raw = await r.json();
+  return Array.isArray(raw) ? raw : (raw?.daily ?? []);
+}
+
 export function MetricsDashboard({ agents }: { agents: { id: string; display_name?: string }[] }) {
   const [data, setData] = useState<{ date: string; [key: string]: string | number | undefined }[]>([]);
   const setMetricsCache = useEvotownStore((s) => s.setMetricsCache);
+  const cacheFetchedAt = useRef<Record<string, number>>({});
+  const agentIds = agents.map((a) => a.id).join(",");
 
   useEffect(() => {
     const load = async () => {
+      const now = Date.now();
+      const cachedSnapshot = useEvotownStore.getState().metricsCache;
       const all: Record<string, MetricsPoint[]> = {};
-      for (const a of agents) {
-        try {
-          const r = await fetch(`/agents/${a.id}/metrics?limit=50`);
-          const raw = await r.json();
-          // 兼容：接口返回 { daily, egl_7d, egl_all_time } 或旧版直接为数组
-          const rows: MetricsPoint[] = Array.isArray(raw) ? raw : (raw?.daily ?? []);
-          setMetricsCache(a.id, rows);
-          all[a.id] = rows;
-        } catch (err) {
-          console.warn(`[evotown] fetch metrics for ${a.id} failed`, err);
-          all[a.id] = [];
+      const pending = agents.map(async (agent) => {
+        const cached = cachedSnapshot[agent.id];
+        const fetchedAt = cacheFetchedAt.current[agent.id] ?? 0;
+        if (cached?.length && now - fetchedAt < METRICS_CACHE_TTL_MS) {
+          all[agent.id] = cached;
+          return;
         }
-      }
-      // 合并为按 date 的表格
+        try {
+          const rows = await fetchMetrics(agent.id);
+          cacheFetchedAt.current[agent.id] = now;
+          setMetricsCache(agent.id, rows);
+          all[agent.id] = rows;
+        } catch (err) {
+          console.warn(`[evotown] fetch metrics for ${agent.id} failed`, err);
+          all[agent.id] = cached ?? [];
+        }
+      });
+      await Promise.all(pending);
+
       const dateSet = new Set<string>();
       for (const rows of Object.values(all)) {
         for (const row of rows) {
@@ -67,8 +83,9 @@ export function MetricsDashboard({ agents }: { agents: { id: string; display_nam
         for (const a of agents) {
           const point = all[a.id]?.find((p) => p.date === date);
           if (point) {
-            row[`${a.id}_egl`] = point.egl;
-            row[`${a.id}_rate`] = point.first_success_rate;
+            row[`${a.id}_first_success_rate`] = point.first_success_rate;
+            row[`${a.id}_avg_replans`] = point.avg_replans;
+            row[`${a.id}_user_correction_rate`] = point.user_correction_rate;
           }
         }
         return row;
@@ -76,7 +93,7 @@ export function MetricsDashboard({ agents }: { agents: { id: string; display_nam
       setData(merged);
     };
     if (agents.length) load();
-  }, [agents.map((a) => a.id).join(",")]);
+  }, [agentIds, setMetricsCache]);
 
   if (agents.length === 0) {
     return (
@@ -107,17 +124,38 @@ export function MetricsDashboard({ agents }: { agents: { id: string; display_nam
               labelFormatter={formatDate}
               formatter={(v: number) => [(v ?? 0).toFixed(2), ""]}
             />
-            <Legend
-              wrapperStyle={{ fontSize: 10 }}
-              formatter={(value) => String(value).replace(/_egl$/, "")}
-            />
-            <ReferenceLine y={0.7} stroke="#64748b" strokeDasharray="3 3" />
+            <Legend wrapperStyle={{ fontSize: 10 }} />
+
             {agents.map((a) => (
               <Line
-                key={a.id}
+                key={`${a.id}_first_success_rate`}
                 type="monotone"
-                dataKey={`${a.id}_egl`}
-                name={a.display_name || a.id}
+                dataKey={`${a.id}_first_success_rate`}
+                name={`${a.display_name || a.id} FSR`}
+                stroke={agentColor(a.id)}
+                strokeWidth={2}
+                dot={{ r: 2 }}
+                connectNulls
+              />
+            ))}
+            {agents.map((a) => (
+              <Line
+                key={`${a.id}_avg_replans`}
+                type="monotone"
+                dataKey={`${a.id}_avg_replans`}
+                name={`${a.display_name || a.id} Avg Replans`}
+                stroke={agentColor(a.id)}
+                strokeWidth={2}
+                dot={{ r: 2 }}
+                connectNulls
+              />
+            ))}
+            {agents.map((a) => (
+              <Line
+                key={`${a.id}_user_correction_rate`}
+                type="monotone"
+                dataKey={`${a.id}_user_correction_rate`}
+                name={`${a.display_name || a.id} UCR`}
                 stroke={agentColor(a.id)}
                 strokeWidth={2}
                 dot={{ r: 2 }}
@@ -127,9 +165,6 @@ export function MetricsDashboard({ agents }: { agents: { id: string; display_nam
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <p className="text-[10px] text-slate-500">
-        EGL = 每千次决策的进化产出数（规则/示例/技能）。约 10～100 表示有稳定学习；结合成功率与纠正率综合看。
-      </p>
     </div>
   );
 }

@@ -13,24 +13,67 @@ Puts evolution engines (e.g. SkillLite) in a controlled environment for **evolut
 
 ## Quick Start
 
-### 1. Start Backend
+### Option A — Docker (Recommended)
+
+Requires Docker Desktop (or Docker Engine + Compose plugin).
 
 ```bash
-cd evotown/backend
-pip install -r requirements.txt
-python main.py
-# or: uvicorn main:app --host 0.0.0.0 --port 8765
+cd evotown
+
+# 1. Create .env from the template (same directory as docker-compose.yml)
+cp .env.example .env
+# Edit API_KEY / BASE_URL / MODEL, and optional per-channel overrides (JUDGE, DISPATCHER, SOCIAL, CHRONICLE)
+
+# 2. First-time: build images and start
+docker compose up -d --build
+
+# Subsequent starts (no rebuild needed)
+docker compose up -d
+
+# Stop
+docker compose down
 ```
 
-### 2. Start Frontend
+Visit http://localhost — landing page, then open the arena.
+
+> **Note**: `.env` must live next to `docker-compose.yml`. Docker Compose reads it on startup.
+
+### Option B — Local Dev (two terminals)
 
 ```bash
+# Terminal 1 — Backend
+cd evotown/backend
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8765
+
+# Terminal 2 — Frontend
 cd evotown/frontend
 npm install
 npm run dev
 ```
 
 Visit http://localhost:5174
+
+> **Data directory**: Local dev and Docker both persist arena state, task history, and logs under `evotown/data/`. Override with `EVOTOWN_DATA_DIR` when needed.
+
+## Configuration
+
+Copy `.env.example` to `.env` and fill in at least the main `BASE_URL`, `API_KEY`, and `MODEL`. Optional per-channel overrides (`JUDGE_*`, `DISPATCHER_*`, `SOCIAL_*`, `CHRONICLE_*`) let high-frequency flows use a cheaper model while judge and chronicle keep a stronger one. Docker Compose also accepts `OPENAI_API_KEY` / `OPENAI_BASE_URL` as aliases for the main channel.
+
+Arena economy and evolution knobs live in `backend/evotown_config.json` (see `backend/evotown_config.json.example`).
+
+## Arena UI
+
+| Route | Purpose |
+|-------|---------|
+| `/` | Landing page |
+| `/arena` | Main arena (Phaser map, observer panel, agent detail) |
+| `/task-history` | Task history and judge scores |
+| `/chronicle` | Generated evolution chronicle |
+
+The frontend uses WebSocket for live arena updates. A REST fallback still polls `/agents` when the socket is down (about every 15s) or connected (about every 60s) so the map stays in sync.
+
+The observer metrics chart loads per-agent `/agents/{id}/metrics` in parallel and reuses a short-lived cache to avoid hammering the API.
 
 ## Economy Rules (Jungle Law)
 
@@ -51,17 +94,15 @@ Query current config via `GET /config/economy`.
 ```
 evotown/
 ├── backend/              # FastAPI backend
-│   ├── main.py           # API + WebSocket
-│   ├── economy_config.py # Economy rules config
-│   ├── evotown_config.json  # Editable rules (optional)
-│   ├── process_manager.py
-│   ├── sqlite_reader.py
-│   └── ...
-├── frontend/         # React + Phaser 3 frontend
-│   └── src/
+├── frontend/             # React + Phaser 3 frontend
+├── data/                 # Default persistence (override with EVOTOWN_DATA_DIR)
+├── .env.example          # LLM + arena env template
+├── docker-compose.yml
 ├── docs/
-│   ├── en/           # English docs
-│   └── zh-CN/        # 中文文档
+│   ├── en/               # English docs
+│   └── zh-CN/            # 中文文档
+├── en/README.md
+├── zh-CN/README.md
 └── README.md
 ```
 

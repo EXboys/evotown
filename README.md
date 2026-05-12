@@ -22,11 +22,9 @@ Requires Docker Desktop (or Docker Engine + Compose plugin).
 ```bash
 cd evotown
 
-# 1. Create .env with your LLM API key (same directory as docker-compose.yml)
-cat > .env << 'EOF'
-OPENAI_API_KEY=sk-your-key-here
-# OPENAI_BASE_URL=https://your-proxy/v1   # optional, remove if using OpenAI directly
-EOF
+# 1. Create .env from the template (same directory as docker-compose.yml)
+cp .env.example .env
+# Edit API_KEY / BASE_URL / MODEL, and optional per-channel overrides (JUDGE, DISPATCHER, SOCIAL, CHRONICLE)
 
 # 2. First-time: build images and start
 docker compose up -d --build
@@ -59,7 +57,26 @@ npm run dev
 
 Visit http://localhost:5174
 
-> **数据目录**：本地运行与 Docker 共用 `evotown/data/`，任务历史、arena 状态等持久化于此。若需指定其他目录，可设置 `EVOTOWN_DATA_DIR`。
+> **Data directory**: Local dev and Docker both persist arena state, task history, and logs under `evotown/data/`. Override with `EVOTOWN_DATA_DIR` when needed.
+
+## Configuration
+
+Copy `.env.example` to `.env` and fill in at least the main `BASE_URL`, `API_KEY`, and `MODEL`. Optional per-channel overrides (`JUDGE_*`, `DISPATCHER_*`, `SOCIAL_*`, `CHRONICLE_*`) let high-frequency flows use a cheaper model while judge and chronicle keep a stronger one. Docker Compose also accepts `OPENAI_API_KEY` / `OPENAI_BASE_URL` as aliases for the main channel.
+
+Arena economy and evolution knobs live in `backend/evotown_config.json` (see `backend/evotown_config.json.example`).
+
+## Arena UI
+
+| Route | Purpose |
+|-------|---------|
+| `/` | Landing page |
+| `/arena` | Main arena (Phaser map, observer panel, agent detail) |
+| `/task-history` | Task history and judge scores |
+| `/chronicle` | Generated evolution chronicle |
+
+The frontend uses WebSocket for live arena updates. A REST fallback still polls `/agents` when the socket is down (about every 15s) or connected (about every 60s) so the map stays in sync.
+
+The observer metrics chart loads per-agent `/agents/{id}/metrics` in parallel and reuses a short-lived cache to avoid hammering the API.
 
 ## Economy Rules (Jungle Law)
 
@@ -81,6 +98,9 @@ Query current config via `GET /config/economy`.
 evotown/
 ├── backend/              # FastAPI backend
 ├── frontend/             # React + Phaser 3 frontend
+├── data/                 # Default persistence (override with EVOTOWN_DATA_DIR)
+├── .env.example          # LLM + arena env template
+├── docker-compose.yml
 ├── docs/
 │   ├── en/               # English docs
 │   └── zh-CN/            # 中文文档

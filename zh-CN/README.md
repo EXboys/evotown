@@ -13,24 +13,67 @@
 
 ## 快速开始
 
-### 1. 启动后端
+### 方式 A — Docker（推荐）
+
+需要 Docker Desktop（或 Docker Engine + Compose 插件）。
 
 ```bash
-cd evotown/backend
-pip install -r requirements.txt
-python main.py
-# 或: uvicorn main:app --host 0.0.0.0 --port 8765
+cd evotown
+
+# 1. 从模板创建 .env（与 docker-compose.yml 同级）
+cp .env.example .env
+# 填写 API_KEY / BASE_URL / MODEL，并按需配置分通道（JUDGE、DISPATCHER、SOCIAL、CHRONICLE）
+
+# 2. 首次：构建镜像并启动
+docker compose up -d --build
+
+# 之后启动（无需重建）
+docker compose up -d
+
+# 停止
+docker compose down
 ```
 
-### 2. 启动前端
+访问 http://localhost — 落地页，再进入竞技场。
+
+> **说明**：`.env` 须与 `docker-compose.yml` 同级；Compose 启动时会自动读取。
+
+### 方式 B — 本地开发（两个终端）
 
 ```bash
+# 终端 1 — 后端
+cd evotown/backend
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8765
+
+# 终端 2 — 前端
 cd evotown/frontend
 npm install
 npm run dev
 ```
 
 访问 http://localhost:5174
+
+> **数据目录**：本地与 Docker 共用 `evotown/data/` 持久化竞技场状态、任务历史等；可通过 `EVOTOWN_DATA_DIR` 指定其他目录。
+
+## 配置
+
+将 `.env.example` 复制为 `.env`，至少填写主通道 `BASE_URL`、`API_KEY`、`MODEL`。可选分通道变量（`JUDGE_*`、`DISPATCHER_*`、`SOCIAL_*`、`CHRONICLE_*`）让高频流程走更省配额的模型，裁判与战报仍可用更强模型。Docker 也支持 `OPENAI_API_KEY` / `OPENAI_BASE_URL` 作为主通道别名。
+
+经济与进化相关项在 `backend/evotown_config.json`（示例见 `backend/evotown_config.json.example`）。
+
+## 竞技场界面
+
+| 路由 | 说明 |
+|------|------|
+| `/` | 落地页 |
+| `/arena` | 主战场（Phaser 地图、观察面板、Agent 详情） |
+| `/task-history` | 任务历史与裁判评分 |
+| `/chronicle` | 进化演绎战报 |
+
+前端以 WebSocket 推送实时状态；断线时 REST 约每 15 秒、已连接时约每 60 秒轮询 `/agents` 作兜底，避免地图与列表脱节。
+
+观察面板的指标图会并行请求各 Agent 的 `/agents/{id}/metrics`，并在短时间内复用缓存，减轻 API 压力。
 
 ## 经济规则（丛林法则）
 
@@ -51,17 +94,15 @@ npm run dev
 ```
 evotown/
 ├── backend/              # FastAPI 后端
-│   ├── main.py           # API + WebSocket
-│   ├── economy_config.py # 经济规则配置
-│   ├── evotown_config.json  # 可编辑的规则（可选）
-│   ├── process_manager.py
-│   ├── sqlite_reader.py
-│   └── ...
-├── frontend/         # React + Phaser 3 前端
-│   └── src/
+├── frontend/             # React + Phaser 3 前端
+├── data/                 # 默认持久化目录（可用 EVOTOWN_DATA_DIR 覆盖）
+├── .env.example          # LLM 与竞技场环境变量模板
+├── docker-compose.yml
 ├── docs/
-│   ├── en/           # English docs
-│   └── zh-CN/        # 中文文档
+│   ├── en/               # English docs
+│   └── zh-CN/            # 中文文档
+├── en/README.md
+├── zh-CN/README.md
 └── README.md
 ```
 

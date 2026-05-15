@@ -1,15 +1,15 @@
 # Evotown — 进化测试实现
 
-将进化引擎（如 SkillLite）置于可控环境中做**进化效果验证**，经济规则可调、可重现、全本地，**不依赖虚拟币/加密货币**。
+将 **进化引擎** 置于可控环境中做**进化效果验证** —— OpenClaw 系、Hermes、自研 harness，或 **可选地** [SkillLite](https://github.com/EXboys/skilllite)。Evotown **不绑定**某一上游；通过 [ingest API](../docs/zh-CN/EVOTOWN-ENGINE-INGEST-V0.1.md) 接入执行端即可。经济规则可调、可重现、全本地，**不依赖虚拟币/加密货币**。
 
 [English](../en/README.md)
 
 ## 前置条件
 
-- SkillLite 已安装（`skilllite evolution run`、`skilllite agent-rpc` 可用）
 - Python 3.10+
 - Node.js 18+
-- 后端需在含 `.skills` 或 `skills` 的目录运行；每个 agent 会复制一份到 `~/.skilllite/arena/{agent_id}/.skills`，进化产物独立
+- **技能工作区：** 后端期望项目树中含 `.skills` 或 `skills`（具体布局取决于你接入的 agent 后端）。
+- **SkillLite（可选）：** 仅当你用 SkillLite CLI 驱动 agent 时需要 —— 此时会用到 `skilllite evolution run` / `skilllite agent-rpc` 及默认的每 agent 副本路径 `~/.skilllite/arena/{agent_id}/.skills`。其它引擎使用各自安装路径，并可通过 HTTP ingest 上报。
 
 ## 快速开始
 

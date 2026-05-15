@@ -1,15 +1,15 @@
 # Evotown — Evolution Testing Platform
 
-Puts evolution engines (e.g. SkillLite) in a controlled environment for **evolution effect validation**. Economy rules are configurable, reproducible, fully local, and **do not depend on virtual/cryptocurrency**.
+Puts **evolution engines** in a controlled environment for **evolution effect validation** — OpenClaw-style stacks, Hermes, your own harness, or **optionally** [SkillLite](https://github.com/EXboys/skilllite). Evotown does not require a specific upstream; use the [ingest API](../docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md) to attach runners. Economy rules are configurable, reproducible, fully local, and **do not depend on virtual/cryptocurrency**.
 
 [中文](../zh-CN/README.md)
 
 ## Prerequisites
 
-- SkillLite installed (`skilllite evolution run`, `skilllite agent-rpc` available)
 - Python 3.10+
 - Node.js 18+
-- Backend must run in a directory containing `.skills` or `skills`; each agent gets a copy at `~/.skilllite/arena/{agent_id}/.skills` for isolated evolution artifacts
+- **Skills workspace:** backend expects a project tree with `.skills` or `skills` (layout depends on the agent backend you wire in).
+- **SkillLite (optional):** only if you drive agents with the SkillLite CLI — then `skilllite evolution run` / `skilllite agent-rpc` and the default per-agent copy under `~/.skilllite/arena/{agent_id}/.skills` apply. Other engines use their own install paths and report via HTTP ingest instead.
 
 ## Quick Start
 

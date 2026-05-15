@@ -1,0 +1,215 @@
+openapi: 3.0.3
+info:
+  title: Evotown Engine Ingest API
+  version: "0.1.0"
+  description: >
+    Draft v0.1 — Evotown is the system of record. Independent engines POST run completion
+    and optional artifacts. Normative prose: docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md (canonical in this repo).
+servers:
+  - url: https://{evotown-host}/api/v1
+    variables:
+      evotown-host:
+        default: evotown.example
+tags:
+  - name: engines
+  - name: runs
+paths:
+  /engines/register:
+    post:
+      tags: [engines]
+      summary: Register or update an engine record
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EngineRegister"
+      responses:
+        "204":
+          description: Registered
+        "200":
+          description: Registered with timestamp
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  registered_at:
+                    type: string
+                    format: date-time
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+  /runs/lease:
+    post:
+      tags: [runs]
+      summary: Lease one run job (optional pull model)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Job leased
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunLease"
+        "204":
+          description: No work available
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /runs/{run_id}/complete:
+    post:
+      tags: [runs]
+      summary: Finalize a run (MVP required ingest)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunComplete"
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accepted, run_id]
+                properties:
+                  accepted:
+                    type: boolean
+                  run_id:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Run already terminal (idempotency)
+        "413":
+          description: Payload too large
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+  /runs/{run_id}/artifacts:
+    post:
+      tags: [runs]
+      summary: Upload large artifact chunk (optional)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "204":
+          description: Chunk stored
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Evotown-issued engine token
+  responses:
+    Unauthorized:
+      description: Missing or invalid auth
+    Unprocessable:
+      description: Validation failed
+  schemas:
+    EngineRegister:
+      type: object
+      required: [engine_id, engine_version]
+      properties:
+        engine_id:
+          type: string
+        engine_version:
+          type: string
+        display_name:
+          type: string
+        dispatch_url:
+          type: string
+          format: uri
+        capabilities:
+          type: object
+          additionalProperties: true
+    RunLease:
+      type: object
+      required: [run_id, callback_base, payload]
+      properties:
+        run_id:
+          type: string
+        callback_base:
+          type: string
+          format: uri
+          description: >
+            Evotown API prefix including /api/v1 (no trailing slash).
+            Client POSTs to {callback_base}/runs/{run_id}/complete
+        payload:
+          type: object
+          additionalProperties: true
+    ArtifactManifestItem:
+      type: object
+      required: [path, sha256, bytes]
+      properties:
+        path:
+          type: string
+        sha256:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        bytes:
+          type: integer
+          minimum: 0
+    RunComplete:
+      type: object
+      required:
+        - engine_id
+        - engine_version
+        - status
+        - exit_code
+        - finished_at
+      properties:
+        engine_id:
+          type: string
+        engine_version:
+          type: string
+        status:
+          type: string
+          enum: [succeeded, failed, cancelled]
+        exit_code:
+          type: integer
+        finished_at:
+          type: string
+          format: date-time
+        log_excerpt:
+          type: string
+        artifact_manifest:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactManifestItem"
+        artifact_bundle_url:
+          type: string
+          format: uri
+        signals:
+          type: object
+          additionalProperties: true

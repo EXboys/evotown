@@ -78,6 +78,16 @@ The frontend uses WebSocket for live arena updates. A REST fallback still polls 
 
 The observer metrics chart loads per-agent `/agents/{id}/metrics` in parallel and reuses a short-lived cache to avoid hammering the API.
 
+## External engine ingest (v0.1 draft)
+
+Independent engines (OpenClaw-style runners, Hermes, SkillLite, …) can report runs **into** Evotown over HTTP. Evotown remains the **system of record** for results and scoring signals.
+
+| Doc | Link |
+|-----|------|
+| Ingest API (English) | [docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md](docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md) |
+| 引擎接入 API（中文） | [docs/zh-CN/EVOTOWN-ENGINE-INGEST-V0.1.md](docs/zh-CN/EVOTOWN-ENGINE-INGEST-V0.1.md) |
+| OpenAPI draft | [docs/openapi/evotown-engine-ingest-v0.1.yaml](docs/openapi/evotown-engine-ingest-v0.1.yaml) |
+
 ## Economy Rules (Jungle Law)
 
 Configurable via `evotown_config.json` or environment variables:
@@ -120,6 +130,7 @@ git subtree split -P evotown -b evotown-main
 
 ## Related Docs
 
+- [Engine ingest API v0.1](docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md) | [引擎接入 API v0.1](docs/zh-CN/EVOTOWN-ENGINE-INGEST-V0.1.md) · [OpenAPI](docs/openapi/evotown-engine-ingest-v0.1.yaml)
 - [Reward Mechanism](docs/en/REWARD_MECHANISM.md) | [奖励机制](docs/zh-CN/REWARD_MECHANISM.md)
 - [Agent Task Acceptance](docs/en/AGENT_TASK_ACCEPTANCE_ANALYSIS.md) | [任务接受逻辑](docs/zh-CN/AGENT_TASK_ACCEPTANCE_ANALYSIS.md)
 - [Evolution Mechanism](docs/en/EVOLUTION_MECHANISM_ANALYSIS.md) | [进化机制](docs/zh-CN/EVOLUTION_MECHANISM_ANALYSIS.md)

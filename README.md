@@ -63,6 +63,8 @@ Visit [http://localhost:5174](http://localhost:5174)
 
 Copy `.env.example` to `.env` and fill in at least the main `BASE_URL`, `API_KEY`, and `MODEL`. Optional per-channel overrides (`JUDGE_`*, `DISPATCHER_*`, `SOCIAL_*`, `CHRONICLE_*`) let high-frequency flows use a cheaper model while judge and chronicle keep a stronger one. Docker Compose also accepts `OPENAI_API_KEY` / `OPENAI_BASE_URL` as aliases for the main channel.
 
+External engine ingest uses bearer auth. Set `EVOTOWN_ENGINE_INGEST_TOKEN` for OpenClaw / Hermes / custom runners; if it is unset, the backend falls back to `ADMIN_TOKEN` for local single-node development.
+
 Arena economy and evolution knobs live in `backend/evotown_config.json` (see `backend/evotown_config.json.example`).
 
 ## Arena UI
@@ -84,12 +86,29 @@ The observer metrics chart loads per-agent `/agents/{id}/metrics` in parallel an
 
 Independent engines (OpenClaw-style runners, Hermes, custom harnesses, …) can report runs **into** Evotown over HTTP. Evotown remains the **system of record** for results and scoring signals.
 
+Implemented MVP endpoints include engine registration and completed-run ingest under `/api/v1` (`/engines/register`, `/engines`, `/runs/{run_id}/complete`, `/runs`, `/runs/{run_id}`).
+
 
 | Doc                  | Link                                                                                         |
 | -------------------- | -------------------------------------------------------------------------------------------- |
 | Ingest API (English) | [docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md](docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md)               |
 | 引擎接入 API（中文）         | [docs/zh-CN/EVOTOWN-ENGINE-INGEST-V0.1.md](docs/zh-CN/EVOTOWN-ENGINE-INGEST-V0.1.md)         |
 | OpenAPI draft        | [docs/openapi/evotown-engine-ingest-v0.1.yaml](docs/openapi/evotown-engine-ingest-v0.1.yaml) |
+
+
+## Enterprise control plane (product plan)
+
+Evotown can grow beyond a visual arena into a central control plane for independently deployed agent runtimes. Runners stay where they are — employee laptops, CI, servers, or containers — while Evotown receives their runs, artifacts, policy events, and reusable assets for evaluation, governance, and reuse.
+
+The existing game page stays as the **Arena**: a visual simulation layer for evolution experiments, benchmarks, team learning, and demos.
+
+| Doc | Link |
+|-----|------|
+| Spec index | [spec/README.md](spec/README.md) |
+| Enterprise control plane | [spec/enterprise-control-plane.md](spec/enterprise-control-plane.md) |
+| Roadmap | [spec/roadmap.md](spec/roadmap.md) |
+| Product planning doc (English) | [docs/en/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md](docs/en/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md) |
+| 产品规划（中文） | [docs/zh-CN/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md](docs/zh-CN/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md) |
 
 
 ## Economy Rules (Jungle Law)
@@ -125,18 +144,11 @@ evotown/
 └── README.md             # This file (default)
 ```
 
-## Monorepo note
-
-Some teams keep a **monorepo checkout** next to other projects for local hacking; **this GitHub repository is the standalone shipping line** and is not tied to installing SkillLite to use Evotown.
-
-```bash
-# Optional: extract a subdirectory from a larger monorepo (example only)
-git subtree split -P evotown -b evotown-main
-```
-
 ## Related Docs
 
+- [Evotown spec index](spec/README.md)
 - [Engine ingest API v0.1](docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md) | [引擎接入 API v0.1](docs/zh-CN/EVOTOWN-ENGINE-INGEST-V0.1.md) · [OpenAPI](docs/openapi/evotown-engine-ingest-v0.1.yaml)
+- [Enterprise Control Plane Product Spec](docs/en/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md) | [企业控制面产品规格](docs/zh-CN/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md)
 - [Reward Mechanism](docs/en/REWARD_MECHANISM.md) | [奖励机制](docs/zh-CN/REWARD_MECHANISM.md)
 - [Agent Task Acceptance](docs/en/AGENT_TASK_ACCEPTANCE_ANALYSIS.md) | [任务接受逻辑](docs/zh-CN/AGENT_TASK_ACCEPTANCE_ANALYSIS.md)
 - [Evolution Mechanism](docs/en/EVOLUTION_MECHANISM_ANALYSIS.md) | [进化机制](docs/zh-CN/EVOLUTION_MECHANISM_ANALYSIS.md)

@@ -21,6 +21,8 @@ Every mutating request MUST include one of:
 1. **`Authorization: Bearer <evotown_issued_token>`** — engine-scoped token issued by Evotown, or
 2. **`X-Evotown-Timestamp` + `X-Evotown-Signature`** — HMAC-SHA256 over `"{timestamp}." + raw_body` with a shared secret (clock skew ≤ 5 minutes).
 
+**Current MVP implementation:** bearer auth is implemented with `EVOTOWN_ENGINE_INGEST_TOKEN`; for single-node local development it falls back to `ADMIN_TOKEN`. HMAC signing is reserved for a later hardening pass.
+
 Integrators SHOULD use TLS (HTTPS). Evotown SHOULD reject replayed `run_id` + identical payload (idempotency window implementation-defined).
 
 ---
@@ -36,10 +38,19 @@ Registers or updates an engine record so Evotown can show provenance and optiona
 | `engine_id` | string | yes | Stable id, e.g. `openclaw-local`, `hermes-foo`. |
 | `engine_version` | string | yes | Semver or git sha. |
 | `display_name` | string | no | Human label. |
+| `engine_type` | string | no | `openclaw` \| `hermes` \| `skilllite` \| `custom` (default: `custom`). |
+| `owner_team` | string | no | Team or organization owner. |
+| `deployment_kind` | string | no | `laptop` \| `server` \| `ci` \| `container` (default: `server`). |
 | `dispatch_url` | string (URL) | no | If Evotown later pushes jobs, POST target for `RunJob` (see appendix). |
 | `capabilities` | object | no | Opaque key/values (e.g. max timeout). |
 
-**Response:** `204 No Content` or `200` with `{ "registered_at": "<RFC3339>" }`.
+**Response:** MVP returns `200` with `{ "registered": true, "engine": { ... } }`.
+
+## 1.1) `GET /engines` — implemented MVP
+
+Lists registered engines.
+
+**Response:** `200` with `{ "engines": [ ... ] }`.
 
 ---
 
@@ -71,9 +82,15 @@ Finalizes a run. Evotown persists status, logs excerpt, artifact manifest, and `
 | `sha256` | string | yes | Lowercase hex digest of raw bytes. |
 | `bytes` | integer | yes | Length in bytes. |
 
-**Response:** `200` with `{ "accepted": true, "run_id": "<same>" }` or `409` if `run_id` already terminal (idempotent retry policy implementation-defined).
+**Response:** MVP returns `200` with `{ "accepted": true, "idempotent": false, "run_id": "<same>", "run": { ... } }`.
+
+If the same `run_id` is submitted again, MVP returns `200` with `idempotent: true` and the stored run. Unknown `engine_id` returns `422`; engines should register first.
 
 **Errors:** `401` auth, `422` schema validation, `413` payload too large.
+
+## 2.1) `GET /runs` and `GET /runs/{run_id}` — implemented MVP
+
+Lists stored external runs, optionally filtered by `engine_id`, or returns one run by id.
 
 ---
 

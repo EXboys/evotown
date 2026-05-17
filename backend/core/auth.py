@@ -12,9 +12,10 @@
 import os
 
 from fastapi import HTTPException, Security, status
-from fastapi.security import APIKeyHeader
+from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 
 _HEADER_SCHEME = APIKeyHeader(name="X-Admin-Token", auto_error=False)
+_BEARER_SCHEME = HTTPBearer(auto_error=False)
 
 
 def _get_configured_token() -> str:
@@ -39,6 +40,32 @@ async def require_admin(key: str | None = Security(_HEADER_SCHEME)) -> None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid or missing X-Admin-Token header.",
+        )
+
+
+def _get_engine_ingest_token() -> str:
+    """Engine ingest token, falling back to ADMIN_TOKEN for single-node dev."""
+    return os.environ.get("EVOTOWN_ENGINE_INGEST_TOKEN", "").strip() or _get_configured_token()
+
+
+async def require_engine_ingest(
+    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
+) -> None:
+    """Validate bearer token for external engine ingest endpoints.
+
+    Production deployments should set EVOTOWN_ENGINE_INGEST_TOKEN so connectors do
+    not need the broader admin token. ADMIN_TOKEN fallback keeps local dev simple.
+    """
+    token = _get_engine_ingest_token()
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Server not configured: EVOTOWN_ENGINE_INGEST_TOKEN or ADMIN_TOKEN is missing.",
+        )
+    if credentials is None or credentials.scheme.lower() != "bearer" or credentials.credentials != token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or missing bearer token.",
         )
 
 

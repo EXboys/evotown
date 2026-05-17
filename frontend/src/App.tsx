@@ -5,6 +5,7 @@ import { ObserverPanel } from "./components/ObserverPanel";
 import { LandingPage } from "./components/LandingPage";
 import { TaskHistoryPage } from "./components/TaskHistoryPage";
 import { ChronicleBook } from "./components/ChronicleBook";
+import { EnterpriseConsole } from "./components/EnterpriseConsole";
 import { useEvotownStore } from "./store/evotownStore";
 
 /** 定期清理间隔（毫秒） */
@@ -36,6 +37,11 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/dashboard" element={<EnterpriseConsole initialTab="dashboard" />} />
+        <Route path="/engines" element={<EnterpriseConsole initialTab="engines" />} />
+        <Route path="/runs" element={<EnterpriseConsole initialTab="runs" />} />
+        <Route path="/costs" element={<EnterpriseConsole initialTab="costs" />} />
+        <Route path="/risk" element={<EnterpriseConsole initialTab="risk" />} />
         <Route path="/arena" element={<ArenaApp />} />
         <Route path="/task-history" element={<TaskHistoryPage />} />
         <Route path="/chronicle" element={<ChronicleBook />} />

@@ -70,6 +70,7 @@ services:
       - AGENT_MEM_THRESHOLD_MB=${AGENT_MEM_THRESHOLD_MB:-300}
       # 安全配置
       - ADMIN_TOKEN=${ADMIN_TOKEN:-}
+      - EVOTOWN_ENGINE_INGEST_TOKEN=${EVOTOWN_ENGINE_INGEST_TOKEN:-}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
     # 使用定制 seccomp profile，允许 bubblewrap (bwrap) 创建 user namespace，
     # 同时拦截最危险的内核级 syscall（kexec / module load / perf_event 等）。

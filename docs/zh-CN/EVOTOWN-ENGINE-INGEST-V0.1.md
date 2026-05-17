@@ -21,6 +21,8 @@
 1. **`Authorization: Bearer <evotown_issued_token>`** —— Evotown 下发的、绑定到 `engine_id` 的令牌；或  
 2. **`X-Evotown-Timestamp` + `X-Evotown-Signature`** —— 对 `"{timestamp}." + raw_body` 做 HMAC-SHA256（时钟偏差建议 ≤ 5 分钟）。
 
+**当前 MVP 实现：** 已实现 bearer 鉴权，读取 `EVOTOWN_ENGINE_INGEST_TOKEN`；单机本地开发可回退到 `ADMIN_TOKEN`。HMAC 签名留到后续安全加固阶段。
+
 须使用 **HTTPS**。Evotown 宜拒绝 **重复 `run_id` + 相同终态负载** 的重放（幂等窗口由实现定义）。
 
 ---
@@ -36,10 +38,19 @@
 | `engine_id` | string | 是 | 稳定 id，如 `openclaw-local`。 |
 | `engine_version` | string | 是 | Semver 或 git sha。 |
 | `display_name` | string | 否 | 展示名。 |
+| `engine_type` | string | 否 | `openclaw` \| `hermes` \| `skilllite` \| `custom`（默认：`custom`）。 |
+| `owner_team` | string | 否 | 团队或组织 owner。 |
+| `deployment_kind` | string | 否 | `laptop` \| `server` \| `ci` \| `container`（默认：`server`）。 |
 | `dispatch_url` | string (URL) | 否 | 若日后 Evotown 主动派单，POST `RunJob` 的目标（见附录）。 |
 | `capabilities` | object | 否 | 任意键值，如最大超时。 |
 
-**响应：** `204` 或 `200` + `{ "registered_at": "<RFC3339>" }`。
+**响应：** MVP 返回 `200` + `{ "registered": true, "engine": { ... } }`。
+
+## 1.1）`GET /engines` —— 已实现 MVP
+
+列出已注册引擎。
+
+**响应：** `200` + `{ "engines": [ ... ] }`。
 
 ---
 
@@ -71,9 +82,15 @@
 | `sha256` | string | 是 | 小写十六进制。 |
 | `bytes` | integer | 是 | 字节长度。 |
 
-**响应：** `200` + `{ "accepted": true, "run_id": "<同左>" }`；若 `run_id` 已是终态可返回 `409`（幂等策略由实现定义）。
+**响应：** MVP 返回 `200` + `{ "accepted": true, "idempotent": false, "run_id": "<同左>", "run": { ... } }`。
+
+若同一 `run_id` 重复提交，MVP 返回 `200` 且 `idempotent: true`，并返回已保存 run。未知 `engine_id` 返回 `422`；引擎应先注册。
 
 **错误：** `401` 鉴权、`422` 校验、`413` 过大。
+
+## 2.1）`GET /runs` 与 `GET /runs/{run_id}` —— 已实现 MVP
+
+列出已保存的外部 run，可按 `engine_id` 过滤；或按 id 返回单个 run。
 
 ---
 

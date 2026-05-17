@@ -60,6 +60,8 @@ Visit http://localhost:5174
 
 Copy `.env.example` to `.env` and fill in at least the main `BASE_URL`, `API_KEY`, and `MODEL`. Optional per-channel overrides (`JUDGE_*`, `DISPATCHER_*`, `SOCIAL_*`, `CHRONICLE_*`) let high-frequency flows use a cheaper model while judge and chronicle keep a stronger one. Docker Compose also accepts `OPENAI_API_KEY` / `OPENAI_BASE_URL` as aliases for the main channel.
 
+External engine ingest uses bearer auth. Set `EVOTOWN_ENGINE_INGEST_TOKEN` for OpenClaw / Hermes / custom runners; if it is unset, the backend falls back to `ADMIN_TOKEN` for local single-node development.
+
 Arena economy and evolution knobs live in `backend/evotown_config.json` (see `backend/evotown_config.json.example`).
 
 ## Arena UI
@@ -106,17 +108,20 @@ evotown/
 └── README.md
 ```
 
-## Release Notes
+## Monorepo note
 
-Evotown is developed inside the skillLite repo; **it is split into a separate repo on release** (e.g. `evotown` / `evotown-org/evotown`).
+Some teams keep a **monorepo checkout** next to other projects for local hacking; **this GitHub repository is the standalone shipping line** and is not tied to installing SkillLite to use Evotown.
 
 ```bash
-# Split example
+# Optional: extract a subdirectory from a larger monorepo (example only)
 git subtree split -P evotown -b evotown-main
 ```
 
 ## Related Docs
 
+- [Evotown spec index](../spec/README.md) — product and engineering source of truth
+- [EVOTOWN-ENGINE-INGEST-V0.1.md](../docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md) — external engine ingest API
+- [ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md](../docs/en/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md) — enterprise control plane product plan
 - [REWARD_MECHANISM.md](../docs/en/REWARD_MECHANISM.md) — Reward mechanism
 - [AGENT_TASK_ACCEPTANCE_ANALYSIS.md](../docs/en/AGENT_TASK_ACCEPTANCE_ANALYSIS.md) — Agent task acceptance logic
 - [EVOLUTION_MECHANISM_ANALYSIS.md](../docs/en/EVOLUTION_MECHANISM_ANALYSIS.md) — Evolution mechanism

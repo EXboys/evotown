@@ -68,3 +68,73 @@ class SpriteMoveEvent(BaseModel):
 class RepairSkillsBody(BaseModel):
     """仅修复指定技能时传 skill_names；不传或空数组则修复全部失败技能。"""
     skill_names: list[str] = []
+
+
+EngineType = Literal["openclaw", "hermes", "skilllite", "custom"]
+DeploymentKind = Literal["laptop", "server", "ci", "container"]
+RunStatus = Literal["succeeded", "failed", "cancelled"]
+RunEventType = Literal[
+    "run_started",
+    "step_started",
+    "user_message",
+    "assistant_message",
+    "tool_call",
+    "tool_result",
+    "model_call",
+    "artifact_written",
+    "policy_violation",
+    "run_finished",
+]
+RiskSeverity = Literal["low", "medium", "high", "critical"]
+PolicyAction = Literal["allowed", "warned", "blocked", "needs_review"]
+
+
+class EngineRegister(BaseModel):
+    engine_id: str = Field(min_length=1, max_length=128)
+    engine_version: str = Field(min_length=1, max_length=128)
+    engine_type: EngineType = "custom"
+    display_name: str = ""
+    owner_team: str = ""
+    deployment_kind: DeploymentKind = "server"
+    dispatch_url: str | None = None
+    capabilities: dict[str, Any] = Field(default_factory=dict)
+
+
+class ArtifactManifestItem(BaseModel):
+    path: str = Field(min_length=1)
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    bytes: int = Field(ge=0)
+
+
+class RunComplete(BaseModel):
+    engine_id: str = Field(min_length=1, max_length=128)
+    engine_version: str = Field(min_length=1, max_length=128)
+    status: RunStatus
+    exit_code: int
+    finished_at: str
+    log_excerpt: str = Field(default="", max_length=65536)
+    artifact_manifest: list[ArtifactManifestItem] = Field(default_factory=list)
+    artifact_bundle_url: str | None = None
+    signals: dict[str, Any] = Field(default_factory=dict)
+
+
+class RunEventIngest(BaseModel):
+    run_id: str = Field(min_length=1, max_length=128)
+    engine_id: str = Field(min_length=1, max_length=128)
+    event_type: RunEventType
+    ts: str
+    seq: int = Field(ge=0)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class PolicyViolationIngest(BaseModel):
+    run_id: str = Field(min_length=1, max_length=128)
+    engine_id: str = Field(min_length=1, max_length=128)
+    policy_id: str = Field(min_length=1, max_length=128)
+    severity: RiskSeverity
+    action: PolicyAction
+    resource_type: str = Field(min_length=1, max_length=128)
+    resource: str = ""
+    message: str = Field(default="", max_length=2000)
+    ts: str
+    context: dict[str, Any] = Field(default_factory=dict)

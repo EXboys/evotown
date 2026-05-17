@@ -28,6 +28,13 @@ export function TownLayout() {
       >
         📜 <span className="tracking-wider">进化演绎</span>
       </button>
+      <button
+        onClick={() => navigate("/dashboard")}
+        className="absolute top-14 right-3 z-40 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cyan-700/50 bg-[#071318]/90 text-cyan-300 text-xs font-medium hover:border-cyan-400 hover:text-cyan-100 hover:bg-[#0a1b23]/95 transition-colors shadow-lg shadow-black/40 backdrop-blur-sm"
+        title="查看外部引擎与 run 上报"
+      >
+        ◆ <span className="tracking-wider">控制台</span>
+      </button>
       {!connected && (
         <div className="absolute bottom-10 left-3 px-2.5 py-1 rounded-md bg-amber-500/20 text-amber-400 text-xs font-medium border border-amber-500/30">
           WS 未连接

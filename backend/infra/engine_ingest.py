@@ -1,0 +1,353 @@
+"""External engine ingest persistence.
+
+Stores runtime-neutral engine registrations and completed run reports in a
+separate SQLite database so enterprise ingest data does not couple to Arena
+state persistence.
+"""
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+from pathlib import Path
+from typing import Any
+
+from domain.models import EngineRegister, PolicyViolationIngest, RunComplete, RunEventIngest
+
+_backend_dir = Path(__file__).resolve().parent.parent
+_evotown_data = _backend_dir.parent / "data"
+_DATA_DIR = Path(os.environ.get("EVOTOWN_DATA_DIR", _evotown_data if _evotown_data.is_dir() else _backend_dir / "data"))
+_DB_PATH = _DATA_DIR / "engine_ingest.db"
+
+_conn: sqlite3.Connection | None = None
+
+
+def _ensure_conn() -> sqlite3.Connection:
+    global _conn
+    if _conn is not None:
+        return _conn
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=10000")
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS engines (
+            engine_id       TEXT PRIMARY KEY,
+            engine_type     TEXT NOT NULL DEFAULT 'custom',
+            engine_version  TEXT NOT NULL,
+            display_name    TEXT NOT NULL DEFAULT '',
+            owner_team      TEXT NOT NULL DEFAULT '',
+            deployment_kind TEXT NOT NULL DEFAULT 'server',
+            dispatch_url    TEXT,
+            capabilities    TEXT NOT NULL DEFAULT '{}',
+            registered_at   TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS external_runs (
+            run_id              TEXT PRIMARY KEY,
+            engine_id           TEXT NOT NULL,
+            engine_version      TEXT NOT NULL,
+            status              TEXT NOT NULL,
+            exit_code           INTEGER NOT NULL,
+            finished_at         TEXT NOT NULL,
+            log_excerpt         TEXT NOT NULL DEFAULT '',
+            artifact_manifest   TEXT NOT NULL DEFAULT '[]',
+            artifact_bundle_url TEXT,
+            signals             TEXT NOT NULL DEFAULT '{}',
+            accepted_at         TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_external_runs_engine ON external_runs(engine_id);
+        CREATE INDEX IF NOT EXISTS idx_external_runs_finished ON external_runs(finished_at);
+
+        CREATE TABLE IF NOT EXISTS run_events (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id      TEXT NOT NULL,
+            engine_id   TEXT NOT NULL,
+            event_type  TEXT NOT NULL,
+            ts          TEXT NOT NULL,
+            seq         INTEGER NOT NULL,
+            payload     TEXT NOT NULL DEFAULT '{}',
+            accepted_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_run_events_run ON run_events(run_id, seq);
+
+        CREATE TABLE IF NOT EXISTS policy_violations (
+            violation_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id        TEXT NOT NULL,
+            engine_id     TEXT NOT NULL,
+            policy_id     TEXT NOT NULL,
+            severity      TEXT NOT NULL,
+            action        TEXT NOT NULL,
+            resource_type TEXT NOT NULL,
+            resource      TEXT NOT NULL DEFAULT '',
+            message       TEXT NOT NULL DEFAULT '',
+            ts            TEXT NOT NULL,
+            context       TEXT NOT NULL DEFAULT '{}',
+            status        TEXT NOT NULL DEFAULT 'open',
+            accepted_at   TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_policy_violations_run ON policy_violations(run_id);
+        CREATE INDEX IF NOT EXISTS idx_policy_violations_status ON policy_violations(status);
+        """
+    )
+    _conn = conn
+    return conn
+
+
+def _json_dumps(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _json_loads(value: str, fallback: Any) -> Any:
+    try:
+        return json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return fallback
+
+
+def register_engine(body: EngineRegister) -> dict[str, Any]:
+    conn = _ensure_conn()
+    capabilities = _json_dumps(body.capabilities)
+    conn.execute(
+        """
+        INSERT INTO engines (
+            engine_id, engine_type, engine_version, display_name, owner_team,
+            deployment_kind, dispatch_url, capabilities, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(engine_id) DO UPDATE SET
+            engine_type=excluded.engine_type,
+            engine_version=excluded.engine_version,
+            display_name=excluded.display_name,
+            owner_team=excluded.owner_team,
+            deployment_kind=excluded.deployment_kind,
+            dispatch_url=excluded.dispatch_url,
+            capabilities=excluded.capabilities,
+            updated_at=datetime('now')
+        """,
+        (
+            body.engine_id,
+            body.engine_type,
+            body.engine_version,
+            body.display_name,
+            body.owner_team,
+            body.deployment_kind,
+            body.dispatch_url,
+            capabilities,
+        ),
+    )
+    return get_engine(body.engine_id) or {"engine_id": body.engine_id}
+
+
+def _engine_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    data = dict(row)
+    data["capabilities"] = _json_loads(data.get("capabilities", "{}"), {})
+    return data
+
+
+def get_engine(engine_id: str) -> dict[str, Any] | None:
+    row = _ensure_conn().execute(
+        "SELECT * FROM engines WHERE engine_id=?",
+        (engine_id,),
+    ).fetchone()
+    return _engine_from_row(row) if row else None
+
+
+def list_engines(limit: int = 100) -> list[dict[str, Any]]:
+    rows = _ensure_conn().execute(
+        "SELECT * FROM engines ORDER BY updated_at DESC LIMIT ?",
+        (max(1, min(limit, 500)),),
+    ).fetchall()
+    return [_engine_from_row(row) for row in rows]
+
+
+def complete_run(run_id: str, body: RunComplete) -> tuple[dict[str, Any], bool]:
+    conn = _ensure_conn()
+    existing = get_run(run_id)
+    if existing is not None:
+        return existing, False
+
+    manifest = [item.model_dump() for item in body.artifact_manifest]
+    conn.execute(
+        """
+        INSERT INTO external_runs (
+            run_id, engine_id, engine_version, status, exit_code, finished_at,
+            log_excerpt, artifact_manifest, artifact_bundle_url, signals
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            run_id,
+            body.engine_id,
+            body.engine_version,
+            body.status,
+            body.exit_code,
+            body.finished_at,
+            body.log_excerpt,
+            _json_dumps(manifest),
+            body.artifact_bundle_url,
+            _json_dumps(body.signals),
+        ),
+    )
+    return get_run(run_id) or {"run_id": run_id}, True
+
+
+def _run_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    data = dict(row)
+    data["artifact_manifest"] = _json_loads(data.get("artifact_manifest", "[]"), [])
+    data["signals"] = _json_loads(data.get("signals", "{}"), {})
+    return data
+
+
+def get_run(run_id: str) -> dict[str, Any] | None:
+    row = _ensure_conn().execute(
+        "SELECT * FROM external_runs WHERE run_id=?",
+        (run_id,),
+    ).fetchone()
+    return _run_from_row(row) if row else None
+
+
+def list_runs(engine_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    capped = max(1, min(limit, 500))
+    conn = _ensure_conn()
+    if engine_id:
+        rows = conn.execute(
+            "SELECT * FROM external_runs WHERE engine_id=? ORDER BY accepted_at DESC LIMIT ?",
+            (engine_id, capped),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM external_runs ORDER BY accepted_at DESC LIMIT ?",
+            (capped,),
+        ).fetchall()
+    return [_run_from_row(row) for row in rows]
+
+
+def append_event(body: RunEventIngest) -> dict[str, Any]:
+    conn = _ensure_conn()
+    conn.execute(
+        """
+        INSERT INTO run_events (run_id, engine_id, event_type, ts, seq, payload)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            body.run_id,
+            body.engine_id,
+            body.event_type,
+            body.ts,
+            body.seq,
+            _json_dumps(body.payload),
+        ),
+    )
+    row = conn.execute("SELECT * FROM run_events WHERE id=last_insert_rowid()").fetchone()
+    return _event_from_row(row)
+
+
+def _event_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    data = dict(row)
+    data["payload"] = _json_loads(data.get("payload", "{}"), {})
+    return data
+
+
+def list_events(run_id: str, limit: int = 500) -> list[dict[str, Any]]:
+    rows = _ensure_conn().execute(
+        "SELECT * FROM run_events WHERE run_id=? ORDER BY seq ASC, id ASC LIMIT ?",
+        (run_id, max(1, min(limit, 2000))),
+    ).fetchall()
+    return [_event_from_row(row) for row in rows]
+
+
+def append_policy_violation(body: PolicyViolationIngest) -> dict[str, Any]:
+    conn = _ensure_conn()
+    conn.execute(
+        """
+        INSERT INTO policy_violations (
+            run_id, engine_id, policy_id, severity, action, resource_type,
+            resource, message, ts, context
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            body.run_id,
+            body.engine_id,
+            body.policy_id,
+            body.severity,
+            body.action,
+            body.resource_type,
+            body.resource,
+            body.message,
+            body.ts,
+            _json_dumps(body.context),
+        ),
+    )
+    row = conn.execute("SELECT * FROM policy_violations WHERE violation_id=last_insert_rowid()").fetchone()
+    return _violation_from_row(row)
+
+
+def _violation_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    data = dict(row)
+    data["context"] = _json_loads(data.get("context", "{}"), {})
+    return data
+
+
+def list_policy_violations(
+    run_id: str | None = None,
+    engine_id: str | None = None,
+    status: str | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    if run_id:
+        clauses.append("run_id=?")
+        params.append(run_id)
+    if engine_id:
+        clauses.append("engine_id=?")
+        params.append(engine_id)
+    if status:
+        clauses.append("status=?")
+        params.append(status)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    params.append(max(1, min(limit, 1000)))
+    rows = _ensure_conn().execute(
+        f"SELECT * FROM policy_violations {where} ORDER BY accepted_at DESC LIMIT ?",
+        params,
+    ).fetchall()
+    return [_violation_from_row(row) for row in rows]
+
+
+def cost_summary() -> dict[str, Any]:
+    runs = list_runs(limit=500)
+    total_cost = 0.0
+    input_tokens = 0
+    output_tokens = 0
+    by_engine: dict[str, dict[str, Any]] = {}
+    for run in runs:
+        signals = run.get("signals") or {}
+        cost = float(signals.get("cost_usd") or 0)
+        in_tok = int(signals.get("input_tokens") or 0)
+        out_tok = int(signals.get("output_tokens") or 0)
+        total_cost += cost
+        input_tokens += in_tok
+        output_tokens += out_tok
+        engine_id = run.get("engine_id") or "unknown"
+        bucket = by_engine.setdefault(
+            engine_id,
+            {"engine_id": engine_id, "runs": 0, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0},
+        )
+        bucket["runs"] += 1
+        bucket["cost_usd"] += cost
+        bucket["input_tokens"] += in_tok
+        bucket["output_tokens"] += out_tok
+    return {
+        "total_runs": len(runs),
+        "total_cost_usd": round(total_cost, 6),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "by_engine": list(by_engine.values()),
+    }
+

@@ -72,6 +72,8 @@ export function LandingPage() {
       <nav className="flex items-center justify-between px-6 py-3 border-b-2 border-amber-400 bg-black">
         <span className="text-xl font-bold tracking-widest text-amber-400">▶ 孔明传</span>
         <div className="flex gap-4 items-center">
+          <button onClick={() => navigate("/dashboard")} className="text-xs text-cyan-500 hover:text-cyan-300 transition-colors">控制台</button>
+          <button onClick={() => navigate("/runs")} className="text-xs text-slate-500 hover:text-slate-300 transition-colors">Runs</button>
           <button onClick={() => navigate("/chronicle")} className="text-xs text-amber-600 hover:text-amber-400 transition-colors">📜 史记阁</button>
           <button onClick={() => navigate("/arena")} className="text-xs text-amber-300 hover:text-amber-100 border border-amber-600 px-3 py-1 transition-colors">进入战场 →</button>
         </div>
@@ -94,6 +96,9 @@ export function LandingPage() {
         <div className="flex flex-col sm:flex-row gap-3">
           <button onClick={() => navigate("/arena")} className="border-2 border-amber-400 bg-amber-400 px-8 py-3 text-black font-bold text-sm hover:bg-amber-300 transition-colors">
             ▶ 进入战场
+          </button>
+          <button onClick={() => navigate("/dashboard")} className="border border-cyan-700 px-8 py-3 text-cyan-300 text-sm hover:border-cyan-400 hover:text-cyan-100 transition-colors">
+            控制台
           </button>
           <button onClick={() => navigate("/chronicle")} className="border border-amber-700 px-8 py-3 text-amber-400 text-sm hover:border-amber-500 hover:text-amber-300 transition-colors">
             📜 史记阁

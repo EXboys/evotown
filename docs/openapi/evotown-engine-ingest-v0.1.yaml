@@ -27,22 +27,47 @@ paths:
             schema:
               $ref: "#/components/schemas/EngineRegister"
       responses:
-        "204":
-          description: Registered
         "200":
-          description: Registered with timestamp
+          description: Registered
           content:
             application/json:
               schema:
                 type: object
+                required: [registered, engine]
                 properties:
-                  registered_at:
-                    type: string
-                    format: date-time
+                  registered:
+                    type: boolean
+                  engine:
+                    $ref: "#/components/schemas/Engine"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/Unprocessable"
+  /engines:
+    get:
+      tags: [engines]
+      summary: List registered engines
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Engines
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [engines]
+                properties:
+                  engines:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Engine"
   /runs/lease:
     post:
       tags: [runs]
@@ -85,12 +110,16 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [accepted, run_id]
+                required: [accepted, idempotent, run_id, run]
                 properties:
                   accepted:
                     type: boolean
+                  idempotent:
+                    type: boolean
                   run_id:
                     type: string
+                  run:
+                    $ref: "#/components/schemas/Run"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
@@ -99,6 +128,54 @@ paths:
           description: Payload too large
         "422":
           $ref: "#/components/responses/Unprocessable"
+  /runs:
+    get:
+      tags: [runs]
+      summary: List external runs
+      parameters:
+        - name: engine_id
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Runs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runs]
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Run"
+  /runs/{run_id}:
+    get:
+      tags: [runs]
+      summary: Get one external run
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "404":
+          description: Run not found
   /runs/{run_id}/artifacts:
     post:
       tags: [runs]
@@ -143,16 +220,35 @@ components:
       properties:
         engine_id:
           type: string
+        engine_type:
+          type: string
+          enum: [openclaw, hermes, skilllite, custom]
+          default: custom
         engine_version:
           type: string
         display_name:
           type: string
+        owner_team:
+          type: string
+        deployment_kind:
+          type: string
+          enum: [laptop, server, ci, container]
+          default: server
         dispatch_url:
           type: string
           format: uri
         capabilities:
           type: object
           additionalProperties: true
+    Engine:
+      allOf:
+        - $ref: "#/components/schemas/EngineRegister"
+        - type: object
+          properties:
+            registered_at:
+              type: string
+            updated_at:
+              type: string
     RunLease:
       type: object
       required: [run_id, callback_base, payload]
@@ -213,3 +309,13 @@ components:
         signals:
           type: object
           additionalProperties: true
+    Run:
+      allOf:
+        - $ref: "#/components/schemas/RunComplete"
+        - type: object
+          required: [run_id, accepted_at]
+          properties:
+            run_id:
+              type: string
+            accepted_at:
+              type: string

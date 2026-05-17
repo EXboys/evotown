@@ -60,6 +60,8 @@ npm run dev
 
 将 `.env.example` 复制为 `.env`，至少填写主通道 `BASE_URL`、`API_KEY`、`MODEL`。可选分通道变量（`JUDGE_*`、`DISPATCHER_*`、`SOCIAL_*`、`CHRONICLE_*`）让高频流程走更省配额的模型，裁判与战报仍可用更强模型。Docker 也支持 `OPENAI_API_KEY` / `OPENAI_BASE_URL` 作为主通道别名。
 
+外部引擎 ingest 使用 bearer 鉴权。为 OpenClaw / Hermes / custom runners 设置 `EVOTOWN_ENGINE_INGEST_TOKEN`；若未设置，后端会在本地单机开发中回退到 `ADMIN_TOKEN`。
+
 经济与进化相关项在 `backend/evotown_config.json`（示例见 `backend/evotown_config.json.example`）。
 
 ## 竞技场界面
@@ -106,17 +108,20 @@ evotown/
 └── README.md
 ```
 
-## 发布说明
+## Monorepo 说明
 
-Evotown 在 skillLite 仓库内开发，**发布时拆分为独立仓库**（如 `evotown` / `evotown-org/evotown`）。
+有些团队会把 Evotown 与其它项目放在同一个 monorepo checkout 中便于本地开发；**当前 GitHub 仓库是独立交付线**，使用 Evotown 不要求安装 SkillLite。
 
 ```bash
-# 拆分示例
+# 可选：从更大的 monorepo 中抽取子目录（仅示例）
 git subtree split -P evotown -b evotown-main
 ```
 
 ## 关联文档
 
+- [Evotown spec index](../spec/README.md) — 产品与工程决策源头
+- [EVOTOWN-ENGINE-INGEST-V0.1.md](../docs/zh-CN/EVOTOWN-ENGINE-INGEST-V0.1.md) — 外部引擎接入 API
+- [ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md](../docs/zh-CN/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md) — 企业控制面产品规划
 - [REWARD_MECHANISM.md](../docs/zh-CN/REWARD_MECHANISM.md) — 奖励机制
 - [AGENT_TASK_ACCEPTANCE_ANALYSIS.md](../docs/zh-CN/AGENT_TASK_ACCEPTANCE_ANALYSIS.md) — Agent 任务接受逻辑
 - [EVOLUTION_MECHANISM_ANALYSIS.md](../docs/zh-CN/EVOLUTION_MECHANISM_ANALYSIS.md) — 进化机制分析

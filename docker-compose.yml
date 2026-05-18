@@ -71,6 +71,10 @@ services:
       # 安全配置
       - ADMIN_TOKEN=${ADMIN_TOKEN:-}
       - EVOTOWN_ENGINE_INGEST_TOKEN=${EVOTOWN_ENGINE_INGEST_TOKEN:-}
+      - EVOTOWN_GATEWAY_API_KEYS=${EVOTOWN_GATEWAY_API_KEYS:-}
+      - EVOTOWN_GATEWAY_TIMEOUT_SEC=${EVOTOWN_GATEWAY_TIMEOUT_SEC:-120}
+      - LITELLM_BASE_URL=${LITELLM_BASE_URL:-http://litellm:4000/v1}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
     # 使用定制 seccomp profile，允许 bubblewrap (bwrap) 创建 user namespace，
     # 同时拦截最危险的内核级 syscall（kexec / module load / perf_event 等）。
@@ -98,6 +102,27 @@ services:
       timeout: 10s
       retries: 5
       start_period: 15s
+
+  # ── LiteLLM: OpenAI-compatible model router (optional profile) ─────────
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    profiles:
+      - litellm
+    restart: unless-stopped
+    command:
+      - "--config=/app/config.yaml"
+      - "--port=4000"
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - MODEL=${MODEL:-gpt-4o-mini}
+    volumes:
+      - ./litellm.config.yaml:/app/config.yaml:ro
+    expose:
+      - "4000"
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
 
   # ── Frontend: Nginx + React build ──────────────────────────────
   frontend:

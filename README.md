@@ -96,6 +96,25 @@ Implemented MVP endpoints include engine registration and completed-run ingest u
 | OpenAPI draft        | [docs/openapi/evotown-engine-ingest-v0.1.yaml](docs/openapi/evotown-engine-ingest-v0.1.yaml) |
 
 
+## Centralized model gateway (LiteLLM-backed MVP)
+
+Evotown can also sit in front of LiteLLM as an enterprise API gateway. Agents call Evotown's OpenAI-compatible endpoint, while Evotown records ownership, conversations, usage, cost, and risk context before forwarding to LiteLLM.
+
+```bash
+OPENAI_BASE_URL=http://localhost:8765/api/gateway/v1
+OPENAI_API_KEY=evotown_agent_key_xxx
+```
+
+MVP endpoints:
+
+- `POST /api/gateway/v1/chat/completions` — OpenAI-compatible non-streaming chat completion proxy.
+- `GET /api/gateway/v1/usage/summary` — gateway requests, cost, token, model, and agent summary.
+- `GET /api/gateway/v1/conversations` — conversation-level gateway rollup.
+- `GET /api/gateway/v1/api-keys` — configured gateway key labels.
+
+Set `EVOTOWN_GATEWAY_API_KEYS`, `LITELLM_BASE_URL`, and `LITELLM_MASTER_KEY` for production. Docker Compose includes an optional LiteLLM service under the `litellm` profile.
+
+
 ## Enterprise control plane (product plan)
 
 Evotown can grow beyond a visual arena into a central control plane for independently deployed agent runtimes. Runners stay where they are — employee laptops, CI, servers, or containers — while Evotown receives their runs, artifacts, policy events, and reusable assets for evaluation, governance, and reuse.

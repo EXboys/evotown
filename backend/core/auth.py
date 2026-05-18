@@ -69,6 +69,40 @@ async def require_engine_ingest(
         )
 
 
+def _get_gateway_api_keys() -> list[str]:
+    """Gateway virtual keys, falling back to ADMIN_TOKEN for local development."""
+    raw = os.environ.get("EVOTOWN_GATEWAY_API_KEYS", "").strip()
+    keys = [item.strip() for item in raw.split(",") if item.strip()]
+    admin_token = _get_configured_token()
+    if admin_token:
+        keys.append(admin_token)
+    return keys
+
+
+def _gateway_key_label(token: str) -> str:
+    if token == _get_configured_token():
+        return "admin-token"
+    return f"gateway-key-{token[-6:]}" if len(token) >= 6 else "gateway-key"
+
+
+async def require_gateway_api_key(
+    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
+) -> dict[str, str]:
+    """Validate bearer token for the centralized model gateway."""
+    keys = _get_gateway_api_keys()
+    if not keys:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Server not configured: EVOTOWN_GATEWAY_API_KEYS or ADMIN_TOKEN is missing.",
+        )
+    if credentials is None or credentials.scheme.lower() != "bearer" or credentials.credentials not in keys:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or missing gateway bearer token.",
+        )
+    return {"key_label": _gateway_key_label(credentials.credentials)}
+
+
 def admin_token_status() -> str:
     """返回 ADMIN_TOKEN 配置状态（供启动日志使用，不暴露 token 值）。"""
     token = _get_configured_token()

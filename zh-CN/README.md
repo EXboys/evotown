@@ -62,6 +62,8 @@ npm run dev
 
 外部引擎 ingest 使用 bearer 鉴权。为 OpenClaw / Hermes / custom runners 设置 `EVOTOWN_ENGINE_INGEST_TOKEN`；若未设置，后端会在本地单机开发中回退到 `ADMIN_TOKEN`。
 
+中心化模型网关基于 LiteLLM。生产环境设置 `EVOTOWN_GATEWAY_API_KEYS`、`LITELLM_BASE_URL` 和 `LITELLM_MASTER_KEY` 后，子 agent 可使用 `OPENAI_BASE_URL=http://localhost:8765/api/gateway/v1` 和 Evotown gateway key 接入。
+
 经济与进化相关项在 `backend/evotown_config.json`（示例见 `backend/evotown_config.json.example`）。
 
 ## 竞技场界面

@@ -62,6 +62,8 @@ Copy `.env.example` to `.env` and fill in at least the main `BASE_URL`, `API_KEY
 
 External engine ingest uses bearer auth. Set `EVOTOWN_ENGINE_INGEST_TOKEN` for OpenClaw / Hermes / custom runners; if it is unset, the backend falls back to `ADMIN_TOKEN` for local single-node development.
 
+The centralized model gateway is backed by LiteLLM. Set `EVOTOWN_GATEWAY_API_KEYS`, `LITELLM_BASE_URL`, and `LITELLM_MASTER_KEY`; agents can then use `OPENAI_BASE_URL=http://localhost:8765/api/gateway/v1` and an Evotown gateway key.
+
 Arena economy and evolution knobs live in `backend/evotown_config.json` (see `backend/evotown_config.json.example`).
 
 ## Arena UI

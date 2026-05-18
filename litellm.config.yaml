@@ -1,0 +1,9 @@
+model_list:
+  - model_name: default
+    litellm_params:
+      model: os.environ/MODEL
+      api_key: os.environ/OPENAI_API_KEY
+      api_base: os.environ/OPENAI_BASE_URL
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

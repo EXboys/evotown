@@ -108,6 +108,64 @@ class KnowledgeApiTest(unittest.TestCase):
         titles = [item["title"] for item in search.json()["results"]]
         self.assertIn("CRM 定价策略", titles)
 
+    def test_native_space_tree_publish_and_chunk_search(self) -> None:
+        from fastapi.testclient import TestClient
+        import importlib
+        import main
+
+        importlib.reload(main)
+        client = TestClient(main.app)
+        admin = {"X-Admin-Token": "test-admin-token"}
+
+        spaces = client.get("/api/v1/knowledge/spaces", headers=admin)
+        self.assertEqual(spaces.status_code, 200)
+        self.assertGreaterEqual(len(spaces.json()["spaces"]), 1)
+
+        created = client.post(
+            "/api/v1/knowledge/spaces",
+            json={"space_id": "ops", "name": "运维手册", "description": "Native ops docs"},
+            headers=admin,
+        )
+        self.assertEqual(created.status_code, 200)
+
+        folder = client.post(
+            "/api/v1/knowledge/spaces/ops/folders",
+            json={"folder_id": "runbooks", "name": "Runbooks", "parent_folder_id": ""},
+            headers=admin,
+        )
+        self.assertEqual(folder.status_code, 200)
+
+        doc = client.post(
+            "/api/v1/knowledge/spaces/ops/docs",
+            json={
+                "slug": "restart-agent",
+                "title": "Agent 重启 Runbook",
+                "folder_id": "runbooks",
+                "content_md": "# Agent 重启\n\n当 Agent 无响应时，先检查 Runs 日志，再 soft restart connector。\n",
+                "author": "sre",
+                "publish_status": "published",
+            },
+            headers=admin,
+        )
+        self.assertEqual(doc.status_code, 200)
+        doc_id = doc.json()["document"]["doc_id"]
+
+        tree = client.get("/api/v1/knowledge/spaces/ops/tree", headers=admin)
+        self.assertEqual(tree.status_code, 200)
+        self.assertEqual(len(tree.json()["documents"]), 1)
+
+        search = client.get("/api/v1/knowledge/search?q=soft+restart&source_type=native")
+        self.assertEqual(search.status_code, 200)
+        results = search.json()["results"]
+        self.assertGreaterEqual(len(results), 1)
+        self.assertEqual(results[0]["result_type"], "chunk")
+        self.assertIn("citation", results[0])
+        self.assertEqual(results[0]["citation"]["doc_id"], doc_id)
+
+        stats = client.get("/api/v1/knowledge/stats")
+        self.assertGreaterEqual(stats.json()["indexed_chunks"], 1)
+        self.assertGreaterEqual(stats.json()["native_spaces"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

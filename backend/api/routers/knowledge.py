@@ -4,7 +4,15 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from core.auth import require_admin, require_console_read, require_engine_ingest
-from domain.models import KnowledgeDocumentIngestBatch, KnowledgeSourceCreate, KnowledgeSourceUpdate
+from domain.models import (
+    KnowledgeDocumentIngestBatch,
+    KnowledgeFolderCreate,
+    KnowledgeNativeDocCreate,
+    KnowledgeNativeDocUpdate,
+    KnowledgeSourceCreate,
+    KnowledgeSourceUpdate,
+    KnowledgeSpaceCreate,
+)
 from infra import knowledge
 
 router = APIRouter(prefix="/api/v1/knowledge", tags=["knowledge"])
@@ -22,6 +30,7 @@ async def search_knowledge(
     source_type: str | None = None,
     source_id: str | None = None,
     team_id: str | None = None,
+    space_id: str | None = None,
     limit: int = 20,
     _session: dict | None = Depends(require_console_read),
 ):
@@ -35,9 +44,73 @@ async def search_knowledge(
             source_type=source_type,
             source_id=source_id,
             team_id=team_id,
+            space_id=space_id,
             limit=min(limit, 100),
         ),
     }
+
+
+@router.get("/spaces")
+async def list_knowledge_spaces(limit: int = 100, _session: dict | None = Depends(require_console_read)):
+    del _session
+    return {"spaces": knowledge.list_spaces(limit=limit)}
+
+
+@router.get("/spaces/{space_id}/tree")
+async def get_knowledge_space_tree(space_id: str, _session: dict | None = Depends(require_console_read)):
+    tree = knowledge.get_space_tree(space_id)
+    if tree is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="space not found")
+    return tree
+
+
+@router.post("/spaces", dependencies=[Depends(require_admin)])
+async def create_knowledge_space(body: KnowledgeSpaceCreate):
+    try:
+        space = knowledge.create_space(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return {"created": True, "space": space}
+
+
+@router.post("/spaces/{space_id}/folders", dependencies=[Depends(require_admin)])
+async def create_knowledge_folder(space_id: str, body: KnowledgeFolderCreate):
+    try:
+        folder = knowledge.create_folder(space_id, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return {"created": True, "folder": folder}
+
+
+@router.post("/spaces/{space_id}/docs", dependencies=[Depends(require_admin)])
+async def create_knowledge_native_doc(space_id: str, body: KnowledgeNativeDocCreate):
+    try:
+        doc = knowledge.create_native_doc(space_id, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return {"created": True, "document": doc}
+
+
+@router.put("/native-docs/{doc_id}", dependencies=[Depends(require_admin)])
+async def update_knowledge_native_doc(doc_id: str, body: KnowledgeNativeDocUpdate):
+    try:
+        doc = knowledge.update_native_doc(doc_id, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if doc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="document not found")
+    return {"updated": True, "document": doc}
+
+
+@router.post("/native-docs/{doc_id}/publish", dependencies=[Depends(require_admin)])
+async def publish_knowledge_native_doc(doc_id: str):
+    try:
+        doc = knowledge.publish_native_doc(doc_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if doc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="document not found")
+    return {"published": True, "document": doc}
 
 
 @router.get("/sources")

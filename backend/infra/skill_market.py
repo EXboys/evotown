@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import json
 import os
+import base64
+import hashlib
 import sqlite3
 from pathlib import Path
 from typing import Any
 
-from domain.models import SkillCandidateCreate, SkillCandidateReview
+from domain.models import SkillCandidateCreate, SkillCandidateReview, SkillPackageUpload
 
 _backend_dir = Path(__file__).resolve().parent.parent
 _evotown_data = _backend_dir.parent / "data"
@@ -25,6 +27,12 @@ def _data_dir() -> Path:
 
 
 _conn: sqlite3.Connection | None = None
+
+
+def _package_dir() -> Path:
+    path = _data_dir() / "skill_packages"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def _ensure_conn() -> sqlite3.Connection:
@@ -47,6 +55,8 @@ def _ensure_conn() -> sqlite3.Connection:
             version         TEXT NOT NULL DEFAULT '0.1.0',
             runtime_targets TEXT NOT NULL DEFAULT '[]',
             package_url     TEXT NOT NULL DEFAULT '',
+            package_sha256  TEXT NOT NULL DEFAULT '',
+            package_bytes   INTEGER NOT NULL DEFAULT 0,
             status          TEXT NOT NULL DEFAULT 'approved',
             visibility      TEXT NOT NULL DEFAULT 'company',
             team_id         TEXT NOT NULL DEFAULT '',
@@ -93,11 +103,29 @@ def _ensure_conn() -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_skill_candidates_status ON skill_candidates(status);
         CREATE INDEX IF NOT EXISTS idx_skill_candidates_engine ON skill_candidates(engine_id);
         CREATE INDEX IF NOT EXISTS idx_skill_candidates_team ON skill_candidates(team_id);
+
+        CREATE TABLE IF NOT EXISTS skill_package_files (
+            skill_id     TEXT PRIMARY KEY,
+            filename     TEXT NOT NULL,
+            stored_name  TEXT NOT NULL,
+            sha256       TEXT NOT NULL,
+            bytes        INTEGER NOT NULL,
+            uploaded_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        );
         """
     )
+    _migrate_skills_schema(conn)
     _seed_defaults(conn)
     _conn = conn
     return conn
+
+
+def _migrate_skills_schema(conn: sqlite3.Connection) -> None:
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(skills)").fetchall()}
+    if "package_sha256" not in cols:
+        conn.execute("ALTER TABLE skills ADD COLUMN package_sha256 TEXT NOT NULL DEFAULT ''")
+    if "package_bytes" not in cols:
+        conn.execute("ALTER TABLE skills ADD COLUMN package_bytes INTEGER NOT NULL DEFAULT 0")
 
 
 def _json_dumps(value: Any) -> str:
@@ -185,6 +213,15 @@ def _skill_from_row(row: sqlite3.Row) -> dict[str, Any]:
     return item
 
 
+def _safe_filename(filename: str) -> str:
+    name = Path(filename).name.strip().replace(" ", "_")
+    return name or "package.zip"
+
+
+def _safe_skill_id(skill_id: str) -> str:
+    return "".join(c if c.isalnum() or c in {"-", "_", "."} else "_" for c in skill_id)
+
+
 def _candidate_from_row(row: sqlite3.Row) -> dict[str, Any]:
     item = dict(row)
     item["inline_manifest"] = _json_loads(item.get("inline_manifest", "{}"), {})
@@ -252,6 +289,88 @@ def list_skills(
     if tag:
         result = [item for item in result if tag in item["tags"]]
     return result
+
+
+def upload_skill_package(body: SkillPackageUpload) -> dict[str, Any]:
+    raw = base64.b64decode(body.content_base64, validate=True)
+    digest = hashlib.sha256(raw).hexdigest()
+    safe_id = _safe_skill_id(body.skill_id)
+    safe_name = _safe_filename(body.filename)
+    relative_name = f"{safe_id}-{digest[:12]}-{safe_name}"
+    package_path = _package_dir() / relative_name
+    package_path.write_bytes(raw)
+    package_url = f"/api/v1/skill-packages/{body.skill_id}/download"
+    conn = _ensure_conn()
+    conn.execute(
+        """
+        INSERT INTO skills (
+            skill_id, name, description, version, runtime_targets, package_url,
+            package_sha256, package_bytes, status, visibility, team_id, tags,
+            source_run_id, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(skill_id) DO UPDATE SET
+            name=excluded.name,
+            description=excluded.description,
+            version=excluded.version,
+            runtime_targets=excluded.runtime_targets,
+            package_url=excluded.package_url,
+            package_sha256=excluded.package_sha256,
+            package_bytes=excluded.package_bytes,
+            status='approved',
+            visibility=excluded.visibility,
+            team_id=excluded.team_id,
+            tags=excluded.tags,
+            source_run_id=excluded.source_run_id,
+            updated_at=datetime('now')
+        """,
+        (
+            body.skill_id,
+            body.name,
+            body.description,
+            body.version,
+            _json_dumps(body.runtime_targets),
+            package_url,
+            digest,
+            len(raw),
+            body.visibility,
+            body.team_id,
+            _json_dumps(body.tags),
+            body.source_run_id,
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO skill_package_files (skill_id, filename, stored_name, sha256, bytes, uploaded_at)
+        VALUES (?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(skill_id) DO UPDATE SET
+            filename=excluded.filename,
+            stored_name=excluded.stored_name,
+            sha256=excluded.sha256,
+            bytes=excluded.bytes,
+            uploaded_at=datetime('now')
+        """,
+        (body.skill_id, safe_name, relative_name, digest, len(raw)),
+    )
+    return get_skill(body.skill_id) or {"skill_id": body.skill_id}
+
+
+def get_skill(skill_id: str) -> dict[str, Any] | None:
+    row = _ensure_conn().execute("SELECT * FROM skills WHERE skill_id=?", (skill_id,)).fetchone()
+    return _skill_from_row(row) if row else None
+
+
+def get_package_file(skill_id: str) -> tuple[Path, str] | None:
+    row = _ensure_conn().execute(
+        "SELECT filename, stored_name FROM skill_package_files WHERE skill_id=?",
+        (skill_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    path = _package_dir() / row["stored_name"]
+    if not path.is_file():
+        return None
+    return path, row["filename"]
 
 
 def create_candidate(body: SkillCandidateCreate) -> tuple[dict[str, Any], bool]:

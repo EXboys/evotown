@@ -42,6 +42,7 @@ function App() {
         <Route path="/accounts" element={<EnterpriseConsole initialTab="accounts" />} />
         <Route path="/engines" element={<EnterpriseConsole initialTab="engines" />} />
         <Route path="/runs" element={<EnterpriseConsole initialTab="runs" />} />
+        <Route path="/skills" element={<EnterpriseConsole initialTab="skills" />} />
         <Route path="/costs" element={<EnterpriseConsole initialTab="costs" />} />
         <Route path="/risk" element={<EnterpriseConsole initialTab="risk" />} />
         <Route path="/arena" element={<ArenaApp />} />

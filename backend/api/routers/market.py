@@ -28,6 +28,33 @@ def _employee_manifest(manifest: dict) -> dict:
     return {**manifest, "skills": skills}
 
 
+    return {**manifest, "skills": skills}
+
+
+def _session_team_id(session: dict | None) -> str | None:
+    if not session:
+        return None
+    team = str(session.get("team_id") or "").strip()
+    return team or None
+
+
+def _filter_manifest_for_team(manifest: dict, team_id: str | None) -> dict:
+    if not team_id:
+        return manifest
+    filtered = []
+    for entry in manifest.get("skills", []):
+        skill_id = entry.get("skill_id", "")
+        skill = skill_market.get_skill(skill_id)
+        if skill is None:
+            filtered.append(entry)
+            continue
+        visibility = skill.get("visibility", "company")
+        skill_team = str(skill.get("team_id") or "").strip()
+        if visibility == "company" or not skill_team or skill_team == team_id:
+            filtered.append(entry)
+    return {**manifest, "skills": filtered}
+
+
 @router.get("/bundles/{bundle_id}/manifest")
 async def get_market_bundle_manifest(
     bundle_id: str,
@@ -35,7 +62,6 @@ async def get_market_bundle_manifest(
     runtime_target: str | None = None,
     session: dict = Depends(require_console_session),
 ):
-    del session
     manifest = skill_market.get_bundle_manifest(
         bundle_id,
         channel=channel,
@@ -43,7 +69,8 @@ async def get_market_bundle_manifest(
     )
     if manifest is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="bundle not found")
-    return {"manifest": _employee_manifest(manifest)}
+    scoped = _filter_manifest_for_team(manifest, _session_team_id(session))
+    return {"manifest": _employee_manifest(scoped)}
 
 
 @router.get("/skills")
@@ -53,12 +80,12 @@ async def list_market_skills(
     tag: str | None = None,
     query: str | None = None,
     limit: int = 100,
-    _session: dict | None = Depends(require_console_read),
+    session: dict | None = Depends(require_console_read),
 ):
-    del _session
+    effective_team = team_id or _session_team_id(session)
     return {
         "skills": skill_market.list_market_skills(
-            team_id=team_id,
+            team_id=effective_team,
             runtime_target=runtime_target,
             tag=tag,
             query=query,

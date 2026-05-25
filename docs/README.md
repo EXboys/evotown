@@ -11,3 +11,5 @@ Product and engineering source-of-truth specs live in [../spec/](../spec/).
 | Enterprise Control Plane Product Spec | [ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md](en/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md) | [ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md](zh-CN/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md) |
 | Private Skills Market Deployment | — | [PRIVATE_SKILLS_MARKET_DEPLOYMENT.md](zh-CN/PRIVATE_SKILLS_MARKET_DEPLOYMENT.md) |
 | Enterprise Quickstart (IT deploy + 2-line agent config) | [ENTERPRISE_QUICKSTART.md](en/ENTERPRISE_QUICKSTART.md) | [ENTERPRISE_QUICKSTART.md](zh-CN/ENTERPRISE_QUICKSTART.md) |
+| MDM agent rollout | — | [MDM_AGENT_ROLLOUT.md](zh-CN/MDM_AGENT_ROLLOUT.md) |
+| Enterprise API key lifecycle | — | [ENTERPRISE_KEY_LIFECYCLE.md](zh-CN/ENTERPRISE_KEY_LIFECYCLE.md) |

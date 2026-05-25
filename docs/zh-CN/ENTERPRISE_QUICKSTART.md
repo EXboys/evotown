@@ -70,6 +70,19 @@ chmod +x scripts/enterprise-deploy.sh
 
 也可登录控制台后，在 **`/market`** 或 **`/gateway`** 页使用「员工两行配置 · 复制即用」面板；在 **`/accounts`** 签发新 key 后会自动生成完整员工配置包。
 
+### 员工本机一条命令（推荐）
+
+```bash
+sudo install -m 755 scripts/evotown-agent-setup.py /usr/local/bin/evotown-agent-setup.py
+# 配置 ~/.config/evotown/evotown.agent.env 后：
+evotown-agent-setup.py check
+evotown-agent-setup.py sync          # 从 SkillHub 拉取/更新 skill
+evotown-agent-setup.py watch         # 可选：定时自动 sync
+eval "$(evotown-agent-setup.py print-env)"   # 导出 OPENAI_* 给 OpenClaw/Hermes
+```
+
+MDM 批量下发见 [MDM_AGENT_ROLLOUT.md](./MDM_AGENT_ROLLOUT.md)；密钥管理见 [ENTERPRISE_KEY_LIFECYCLE.md](./ENTERPRISE_KEY_LIFECYCLE.md)。
+
 ### 部署后验收
 
 ```bash

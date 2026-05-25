@@ -71,8 +71,17 @@ def _ensure_conn() -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_gateway_api_keys_status ON gateway_api_keys(status);
         """
     )
+    _migrate_accounts_schema(conn)
     _conn = conn
     return conn
+
+
+def _migrate_accounts_schema(conn: sqlite3.Connection) -> None:
+    key_cols = {row[1] for row in conn.execute("PRAGMA table_info(gateway_api_keys)").fetchall()}
+    if "monthly_token_limit" not in key_cols:
+        conn.execute("ALTER TABLE gateway_api_keys ADD COLUMN monthly_token_limit INTEGER NOT NULL DEFAULT 0")
+    if "monthly_cost_limit_usd" not in key_cols:
+        conn.execute("ALTER TABLE gateway_api_keys ADD COLUMN monthly_cost_limit_usd REAL NOT NULL DEFAULT 0")
 
 
 def hash_api_key(raw_key: str) -> str:
@@ -163,6 +172,8 @@ def create_api_key(
     label: str = "",
     scopes: list[str] | None = None,
     expires_at: str | None = None,
+    monthly_token_limit: int = 0,
+    monthly_cost_limit_usd: float = 0,
 ) -> tuple[dict[str, Any], str]:
     account = get_account(account_id)
     if account is None:
@@ -180,9 +191,10 @@ def create_api_key(
     conn.execute(
         """
         INSERT INTO gateway_api_keys (
-            key_id, account_id, label, key_prefix, key_hash, scopes, expires_at
+            key_id, account_id, label, key_prefix, key_hash, scopes, expires_at,
+            monthly_token_limit, monthly_cost_limit_usd
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             key_id,
@@ -192,6 +204,8 @@ def create_api_key(
             key_hash,
             json.dumps(scope_list, separators=(",", ":")),
             expires_at,
+            max(0, int(monthly_token_limit)),
+            max(0.0, float(monthly_cost_limit_usd)),
         ),
     )
     row = conn.execute("SELECT * FROM gateway_api_keys WHERE key_id=?", (key_id,)).fetchone()
@@ -243,7 +257,55 @@ def revoke_api_key(key_id: str) -> dict[str, Any] | None:
     return get_api_key(key_id)
 
 
-def lookup_api_key(raw_key: str) -> dict[str, Any] | None:
+def update_api_key(key_id: str, **fields: Any) -> dict[str, Any] | None:
+    allowed = {
+        "label",
+        "scopes",
+        "expires_at",
+        "monthly_token_limit",
+        "monthly_cost_limit_usd",
+    }
+    updates: dict[str, Any] = {}
+    for key, value in fields.items():
+        if key not in allowed or value is None:
+            continue
+        if key == "scopes":
+            updates[key] = json.dumps(list(value), separators=(",", ":"))
+        elif key == "monthly_token_limit":
+            updates[key] = max(0, int(value))
+        elif key == "monthly_cost_limit_usd":
+            updates[key] = max(0.0, float(value))
+        else:
+            updates[key] = value
+    if not updates:
+        return get_api_key(key_id)
+    sets = ", ".join(f"{k}=?" for k in updates)
+    values = list(updates.values()) + [key_id]
+    _ensure_conn().execute(f"UPDATE gateway_api_keys SET {sets} WHERE key_id=?", values)
+    return get_api_key(key_id)
+
+
+def touch_api_key(key_id: str) -> None:
+    _ensure_conn().execute(
+        "UPDATE gateway_api_keys SET last_used_at=datetime('now') WHERE key_id=?",
+        (key_id,),
+    )
+
+
+def check_monthly_quota(key_record: dict[str, Any], usage: dict[str, Any]) -> tuple[bool, str]:
+    """Return (allowed, reason). Limits of 0 mean unlimited."""
+    token_limit = int(key_record.get("monthly_token_limit") or 0)
+    cost_limit = float(key_record.get("monthly_cost_limit_usd") or 0)
+    used_tokens = int(usage.get("total_tokens") or 0)
+    used_cost = float(usage.get("cost_usd") or 0)
+    if token_limit > 0 and used_tokens >= token_limit:
+        return False, "monthly_token_limit_exceeded"
+    if cost_limit > 0 and used_cost >= cost_limit:
+        return False, "monthly_cost_limit_exceeded"
+    return True, ""
+
+
+def lookup_api_key(raw_key: str, *, touch_last_used: bool = False) -> dict[str, Any] | None:
     """Resolve bearer token to account + key metadata. Returns None if invalid."""
     key_hash = hash_api_key(raw_key)
     conn = _ensure_conn()
@@ -280,10 +342,11 @@ def lookup_api_key(raw_key: str) -> dict[str, Any] | None:
     except json.JSONDecodeError:
         item["scopes"] = list(DEFAULT_SCOPES)
 
-    conn.execute(
-        "UPDATE gateway_api_keys SET last_used_at=datetime('now') WHERE key_id=?",
-        (item["key_id"],),
-    )
+    if touch_last_used:
+        conn.execute(
+            "UPDATE gateway_api_keys SET last_used_at=datetime('now') WHERE key_id=?",
+            (item["key_id"],),
+        )
     item.pop("key_hash", None)
     return item
 

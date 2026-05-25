@@ -91,6 +91,57 @@ curl -H "X-Admin-Token: $ADMIN_TOKEN" \
   "http://127.0.0.1:8765/api/v1/skills?runtime_target=hermes&tag=crm"
 ```
 
+> **重要：** 上传只会把 skill 标为 `approved` 并写入磁盘；**员工 manifest 不会自动更新**，必须执行下一步「发布 Bundle」。
+
+## 发布 Bundle（员工 manifest）
+
+将已批准的 skill 写入 `skill_bundles`（默认 `default-agent-skills` / `stable`）。员工与 `evotown-agent-setup.py sync` 拉取的是 **market manifest**，内容来自本步骤。
+
+### 控制台
+
+企业管理后台 → **技能** → **发布 Bundle**：勾选 skill → **发布选中**，或 **发布全部已批准**。
+
+### API
+
+```bash
+curl -X POST http://127.0.0.1:8765/api/v1/skill-bundles/default-agent-skills/publish \
+  -H "X-Admin-Token: $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "channel": "stable",
+    "version": "1.0.1",
+    "skill_ids": ["private-crm-summary", "http-request", "calculator"]
+  }'
+```
+
+或发布当前全部已批准 skill（不按 id 枚举）：
+
+```bash
+curl -X POST http://127.0.0.1:8765/api/v1/skill-bundles/default-agent-skills/publish \
+  -H "X-Admin-Token: $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "channel": "stable",
+    "include_all_approved": true
+  }'
+```
+
+`version` 可省略，系统会在上一版本基础上 **patch +1**（如 `1.0.0` → `1.0.1`）。`runtime_targets` 会按入选 skill 的并集自动更新。
+
+发布后验证（管理员）：
+
+```bash
+curl -H "X-Admin-Token: $ADMIN_TOKEN" \
+  "http://127.0.0.1:8765/api/v1/skill-bundles/default-agent-skills/manifest?runtime_target=openclaw"
+```
+
+员工侧（`evk_` + `console.read`）：
+
+```bash
+curl -H "Authorization: Bearer $EVOTOWN_API_KEY" \
+  "http://127.0.0.1:8765/api/v1/market/bundles/default-agent-skills/manifest?runtime_target=openclaw"
+```
+
 ## 下载 skill 包
 
 ```bash
@@ -154,8 +205,9 @@ curl -X POST http://127.0.0.1:8765/api/v1/skills/private-crm-summary/deprecate \
 下线后：
 
 - `GET /api/v1/skills?status_filter=deprecated` 仍可查到该 skill（审计保留）
-- `GET /api/v1/skill-bundles/default-agent-skills/manifest` 不再包含该 skill
-- 重新上传同 `skill_id` 的包会自动恢复为 `approved`
+- `GET .../manifest` 读取时会 **过滤** 已下线 skill（即使 bundle 表内 JSON 未重发）
+- 建议下线后 **重新发布 Bundle**，保持 bundle 表与审计一致
+- 重新上传同 `skill_id` 的包会自动恢复为 `approved`，需再次发布 Bundle 才会进入员工 manifest
 
 ## Runtime 接入示例
 
@@ -210,10 +262,25 @@ evotown_connector:
     - run.completed
 ```
 
+## Skill 包签名校验（已实现）
+
+设置环境变量：
+
+```bash
+export EVOTOWN_SKILL_SIGNING_SECRET="your-hmac-secret"
+# 可选：强制无签名包拒绝下载
+export EVOTOWN_REQUIRE_SIGNED_SKILLS=1
+```
+
+- 上传时写入 `package_signature`（HMAC-SHA256，基于 `package_sha256`）
+- manifest 条目含 `package_sha256` 与 `signature`
+- `evotown-agent-setup.py sync` 会校验 sha256；若本机配置同一 `EVOTOWN_SKILL_SIGNING_SECRET` 则校验 signature
+- Bundle 级 `signature` 为 manifest skills 列表的摘要签名
+
 ## 当前 MVP 边界
 
 - 包上传使用 base64 JSON，后续可替换为 multipart 或对象存储直传。
-- manifest 和下载接口目前需要 Admin Token；生产环境建议由 Connector 代理给 runtime。
+- 员工 manifest / 下载走 `evk_` + `console.read`；管理员上传 / 发布 Bundle 走 Admin Token 或控制台。
 - 只实现本地磁盘存储，后续可接 S3 / MinIO / 企业制品库。
-- 暂未实现签名校验，只返回 `signature` 字段和包 `sha256`。
+- Bundle 发布需管理员显式操作（上传 skill 不会自动进 manifest）。
 

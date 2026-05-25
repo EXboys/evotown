@@ -366,6 +366,126 @@ def _candidate_from_row(row: sqlite3.Row) -> dict[str, Any]:
     return item
 
 
+def list_bundles() -> list[dict[str, Any]]:
+    rows = _ensure_conn().execute(
+        "SELECT * FROM skill_bundles ORDER BY bundle_id ASC, channel ASC",
+    ).fetchall()
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["runtime_targets"] = _json_loads(item.get("runtime_targets", "[]"), [])
+        item["skills"] = _json_loads(item.get("skills", "[]"), [])
+        result.append(item)
+    return result
+
+
+def _skill_to_manifest_entry(skill: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "skill_id": skill["skill_id"],
+        "name": skill["name"],
+        "version": skill.get("version", "0.1.0"),
+        "package_url": skill.get("package_url", ""),
+    }
+
+
+def _next_bundle_version(current: str | None) -> str:
+    if not current:
+        return "1.0.0"
+    parts = current.strip().split(".")
+    if len(parts) == 3 and all(part.isdigit() for part in parts):
+        major, minor, patch = (int(parts[0]), int(parts[1]), int(parts[2]))
+        return f"{major}.{minor}.{patch + 1}"
+    return current
+
+
+def _resolve_publish_skill_ids(
+    *,
+    skill_ids: list[str],
+    include_all_approved: bool,
+    team_id: str | None,
+    runtime_target: str | None,
+) -> list[str]:
+    if skill_ids:
+        return skill_ids
+    if include_all_approved:
+        skills = list_skills(
+            status="approved",
+            team_id=team_id or None,
+            runtime_target=runtime_target,
+            limit=500,
+        )
+        return [item["skill_id"] for item in skills]
+    raise ValueError("skill_ids required unless include_all_approved is true")
+
+
+def publish_bundle(
+    bundle_id: str,
+    *,
+    channel: str = "stable",
+    version: str | None = None,
+    runtime_targets: list[str] | None = None,
+    skill_ids: list[str] | None = None,
+    include_all_approved: bool = False,
+    team_id: str | None = None,
+    runtime_target: str | None = None,
+) -> dict[str, Any]:
+    conn = _ensure_conn()
+    existing = conn.execute(
+        "SELECT version, runtime_targets FROM skill_bundles WHERE bundle_id=? AND channel=?",
+        (bundle_id, channel),
+    ).fetchone()
+    resolved_ids = list(
+        dict.fromkeys(
+            _resolve_publish_skill_ids(
+                skill_ids=list(skill_ids or []),
+                include_all_approved=include_all_approved,
+                team_id=team_id,
+                runtime_target=runtime_target,
+            )
+        )
+    )
+    if not resolved_ids:
+        raise ValueError("no approved skills to publish")
+
+    manifest_skills: list[dict[str, Any]] = []
+    union_targets: set[str] = set(runtime_targets or [])
+    for skill_id in resolved_ids:
+        skill = get_skill(skill_id)
+        if skill is None:
+            raise ValueError(f"skill not found: {skill_id}")
+        if skill.get("status") != "approved":
+            raise ValueError(f"skill is not approved: {skill_id}")
+        manifest_skills.append(_skill_to_manifest_entry(skill))
+        union_targets.update(skill.get("runtime_targets") or [])
+
+    if not union_targets:
+        union_targets = set(runtime_targets or ["openclaw", "hermes", "skilllite", "custom"])
+
+    publish_version = version or _next_bundle_version(existing["version"] if existing else None)
+    targets_json = _json_dumps(sorted(union_targets))
+    skills_json = _json_dumps(manifest_skills)
+    digest = hashlib.sha256(skills_json.encode("utf-8")).hexdigest()
+    bundle_signature = skill_signing.sign_digest_hex(digest) or "unsigned"
+
+    conn.execute(
+        """
+        INSERT INTO skill_bundles (bundle_id, version, channel, runtime_targets, skills, signature, published_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(bundle_id, channel) DO UPDATE SET
+            version=excluded.version,
+            runtime_targets=excluded.runtime_targets,
+            skills=excluded.skills,
+            signature=excluded.signature,
+            published_at=datetime('now')
+        """,
+        (bundle_id, publish_version, channel, targets_json, skills_json, bundle_signature),
+    )
+    manifest = get_bundle_manifest(bundle_id, channel=channel)
+    if manifest is None:
+        raise RuntimeError("bundle publish succeeded but manifest read failed")
+    return manifest
+
+
 def get_bundle_manifest(
     bundle_id: str,
     *,

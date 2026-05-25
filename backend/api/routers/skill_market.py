@@ -7,10 +7,21 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 
 from core.auth import require_admin, require_engine_ingest
-from domain.models import SkillCandidateCreate, SkillCandidateReview, SkillDeprecate, SkillPackageUpload
+from domain.models import (
+    SkillBundlePublish,
+    SkillCandidateCreate,
+    SkillCandidateReview,
+    SkillDeprecate,
+    SkillPackageUpload,
+)
 from infra import skill_market
 
 router = APIRouter(prefix="/api/v1", tags=["skill-market"])
+
+
+@router.get("/skill-bundles", dependencies=[Depends(require_admin)])
+async def list_skill_bundles():
+    return {"bundles": skill_market.list_bundles()}
 
 
 @router.get("/skill-bundles/{bundle_id}/manifest", dependencies=[Depends(require_admin)])
@@ -27,6 +38,24 @@ async def get_skill_bundle_manifest(
     if manifest is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="bundle not found")
     return {"manifest": manifest}
+
+
+@router.post("/skill-bundles/{bundle_id}/publish", dependencies=[Depends(require_admin)])
+async def publish_skill_bundle(bundle_id: str, body: SkillBundlePublish):
+    try:
+        manifest = skill_market.publish_bundle(
+            bundle_id,
+            channel=body.channel,
+            version=body.version,
+            runtime_targets=list(body.runtime_targets),
+            skill_ids=body.skill_ids,
+            include_all_approved=body.include_all_approved,
+            team_id=body.team_id,
+            runtime_target=body.runtime_target,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return {"published": True, "manifest": manifest}
 
 
 @router.get("/skills", dependencies=[Depends(require_admin)])

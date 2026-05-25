@@ -107,6 +107,71 @@ class SkillMarketApiTest(unittest.TestCase):
         names = [item["name"] for item in skills.json()["skills"]]
         self.assertIn("Summarize CRM Notes", names)
 
+    def test_publish_bundle_puts_uploaded_skill_in_manifest(self) -> None:
+        from fastapi.testclient import TestClient
+        import importlib
+        import main
+
+        importlib.reload(main)
+        client = TestClient(main.app)
+        admin = {"X-Admin-Token": "test-admin-token"}
+        package_bytes = b"# SKILL\nbundle publish test\n"
+
+        upload = client.post(
+            "/api/v1/skill-packages",
+            json={
+                "skill_id": "bundle-publish-demo",
+                "name": "Bundle Publish Demo",
+                "description": "demo",
+                "version": "1.0.0",
+                "runtime_targets": ["openclaw"],
+                "visibility": "company",
+                "tags": ["demo"],
+                "filename": "demo.zip",
+                "content_base64": base64.b64encode(package_bytes).decode("ascii"),
+            },
+            headers=admin,
+        )
+        self.assertEqual(upload.status_code, 200)
+
+        before = client.get(
+            "/api/v1/skill-bundles/default-agent-skills/manifest?runtime_target=openclaw",
+            headers=admin,
+        )
+        self.assertEqual(before.status_code, 200)
+        before_ids = {item["skill_id"] for item in before.json()["manifest"]["skills"]}
+        self.assertNotIn("bundle-publish-demo", before_ids)
+
+        published = client.post(
+            "/api/v1/skill-bundles/default-agent-skills/publish",
+            json={
+                "channel": "stable",
+                "skill_ids": ["bundle-publish-demo", "http-request"],
+            },
+            headers=admin,
+        )
+        self.assertEqual(published.status_code, 200)
+        manifest = published.json()["manifest"]
+        published_ids = {item["skill_id"] for item in manifest["skills"]}
+        self.assertIn("bundle-publish-demo", published_ids)
+        self.assertIn("http-request", published_ids)
+
+    def test_publish_all_approved_skills(self) -> None:
+        from fastapi.testclient import TestClient
+        import importlib
+        import main
+
+        importlib.reload(main)
+        client = TestClient(main.app)
+        admin = {"X-Admin-Token": "test-admin-token"}
+        res = client.post(
+            "/api/v1/skill-bundles/default-agent-skills/publish",
+            json={"channel": "stable", "include_all_approved": True},
+            headers=admin,
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertGreaterEqual(len(res.json()["manifest"]["skills"]), 1)
+
     def test_admin_uploads_private_skill_package(self) -> None:
         from fastapi.testclient import TestClient
         import importlib

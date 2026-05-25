@@ -204,6 +204,18 @@ class SkillPackageUpload(BaseModel):
     dependencies: list[str] = Field(default_factory=list)
 
 
+class SkillBundlePublish(BaseModel):
+    channel: str = Field(default="stable", min_length=1, max_length=32)
+    version: str | None = Field(default=None, max_length=64)
+    runtime_targets: list[RuntimeTarget] = Field(
+        default_factory=lambda: ["openclaw", "hermes", "skilllite", "custom"],
+    )
+    skill_ids: list[str] = Field(default_factory=list)
+    include_all_approved: bool = False
+    team_id: str | None = Field(default=None, max_length=128)
+    runtime_target: RuntimeTarget | None = None
+
+
 AccountStatus = Literal["active", "disabled"]
 ApiKeyStatus = Literal["active", "revoked"]
 

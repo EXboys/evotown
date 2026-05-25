@@ -6,6 +6,8 @@ Evotown — Evolution Arena
 
 **Language**: [English](en/README.md) | [中文](zh-CN/README.md)
 
+> 想先看整体方案 / Looking for the big picture? Read **[Evotown 解决方案文档 / Solution Overview (中文)](docs/zh-CN/SOLUTION.md)** — 一份文档讲清产品定位、总体架构、核心模块、关键工作流、部署形态与接入指南。
+
 ## Prerequisites
 
 - Python 3.10+
@@ -185,8 +187,10 @@ evotown/
 
 ## Related Docs
 
+- **[Solution Overview / 解决方案文档 (中文)](docs/zh-CN/SOLUTION.md)** — 一份文档讲清定位 / 架构 / 模块 / 工作流 / 部署 / 接入
 - [Evotown spec index](spec/README.md)
 - [Engine ingest API v0.1](docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md) | [引擎接入 API v0.1](docs/zh-CN/EVOTOWN-ENGINE-INGEST-V0.1.md) · [OpenAPI](docs/openapi/evotown-engine-ingest-v0.1.yaml)
+- [Private Skills Market deployment / 私有 Skills 市场部署 (中文)](docs/zh-CN/PRIVATE_SKILLS_MARKET_DEPLOYMENT.md)
 - [Enterprise Control Plane Product Spec](docs/en/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md) | [企业控制面产品规格](docs/zh-CN/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md)
 - [Reward Mechanism](docs/en/REWARD_MECHANISM.md) | [奖励机制](docs/zh-CN/REWARD_MECHANISM.md)
 - [Agent Task Acceptance](docs/en/AGENT_TASK_ACCEPTANCE_ANALYSIS.md) | [任务接受逻辑](docs/zh-CN/AGENT_TASK_ACCEPTANCE_ANALYSIS.md)

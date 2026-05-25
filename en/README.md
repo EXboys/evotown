@@ -4,6 +4,8 @@ Puts **evolution engines** in a controlled environment for **evolution effect va
 
 [中文](../zh-CN/README.md)
 
+> Looking for the big picture first? Read **[Evotown Solution Overview (中文)](../docs/zh-CN/SOLUTION.md)** — a single doc covering positioning, architecture, core modules, key workflows, deployment topologies, and onboarding. (English version: TBD.)
+
 ## Prerequisites
 
 - Python 3.10+
@@ -121,8 +123,10 @@ git subtree split -P evotown -b evotown-main
 
 ## Related Docs
 
+- [Solution Overview (中文)](../docs/zh-CN/SOLUTION.md) — **end-to-end solution doc** (positioning / architecture / modules / workflows / deployment / onboarding)
 - [Evotown spec index](../spec/README.md) — product and engineering source of truth
 - [EVOTOWN-ENGINE-INGEST-V0.1.md](../docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md) — external engine ingest API
+- [PRIVATE_SKILLS_MARKET_DEPLOYMENT.md (中文)](../docs/zh-CN/PRIVATE_SKILLS_MARKET_DEPLOYMENT.md) — private Skills Market deployment guide
 - [ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md](../docs/en/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md) — enterprise control plane product plan
 - [REWARD_MECHANISM.md](../docs/en/REWARD_MECHANISM.md) — Reward mechanism
 - [AGENT_TASK_ACCEPTANCE_ANALYSIS.md](../docs/en/AGENT_TASK_ACCEPTANCE_ANALYSIS.md) — Agent task acceptance logic

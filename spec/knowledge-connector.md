@@ -28,6 +28,26 @@ Evotown Runs / Chronicle
 | `feishu` | `app_id`, `app_secret`, `space_id`, optional `demo` | Uses Lark Open API; falls back to demo docs without credentials |
 | `yuque` | `token`, `login`, `book`, optional `demo` | Uses Yuque Open API |
 | `custom` | arbitrary | Documents pushed via connector ingest only |
+| `native` | `space_id` in config | Evotown-managed Markdown spaces with folder tree |
+
+## Native knowledge base (P0)
+
+Evotown Native KB is a first-class `source_type` for platform-managed documents:
+
+- **Space → Folder → Document** tree (`knowledge_spaces`, `knowledge_folders`)
+- Markdown create/edit with `draft` / `published` / `deprecated`
+- Published docs are **chunked** into `knowledge_chunks` with FTS index
+- Search returns **chunk-level citations** (`result_type: chunk`)
+
+### Native admin API
+
+- `GET /api/v1/knowledge/spaces`
+- `POST /api/v1/knowledge/spaces`
+- `GET /api/v1/knowledge/spaces/{space_id}/tree`
+- `POST /api/v1/knowledge/spaces/{space_id}/folders`
+- `POST /api/v1/knowledge/spaces/{space_id}/docs`
+- `PUT /api/v1/knowledge/native-docs/{doc_id}`
+- `POST /api/v1/knowledge/native-docs/{doc_id}/publish`
 
 ## API
 

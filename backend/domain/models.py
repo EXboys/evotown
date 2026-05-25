@@ -251,7 +251,8 @@ class ConsoleLogin(BaseModel):
     api_key: str = Field(min_length=8, max_length=256)
 
 
-KnowledgeSourceType = Literal["feishu", "yuque", "custom"]
+KnowledgeSourceType = Literal["feishu", "yuque", "custom", "native"]
+KnowledgePublishStatus = Literal["draft", "published", "deprecated"]
 
 
 class KnowledgeSourceCreate(BaseModel):
@@ -285,4 +286,36 @@ class KnowledgeDocumentIngestItem(BaseModel):
 class KnowledgeDocumentIngestBatch(BaseModel):
     source_id: str = Field(min_length=1, max_length=128)
     documents: list[KnowledgeDocumentIngestItem] = Field(min_length=1, max_length=200)
+
+
+class KnowledgeSpaceCreate(BaseModel):
+    space_id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=2000)
+    team_id: str = Field(default="", max_length=128)
+
+
+class KnowledgeFolderCreate(BaseModel):
+    folder_id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=128)
+    parent_folder_id: str = Field(default="", max_length=128)
+
+
+class KnowledgeNativeDocCreate(BaseModel):
+    slug: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=512)
+    folder_id: str = Field(default="", max_length=128)
+    content_md: str = Field(default="", max_length=100000)
+    author: str = Field(default="", max_length=128)
+    publish_status: KnowledgePublishStatus = "draft"
+    tags: list[str] = Field(default_factory=list)
+
+
+class KnowledgeNativeDocUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=512)
+    folder_id: str | None = Field(default=None, max_length=128)
+    content_md: str | None = Field(default=None, max_length=100000)
+    author: str | None = Field(default=None, max_length=128)
+    publish_status: KnowledgePublishStatus | None = None
+    tags: list[str] | None = None
 

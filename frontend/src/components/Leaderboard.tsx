@@ -1,4 +1,4 @@
-/** 实时排行榜 — 按余额从高到低排序，支持排名翻转箭头 */
+/** 贡献看板 — 按贡献值从高到低排序，弱化个人 PK 语义 */
 import { useRef } from "react";
 import { useEvotownStore } from "../store/evotownStore";
 import { WarriorPortraitCanvas } from "./WarriorPortraitCanvas";
@@ -16,7 +16,7 @@ export function Leaderboard() {
   const selectedAgentId = useEvotownStore((s) => s.selectedAgentId);
   const setSelectedAgent = useEvotownStore((s) => s.setSelectedAgent);
 
-  // 按余额降序排列（余额相同时，任务数多的靠前）
+  // 按贡献值降序排列（贡献值相同时，任务数多的靠前）
   const ranked = [...agents].sort((a, b) =>
     b.balance !== a.balance ? b.balance - a.balance : (b.task_count ?? 0) - (a.task_count ?? 0)
   );
@@ -35,7 +35,7 @@ export function Leaderboard() {
   });
   prevRanksRef.current = currentRanks;
 
-  // 最高余额，用于绘制比例条
+  // 最高贡献值，用于绘制比例条
   const maxBalance = ranked.length > 0 ? Math.max(...ranked.map((a) => a.balance), 1) : 1;
 
   if (agents.length === 0) {
@@ -49,7 +49,7 @@ export function Leaderboard() {
   return (
     <div className="space-y-2">
       <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider flex items-center gap-2">
-        <span className="text-amber-400">⚔️</span> 军功榜
+        <span className="text-emerald-400">◆</span> 贡献看板
         <span className="text-slate-600 font-normal">({ranked.length})</span>
       </h3>
 
@@ -129,11 +129,11 @@ export function Leaderboard() {
                     )}
                     {agent.status === "bankrupt" && (
                       <span className="shrink-0 text-[10px] px-1 py-0.5 rounded bg-red-900/50 text-red-400 border border-red-700/40">
-                        💀
+                        暂停
                       </span>
                     )}
                   </div>
-                  {/* 余额条 */}
+                  {/* 健康度 / 贡献值条 */}
                   <div className="mt-1 h-1 bg-slate-700 rounded-full overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${barColor}`}
@@ -142,11 +142,11 @@ export function Leaderboard() {
                   </div>
                 </div>
 
-                {/* 军功数字 */}
+                {/* 贡献值数字 */}
                 <span className={`text-xs font-mono font-semibold shrink-0 ${
                   agent.balance <= 20 ? "text-red-400" : agent.balance <= 60 ? "text-amber-400" : "text-emerald-400"
                 }`}>
-                  {agent.balance} 功
+                  {agent.balance} 贡献
                 </span>
 
                 {/* 排名变化箭头 */}

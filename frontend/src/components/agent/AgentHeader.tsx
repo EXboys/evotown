@@ -69,9 +69,9 @@ export function AgentHeader({ agentId, agent, onDelete, deleting, onShowShare, o
                       setBalanceInput(agent.balance?.toString() ?? "");
                       setShowBalanceInput(true);
                     }}
-                    title="点击修改军功"
+                    title="点击修改贡献值"
                   >
-                    {agent.balance} 军功
+                    {agent.balance} 贡献
                   </span>
                 )}
               </span>

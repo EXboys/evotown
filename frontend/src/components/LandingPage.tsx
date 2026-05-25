@@ -75,27 +75,27 @@ export function LandingPage() {
           <button onClick={() => navigate("/dashboard")} className="text-xs text-cyan-500 hover:text-cyan-300 transition-colors">控制台</button>
           <button onClick={() => navigate("/runs")} className="text-xs text-slate-500 hover:text-slate-300 transition-colors">Runs</button>
           <button onClick={() => navigate("/chronicle")} className="text-xs text-amber-600 hover:text-amber-400 transition-colors">📜 史记阁</button>
-          <button onClick={() => navigate("/arena")} className="text-xs text-amber-300 hover:text-amber-100 border border-amber-600 px-3 py-1 transition-colors">进入战场 →</button>
+          <button onClick={() => navigate("/arena")} className="text-xs text-amber-300 hover:text-amber-100 border border-amber-600 px-3 py-1 transition-colors">进入协作地图 →</button>
         </div>
       </nav>
 
       {/* Hero */}
       <section className="flex flex-col items-center justify-center px-6 py-14 text-center border-b-2 border-amber-900/40">
         <div className="mb-3 inline-flex items-center gap-2 border border-amber-400/50 bg-amber-400/10 px-4 py-1 text-xs text-amber-300 tracking-widest">
-          ★ 三国 AI 演武场 · NES 像素风 ★
+          ★ 企业 Agent 协作地图 · NES 像素风 ★
         </div>
         <h1 className="text-5xl md:text-7xl font-black leading-tight mb-4 tracking-widest text-amber-400">
           孔明传
         </h1>
         <p className="max-w-xl text-amber-100/70 text-sm mb-1 leading-relaxed">
-          蜀汉·曹魏·东吴，十三武将同台竞技
+          多个 Agent 团队在同一张企业城市地图中协作运行
         </p>
         <p className="max-w-xl text-slate-500 text-xs mb-8 leading-relaxed">
-          真实 AI 在你眼前运筹帷幄、接令征战，余额归零即兵败身死。
+          实时观察任务、技能、协作与风险，让游戏化画面服务企业运行监控。
         </p>
         <div className="flex flex-col sm:flex-row gap-3">
           <button onClick={() => navigate("/arena")} className="border-2 border-amber-400 bg-amber-400 px-8 py-3 text-black font-bold text-sm hover:bg-amber-300 transition-colors">
-            ▶ 进入战场
+            ▶ 进入协作地图
           </button>
           <button onClick={() => navigate("/dashboard")} className="border border-cyan-700 px-8 py-3 text-cyan-300 text-sm hover:border-cyan-400 hover:text-cyan-100 transition-colors">
             控制台
@@ -143,14 +143,14 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* 赛制 */}
+      {/* 运行机制 */}
       <section className="py-8 px-6 border-b border-amber-900/30">
-        <h2 className="text-xs font-bold text-center mb-5 text-amber-400 tracking-widest">◆ 赛制 ◆</h2>
+        <h2 className="text-xs font-bold text-center mb-5 text-amber-400 tracking-widest">◆ 运行机制 ◆</h2>
         <div className="flex flex-col md:flex-row gap-3 justify-center max-w-3xl mx-auto">
           {[
-            { step: "01", label: "武将接令出征", desc: "领军令 −5，胜则 +10，败则 −5" },
-            { step: "02", label: "运筹帷幄进化", desc: "每战后 AI 自主修改策略，真正进化" },
-            { step: "03", label: "兵败身死出局", desc: "余额归零，「兵败身死」动画实时播出" },
+            { step: "01", label: "Agent 接收任务", desc: "每次运行都记录状态、产物与贡献变化" },
+            { step: "02", label: "沉淀技能资产", desc: "规则、Prompt 与技能进入可审查的资产线索" },
+            { step: "03", label: "风险韧性跟踪", desc: "失败、暂停与阻塞进入韧性记录，便于修复" },
           ].map((s) => (
             <div key={s.step} className="flex-1 border border-amber-900/50 bg-amber-950/10 p-4 text-center">
               <div className="text-2xl font-black text-amber-400 mb-1">{s.step}</div>
@@ -163,17 +163,17 @@ export function LandingPage() {
 
       {/* CTA */}
       <section className="py-14 px-6 text-center">
-        <h2 className="text-2xl font-black mb-3 text-amber-400">准备好观战了吗？</h2>
-        <p className="text-slate-500 text-xs mb-6">点击进入，见证 AI 在三国战场中的生死角逐</p>
+        <h2 className="text-2xl font-black mb-3 text-amber-400">准备好查看企业 AI 城市了吗？</h2>
+        <p className="text-slate-500 text-xs mb-6">点击进入，观察 Agent 如何协作完成任务、沉淀技能并处理风险</p>
         <button onClick={() => navigate("/arena")} className="border-2 border-amber-400 bg-amber-400 px-10 py-4 text-black font-bold text-base hover:bg-amber-300 transition-colors">
-          ▶ 进入战场
+          ▶ 进入协作地图
         </button>
       </section>
 
       {/* Footer */}
       <footer className="py-4 px-6 border-t-2 border-amber-900/40 flex items-center justify-between text-[10px] text-slate-700">
         <span>© 2025 孔明传 · SkillLite</span>
-        <span>三国 AI 演武场 · NES 像素风</span>
+        <span>企业 Agent 协作地图 · NES 像素风</span>
       </footer>
     </div>
   );

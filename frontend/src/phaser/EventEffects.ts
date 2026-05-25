@@ -225,20 +225,20 @@ export class EventEffects {
       });
     });
 
-    // Step 2: 气泡和特效 — 淘汰：深红黑、尖角死亡风格
+    // Step 2: 气泡和特效 — 暂停：深红黑、风险提示风格
     this.scene.time.delayedCall(preludeMs + 200, () => {
       const name = agent.displayName;
       const bubble = this.scene.add.container(screenX, screenY - 30);
       const bg = this.scene.add.graphics();
       bg.fillStyle(0x0a0000, 0.98);
       bg.fillRect(-64, -16, 128, 32);
-      // 双线边框，死亡感
+      // 双线边框，表示风险暂停
       bg.lineStyle(1, 0x440000, 0.8);
       bg.strokeRect(-65, -17, 130, 34);
       bg.lineStyle(2, 0xff2222, 1);
       bg.strokeRect(-64, -16, 128, 32);
-      const skull = this.scene.add.text(-46, 0, "💀", { fontSize: "16px" }).setOrigin(0.5).setResolution(2);
-      const txt = this.scene.add.text(12, 0, `${name} 兵败身死`, {
+      const skull = this.scene.add.text(-46, 0, "⚠", { fontSize: "16px" }).setOrigin(0.5).setResolution(2);
+      const txt = this.scene.add.text(12, 0, `${name} 已暂停`, {
         fontSize: "9px",
         color: "#FF4444",
         fontStyle: "bold",
@@ -254,7 +254,7 @@ export class EventEffects {
         onComplete: () => bubble.destroy(),
       });
 
-      const qishu = this.scene.add.text(screenX, screenY - 58, "气数已尽", {
+      const qishu = this.scene.add.text(screenX, screenY - 58, "等待修复", {
         fontSize: "11px",
         color: "#ff8888",
         fontStyle: "bold",
@@ -278,7 +278,7 @@ export class EventEffects {
       flagBg.fillRect(-11, -34, 22, 14);
       flagBg.lineStyle(1, 0xff4444, 1);
       flagBg.strokeRect(-11, -34, 22, 14);
-      const flagSkull = this.scene.add.text(0, -27, "💀", { fontSize: "9px" }).setOrigin(0.5).setResolution(2);
+      const flagSkull = this.scene.add.text(0, -27, "!", { fontSize: "9px", color: "#ff8888" }).setOrigin(0.5).setResolution(2);
       skullFlag.add([pole, flagBg, flagSkull]);
       this.scene.time.delayedCall(5000, () => {
         this.scene.tweens.add({
@@ -579,7 +579,7 @@ export class EventEffects {
       bg.fillRoundedRect(-56, -14, 112, 28, 8);
       bg.lineStyle(2, NES.GOLD, 1);
       bg.strokeRoundedRect(-56, -14, 112, 28, 8);
-      const txt = this.scene.add.text(0, 0, "⚔ 军令达成！", {
+      const txt = this.scene.add.text(0, 0, "✓ 任务达成！", {
         fontSize: "10px", color: "#FBBF24", fontStyle: "bold",
       }).setOrigin(0.5).setResolution(2);
       bubble.add([bg, txt]);
@@ -709,7 +709,7 @@ export class EventEffects {
       });
     }
 
-    // 军功气泡 — 圆角金色
+    // 贡献值气泡 — 圆角金色
     if (pendingBalance !== null) {
       const balBubble = this.scene.add.container(screenX, screenY - 26);
       balBubble.setDepth(860);

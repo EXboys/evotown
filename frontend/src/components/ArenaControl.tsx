@@ -21,13 +21,13 @@ function ScoreBar({ label, value, max = 10 }: { label: string; value: number; ma
 
 const DIFFICULTY_LABELS: Record<string, string> = { easy: "简单", medium: "中等", hard: "困难" };
 
-/** 根据 reward 映射为战果标签（大胜/小胜/平/小败/大败） */
+/** 根据 reward 映射为运行结果标签，弱化战斗胜负叙事 */
 function getResultLabel(reward: number): { label: string; icon: string; className: string } {
-  if (reward >= 2) return { label: "大胜", icon: "⚔️✅", className: "bg-emerald-500/25 text-emerald-300 border-emerald-500/40" };
-  if (reward === 1) return { label: "小胜", icon: "⚔️", className: "bg-emerald-600/20 text-emerald-400 border-emerald-600/30" };
+  if (reward >= 2) return { label: "高价值", icon: "✅", className: "bg-emerald-500/25 text-emerald-300 border-emerald-500/40" };
+  if (reward === 1) return { label: "达成", icon: "✓", className: "bg-emerald-600/20 text-emerald-400 border-emerald-600/30" };
   if (reward === 0) return { label: "平", icon: "—", className: "bg-slate-600/20 text-slate-400 border-slate-500/30" };
-  if (reward === -1) return { label: "小败", icon: "⚔️", className: "bg-red-600/20 text-red-400 border-red-600/30" };
-  return { label: "大败", icon: "⚔️❌", className: "bg-red-500/25 text-red-300 border-red-500/40" };
+  if (reward === -1) return { label: "需修复", icon: "!", className: "bg-red-600/20 text-red-400 border-red-600/30" };
+  return { label: "高风险", icon: "⚠", className: "bg-red-500/25 text-red-300 border-red-500/40" };
 }
 
 function JudgeCard({ judge, agentId, agentName, success, task, difficulty }: { judge: JudgeScore; agentId: string; agentName?: string; success: boolean; task?: string; difficulty?: string }) {
@@ -40,7 +40,7 @@ function JudgeCard({ judge, agentId, agentName, success, task, difficulty }: { j
         <div className="flex items-center justify-between gap-1.5 flex-wrap">
           <span className="text-[10px] font-mono text-slate-400 truncate">{agentName || agentId}</span>
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className={`text-[9px] font-bold px-1.5 py-px rounded border ${result.className}`} title="战果">
+            <span className={`text-[9px] font-bold px-1.5 py-px rounded border ${result.className}`} title="运行结果">
               {result.icon} {result.label}
             </span>
             {difficulty && (
@@ -401,7 +401,7 @@ function ArenaStats() {
   return (
     <section className="space-y-2">
       <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider flex items-center gap-2">
-        <span className="text-amber-500/80">📊</span> 竞技场统计
+        <span className="text-amber-500/80">📊</span> 运行统计
       </h3>
       <div className="grid grid-cols-2 gap-2">
         {[

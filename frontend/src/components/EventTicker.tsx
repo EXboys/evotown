@@ -1,5 +1,5 @@
 /**
- * EventTicker — 底部战报卷轴
+ * EventTicker — 底部运行事件卷轴
  * 监听 evotownEvents，实时显示关键事件，按类型区分样式
  */
 import { useEffect, useRef, useState } from "react";
@@ -44,7 +44,7 @@ const EVENT_STYLES: Record<
     border: "border-red-800/70",
     text: "text-red-200",
     accent: "text-red-400",
-    label: "败亡",
+    label: "暂停",
   },
   evolution: {
     bg: "bg-amber-950/70",
@@ -72,7 +72,7 @@ const EVENT_STYLES: Record<
     border: "border-indigo-600/50",
     text: "text-indigo-200",
     accent: "text-indigo-400",
-    label: "入阵",
+    label: "上线",
   },
   message_challenge: {
     bg: "bg-red-950/40",
@@ -154,25 +154,25 @@ export function EventTicker() {
 
   useEffect(() => {
     const onEliminated = (d: { agent_id: string; reason?: string }) => {
-      push("💀", `${getAgentName(d.agent_id)} 兵败身死，入英魂祠！`, "eliminated");
+      push("⚠", `${getAgentName(d.agent_id)} 已暂停，进入韧性记录`, "eliminated");
     };
     const onEvolution = (d: { agent_id: string; event_type?: string; type?: string }) => {
       const et = d.event_type || d.type || "";
       const msg =
-        et === "rule_added" ? "习得新兵法" :
+        et === "rule_added" ? "沉淀新规则" :
         et === "skill_generated" ? "创制新技能" : "进化触发";
       push("⚡", `${getAgentName(d.agent_id)} ${msg}！`, "evolution");
     };
     const onTaskComplete = (d: { agent_id: string; success: boolean; balance: number }) => {
       if (d.success) {
-        push("✅", `${getAgentName(d.agent_id)} 军令完成，军功 ${d.balance}`, "task_success");
+        push("✅", `${getAgentName(d.agent_id)} 任务完成，贡献值 ${d.balance}`, "task_success");
       } else {
-        push("❌", `${getAgentName(d.agent_id)} 军令未竟，军功 ${d.balance}`, "task_fail");
+        push("❌", `${getAgentName(d.agent_id)} 任务未完成，贡献值 ${d.balance}`, "task_fail");
       }
     };
     const onCreated = (d: { agent_id: string; display_name?: string }) => {
       const name = d.display_name || d.agent_id;
-      push("🌟", `${name} 奉命入阵！`, "created");
+      push("🌟", `${name} 已上线，加入协作地图`, "created");
     };
 
     const onAgentMessage = (d: { from_name: string; to_name: string; content: string; msg_type: string }) => {
@@ -227,14 +227,13 @@ export function EventTicker() {
   if (items.length === 0) return null;
 
   return (
-    <div className="w-full relative border-t-2 border-amber-800/90 px-0 py-2 flex items-center overflow-hidden select-none bg-[linear-gradient(180deg,#1c1917_0%,#0f0d0b_50%,#1c1917_100%)] shadow-[0_-4px_24px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(251,191,36,0.08)]">
-      {/* 卷轴左轴 */}
-      <div className="shrink-0 w-9 h-10 flex items-center justify-center bg-gradient-to-r from-amber-900/80 to-transparent border-r-2 border-amber-700/70 rounded-r-md">
-        <span className="text-amber-500/90 text-xs font-bold tracking-[0.25em]">战报</span>
+    <div className="w-full relative border-t border-slate-700/70 px-0 py-2 flex items-center overflow-hidden select-none bg-slate-950/95 shadow-[0_-4px_20px_rgba(0,0,0,0.35)]">
+      <div className="shrink-0 w-16 h-9 flex flex-col items-center justify-center border-r border-slate-700/70 bg-slate-900/80">
+        <span className="text-sky-300 text-[10px] font-bold tracking-[0.18em]">事件流</span>
+        <span className="text-slate-600 text-[8px] uppercase tracking-wider">live</span>
       </div>
-      {/* 竖线分隔 + 滚动区域 */}
       <div className="flex-1 flex items-center gap-0 min-w-0">
-        <div className="shrink-0 w-px h-6 bg-amber-700/40" aria-hidden />
+        <div className="shrink-0 w-px h-6 bg-slate-700/60" aria-hidden />
         <div
           ref={containerRef}
           className="flex-1 flex gap-2 overflow-x-auto scrollbar-none pl-2"
@@ -242,16 +241,15 @@ export function EventTicker() {
         >
           {items.map((item, i) => (
             <div key={item.id} className="flex items-center gap-2 shrink-0">
-              {i > 0 && <div className="w-px h-5 bg-amber-800/30" aria-hidden />}
+              {i > 0 && <div className="w-px h-5 bg-slate-700/45" aria-hidden />}
               <TickerCard item={item} />
             </div>
           ))}
         </div>
-        <div className="shrink-0 w-px h-6 bg-amber-700/40" aria-hidden />
+        <div className="shrink-0 w-px h-6 bg-slate-700/60" aria-hidden />
       </div>
-      {/* 卷轴右轴 */}
-      <div className="shrink-0 w-6 h-10 flex items-center justify-center bg-gradient-to-l from-amber-900/80 to-transparent border-l-2 border-amber-700/70 rounded-l-md">
-        <span className="text-amber-700/70 text-[10px]">◆</span>
+      <div className="shrink-0 w-8 h-9 flex items-center justify-center border-l border-slate-700/70 bg-slate-900/80">
+        <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
       </div>
     </div>
   );

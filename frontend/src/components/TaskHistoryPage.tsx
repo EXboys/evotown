@@ -89,7 +89,7 @@ export function TaskHistoryPage() {
       {/* Header */}
       <nav className="flex items-center justify-between px-6 py-3 border-b border-slate-800 shrink-0">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate("/arena")} className="text-slate-400 hover:text-white text-sm">← 返回竞技场</button>
+          <button onClick={() => navigate("/arena")} className="text-slate-400 hover:text-white text-sm">← 返回协作地图</button>
           <h1 className="text-base font-bold text-slate-200">📋 任务历史</h1>
           <span className="text-xs text-slate-500">({history.length})</span>
         </div>

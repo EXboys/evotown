@@ -13,7 +13,7 @@ export function ExecutionList({ logs }: { logs: ExecutionLogItem[] }) {
   if (logs.length === 0) {
     return (
       <p className="text-sm text-slate-500 py-4 text-center rounded-lg bg-slate-800/30 border border-dashed border-slate-600/50">
-        暂无军令记录
+        暂无任务记录
       </p>
     );
   }
@@ -70,7 +70,7 @@ export function ExecutionList({ logs }: { logs: ExecutionLogItem[] }) {
 export function ExecutionTab({ logs }: { logs: ExecutionLogItem[] }) {
   return (
     <div className="space-y-2">
-      <p className="text-xs text-slate-500">军令态度与执行（最近 30 条：拒绝 / 接令并执行）</p>
+      <p className="text-xs text-slate-500">任务态度与执行（最近 30 条：拒绝 / 接收并执行）</p>
       <ExecutionList logs={logs} />
     </div>
   );

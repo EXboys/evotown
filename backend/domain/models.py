@@ -319,3 +319,27 @@ class KnowledgeNativeDocUpdate(BaseModel):
     publish_status: KnowledgePublishStatus | None = None
     tags: list[str] | None = None
 
+
+class GatewayModelRouteCreate(BaseModel):
+    alias: str = Field(min_length=1, max_length=128)
+    target_model: str = Field(min_length=1, max_length=256)
+    team_id: str = Field(default="", max_length=128)
+    account_id: str = Field(default="", max_length=128)
+    description: str = Field(default="", max_length=512)
+    priority: int = Field(default=100, ge=0, le=10000)
+    enabled: bool = True
+
+
+class GatewayModelRouteUpdate(BaseModel):
+    alias: str | None = Field(default=None, min_length=1, max_length=128)
+    target_model: str | None = Field(default=None, min_length=1, max_length=256)
+    team_id: str | None = Field(default=None, max_length=128)
+    account_id: str | None = Field(default=None, max_length=128)
+    description: str | None = Field(default=None, max_length=512)
+    priority: int | None = Field(default=None, ge=0, le=10000)
+    enabled: bool | None = None
+
+
+class OidcExchange(BaseModel):
+    code: str = Field(min_length=8, max_length=256)
+

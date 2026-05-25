@@ -15,9 +15,11 @@ Environment:
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
-import json
+import hmac
 import os
+import json
 import shutil
 import sys
 import time
@@ -132,6 +134,15 @@ def cmd_check(cfg: dict[str, str]) -> int:
     return 0
 
 
+def verify_package_signature(hex_digest: str, signature: str) -> bool:
+    secret = os.environ.get("EVOTOWN_SKILL_SIGNING_SECRET", "").strip()
+    if not secret or not signature:
+        return True
+    mac = hmac.new(secret.encode("utf-8"), hex_digest.encode("utf-8"), hashlib.sha256).digest()
+    expected = base64.urlsafe_b64encode(mac).decode("ascii").rstrip("=")
+    return hmac.compare_digest(expected, signature.strip())
+
+
 def resolve_package_url(base: str, package_url: str) -> str | None:
     if not package_url or package_url.startswith("builtin://"):
         return None
@@ -219,6 +230,16 @@ def cmd_sync(cfg: dict[str, str], *, dry_run: bool = False) -> int:
         try:
             blob = http_bytes(resolved, api_key=key)
             digest = hashlib.sha256(blob).hexdigest()
+            expected_sha = entry.get("package_sha256") or ""
+            expected_sig = entry.get("signature") or ""
+            if expected_sha and digest != expected_sha:
+                log(f"  ! sha256 mismatch for {skill_id}")
+                failed += 1
+                continue
+            if expected_sig and not verify_package_signature(digest, expected_sig):
+                log(f"  ! signature verification failed for {skill_id}")
+                failed += 1
+                continue
             target = skills_dir / skill_id
             if target.exists():
                 for child in target.iterdir():

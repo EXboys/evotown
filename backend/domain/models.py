@@ -91,6 +91,10 @@ RunEventType = Literal[
 ]
 RiskSeverity = Literal["low", "medium", "high", "critical"]
 PolicyAction = Literal["allowed", "warned", "blocked", "needs_review"]
+RuntimeTarget = Literal["openclaw", "hermes", "skilllite", "custom"]
+SkillStatus = Literal["approved", "deprecated"]
+SkillCandidateStatus = Literal["pending", "approved", "rejected"]
+SkillVisibility = Literal["private", "team", "company"]
 
 
 class EngineRegister(BaseModel):
@@ -154,6 +158,29 @@ class PolicyViolationIngest(BaseModel):
     message: str = Field(default="", max_length=2000)
     ts: str
     context: dict[str, Any] = Field(default_factory=dict)
+
+
+class SkillCandidateCreate(BaseModel):
+    candidate_id: str = Field(min_length=1, max_length=128)
+    source_run_id: str = Field(min_length=1, max_length=128)
+    tenant_id: str = Field(default="", max_length=128)
+    team_id: str = Field(default="", max_length=128)
+    agent_id: str = Field(default="", max_length=128)
+    engine_id: str = Field(min_length=1, max_length=128)
+    runtime_target: RuntimeTarget
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=2000)
+    package_url: str | None = None
+    inline_manifest: dict[str, Any] = Field(default_factory=dict)
+    signals: dict[str, Any] = Field(default_factory=dict)
+
+
+class SkillCandidateReview(BaseModel):
+    decision: Literal["approved", "rejected"]
+    reviewer: str = Field(min_length=1, max_length=128)
+    reason: str = Field(default="", max_length=2000)
+    visibility: SkillVisibility = "team"
+    promotion_channel: str | None = Field(default=None, max_length=64)
 
 
 AccountStatus = Literal["active", "disabled"]

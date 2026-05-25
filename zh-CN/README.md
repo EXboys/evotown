@@ -4,6 +4,8 @@
 
 [English](../en/README.md)
 
+> 想先看整体方案？直接读 **[Evotown 解决方案文档（SOLUTION.md）](../docs/zh-CN/SOLUTION.md)** — 一份文档讲清产品定位、总体架构、核心模块、关键工作流、部署形态与接入指南。
+
 ## 前置条件
 
 - Python 3.10+
@@ -121,8 +123,10 @@ git subtree split -P evotown -b evotown-main
 
 ## 关联文档
 
+- [SOLUTION.md](../docs/zh-CN/SOLUTION.md) — **解决方案总览**（定位 / 架构 / 模块 / 工作流 / 部署 / 接入）
 - [Evotown spec index](../spec/README.md) — 产品与工程决策源头
 - [EVOTOWN-ENGINE-INGEST-V0.1.md](../docs/zh-CN/EVOTOWN-ENGINE-INGEST-V0.1.md) — 外部引擎接入 API
+- [PRIVATE_SKILLS_MARKET_DEPLOYMENT.md](../docs/zh-CN/PRIVATE_SKILLS_MARKET_DEPLOYMENT.md) — 私有 Skills 市场部署指南
 - [ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md](../docs/zh-CN/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md) — 企业控制面产品规划
 - [REWARD_MECHANISM.md](../docs/zh-CN/REWARD_MECHANISM.md) — 奖励机制
 - [AGENT_TASK_ACCEPTANCE_ANALYSIS.md](../docs/zh-CN/AGENT_TASK_ACCEPTANCE_ANALYSIS.md) — Agent 任务接受逻辑

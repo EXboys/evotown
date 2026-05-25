@@ -118,13 +118,6 @@ async def chat_completions(
     x_evotown_engine_id: str | None = Header(default=None),
     x_evotown_conversation_id: str | None = Header(default=None),
 ):
-    litellm_base = _litellm_base_url()
-    if not litellm_base:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="LITELLM_BASE_URL is not configured.",
-        )
-
     body = await request.json()
     if not isinstance(body, dict):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="JSON object body required.")
@@ -142,6 +135,13 @@ async def chat_completions(
         model=model,
         body=body,
     )
+
+    litellm_base = _litellm_base_url()
+    if not litellm_base:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LITELLM_BASE_URL is not configured.",
+        )
 
     started = time.perf_counter()
 

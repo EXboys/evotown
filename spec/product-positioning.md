@@ -6,6 +6,8 @@ Evotown is an evolution arena and enterprise control plane for independently dep
 
 Runners stay where they are: employee laptops, CI, servers, containers, or research sandboxes. Evotown receives runs, artifacts, policy events, and reusable assets for evaluation, governance, and reuse.
 
+In enterprise deployments, reusable skills should be distributed by a private Skills Market. Connector / proxy nodes normalize OpenClaw, Hermes, SkillLite, and custom runtime events before sending evidence to Evotown.
+
 ## Product modes
 
 | Mode | Audience | Value |
@@ -26,6 +28,7 @@ Both modes share the same core backend. The enterprise console should not remove
 ## What Evotown is not
 
 - Not a replacement for OpenClaw, Hermes, SkillLite, or custom runners.
+- Not the mandatory package installer for enterprise skills markets.
 - Not a mandatory model gateway.
 - Not a full endpoint detection / MDM product.
 - Not a cryptocurrency or virtual-currency economy.

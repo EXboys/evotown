@@ -72,8 +72,12 @@ class RepairSkillsBody(BaseModel):
 
 EngineType = Literal["openclaw", "hermes", "skilllite", "custom"]
 DeploymentKind = Literal["laptop", "server", "ci", "container"]
-RunStatus = Literal["succeeded", "failed", "cancelled"]
+RunStatus = Literal["running", "succeeded", "failed", "cancelled"]
+TerminalRunStatus = Literal["succeeded", "failed", "cancelled"]
 RunEventType = Literal[
+    "run.started",
+    "run.progress",
+    "run.completed",
     "run_started",
     "step_started",
     "user_message",
@@ -87,12 +91,16 @@ RunEventType = Literal[
 ]
 RiskSeverity = Literal["low", "medium", "high", "critical"]
 PolicyAction = Literal["allowed", "warned", "blocked", "needs_review"]
+RuntimeTarget = Literal["openclaw", "hermes", "skilllite", "custom"]
+SkillStatus = Literal["approved", "deprecated"]
+SkillCandidateStatus = Literal["pending", "approved", "rejected"]
+SkillVisibility = Literal["private", "team", "company"]
 
 
 class EngineRegister(BaseModel):
     engine_id: str = Field(min_length=1, max_length=128)
     engine_version: str = Field(min_length=1, max_length=128)
-    engine_type: EngineType = "custom"
+    engine_type: EngineType | None = None
     display_name: str = ""
     owner_team: str = ""
     deployment_kind: DeploymentKind = "server"
@@ -109,7 +117,7 @@ class ArtifactManifestItem(BaseModel):
 class RunComplete(BaseModel):
     engine_id: str = Field(min_length=1, max_length=128)
     engine_version: str = Field(min_length=1, max_length=128)
-    status: RunStatus
+    status: TerminalRunStatus
     exit_code: int
     finished_at: str
     log_excerpt: str = Field(default="", max_length=65536)
@@ -123,7 +131,19 @@ class RunEventIngest(BaseModel):
     engine_id: str = Field(min_length=1, max_length=128)
     event_type: RunEventType
     ts: str
-    seq: int = Field(ge=0)
+    seq: int = Field(default=0, ge=0)
+    tenant_id: str = Field(default="", max_length=128)
+    team_id: str = Field(default="", max_length=128)
+    agent_id: str = Field(default="", max_length=128)
+    engine_type: EngineType = "custom"
+    engine_version: str = Field(default="", max_length=128)
+    task_id: str = Field(default="", max_length=128)
+    status: RunStatus | None = None
+    exit_code: int | None = None
+    log_excerpt: str = Field(default="", max_length=65536)
+    artifact_manifest: list[ArtifactManifestItem] = Field(default_factory=list)
+    artifact_bundle_url: str | None = None
+    signals: dict[str, Any] = Field(default_factory=dict)
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -138,6 +158,29 @@ class PolicyViolationIngest(BaseModel):
     message: str = Field(default="", max_length=2000)
     ts: str
     context: dict[str, Any] = Field(default_factory=dict)
+
+
+class SkillCandidateCreate(BaseModel):
+    candidate_id: str = Field(min_length=1, max_length=128)
+    source_run_id: str = Field(min_length=1, max_length=128)
+    tenant_id: str = Field(default="", max_length=128)
+    team_id: str = Field(default="", max_length=128)
+    agent_id: str = Field(default="", max_length=128)
+    engine_id: str = Field(min_length=1, max_length=128)
+    runtime_target: RuntimeTarget
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=2000)
+    package_url: str | None = None
+    inline_manifest: dict[str, Any] = Field(default_factory=dict)
+    signals: dict[str, Any] = Field(default_factory=dict)
+
+
+class SkillCandidateReview(BaseModel):
+    decision: Literal["approved", "rejected"]
+    reviewer: str = Field(min_length=1, max_length=128)
+    reason: str = Field(default="", max_length=2000)
+    visibility: SkillVisibility = "team"
+    promotion_channel: str | None = Field(default=None, max_length=64)
 
 
 AccountStatus = Literal["active", "disabled"]

@@ -28,6 +28,9 @@ Deliverables:
 
 - asset data model
 - `assets/propose` endpoint
+- private Skills Market handoff contract
+- bootstrap bundle manifest contract
+- connector-submitted skill candidate flow
 - asset list and detail pages
 - pending / approved / rejected states
 - link every asset to source run
@@ -35,6 +38,8 @@ Deliverables:
 Acceptance signals:
 
 - a run can propose a skill, prompt, or workflow
+- a connector can submit a candidate skill from OpenClaw, Hermes, or SkillLite
+- an approved skill can be resolved through a market manifest
 - reviewers can approve or reject assets
 - approved assets are searchable
 
@@ -55,6 +60,7 @@ Acceptance signals:
 - connector can pull policy
 - blocked actions appear in Evotown
 - admins can see which policies produce violations
+- connectors can attach tenant/team/agent context before forwarding runtime events
 
 ## Phase 4: Evaluation and recommendation
 

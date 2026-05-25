@@ -10,9 +10,12 @@ The v0.1 ingest API defines the first contract:
 
 - `POST /api/v1/engines/register`
 - `GET /api/v1/engines`
+- `POST /api/v1/events` for `run.started`, `run.progress`, `run.completed`
+- `POST /api/v1/runs/{run_id}/events`
 - `POST /api/v1/runs/{run_id}/complete`
 - `GET /api/v1/runs`
 - `GET /api/v1/runs/{run_id}`
+- `GET /api/v1/runs/{run_id}/events`
 - optional artifact upload
 - optional run lease
 
@@ -26,13 +29,13 @@ MVP implementation notes:
 - Mutating endpoints use bearer auth.
 - Token source is `EVOTOWN_ENGINE_INGEST_TOKEN`, falling back to `ADMIN_TOKEN` for local development.
 - External ingest data is stored in `engine_ingest.db` under `EVOTOWN_DATA_DIR`.
-- Unknown engines are rejected during run completion; register first.
+- Unknown engines are rejected during run completion and lifecycle event ingest; register first.
 
 ## Integration modes
 
 ### HTTP ingest only
 
-The external runtime reports completed runs. This is the lowest-friction path and should remain stable.
+The external runtime reports lifecycle events or completed runs. `run.started` / `run.progress` / `run.completed` are the preferred shape for live enterprise dashboards, while `/runs/{run_id}/complete` remains the lowest-friction terminal compatibility path.
 
 ### Local connector
 
@@ -52,17 +55,18 @@ Evotown may integrate with model gateways for routing, cost, and audit, but gate
 
 ## Future API direction
 
-### v0.2: live events and policy pull
+### v0.2: finer-grained events and policy pull
 
 ```text
-POST /api/v1/events
 GET  /api/v1/policies
 POST /api/v1/policy/violations
 ```
 
 Event types:
 
-- `run_started`
+- `run.started`
+- `run.progress`
+- `run.completed`
 - `step_started`
 - `tool_call`
 - `model_call`

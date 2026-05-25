@@ -54,7 +54,64 @@ Lists registered engines.
 
 ---
 
-## 2) `POST /runs/{run_id}/complete` — **required (MVP)**
+## 2) Run lifecycle ingest
+
+Evotown supports two compatible run ingest styles:
+
+1. **Lifecycle events** — preferred for live enterprise dashboards.
+2. **Terminal completion** — legacy-compatible single POST when the engine only reports after finishing.
+
+### 2.1) `POST /events` or `POST /runs/{run_id}/events` — **preferred**
+
+Engines SHOULD send three standard lifecycle events:
+
+- `run.started`
+- `run.progress`
+- `run.completed`
+
+`run.started` and `run.progress` can arrive before a terminal run exists; Evotown stores them and upserts the run summary as `running`. `run.completed` updates the summary to a terminal state.
+
+**Request JSON**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `event_type` | string | yes | `run.started` \| `run.progress` \| `run.completed`. Existing detailed event types remain accepted for run-local telemetry. |
+| `run_id` | string | yes | Opaque run id. Must match the path id for `POST /runs/{run_id}/events`. |
+| `tenant_id` | string | no | Enterprise tenant / org id. |
+| `team_id` | string | no | Team, department, or project id. |
+| `agent_id` | string | no | Agent instance id. |
+| `engine_id` | string | yes | Registered engine id. |
+| `engine_type` | string | no | `openclaw` \| `hermes` \| `skilllite` \| `custom`; defaults to the registered engine type when omitted. |
+| `engine_version` | string | no | Semver or git sha; defaults to the registered engine version when omitted. |
+| `task_id` | string | no | Engine-side or Evotown-side task id. |
+| `status` | string | no | `running` for started/progress; `succeeded` \| `failed` \| `cancelled` for completed. |
+| `ts` | string | yes | RFC3339 UTC event timestamp. |
+| `seq` | integer | no | Monotonic run-local sequence, default `0`. |
+| `signals` | object | no | Runtime-neutral metrics, scoring signals, or asset hints. |
+| `payload` | object | no | Engine-specific event payload; Evotown stores it opaquely. |
+
+Minimal example:
+
+```json
+{
+  "event_type": "run.started",
+  "run_id": "xxx",
+  "tenant_id": "company-a",
+  "team_id": "growth-team",
+  "agent_id": "agent-001",
+  "engine_id": "skilllite-local",
+  "engine_type": "skilllite",
+  "engine_version": "0.1.29",
+  "task_id": "task-xxx",
+  "status": "running",
+  "ts": "2026-05-25T09:00:00Z",
+  "signals": {}
+}
+```
+
+**Response:** `200` + `{ "accepted": true, "event": { ... }, "run": { ... } }` for lifecycle events.
+
+### 2.2) `POST /runs/{run_id}/complete` — terminal compatibility endpoint
 
 **`run_id`:** opaque string issued by Evotown (or pre-registered); URL-safe.
 
@@ -88,9 +145,9 @@ If the same `run_id` is submitted again, MVP returns `200` with `idempotent: tru
 
 **Errors:** `401` auth, `422` schema validation, `413` payload too large.
 
-## 2.1) `GET /runs` and `GET /runs/{run_id}` — implemented MVP
+## 2.3) `GET /runs`, `GET /runs/{run_id}`, and `GET /runs/{run_id}/events`
 
-Lists stored external runs, optionally filtered by `engine_id`, or returns one run by id.
+Lists stored external runs, optionally filtered by `engine_id`; returns one run by id; or lists accepted run events.
 
 ---
 
@@ -118,8 +175,8 @@ Engine pulls work instead of Evotown pushing. Evotown returns at most one job.
 
 ## Semantics
 
-- **Truth:** After `complete`, Evotown’s stored run is authoritative for benchmarks and evolution rewards.
-- **Engine freedom:** OpenClaw / Hermes / other layouts stay inside the engine; only **manifest + signals** need to be Evotown-shaped.
+- **Truth:** After `run.completed` or `complete`, Evotown’s stored run is authoritative for dashboards, benchmarks, and evolution rewards.
+- **Engine freedom:** OpenClaw / Hermes / SkillLite / custom layouts stay inside the engine; only lifecycle fields, **manifest**, and `signals` need to be Evotown-shaped.
 - **Privacy:** Do not send secrets in `log_excerpt` or `signals`; use references if needed.
 
 ---

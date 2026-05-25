@@ -4,6 +4,8 @@
 
 Convert individual agent discoveries into reusable company assets without allowing unreviewed local changes to become organization-wide defaults.
 
+Evotown's asset registry is the evidence and review layer. The private Skills Market is the package distribution layer for installable skills and bootstrap bundles.
+
 ## Asset types
 
 - `skill`
@@ -55,4 +57,20 @@ promoted -> rolled_back
 - Provide asset list and detail views.
 - Support `pending`, `approved`, `rejected`.
 - Add manual reviewer action before automatic promotion.
+
+## Skills Market handoff
+
+For `skill` assets, approval should produce or update a package record in the private Skills Market.
+
+Evotown should send or reference:
+
+- source `run_id`
+- candidate package URL or manifest
+- validation result
+- reviewer decision
+- intended visibility: private, team, or company
+- target runtimes: OpenClaw, Hermes, SkillLite, custom
+- rollback pointer
+
+Evotown may recommend approved skills based on evidence, but runtime installation should still resolve through the market manifest.
 

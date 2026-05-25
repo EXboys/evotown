@@ -11,6 +11,7 @@ import {
 } from "recharts";
 
 import { GatewayAccountsPanel } from "./GatewayAccountsPanel";
+import { adminFetch } from "../utils/adminAuth";
 
 type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "runs" | "costs" | "risk";
 
@@ -89,6 +90,7 @@ type GatewaySummary = {
   };
   by_model?: Array<{ model: string; requests: number; cost_usd: number; total_tokens: number }>;
   by_agent?: Array<{ agent_id: string; requests: number; cost_usd: number; total_tokens: number }>;
+  by_account?: Array<{ account_id: string; requests: number; cost_usd: number; total_tokens: number }>;
 };
 
 type GatewayConversation = {
@@ -245,15 +247,15 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
         if (!r.ok) throw new Error(`costs ${r.status}`);
         return r.json() as Promise<CostSummary>;
       }),
-      fetch("/api/gateway/v1/usage/summary").then((r) => {
+      adminFetch("/api/gateway/v1/usage/summary").then((r) => {
         if (!r.ok) throw new Error(`gateway ${r.status}`);
         return r.json() as Promise<GatewaySummary>;
       }),
-      fetch("/api/gateway/v1/conversations?limit=100").then((r) => {
+      adminFetch("/api/gateway/v1/conversations?limit=100").then((r) => {
         if (!r.ok) throw new Error(`conversations ${r.status}`);
         return r.json() as Promise<{ conversations?: GatewayConversation[] }>;
       }),
-      fetch("/api/gateway/v1/api-keys").then((r) => {
+      adminFetch("/api/gateway/v1/api-keys").then((r) => {
         if (!r.ok) throw new Error(`gateway keys ${r.status}`);
         return r.json() as Promise<{ keys?: GatewayKeyInfo[] }>;
       }),
@@ -271,7 +273,10 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
         });
         setSelectedRun((current) => current ?? nextRuns[0] ?? null);
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "load failed"))
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : "load failed";
+        setError(msg.includes("403") || msg.includes("401") ? `${msg} — 请在「账号」页保存 Admin Token` : msg);
+      })
       .finally(() => setLoading(false));
   };
 
@@ -503,6 +508,7 @@ function Gateway({ data }: { data: ConsoleData }) {
   const total = data.gateway?.total || {};
   const byModel = data.gateway?.by_model || [];
   const byAgent = data.gateway?.by_agent || [];
+  const byAccount = data.gateway?.by_account || [];
   return (
     <div className="space-y-6">
       <section className="grid gap-4 md:grid-cols-4">
@@ -535,7 +541,7 @@ X-Evotown-Engine-Id: openclaw-local`}</pre>
         </div>
       </Card>
 
-      <section className="grid gap-6 xl:grid-cols-2">
+      <section className="grid gap-6 xl:grid-cols-3">
         <Card className="p-5">
           <SectionHeader title="模型用量" subtitle="按 model 聚合请求、成本和 token" />
           <SimpleUsageTable rows={byModel} nameKey="model" empty="暂无模型调用。" />
@@ -543,6 +549,10 @@ X-Evotown-Engine-Id: openclaw-local`}</pre>
         <Card className="p-5">
           <SectionHeader title="Agent 用量" subtitle="按 agent_id 聚合网关流量" />
           <SimpleUsageTable rows={byAgent} nameKey="agent_id" empty="暂无 agent 归属数据。" />
+        </Card>
+        <Card className="p-5">
+          <SectionHeader title="账号用量" subtitle="按 account_id 聚合网关流量" />
+          <SimpleUsageTable rows={byAccount} nameKey="account_id" empty="暂无账号归属数据。" />
         </Card>
       </section>
 

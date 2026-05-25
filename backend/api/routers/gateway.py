@@ -9,7 +9,8 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 
-from core.auth import require_gateway_api_key
+from core.auth import require_admin, require_gateway_chat
+from infra import accounts as accounts_store
 from infra import gateway
 
 router = APIRouter(prefix="/api/gateway/v1", tags=["gateway"])
@@ -53,6 +54,52 @@ def _first_message_excerpt(body: dict[str, Any]) -> Any:
     return body
 
 
+def _record_gateway_request(item: dict[str, Any]) -> None:
+    gateway.record_request(item)
+
+
+def _check_quota_or_raise(identity: dict[str, Any], *, request_id: str, conversation_id: str, model: str, body: dict[str, Any]) -> None:
+    key_id = identity.get("key_id") or ""
+    if not key_id:
+        return
+
+    key_record = accounts_store.get_api_key(key_id) or identity
+    usage = gateway.monthly_usage_for_key(key_id)
+    allowed, reason = accounts_store.check_monthly_quota(key_record, usage)
+    if allowed:
+        return
+
+    _record_gateway_request(
+        {
+            "request_id": request_id,
+            "conversation_id": conversation_id,
+            "api_key_label": identity["key_label"],
+            "account_id": identity.get("account_id", ""),
+            "key_id": key_id,
+            "agent_id": "",
+            "team_id": identity.get("team_id", "") or "",
+            "engine_id": "",
+            "model": model,
+            "status_code": 429,
+            "latency_ms": 0,
+            "risk_status": reason,
+            "request_excerpt": _first_message_excerpt(body),
+            "error": reason,
+        }
+    )
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail={
+            "error": reason,
+            "monthly_usage": usage,
+            "limits": {
+                "monthly_token_limit": int(key_record.get("monthly_token_limit") or 0),
+                "monthly_cost_limit_usd": float(key_record.get("monthly_cost_limit_usd") or 0),
+            },
+        },
+    )
+
+
 @router.get("/health")
 async def gateway_health():
     return {
@@ -65,7 +112,7 @@ async def gateway_health():
 @router.post("/chat/completions")
 async def chat_completions(
     request: Request,
-    identity: dict[str, str] = Depends(require_gateway_api_key),
+    identity: dict[str, Any] = Depends(require_gateway_chat),
     x_evotown_agent_id: str | None = Header(default=None),
     x_evotown_team_id: str | None = Header(default=None),
     x_evotown_engine_id: str | None = Header(default=None),
@@ -87,6 +134,15 @@ async def chat_completions(
     request_id = f"gw_{uuid.uuid4().hex}"
     conversation_id = x_evotown_conversation_id or str(body.get("conversation_id") or body.get("thread_id") or request_id)
     model = str(body.get("model") or "")
+
+    _check_quota_or_raise(
+        identity,
+        request_id=request_id,
+        conversation_id=conversation_id,
+        model=model,
+        body=body,
+    )
+
     started = time.perf_counter()
 
     metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
@@ -107,7 +163,7 @@ async def chat_completions(
             upstream = await client.post(target, json=body, headers=headers)
     except httpx.HTTPError as exc:
         latency_ms = int((time.perf_counter() - started) * 1000)
-        gateway.record_request(
+        _record_gateway_request(
             {
                 "request_id": request_id,
                 "conversation_id": conversation_id,
@@ -133,7 +189,7 @@ async def chat_completions(
         data = {"raw": upstream.text}
 
     usage = _usage_from_response(data if isinstance(data, dict) else {})
-    gateway.record_request(
+    _record_gateway_request(
         {
             "request_id": request_id,
             "conversation_id": conversation_id,
@@ -154,31 +210,34 @@ async def chat_completions(
             "error": "" if upstream.is_success else str(data),
         }
     )
+
+    key_id = identity.get("key_id") or ""
+    if key_id and upstream.is_success:
+        accounts_store.touch_api_key(key_id)
+
     if not upstream.is_success:
         raise HTTPException(status_code=upstream.status_code, detail=data)
     return data
 
 
-@router.get("/usage/summary")
+@router.get("/usage/summary", dependencies=[Depends(require_admin)])
 async def usage_summary(limit: int = 10):
     return gateway.usage_summary(limit=limit)
 
 
-@router.get("/conversations")
+@router.get("/conversations", dependencies=[Depends(require_admin)])
 async def list_conversations(limit: int = 100):
     return {"conversations": gateway.conversations(limit=limit)}
 
 
-@router.get("/requests")
+@router.get("/requests", dependencies=[Depends(require_admin)])
 async def list_requests(limit: int = 100):
     return {"requests": gateway.recent_requests(limit=limit)}
 
 
-@router.get("/api-keys")
+@router.get("/api-keys", dependencies=[Depends(require_admin)])
 async def list_api_keys():
     """Legacy env keys plus managed keys (metadata only)."""
-    from infra import accounts as accounts_store
-
     configured = [item.strip() for item in os.environ.get("EVOTOWN_GATEWAY_API_KEYS", "").split(",") if item.strip()]
     legacy = [
         {
@@ -198,6 +257,9 @@ async def list_api_keys():
             "scope": ", ".join(k.get("scopes") or ["gateway.chat"]),
             "source": "database",
             "last_used_at": k.get("last_used_at"),
+            "monthly_token_limit": k.get("monthly_token_limit", 0),
+            "monthly_cost_limit_usd": k.get("monthly_cost_limit_usd", 0),
+            "monthly_usage": gateway.monthly_usage_for_key(k["key_id"]),
         }
         for k in accounts_store.list_api_keys(status="active", limit=500)
     ]

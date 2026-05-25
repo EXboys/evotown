@@ -119,13 +119,16 @@ Managed keys live in `data/accounts.db` (override data dir with `EVOTOWN_DATA_DI
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
 | POST | `/api/v1/accounts` | X-Admin-Token | Create gateway account |
-| GET | `/api/v1/accounts` | public read | List accounts |
+| GET | `/api/v1/accounts` | X-Admin-Token | List accounts |
 | PATCH | `/api/v1/accounts/{account_id}` | X-Admin-Token | Update / disable account |
 | POST | `/api/v1/accounts/{account_id}/keys` | X-Admin-Token | Issue new API key (returns `secret`) |
-| GET | `/api/v1/accounts/{account_id}/keys` | public read | List keys (metadata only) |
+| GET | `/api/v1/accounts/{account_id}/keys` | X-Admin-Token | List keys (metadata + monthly usage) |
+| PATCH | `/api/v1/keys/{key_id}` | X-Admin-Token | Update label, scopes, monthly quotas |
 | POST | `/api/v1/keys/{key_id}/revoke` | X-Admin-Token | Revoke a key |
 
-**Backward compatibility:** `EVOTOWN_GATEWAY_API_KEYS` and `ADMIN_TOKEN` still work as legacy gateway bearer tokens for local dev.
+**Gateway chat auth:** managed keys must include scope `gateway.chat`. Exceeding per-key **monthly token or cost limits** returns HTTP `429`.
+
+**Backward compatibility:** `EVOTOWN_GATEWAY_API_KEYS` and `ADMIN_TOKEN` still work as legacy gateway bearer tokens for local dev (legacy keys skip DB quotas unless `EVOTOWN_GATEWAY_LEGACY_MONTHLY_*` env limits are set).
 
 Set `LITELLM_BASE_URL` and `LITELLM_MASTER_KEY` for production. Docker Compose includes an optional LiteLLM service under the `litellm` profile.
 

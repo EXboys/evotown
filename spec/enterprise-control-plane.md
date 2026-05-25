@@ -20,6 +20,22 @@ Minimum fields:
 - `capabilities`: run ingest, events, artifacts, assets, policy pull
 - `health`: last heartbeat, last run, error state
 
+### Connector / proxy registry
+
+Tracks the integration nodes that normalize runtime events and mediate enterprise network access.
+
+Minimum fields:
+
+- `connector_id`
+- `tenant_id`
+- `team_id`
+- `deployment_kind`: central, team, workspace, laptop
+- `runtime_targets`: OpenClaw, Hermes, SkillLite, custom
+- `evotown_ingest_status`
+- `market_proxy_status`
+- `policy_cache_status`
+- `last_seen_at`
+
 ### Run observatory
 
 Turns task history into a company-wide run timeline.
@@ -60,6 +76,8 @@ Asset types:
 - memory snippet
 - tool config
 - evaluation case
+
+Package distribution and bootstrap bundles are owned by the private Skills Market; Evotown stores evidence, review state, and reuse outcomes.
 
 ### Review and promotion
 

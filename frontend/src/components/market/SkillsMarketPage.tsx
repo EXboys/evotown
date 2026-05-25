@@ -2,6 +2,8 @@ import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { adminFetch, isConsoleAuthenticated } from "../../hooks/useAdminToken";
+import { EmployeeConfigPanel } from "./EmployeeConfigPanel";
+import { manifestUrl } from "../../lib/employeeConfig";
 
 type MarketSkill = {
   skill_id: string;
@@ -161,6 +163,8 @@ function MarketCatalog() {
           </div>
         </div>
       </section>
+
+      <EmployeeConfigPanel className="mt-6" />
 
       <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
         <form
@@ -362,10 +366,14 @@ function MarketSkillDetail() {
   }
 
   const installSnippet = `skills_market:
-  manifest_url: /api/v1/skill-bundles/default-agent-skills/manifest
-  package_url: /api/v1/market/skills/${skill.skill_id}/download
-  skill_id: ${skill.skill_id}
-  version: ${skill.version}`;
+  manifest_url: ${manifestUrl(window.location.origin, "openclaw")}
+  auth_header: Authorization
+  auth_prefix: "Bearer "
+  auth_token: \${EVOTOWN_API_KEY}
+
+package_url: /api/v1/market/skills/${skill.skill_id}/download
+skill_id: ${skill.skill_id}
+version: ${skill.version}`;
 
   return (
     <MarketShell>
@@ -431,7 +439,7 @@ function MarketSkillDetail() {
             <h2 className="text-base font-semibold text-slate-950">安装指引</h2>
             <p className="mt-2 text-sm text-slate-500">Runtime 可通过 manifest 或 package_url 安装此 skill。</p>
             <pre className="mt-4 overflow-x-auto rounded-2xl bg-slate-950 p-5 text-xs leading-6 text-cyan-100">{installSnippet}</pre>
-            <p className="mt-3 text-xs text-slate-500">下载需登录；生产环境建议 runtime 使用独立 service token。</p>
+            <p className="mt-3 text-xs text-slate-500">下载与 manifest 需员工 evk_ key；见上方「员工两行配置」。</p>
           </div>
         </div>
       </section>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { adminFetch } from "../hooks/useAdminToken";
+import { EmployeeConfigPanel } from "./market/EmployeeConfigPanel";
 import { Link } from "react-router-dom";
 
 export type GatewayAccount = {
@@ -497,7 +498,8 @@ export function GatewayAccountsPanel() {
           </div>
 
           {createdSecret && (
-            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <div className="mt-4 space-y-4">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
               <div className="text-sm font-semibold text-amber-900">请立即复制保存 — 密钥仅显示一次</div>
               <pre className="mt-2 overflow-auto rounded-lg bg-slate-950 p-3 font-mono text-xs text-emerald-300">{createdSecret}</pre>
               <button
@@ -505,8 +507,10 @@ export function GatewayAccountsPanel() {
                 onClick={() => navigator.clipboard.writeText(createdSecret)}
                 className="mt-3 text-sm font-medium text-amber-900 underline"
               >
-                复制到剪贴板
+                复制 Key
               </button>
+            </div>
+            <EmployeeConfigPanel apiKeyOverride={createdSecret} compact />
             </div>
           )}
 

@@ -1,0 +1,16 @@
+# Hermes 企业接入 — 引用 evotown.agent.env 中的两行配置
+#
+# 1. IT 分发 evotown.agent.env（含 EVOTOWN_URL + EVOTOWN_API_KEY）
+# 2. 在本机 shell 或 Hermes 启动脚本中 source 该文件
+# 3. 将下方片段合并进 Hermes 配置
+
+model:
+  base_url: ${EVOTOWN_URL}/api/gateway/v1
+  api_key: ${EVOTOWN_API_KEY}
+
+skills_market:
+  manifest_url: ${EVOTOWN_URL}/api/v1/market/bundles/default-agent-skills/manifest?runtime_target=hermes
+  auth_header: Authorization
+  auth_prefix: "Bearer "
+  auth_token: ${EVOTOWN_API_KEY}
+  install_scope: team

@@ -101,6 +101,8 @@ External engine ingest uses bearer auth. Set `EVOTOWN_ENGINE_INGEST_TOKEN` for O
 
 Private Skills Market deployment: [docs/zh-CN/PRIVATE_SKILLS_MARKET_DEPLOYMENT.md](docs/zh-CN/PRIVATE_SKILLS_MARKET_DEPLOYMENT.md)
 
+**Enterprise IT quickstart** (one-click Docker deploy + two-line OpenClaw/Hermes config): [docs/zh-CN/ENTERPRISE_QUICKSTART.md](docs/zh-CN/ENTERPRISE_QUICKSTART.md)
+
 ## External engine ingest (v0.1 draft)
 
 Independent engines (OpenClaw-style runners, Hermes, custom harnesses, …) can report runs **into** Evotown over HTTP. Evotown remains the **system of record** for results and scoring signals.

@@ -163,8 +163,10 @@ curl -X POST http://127.0.0.1:8765/api/v1/skills/private-crm-summary/deprecate \
 
 ```yaml
 skills_market:
-  manifest_url: https://evotown.company.internal/api/v1/skill-bundles/default-agent-skills/manifest?runtime_target=openclaw
-  auth_header: X-Admin-Token
+  manifest_url: https://evotown.company.internal/api/v1/market/bundles/default-agent-skills/manifest?runtime_target=openclaw
+  auth_header: Authorization
+  auth_prefix: "Bearer "
+  auth_token: ${EVOTOWN_API_KEY}   # IT 下发的 evk_ key
   channel: stable
 
 evotown_connector:
@@ -172,11 +174,16 @@ evotown_connector:
   engine_type: openclaw
 ```
 
+> **员工接入**：manifest 使用 `/api/v1/market/bundles/...`（`evk_` + `console.read`），不再使用需 Admin Token 的 `/api/v1/skill-bundles/...`。详见 [ENTERPRISE_QUICKSTART.md](./ENTERPRISE_QUICKSTART.md)。
+
 ### Hermes
 
 ```yaml
 skills_market:
-  manifest_url: https://evotown.company.internal/api/v1/skill-bundles/default-agent-skills/manifest?runtime_target=hermes
+  manifest_url: https://evotown.company.internal/api/v1/market/bundles/default-agent-skills/manifest?runtime_target=hermes
+  auth_header: Authorization
+  auth_prefix: "Bearer "
+  auth_token: ${EVOTOWN_API_KEY}
   install_scope: team
 
 evotown_connector:
@@ -189,7 +196,10 @@ evotown_connector:
 
 ```yaml
 skills_market:
-  manifest_url: https://evotown.company.internal/api/v1/skill-bundles/default-agent-skills/manifest?runtime_target=skilllite
+  manifest_url: https://evotown.company.internal/api/v1/market/bundles/default-agent-skills/manifest?runtime_target=skilllite
+  auth_header: Authorization
+  auth_prefix: "Bearer "
+  auth_token: ${EVOTOWN_API_KEY}
   install_dir: .skills
 
 evotown_connector:

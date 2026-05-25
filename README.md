@@ -126,7 +126,9 @@ Managed keys live in `data/accounts.db` (override data dir with `EVOTOWN_DATA_DI
 | PATCH | `/api/v1/keys/{key_id}` | X-Admin-Token | Update label, scopes, monthly quotas |
 | POST | `/api/v1/keys/{key_id}/revoke` | X-Admin-Token | Revoke a key |
 
-**Gateway chat auth:** managed keys must include scope `gateway.chat`. Exceeding per-key **monthly token or cost limits** returns HTTP `429`.
+**Gateway chat auth:** managed keys must include scope `gateway.chat`. Exceeding per-key **monthly token or cost limits** returns HTTP `429`. Optional **burst RPM** (`burst_rpm_limit` per key or `EVOTOWN_GATEWAY_DEFAULT_BURST_RPM`) limits requests per 60s window. After a successful call that pushes usage over the monthly cap, the response stays `200` but sets `X-Evotown-Quota-Exceeded` and marks the audit row; the next request is blocked by pre-check.
+
+**CI:** GitHub Actions runs backend tests and frontend build on push/PR to `main` (`.github/workflows/ci.yml`).
 
 **Backward compatibility:** `EVOTOWN_GATEWAY_API_KEYS` and `ADMIN_TOKEN` still work as legacy gateway bearer tokens for local dev (legacy keys skip DB quotas unless `EVOTOWN_GATEWAY_LEGACY_MONTHLY_*` env limits are set).
 

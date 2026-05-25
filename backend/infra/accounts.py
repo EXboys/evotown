@@ -82,6 +82,8 @@ def _migrate_accounts_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE gateway_api_keys ADD COLUMN monthly_token_limit INTEGER NOT NULL DEFAULT 0")
     if "monthly_cost_limit_usd" not in key_cols:
         conn.execute("ALTER TABLE gateway_api_keys ADD COLUMN monthly_cost_limit_usd REAL NOT NULL DEFAULT 0")
+    if "burst_rpm_limit" not in key_cols:
+        conn.execute("ALTER TABLE gateway_api_keys ADD COLUMN burst_rpm_limit INTEGER NOT NULL DEFAULT 0")
 
 
 def hash_api_key(raw_key: str) -> str:
@@ -174,6 +176,7 @@ def create_api_key(
     expires_at: str | None = None,
     monthly_token_limit: int = 0,
     monthly_cost_limit_usd: float = 0,
+    burst_rpm_limit: int = 0,
 ) -> tuple[dict[str, Any], str]:
     account = get_account(account_id)
     if account is None:
@@ -192,9 +195,9 @@ def create_api_key(
         """
         INSERT INTO gateway_api_keys (
             key_id, account_id, label, key_prefix, key_hash, scopes, expires_at,
-            monthly_token_limit, monthly_cost_limit_usd
+            monthly_token_limit, monthly_cost_limit_usd, burst_rpm_limit
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             key_id,
@@ -206,6 +209,7 @@ def create_api_key(
             expires_at,
             max(0, int(monthly_token_limit)),
             max(0.0, float(monthly_cost_limit_usd)),
+            max(0, int(burst_rpm_limit)),
         ),
     )
     row = conn.execute("SELECT * FROM gateway_api_keys WHERE key_id=?", (key_id,)).fetchone()
@@ -264,6 +268,7 @@ def update_api_key(key_id: str, **fields: Any) -> dict[str, Any] | None:
         "expires_at",
         "monthly_token_limit",
         "monthly_cost_limit_usd",
+        "burst_rpm_limit",
     }
     updates: dict[str, Any] = {}
     for key, value in fields.items():
@@ -275,6 +280,8 @@ def update_api_key(key_id: str, **fields: Any) -> dict[str, Any] | None:
             updates[key] = max(0, int(value))
         elif key == "monthly_cost_limit_usd":
             updates[key] = max(0.0, float(value))
+        elif key == "burst_rpm_limit":
+            updates[key] = max(0, int(value))
         else:
             updates[key] = value
     if not updates:
@@ -290,6 +297,27 @@ def touch_api_key(key_id: str) -> None:
         "UPDATE gateway_api_keys SET last_used_at=datetime('now') WHERE key_id=?",
         (key_id,),
     )
+
+
+def default_burst_rpm() -> int:
+    return max(0, int(os.environ.get("EVOTOWN_GATEWAY_DEFAULT_BURST_RPM", "0") or 0))
+
+
+def effective_burst_rpm(key_record: dict[str, Any]) -> int:
+    per_key = int(key_record.get("burst_rpm_limit") or 0)
+    if per_key > 0:
+        return per_key
+    return default_burst_rpm()
+
+
+def check_burst_rate_limit(key_record: dict[str, Any], recent_count: int) -> tuple[bool, str]:
+    """Return (allowed, reason). recent_count = requests in the last 60s for this key."""
+    limit = effective_burst_rpm(key_record)
+    if limit <= 0:
+        return True, ""
+    if recent_count >= limit:
+        return False, "burst_rate_limit_exceeded"
+    return True, ""
 
 
 def check_monthly_quota(key_record: dict[str, Any], usage: dict[str, Any]) -> tuple[bool, str]:

@@ -7,7 +7,7 @@ import uuid
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 
 from core.auth import require_admin, require_gateway_chat
 from infra import accounts as accounts_store
@@ -58,6 +58,45 @@ def _record_gateway_request(item: dict[str, Any]) -> None:
     gateway.record_request(item)
 
 
+def _check_burst_or_raise(identity: dict[str, Any], *, request_id: str, conversation_id: str, model: str, body: dict[str, Any]) -> None:
+    key_id = identity.get("key_id") or ""
+    if not key_id:
+        return
+
+    key_record = accounts_store.get_api_key(key_id) or identity
+    recent = gateway.request_count_in_window(key_id, window_seconds=60)
+    allowed, reason = accounts_store.check_burst_rate_limit(key_record, recent)
+    if allowed:
+        return
+
+    _record_gateway_request(
+        {
+            "request_id": request_id,
+            "conversation_id": conversation_id,
+            "api_key_label": identity["key_label"],
+            "account_id": identity.get("account_id", ""),
+            "key_id": key_id,
+            "agent_id": "",
+            "team_id": identity.get("team_id", "") or "",
+            "engine_id": "",
+            "model": model,
+            "status_code": 429,
+            "latency_ms": 0,
+            "risk_status": reason,
+            "request_excerpt": _first_message_excerpt(body),
+            "error": reason,
+        }
+    )
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail={
+            "error": reason,
+            "recent_requests_60s": recent,
+            "burst_rpm_limit": accounts_store.effective_burst_rpm(key_record),
+        },
+    )
+
+
 def _check_quota_or_raise(identity: dict[str, Any], *, request_id: str, conversation_id: str, model: str, body: dict[str, Any]) -> None:
     key_id = identity.get("key_id") or ""
     if not key_id:
@@ -100,6 +139,23 @@ def _check_quota_or_raise(identity: dict[str, Any], *, request_id: str, conversa
     )
 
 
+def _post_check_quota(identity: dict[str, Any], request_id: str) -> str | None:
+    """After a successful upstream call, flag audit row if monthly quota is now exceeded."""
+    key_id = identity.get("key_id") or ""
+    if not key_id:
+        return None
+
+    key_record = accounts_store.get_api_key(key_id) or identity
+    usage = gateway.monthly_usage_for_key(key_id)
+    allowed, reason = accounts_store.check_monthly_quota(key_record, usage)
+    if allowed:
+        return None
+
+    post_reason = f"{reason}_post"
+    gateway.update_request_risk_status(request_id, post_reason)
+    return post_reason
+
+
 @router.get("/health")
 async def gateway_health():
     return {
@@ -112,6 +168,7 @@ async def gateway_health():
 @router.post("/chat/completions")
 async def chat_completions(
     request: Request,
+    response: Response,
     identity: dict[str, Any] = Depends(require_gateway_chat),
     x_evotown_agent_id: str | None = Header(default=None),
     x_evotown_team_id: str | None = Header(default=None),
@@ -127,6 +184,14 @@ async def chat_completions(
     request_id = f"gw_{uuid.uuid4().hex}"
     conversation_id = x_evotown_conversation_id or str(body.get("conversation_id") or body.get("thread_id") or request_id)
     model = str(body.get("model") or "")
+
+    _check_burst_or_raise(
+        identity,
+        request_id=request_id,
+        conversation_id=conversation_id,
+        model=model,
+        body=body,
+    )
 
     _check_quota_or_raise(
         identity,
@@ -214,6 +279,9 @@ async def chat_completions(
     key_id = identity.get("key_id") or ""
     if key_id and upstream.is_success:
         accounts_store.touch_api_key(key_id)
+        post_reason = _post_check_quota(identity, request_id)
+        if post_reason:
+            response.headers["X-Evotown-Quota-Exceeded"] = post_reason
 
     if not upstream.is_success:
         raise HTTPException(status_code=upstream.status_code, detail=data)

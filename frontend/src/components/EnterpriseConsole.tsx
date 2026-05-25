@@ -10,7 +10,9 @@ import {
   YAxis,
 } from "recharts";
 
-type ConsoleTab = "dashboard" | "gateway" | "engines" | "runs" | "costs" | "risk";
+import { GatewayAccountsPanel } from "./GatewayAccountsPanel";
+
+type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "runs" | "costs" | "risk";
 
 type EngineRecord = {
   engine_id: string;
@@ -119,6 +121,7 @@ type ConsoleData = {
 const NAV_ITEMS: Array<{ id: ConsoleTab; label: string; desc: string }> = [
   { id: "dashboard", label: "总览", desc: "Overview" },
   { id: "gateway", label: "网关", desc: "Gateway" },
+  { id: "accounts", label: "账号", desc: "Accounts" },
   { id: "engines", label: "引擎", desc: "Engines" },
   { id: "runs", label: "运行", desc: "Runs" },
   { id: "costs", label: "成本", desc: "Costs" },
@@ -416,6 +419,7 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
 
             {tab === "dashboard" && <Dashboard data={data} summary={summary} onTab={setRoute} onRun={openRun} />}
             {tab === "gateway" && <Gateway data={data} />}
+            {tab === "accounts" && <GatewayAccountsPanel />}
             {tab === "engines" && <Engines engines={data.engines} runs={data.runs} violations={data.violations} />}
             {tab === "runs" && <Runs runs={data.runs} selectedRun={selectedRun} events={events} loading={eventsLoading} onRun={openRun} />}
             {tab === "costs" && <Costs cost={data.cost} />}

@@ -6,6 +6,7 @@ import { isConsoleAuthenticated, setConsoleApiKey } from "../hooks/useAdminToken
 type RegistrationStatus = {
   public_registration_allowed?: boolean;
   account_count?: number;
+  oidc?: { enabled?: boolean };
 };
 
 type SessionInfo = {
@@ -24,6 +25,7 @@ export function ConsoleLoginPage() {
   const [apiKey, setApiKey] = useState("");
   const [registerForm, setRegisterForm] = useState({ name: "", owner_email: "", team_id: "" });
   const [registrationAllowed, setRegistrationAllowed] = useState(true);
+  const [oidcEnabled, setOidcEnabled] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -36,9 +38,49 @@ export function ConsoleLoginPage() {
     }
     fetch("/api/v1/auth/registration-status")
       .then((r) => r.json() as Promise<RegistrationStatus>)
-      .then((data) => setRegistrationAllowed(Boolean(data.public_registration_allowed)))
+      .then((data) => {
+        setRegistrationAllowed(Boolean(data.public_registration_allowed));
+        setOidcEnabled(Boolean(data.oidc?.enabled));
+      })
       .catch(() => setRegistrationAllowed(true));
   }, [navigate, returnTo]);
+
+  useEffect(() => {
+    const oidcCode = searchParams.get("oidc_code");
+    if (!oidcCode) return;
+    let cancelled = false;
+    setBusy(true);
+    setError("");
+    fetch("/api/v1/auth/oidc/exchange", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: oidcCode }),
+    })
+      .then(async (res) => {
+        const data = await res.json() as { api_key?: string; session?: SessionInfo; detail?: string };
+        if (!res.ok) {
+          throw new Error(data.detail || `SSO 登录失败 (${res.status})`);
+        }
+        if (!data.api_key) {
+          throw new Error("SSO 未返回 API Key");
+        }
+        if (!cancelled) {
+          finishLogin(data.api_key, data.session);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "SSO 登录失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const finishLogin = (key: string, session?: SessionInfo) => {
     setConsoleApiKey(key);
@@ -139,6 +181,19 @@ export function ConsoleLoginPage() {
 
           {mode === "login" ? (
             <form onSubmit={submitLogin} className="space-y-4">
+              {oidcEnabled && (
+                <a
+                  href={`/api/v1/auth/oidc/start?return_to=${encodeURIComponent(returnTo)}`}
+                  className="flex w-full items-center justify-center rounded-lg border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700"
+                >
+                  企业 SSO 登录
+                </a>
+              )}
+              {oidcEnabled && (
+                <div className="relative text-center text-xs text-slate-500">
+                  <span className="bg-slate-900 px-2">或使用 API Key</span>
+                </div>
+              )}
               <label className="block text-sm">
                 <span className="mb-2 block font-medium text-slate-300">API Key</span>
                 <input

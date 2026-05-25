@@ -1,0 +1,51 @@
+{
+  "id": "evotown",
+  "name": "Evotown Enterprise Connector",
+  "description": "Route OpenClaw model calls through Evotown gateway and sync private SkillHub manifests.",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "evotownUrl": {
+        "type": "string",
+        "title": "Evotown URL",
+        "description": "Base URL of your Evotown control plane, e.g. https://evotown.corp.example"
+      },
+      "apiKey": {
+        "type": "string",
+        "title": "Evotown API Key",
+        "description": "Employee API key (evk_) with gateway.chat and console.read scopes"
+      },
+      "bundleId": {
+        "type": "string",
+        "title": "Skill bundle ID",
+        "default": "default-agent-skills"
+      }
+    },
+    "required": ["evotownUrl", "apiKey"]
+  },
+  "setup": {
+    "providers": [
+      {
+        "id": "evotown",
+        "label": "Evotown Gateway",
+        "docsPath": "README.md",
+        "envVars": {
+          "EVOTOWN_URL": "${evotownUrl}",
+          "EVOTOWN_API_KEY": "${apiKey}",
+          "OPENAI_BASE_URL": "${evotownUrl}/api/gateway/v1",
+          "OPENAI_API_KEY": "${apiKey}",
+          "EVOTOWN_BUNDLE_ID": "${bundleId}"
+        }
+      }
+    ],
+    "skillsMarket": {
+      "manifestUrl": "${evotownUrl}/api/v1/market/bundles/${bundleId}/manifest?runtime_target=openclaw",
+      "authHeader": "Authorization",
+      "authPrefix": "Bearer ",
+      "authToken": "${apiKey}"
+    }
+  },
+  "requiresRuntime": false
+}

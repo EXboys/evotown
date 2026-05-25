@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 
-from core.auth import require_admin, require_gateway_chat
+from core.auth import key_record_for_checks, require_admin, require_gateway_chat
 from infra import accounts as accounts_store
 from infra import gateway
 
@@ -63,7 +63,7 @@ def _check_burst_or_raise(identity: dict[str, Any], *, request_id: str, conversa
     if not key_id:
         return
 
-    key_record = accounts_store.get_api_key(key_id) or identity
+    key_record = key_record_for_checks(identity)
     recent = gateway.request_count_in_window(key_id, window_seconds=60)
     allowed, reason = accounts_store.check_burst_rate_limit(key_record, recent)
     if allowed:
@@ -102,7 +102,7 @@ def _check_quota_or_raise(identity: dict[str, Any], *, request_id: str, conversa
     if not key_id:
         return
 
-    key_record = accounts_store.get_api_key(key_id) or identity
+    key_record = key_record_for_checks(identity)
     usage = gateway.monthly_usage_for_key(key_id)
     allowed, reason = accounts_store.check_monthly_quota(key_record, usage)
     if allowed:
@@ -145,7 +145,7 @@ def _post_check_quota(identity: dict[str, Any], request_id: str) -> str | None:
     if not key_id:
         return None
 
-    key_record = accounts_store.get_api_key(key_id) or identity
+    key_record = key_record_for_checks(identity)
     usage = gateway.monthly_usage_for_key(key_id)
     allowed, reason = accounts_store.check_monthly_quota(key_record, usage)
     if allowed:

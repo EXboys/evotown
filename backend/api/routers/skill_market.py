@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 
 from core.auth import require_admin, require_engine_ingest
-from domain.models import SkillCandidateCreate, SkillCandidateReview, SkillPackageUpload
+from domain.models import SkillCandidateCreate, SkillCandidateReview, SkillDeprecate, SkillPackageUpload
 from infra import skill_market
 
 router = APIRouter(prefix="/api/v1", tags=["skill-market"])
@@ -59,11 +59,20 @@ async def upload_skill_package(body: SkillPackageUpload):
     return {"uploaded": True, "skill": skill}
 
 
+@router.post("/skills/{skill_id}/deprecate", dependencies=[Depends(require_admin)])
+async def deprecate_skill(skill_id: str, body: SkillDeprecate):
+    skill = skill_market.deprecate_skill(skill_id, reason=body.reason, reviewer=body.reviewer)
+    if skill is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="skill not found")
+    return {"deprecated": True, "skill": skill}
+
+
 @router.get("/skill-packages/{skill_id}/download", dependencies=[Depends(require_admin)])
 async def download_skill_package(skill_id: str):
     package = skill_market.get_package_file(skill_id)
     if package is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="package not found")
+    skill_market.record_download(skill_id)
     path, filename = package
     return FileResponse(path, filename=filename, media_type="application/octet-stream")
 

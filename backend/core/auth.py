@@ -27,6 +27,9 @@ _HEADER_SCHEME = APIKeyHeader(name="X-Admin-Token", auto_error=False)
 _BEARER_SCHEME = HTTPBearer(auto_error=False)
 
 GATEWAY_SCOPE_CHAT = "gateway.chat"
+CONSOLE_SCOPE_READ = "console.read"
+CONSOLE_SCOPE_WRITE = "console.write"
+DEFAULT_CONSOLE_KEY_SCOPES = [GATEWAY_SCOPE_CHAT, CONSOLE_SCOPE_READ, CONSOLE_SCOPE_WRITE]
 LEGACY_GATEWAY_SCOPES = [GATEWAY_SCOPE_CHAT]
 
 
@@ -44,19 +47,81 @@ def legacy_key_id(raw_token: str) -> str:
     return f"legacy:{digest[:16]}"
 
 
-async def require_admin(key: str | None = Security(_HEADER_SCHEME)) -> None:
-    """FastAPI dependency: validate X-Admin-Token header."""
+def has_console_write(scopes: list[str]) -> bool:
+    return CONSOLE_SCOPE_WRITE in scopes
+
+
+def has_console_read(scopes: list[str]) -> bool:
+    return CONSOLE_SCOPE_READ in scopes or CONSOLE_SCOPE_WRITE in scopes
+
+
+def session_from_api_key(raw_key: str) -> dict[str, Any] | None:
+    record = accounts_store.lookup_api_key(raw_key, touch_last_used=True)
+    if record is None:
+        return None
+    scopes = _scopes_list(record.get("scopes"))
+    if not has_console_read(scopes):
+        return None
+    return _identity_from_record(record)
+
+
+async def require_admin(
+    key: str | None = Security(_HEADER_SCHEME),
+    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
+) -> None:
+    """Validate bootstrap admin token or console API key with write scope."""
     admin_token = _get_configured_token()
-    if not admin_token:
+    if admin_token and key and key == admin_token:
+        return
+    if credentials is not None and credentials.scheme.lower() == "bearer":
+        identity = _resolve_gateway_identity(credentials.credentials)
+        if identity is not None and has_console_write(_scopes_list(identity.get("scopes"))):
+            return
+    if not admin_token and credentials is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Server not configured: ADMIN_TOKEN env var is missing.",
+            detail="Server not configured: set ADMIN_TOKEN or sign in with a console API key.",
         )
-    if not key or key != admin_token:
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Invalid or missing credentials. Sign in at /login or provide X-Admin-Token / Bearer console key.",
+    )
+
+
+async def require_console_session(
+    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
+) -> dict[str, Any]:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing bearer token.",
+        )
+    session = session_from_api_key(credentials.credentials)
+    if session is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid or missing X-Admin-Token header.",
+            detail="Invalid API key or missing console scope.",
         )
+    return session
+
+
+async def require_console_read(
+    key: str | None = Security(_HEADER_SCHEME),
+    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
+) -> dict[str, Any] | None:
+    """Validate read access for market browsing/download. Returns session or None for public catalog."""
+    admin_token = _get_configured_token()
+    if admin_token and key and key == admin_token:
+        return {"source": "admin_token", "scopes": ["*"]}
+    if credentials is not None and credentials.scheme.lower() == "bearer":
+        session = session_from_api_key(credentials.credentials)
+        if session is not None:
+            return session
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid API key or missing console.read scope.",
+        )
+    return None
 
 
 def _get_engine_ingest_token() -> str:

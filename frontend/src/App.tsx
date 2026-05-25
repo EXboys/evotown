@@ -5,6 +5,8 @@ import { ObserverPanel } from "./components/ObserverPanel";
 import { LandingPage } from "./components/LandingPage";
 import { TaskHistoryPage } from "./components/TaskHistoryPage";
 import { ChronicleBook } from "./components/ChronicleBook";
+import { ConsoleLoginPage } from "./components/ConsoleLoginPage";
+import { SkillsMarketPage } from "./components/market/SkillsMarketPage";
 import { EnterpriseConsole } from "./components/EnterpriseConsole";
 import { useEvotownStore } from "./store/evotownStore";
 
@@ -37,12 +39,16 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<ConsoleLoginPage />} />
+        <Route path="/market" element={<SkillsMarketPage />} />
+        <Route path="/market/:skillId" element={<SkillsMarketPage />} />
         <Route path="/dashboard" element={<EnterpriseConsole initialTab="dashboard" />} />
         <Route path="/gateway" element={<EnterpriseConsole initialTab="gateway" />} />
         <Route path="/accounts" element={<EnterpriseConsole initialTab="accounts" />} />
         <Route path="/engines" element={<EnterpriseConsole initialTab="engines" />} />
         <Route path="/runs" element={<EnterpriseConsole initialTab="runs" />} />
         <Route path="/skills" element={<EnterpriseConsole initialTab="skills" />} />
+        <Route path="/knowledge" element={<EnterpriseConsole initialTab="knowledge" />} />
         <Route path="/costs" element={<EnterpriseConsole initialTab="costs" />} />
         <Route path="/risk" element={<EnterpriseConsole initialTab="risk" />} />
         <Route path="/arena" element={<ArenaApp />} />

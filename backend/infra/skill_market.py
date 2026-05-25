@@ -112,6 +112,21 @@ def _ensure_conn() -> sqlite3.Connection:
             bytes        INTEGER NOT NULL,
             uploaded_at  TEXT NOT NULL DEFAULT (datetime('now'))
         );
+
+        CREATE TABLE IF NOT EXISTS skill_versions (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            skill_id        TEXT NOT NULL,
+            version         TEXT NOT NULL,
+            description     TEXT NOT NULL DEFAULT '',
+            readme          TEXT NOT NULL DEFAULT '',
+            dependencies    TEXT NOT NULL DEFAULT '[]',
+            package_sha256  TEXT NOT NULL DEFAULT '',
+            package_bytes   INTEGER NOT NULL DEFAULT 0,
+            source_run_id   TEXT NOT NULL DEFAULT '',
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(skill_id, version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_skill_versions_skill ON skill_versions(skill_id);
         """
     )
     _migrate_skills_schema(conn)
@@ -126,6 +141,12 @@ def _migrate_skills_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE skills ADD COLUMN package_sha256 TEXT NOT NULL DEFAULT ''")
     if "package_bytes" not in cols:
         conn.execute("ALTER TABLE skills ADD COLUMN package_bytes INTEGER NOT NULL DEFAULT 0")
+    if "readme" not in cols:
+        conn.execute("ALTER TABLE skills ADD COLUMN readme TEXT NOT NULL DEFAULT ''")
+    if "dependencies" not in cols:
+        conn.execute("ALTER TABLE skills ADD COLUMN dependencies TEXT NOT NULL DEFAULT '[]'")
+    if "download_count" not in cols:
+        conn.execute("ALTER TABLE skills ADD COLUMN download_count INTEGER NOT NULL DEFAULT 0")
 
 
 def _json_dumps(value: Any) -> str:
@@ -210,7 +231,101 @@ def _skill_from_row(row: sqlite3.Row) -> dict[str, Any]:
     item = dict(row)
     item["runtime_targets"] = _json_loads(item.get("runtime_targets", "[]"), [])
     item["tags"] = _json_loads(item.get("tags", "[]"), [])
+    item["dependencies"] = _json_loads(item.get("dependencies", "[]"), [])
     return item
+
+
+def _version_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    item = dict(row)
+    item["dependencies"] = _json_loads(item.get("dependencies", "[]"), [])
+    return item
+
+
+def _record_skill_version(
+    conn: sqlite3.Connection,
+    *,
+    skill_id: str,
+    version: str,
+    description: str,
+    readme: str,
+    dependencies: list[str],
+    package_sha256: str,
+    package_bytes: int,
+    source_run_id: str,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO skill_versions (
+            skill_id, version, description, readme, dependencies,
+            package_sha256, package_bytes, source_run_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(skill_id, version) DO UPDATE SET
+            description=excluded.description,
+            readme=excluded.readme,
+            dependencies=excluded.dependencies,
+            package_sha256=excluded.package_sha256,
+            package_bytes=excluded.package_bytes,
+            source_run_id=excluded.source_run_id,
+            created_at=datetime('now')
+        """,
+        (
+            skill_id,
+            version,
+            description,
+            readme,
+            _json_dumps(dependencies),
+            package_sha256,
+            package_bytes,
+            source_run_id,
+        ),
+    )
+
+
+def list_skill_versions(skill_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
+    rows = _ensure_conn().execute(
+        """
+        SELECT * FROM skill_versions
+        WHERE skill_id=?
+        ORDER BY created_at DESC
+        LIMIT ?
+        """,
+        (skill_id, max(1, min(limit, 100))),
+    ).fetchall()
+    return [_version_from_row(row) for row in rows]
+
+
+def record_download(skill_id: str) -> None:
+    _ensure_conn().execute(
+        "UPDATE skills SET download_count = download_count + 1, updated_at=updated_at WHERE skill_id=?",
+        (skill_id,),
+    )
+
+
+def list_market_skills(
+    *,
+    team_id: str | None = None,
+    runtime_target: str | None = None,
+    tag: str | None = None,
+    query: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    return list_skills(
+        team_id=team_id,
+        runtime_target=runtime_target,
+        tag=tag,
+        status="approved",
+        query=query,
+        limit=limit,
+    )
+
+
+def get_market_skill(skill_id: str) -> dict[str, Any] | None:
+    skill = get_skill(skill_id)
+    if skill is None or skill.get("status") != "approved":
+        return None
+    skill["versions"] = list_skill_versions(skill_id)
+    return skill
 
 
 def _safe_filename(filename: str) -> str:
@@ -245,15 +360,30 @@ def get_bundle_manifest(
     runtime_targets = _json_loads(item.get("runtime_targets", "[]"), [])
     if runtime_target and runtime_target not in runtime_targets:
         return None
+    manifest_skills = _json_loads(item.get("skills", "[]"), [])
+    approved_skills = [
+        entry
+        for entry in manifest_skills
+        if _manifest_skill_is_installable(entry.get("skill_id", ""))
+    ]
     return {
         "bundle_id": item["bundle_id"],
         "version": item["version"],
         "channel": item["channel"],
         "runtime_targets": runtime_targets,
-        "skills": _json_loads(item.get("skills", "[]"), []),
+        "skills": approved_skills,
         "signature": item.get("signature", ""),
         "published_at": item["published_at"],
     }
+
+
+def _manifest_skill_is_installable(skill_id: str) -> bool:
+    if not skill_id:
+        return False
+    skill = get_skill(skill_id)
+    if skill is None:
+        return True
+    return skill.get("status") == "approved"
 
 
 def list_skills(
@@ -306,9 +436,9 @@ def upload_skill_package(body: SkillPackageUpload) -> dict[str, Any]:
         INSERT INTO skills (
             skill_id, name, description, version, runtime_targets, package_url,
             package_sha256, package_bytes, status, visibility, team_id, tags,
-            source_run_id, updated_at
+            source_run_id, readme, dependencies, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, datetime('now'))
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, datetime('now'))
         ON CONFLICT(skill_id) DO UPDATE SET
             name=excluded.name,
             description=excluded.description,
@@ -322,6 +452,8 @@ def upload_skill_package(body: SkillPackageUpload) -> dict[str, Any]:
             team_id=excluded.team_id,
             tags=excluded.tags,
             source_run_id=excluded.source_run_id,
+            readme=excluded.readme,
+            dependencies=excluded.dependencies,
             updated_at=datetime('now')
         """,
         (
@@ -337,7 +469,20 @@ def upload_skill_package(body: SkillPackageUpload) -> dict[str, Any]:
             body.team_id,
             _json_dumps(body.tags),
             body.source_run_id,
+            body.readme,
+            _json_dumps(body.dependencies),
         ),
+    )
+    _record_skill_version(
+        conn,
+        skill_id=body.skill_id,
+        version=body.version,
+        description=body.description,
+        readme=body.readme,
+        dependencies=body.dependencies,
+        package_sha256=digest,
+        package_bytes=len(raw),
+        source_run_id=body.source_run_id,
     )
     conn.execute(
         """
@@ -358,6 +503,22 @@ def upload_skill_package(body: SkillPackageUpload) -> dict[str, Any]:
 def get_skill(skill_id: str) -> dict[str, Any] | None:
     row = _ensure_conn().execute("SELECT * FROM skills WHERE skill_id=?", (skill_id,)).fetchone()
     return _skill_from_row(row) if row else None
+
+
+def deprecate_skill(skill_id: str, *, reason: str = "", reviewer: str = "") -> dict[str, Any] | None:
+    del reason, reviewer
+    if get_skill(skill_id) is None:
+        return None
+    conn = _ensure_conn()
+    conn.execute(
+        """
+        UPDATE skills
+        SET status='deprecated', updated_at=datetime('now')
+        WHERE skill_id=?
+        """,
+        (skill_id,),
+    )
+    return get_skill(skill_id)
 
 
 def get_package_file(skill_id: str) -> tuple[Path, str] | None:

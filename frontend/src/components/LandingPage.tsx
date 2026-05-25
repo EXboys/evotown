@@ -1,54 +1,44 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { WARRIOR_FRAMES } from "../phaser/characterAssets";
 
-/** 13 武将数据：蜀汉 5 / 曹魏 4 / 东吴 4 */
-const GENERALS = [
-  // 蜀汉
-  { id: "liubei",    name: "刘备", title: "汉昭烈帝", team: "蜀", color: "#ef4444" },
-  { id: "guanyu",    name: "关羽", title: "武　圣",   team: "蜀", color: "#ef4444" },
-  { id: "zhangfei",  name: "张飞", title: "燕人张飞", team: "蜀", color: "#ef4444" },
-  { id: "zhaoyun",   name: "赵云", title: "常胜将军", team: "蜀", color: "#ef4444" },
-  { id: "kongming",  name: "孔明", title: "卧龙先生", team: "蜀", color: "#ef4444" },
-  // 曹魏
-  { id: "caocao",    name: "曹操", title: "魏武帝",   team: "魏", color: "#3b82f6" },
-  { id: "zhangliao", name: "张辽", title: "五子良将", team: "魏", color: "#3b82f6" },
-  { id: "guojia",    name: "郭嘉", title: "鬼才军师", team: "魏", color: "#3b82f6" },
-  { id: "simayi",    name: "仲达", title: "冢　虎",   team: "魏", color: "#3b82f6" },
-  // 东吴
-  { id: "sunquan",   name: "孙权", title: "吴大帝",   team: "吴", color: "#22c55e" },
-  { id: "zhouyu",    name: "周瑜", title: "大都督",   team: "吴", color: "#22c55e" },
-  { id: "huanggai",  name: "黄盖", title: "东吴老将", team: "吴", color: "#22c55e" },
-  { id: "lusu",      name: "鲁肃", title: "和事良臣", team: "吴", color: "#22c55e" },
+const MODULES = [
+  {
+    title: "协作地图",
+    desc: "实时观察 Agent 团队任务、状态与协作关系，保留趣味可视化。",
+    path: "/arena",
+    cta: "进入地图",
+    accent: "from-blue-600 to-cyan-500",
+  },
+  {
+    title: "Skills 市场",
+    desc: "浏览、安装和复用企业内部 Agent 技能包，支持 OpenClaw / Hermes / SkillLite。",
+    path: "/market",
+    cta: "浏览市场",
+    accent: "from-violet-600 to-indigo-500",
+  },
+  {
+    title: "企业知识库",
+    desc: "对接飞书、语雀等文档源，统一索引与检索，供 Agent 运行时引用。",
+    path: "/knowledge",
+    cta: "管理知识库",
+    accent: "from-teal-600 to-emerald-500",
+  },
+  {
+    title: "企业控制台",
+    desc: "引擎接入、运行记录、成本归因、风控事件与账号治理统一入口。",
+    path: "/dashboard",
+    cta: "打开控制台",
+    accent: "from-slate-700 to-slate-900",
+  },
 ];
 
-/** 16×16 像素武将立绘 — 从 WARRIOR_FRAMES 取 front 帧渲染到 Canvas */
-function PixelPortrait({ warriorId, scale = 4 }: { warriorId: string; scale?: number }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const frame = (WARRIOR_FRAMES as Record<string, Record<string, (string | null)[][]>>)[warriorId]?.front;
-    if (!frame) return;
-    ctx.clearRect(0, 0, 16, 16);
-    for (let y = 0; y < frame.length; y++) {
-      for (let x = 0; x < frame[y].length; x++) {
-        const c = frame[y][x];
-        if (c) { ctx.fillStyle = c; ctx.fillRect(x, y, 1, 1); }
-      }
-    }
-  }, [warriorId]);
-  return (
-    <canvas
-      ref={ref}
-      width={16}
-      height={16}
-      style={{ imageRendering: "pixelated", width: `${16 * scale}px`, height: `${16 * scale}px` }}
-    />
-  );
-}
+const CAPABILITIES = [
+  { label: "运行可观测", detail: "run 生命周期、事件流、产物与策略违规一屏掌握" },
+  { label: "技能资产化", detail: "候选技能审核、版本沉淀、私有市场分发" },
+  { label: "企业知识库", detail: "飞书 / 语雀 connector、统一检索与文档引用" },
+  { label: "多引擎接入", detail: "OpenClaw、Hermes、SkillLite 与自定义 runtime 统一 ingest" },
+  { label: "企业治理", detail: "账号体系、API Key、成本与风控闭环" },
+];
 
 export function LandingPage() {
   const navigate = useNavigate();
@@ -65,117 +55,146 @@ export function LandingPage() {
 
   return (
     <div
-      className="min-h-screen bg-black text-white flex flex-col font-mono"
-      style={{ backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,200,0,0.015) 2px, rgba(255,200,0,0.015) 4px)" }}
+      className="min-h-screen bg-slate-50 text-slate-900"
+      style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}
     >
-      {/* Nav */}
-      <nav className="flex items-center justify-between px-6 py-3 border-b-2 border-amber-400 bg-black">
-        <span className="text-xl font-bold tracking-widest text-amber-400">▶ 孔明传</span>
-        <div className="flex gap-4 items-center">
-          <button onClick={() => navigate("/dashboard")} className="text-xs text-cyan-500 hover:text-cyan-300 transition-colors">控制台</button>
-          <button onClick={() => navigate("/runs")} className="text-xs text-slate-500 hover:text-slate-300 transition-colors">Runs</button>
-          <button onClick={() => navigate("/chronicle")} className="text-xs text-amber-600 hover:text-amber-400 transition-colors">📜 史记阁</button>
-          <button onClick={() => navigate("/arena")} className="text-xs text-amber-300 hover:text-amber-100 border border-amber-600 px-3 py-1 transition-colors">进入协作地图 →</button>
+      <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/90 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-4">
+          <button type="button" onClick={() => navigate("/")} className="flex items-center gap-3 text-left">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-950 text-sm font-semibold text-white">E</span>
+            <span>
+              <span className="block text-sm font-semibold text-slate-950">Evotown</span>
+              <span className="block text-xs text-slate-500">Enterprise Agent Platform</span>
+            </span>
+          </button>
+          <nav className="hidden items-center gap-1 text-sm md:flex">
+            <button type="button" onClick={() => navigate("/market")} className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">Skills 市场</button>
+            <button type="button" onClick={() => navigate("/knowledge")} className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">知识库</button>
+            <button type="button" onClick={() => navigate("/dashboard")} className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">控制台</button>
+            <button type="button" onClick={() => navigate("/runs")} className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">Runs</button>
+            <button type="button" onClick={() => navigate("/login")} className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">登录</button>
+          </nav>
+          <button
+            type="button"
+            onClick={() => navigate("/arena")}
+            className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            协作地图
+          </button>
         </div>
-      </nav>
+      </header>
 
-      {/* Hero */}
-      <section className="flex flex-col items-center justify-center px-6 py-14 text-center border-b-2 border-amber-900/40">
-        <div className="mb-3 inline-flex items-center gap-2 border border-amber-400/50 bg-amber-400/10 px-4 py-1 text-xs text-amber-300 tracking-widest">
-          ★ 企业 Agent 协作地图 · NES 像素风 ★
-        </div>
-        <h1 className="text-5xl md:text-7xl font-black leading-tight mb-4 tracking-widest text-amber-400">
-          孔明传
-        </h1>
-        <p className="max-w-xl text-amber-100/70 text-sm mb-1 leading-relaxed">
-          多个 Agent 团队在同一张企业城市地图中协作运行
-        </p>
-        <p className="max-w-xl text-slate-500 text-xs mb-8 leading-relaxed">
-          实时观察任务、技能、协作与风险，让游戏化画面服务企业运行监控。
-        </p>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <button onClick={() => navigate("/arena")} className="border-2 border-amber-400 bg-amber-400 px-8 py-3 text-black font-bold text-sm hover:bg-amber-300 transition-colors">
-            ▶ 进入协作地图
-          </button>
-          <button onClick={() => navigate("/dashboard")} className="border border-cyan-700 px-8 py-3 text-cyan-300 text-sm hover:border-cyan-400 hover:text-cyan-100 transition-colors">
-            控制台
-          </button>
-          <button onClick={() => navigate("/chronicle")} className="border border-amber-700 px-8 py-3 text-amber-400 text-sm hover:border-amber-500 hover:text-amber-300 transition-colors">
-            📜 史记阁
-          </button>
-        </div>
-      </section>
-
-      {/* 最新战报预览 */}
-      {latestChronicle && (
-        <section className="px-6 py-5 border-b border-amber-900/30">
-          <div className="max-w-3xl mx-auto">
-            <div className="flex items-center gap-3 mb-2">
-              <span className="text-amber-400 text-xs">◆ 最新战报</span>
-              <span className="text-slate-600 text-[10px]">{latestChronicle.chapter_label} · {latestChronicle.virtual_date}</span>
-            </div>
-            <div className="border border-amber-900/50 bg-amber-950/20 p-3">
-              <p className="text-amber-200/80 text-xs leading-relaxed line-clamp-3">
-                {latestChronicle.preview || "（暂无预览）"}
-              </p>
-              <button onClick={() => navigate("/chronicle")} className="mt-2 text-[10px] text-amber-600 hover:text-amber-400">
-                阅读全文 →
+      <main className="mx-auto max-w-6xl px-5 pb-16 pt-12 md:pt-16">
+        <section className="grid items-center gap-10 lg:grid-cols-[1.1fr_0.9fr]">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-600">Enterprise AI Control Plane</p>
+            <h1 className="mt-4 text-4xl font-semibold tracking-tight text-slate-950 md:text-5xl">
+              企业 Agent
+              <br />
+              协作与治理平台
+            </h1>
+            <p className="mt-5 max-w-xl text-base leading-7 text-slate-600">
+              Evotown 将 Agent 运行监控、技能资产市场与企业控制台整合在一起。
+              团队可以看清「谁在做什么」，沉淀可复用技能，并统一管理引擎、成本与风险。
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => navigate("/dashboard")}
+                className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-medium text-white shadow-sm hover:bg-blue-500"
+              >
+                进入控制台
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate("/market")}
+                className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+              >
+                浏览 Skills 市场
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate("/arena")}
+                className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+              >
+                打开协作地图
               </button>
             </div>
           </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Platform Overview</p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              {[
+                { label: "协作地图", value: "Live", note: "Agent 活动可视化" },
+                { label: "Skills 市场", value: "Private", note: "企业内部技能分发" },
+                { label: "引擎接入", value: "Multi", note: "OpenClaw / Hermes / SkillLite" },
+                { label: "治理层", value: "Unified", note: "账号 · 成本 · 风控" },
+              ].map((item) => (
+                <div key={item.label} className="rounded-2xl bg-slate-50 p-4">
+                  <p className="text-xs text-slate-500">{item.label}</p>
+                  <p className="mt-1 text-xl font-semibold text-slate-950">{item.value}</p>
+                  <p className="mt-1 text-xs text-slate-500">{item.note}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </section>
-      )}
 
-      {/* 十三武将立绘 */}
-      <section className="py-8 px-4 border-b border-amber-900/30">
-        <h2 className="text-xs font-bold text-center mb-5 text-amber-400 tracking-widest">◆ 十三路豪杰 ◆</h2>
-        <div className="flex gap-2 overflow-x-auto pb-2 justify-start md:justify-center max-w-5xl mx-auto">
-          {GENERALS.map((g) => (
-            <div key={g.id} className="flex-shrink-0 flex flex-col items-center gap-1 w-[68px]" style={{ borderTop: `2px solid ${g.color}` }}>
-              <div className="bg-slate-950 w-[68px] h-[68px] flex items-center justify-center mt-1 border border-slate-800/60">
-                <PixelPortrait warriorId={g.id} scale={4} />
+        <section className="mt-16 grid gap-4 md:grid-cols-3">
+          {MODULES.map((mod) => (
+            <button
+              key={mod.path}
+              type="button"
+              onClick={() => navigate(mod.path)}
+              className="group rounded-2xl border border-slate-200 bg-white p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+            >
+              <div className={`inline-flex rounded-xl bg-gradient-to-br ${mod.accent} px-3 py-1.5 text-xs font-medium text-white`}>
+                {mod.title}
               </div>
-              <span className="text-[10px] text-white">{g.name}</span>
-              <span className="text-[8px] text-slate-600 text-center leading-tight">{g.title}</span>
-              <span className="text-[8px] px-1" style={{ color: g.color }}>【{g.team}】</span>
-            </div>
+              <p className="mt-4 text-sm leading-6 text-slate-600">{mod.desc}</p>
+              <span className="mt-5 inline-flex text-sm font-medium text-blue-600 group-hover:text-blue-500">
+                {mod.cta} →
+              </span>
+            </button>
           ))}
-        </div>
-      </section>
+        </section>
 
-      {/* 运行机制 */}
-      <section className="py-8 px-6 border-b border-amber-900/30">
-        <h2 className="text-xs font-bold text-center mb-5 text-amber-400 tracking-widest">◆ 运行机制 ◆</h2>
-        <div className="flex flex-col md:flex-row gap-3 justify-center max-w-3xl mx-auto">
-          {[
-            { step: "01", label: "Agent 接收任务", desc: "每次运行都记录状态、产物与贡献变化" },
-            { step: "02", label: "沉淀技能资产", desc: "规则、Prompt 与技能进入可审查的资产线索" },
-            { step: "03", label: "风险韧性跟踪", desc: "失败、暂停与阻塞进入韧性记录，便于修复" },
-          ].map((s) => (
-            <div key={s.step} className="flex-1 border border-amber-900/50 bg-amber-950/10 p-4 text-center">
-              <div className="text-2xl font-black text-amber-400 mb-1">{s.step}</div>
-              <div className="text-amber-200 text-xs mb-1">{s.label}</div>
-              <div className="text-slate-500 text-[10px]">{s.desc}</div>
+        <section className="mt-16 rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-950">平台能力</h2>
+          <p className="mt-2 text-sm text-slate-500">从运行观测到技能沉淀，覆盖企业 Agent 落地常见环节。</p>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            {CAPABILITIES.map((item) => (
+              <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50/80 p-5">
+                <p className="font-medium text-slate-950">{item.label}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{item.detail}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {latestChronicle && (
+          <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-slate-950">组织学习日志</h2>
+              <span className="text-xs text-slate-500">
+                {latestChronicle.chapter_label} · {latestChronicle.virtual_date}
+              </span>
             </div>
-          ))}
+            <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-600">{latestChronicle.preview || "暂无预览"}</p>
+            <button type="button" onClick={() => navigate("/chronicle")} className="mt-4 text-sm font-medium text-blue-600 hover:text-blue-500">
+              查看 Chronicle →
+            </button>
+          </section>
+        )}
+      </main>
+
+      <footer className="border-t border-slate-200 bg-white py-6">
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-5 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+          <span>© 2025 Evotown · Enterprise Agent Platform</span>
+          <span>监控 · 技能市场 · 治理控制台</span>
         </div>
-      </section>
-
-      {/* CTA */}
-      <section className="py-14 px-6 text-center">
-        <h2 className="text-2xl font-black mb-3 text-amber-400">准备好查看企业 AI 城市了吗？</h2>
-        <p className="text-slate-500 text-xs mb-6">点击进入，观察 Agent 如何协作完成任务、沉淀技能并处理风险</p>
-        <button onClick={() => navigate("/arena")} className="border-2 border-amber-400 bg-amber-400 px-10 py-4 text-black font-bold text-base hover:bg-amber-300 transition-colors">
-          ▶ 进入协作地图
-        </button>
-      </section>
-
-      {/* Footer */}
-      <footer className="py-4 px-6 border-t-2 border-amber-900/40 flex items-center justify-between text-[10px] text-slate-700">
-        <span>© 2025 孔明传 · SkillLite</span>
-        <span>企业 Agent 协作地图 · NES 像素风</span>
       </footer>
     </div>
   );
 }
-

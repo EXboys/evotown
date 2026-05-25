@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { adminFetch, getAdminToken, setAdminToken } from "../hooks/useAdminToken";
+import { adminFetch } from "../hooks/useAdminToken";
+import { Link } from "react-router-dom";
 
 export type GatewayAccount = {
   account_id: string;
@@ -33,6 +34,8 @@ export type GatewayApiKey = {
 
 const SCOPE_OPTIONS = [
   { id: "gateway.chat", label: "gateway.chat（调用模型）" },
+  { id: "console.read", label: "console.read（控制台只读）" },
+  { id: "console.write", label: "console.write（控制台管理）" },
   { id: "gateway.read", label: "gateway.read（只读，预留）" },
 ] as const;
 
@@ -44,7 +47,6 @@ function formatDate(value?: string | null) {
 }
 
 export function GatewayAccountsPanel() {
-  const [adminToken, setAdminTokenState] = useState(getAdminToken);
   const [accounts, setAccounts] = useState<GatewayAccount[]>([]);
   const [keys, setKeys] = useState<GatewayApiKey[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
@@ -82,7 +84,7 @@ export function GatewayAccountsPanel() {
     try {
       const accRes = await adminFetch("/api/v1/accounts");
       if (!accRes.ok) {
-        if (accRes.status === 403) throw new Error("需要先在上方保存 Admin Token");
+        if (accRes.status === 403) throw new Error("需要登录控制台账号");
         throw new Error(`accounts ${accRes.status}`);
       }
       const accData = (await accRes.json()) as { accounts?: GatewayAccount[] };
@@ -121,13 +123,6 @@ export function GatewayAccountsPanel() {
       });
     }
   }, [selectedAccountId, accounts]);
-
-  const saveAdminToken = () => {
-    setAdminToken(adminToken);
-    setMessage("Admin Token 已保存到本次会话（sessionStorage，关 Tab 后清除）");
-    setTimeout(() => setMessage(""), 3000);
-    void load();
-  };
 
   const createAccount = async () => {
     if (!newAccount.name.trim()) return;
@@ -295,27 +290,10 @@ export function GatewayAccountsPanel() {
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-base font-semibold text-slate-950">管理员鉴权</h2>
-        <p className="mt-1 text-sm text-slate-500">Token 存于 sessionStorage（关 Tab 自动清除），Arena 与企业控制台共用。</p>
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
-          <label className="flex-1 text-sm">
-            <span className="mb-1 block font-medium text-slate-700">Admin Token</span>
-            <input
-              type="password"
-              value={adminToken}
-              onChange={(e) => setAdminTokenState(e.target.value)}
-              placeholder="与 .env 中 ADMIN_TOKEN 一致"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-sm"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={saveAdminToken}
-            className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-          >
-            保存 Token
-          </button>
-        </div>
+        <h2 className="text-base font-semibold text-slate-950">控制台账号</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          使用 <Link to="/login" className="font-medium text-blue-600 hover:text-blue-700">/login</Link> 注册或登录。登录后 API Key 保存在当前 Tab 的 sessionStorage 中。
+        </p>
       </section>
 
       {message && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{message}</div>}

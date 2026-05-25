@@ -35,7 +35,7 @@ from domain.arena import AgentRecord
 from infra.experiment import get_or_create_experiment_id
 from infra.persistence import load_state
 from api.routers import agents, accounts, config, dispatcher, engine_ingest, gateway, monitor, tasks, websocket, replay
-from api.routers import skill_market
+from api.routers import skill_market, console_auth, market, knowledge
 from api.routers import teams
 from api.routers import chronicle as chronicle_router
 from api.routers import snapshot as snapshot_router
@@ -278,8 +278,11 @@ app.include_router(config.router)
 app.include_router(dispatcher.router)
 app.include_router(engine_ingest.router)
 app.include_router(accounts.router)
+app.include_router(console_auth.router)
 app.include_router(gateway.router)
 app.include_router(skill_market.router)
+app.include_router(market.router)
+app.include_router(knowledge.router)
 app.include_router(monitor.router)
 app.include_router(websocket.router)
 app.include_router(replay.router)

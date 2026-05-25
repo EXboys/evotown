@@ -183,6 +183,11 @@ class SkillCandidateReview(BaseModel):
     promotion_channel: str | None = Field(default=None, max_length=64)
 
 
+class SkillDeprecate(BaseModel):
+    reason: str = Field(default="", max_length=2000)
+    reviewer: str = Field(default="admin", min_length=1, max_length=128)
+
+
 class SkillPackageUpload(BaseModel):
     skill_id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=128)
@@ -195,6 +200,8 @@ class SkillPackageUpload(BaseModel):
     filename: str = Field(min_length=1, max_length=256)
     content_base64: str = Field(min_length=1)
     source_run_id: str = Field(default="", max_length=128)
+    readme: str = Field(default="", max_length=20000)
+    dependencies: list[str] = Field(default_factory=list)
 
 
 AccountStatus = Literal["active", "disabled"]
@@ -232,3 +239,50 @@ class GatewayApiKeyUpdate(BaseModel):
     monthly_token_limit: int | None = Field(default=None, ge=0)
     monthly_cost_limit_usd: float | None = Field(default=None, ge=0)
     burst_rpm_limit: int | None = Field(default=None, ge=0)
+
+
+class ConsoleRegister(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    owner_email: str = Field(default="", max_length=256)
+    team_id: str = Field(default="", max_length=128)
+
+
+class ConsoleLogin(BaseModel):
+    api_key: str = Field(min_length=8, max_length=256)
+
+
+KnowledgeSourceType = Literal["feishu", "yuque", "custom"]
+
+
+class KnowledgeSourceCreate(BaseModel):
+    source_id: str = Field(min_length=1, max_length=128)
+    source_type: KnowledgeSourceType
+    name: str = Field(min_length=1, max_length=128)
+    tenant_id: str = Field(default="", max_length=128)
+    team_id: str = Field(default="", max_length=128)
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class KnowledgeSourceUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    tenant_id: str | None = Field(default=None, max_length=128)
+    team_id: str | None = Field(default=None, max_length=128)
+    status: Literal["active", "paused"] | None = None
+    config: dict[str, Any] | None = None
+
+
+class KnowledgeDocumentIngestItem(BaseModel):
+    external_id: str = Field(min_length=1, max_length=256)
+    title: str = Field(min_length=1, max_length=512)
+    url: str = Field(default="", max_length=2000)
+    space_name: str = Field(default="", max_length=256)
+    content_text: str = Field(default="", max_length=50000)
+    tags: list[str] = Field(default_factory=list)
+    team_id: str = Field(default="", max_length=128)
+    updated_at_source: str = Field(default="", max_length=64)
+
+
+class KnowledgeDocumentIngestBatch(BaseModel):
+    source_id: str = Field(min_length=1, max_length=128)
+    documents: list[KnowledgeDocumentIngestItem] = Field(min_length=1, max_length=200)
+

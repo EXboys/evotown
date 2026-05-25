@@ -1,135 +1,82 @@
-# Evotown — Evolution Testing Platform
+# Evotown — Enterprise Agent Governance & Capability Platform
 
-Puts **evolution engines** in a controlled environment for **evolution effect validation** — OpenClaw-style stacks, Hermes, your own harness, or **optionally** [SkillLite](https://github.com/EXboys/skilllite). Evotown does not require a specific upstream; use the [ingest API](../docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md) to attach runners. Economy rules are configurable, reproducible, fully local, and **do not depend on virtual/cryptocurrency**.
+**Evotown is a middle platform for enterprise Agent runtime governance and capability assets** — connect multiple Agent runtimes, accumulate Skills and enterprise knowledge, and provide observability, review, and private distribution.
+
+Runners stay where they are (laptops, CI, servers, containers). Evotown is the **control plane** above them — not an IM suite and not a chat assistant for every employee. The repo also includes an **Evolution Arena** for benchmarks and reproducible experiments.
 
 [中文](../zh-CN/README.md)
 
-> Looking for the big picture first? Read **[Evotown Solution Overview (中文)](../docs/zh-CN/SOLUTION.md)** — a single doc covering positioning, architecture, core modules, key workflows, deployment topologies, and onboarding. (English version: TBD.)
+## What Evotown is
+
+| Layer | Role |
+|-------|------|
+| **Runtime** | OpenClaw / Hermes / SkillLite / custom agents execute locally |
+| **Evotown** | Engine registry, runs, costs, risk; private Skills Market; knowledge connectors + native KB; console auth |
+| **Business apps** | DingTalk/Feishu bots, internal copilots — consume skills & knowledge via API |
+
+**Principles:** runtime-neutral · evidence-based promotion · private deploy · control without lock-in
+
+## Platform surfaces (MVP)
+
+| Route | Purpose |
+|-------|---------|
+| `/` | Enterprise landing page |
+| `/login` | Console register / login (`evk_` API keys) |
+| `/dashboard` … `/risk` | Enterprise console |
+| `/market` | Skills catalog |
+| `/skills` | Admin skills management |
+| `/knowledge` | Knowledge connectors + native KB |
+| `/arena` | Evolution arena |
+| `/task-history` | Task history |
+| `/chronicle` | Learning log |
+
+Specs: [spec/README.md](../spec/README.md) · [enterprise control plane](../spec/enterprise-control-plane.md) · [knowledge connector](../spec/knowledge-connector.md)
+
+---
+
+## Evolution testing
+
+Puts **evolution engines** in a controlled environment for **evolution effect validation** — OpenClaw-style stacks, Hermes, your harness, or optionally [SkillLite](https://github.com/EXboys/skilllite). Use the [ingest API](../docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md) to attach runners. Economy rules are local and **do not depend on cryptocurrency**.
 
 ## Prerequisites
 
 - Python 3.10+
 - Node.js 18+
-- **Skills workspace:** backend expects a project tree with `.skills` or `skills` (layout depends on the agent backend you wire in).
-- **SkillLite (optional):** only if you drive agents with the SkillLite CLI — then `skilllite evolution run` / `skilllite agent-rpc` and the default per-agent copy under `~/.skilllite/arena/{agent_id}/.skills` apply. Other engines use their own install paths and report via HTTP ingest instead.
+- Skills workspace under `.skills` or `skills` (layout depends on your agent backend)
+- SkillLite is **optional**
 
 ## Quick Start
 
-### Option A — Docker (Recommended)
-
-Requires Docker Desktop (or Docker Engine + Compose plugin).
+### Docker
 
 ```bash
 cd evotown
-
-# 1. Create .env from the template (same directory as docker-compose.yml)
 cp .env.example .env
-# Edit API_KEY / BASE_URL / MODEL, and optional per-channel overrides (JUDGE, DISPATCHER, SOCIAL, CHRONICLE)
-
-# 2. First-time: build images and start
 docker compose up -d --build
-
-# Subsequent starts (no rebuild needed)
-docker compose up -d
-
-# Stop
-docker compose down
 ```
 
-Visit http://localhost — landing page, then open the arena.
+Visit http://localhost
 
-> **Note**: `.env` must live next to `docker-compose.yml`. Docker Compose reads it on startup.
-
-### Option B — Local Dev (two terminals)
+### Local dev
 
 ```bash
-# Terminal 1 — Backend
-cd evotown/backend
-pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8765
-
-# Terminal 2 — Frontend
-cd evotown/frontend
-npm install
-npm run dev
+cd evotown/backend && pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8765
+cd evotown/frontend && npm install && npm run dev
 ```
 
 Visit http://localhost:5174
 
-> **Data directory**: Local dev and Docker both persist arena state, task history, and logs under `evotown/data/`. Override with `EVOTOWN_DATA_DIR` when needed.
-
 ## Configuration
 
-Copy `.env.example` to `.env` and fill in at least the main `BASE_URL`, `API_KEY`, and `MODEL`. Optional per-channel overrides (`JUDGE_*`, `DISPATCHER_*`, `SOCIAL_*`, `CHRONICLE_*`) let high-frequency flows use a cheaper model while judge and chronicle keep a stronger one. Docker Compose also accepts `OPENAI_API_KEY` / `OPENAI_BASE_URL` as aliases for the main channel.
-
-External engine ingest uses bearer auth. Set `EVOTOWN_ENGINE_INGEST_TOKEN` for OpenClaw / Hermes / custom runners; if it is unset, the backend falls back to `ADMIN_TOKEN` for local single-node development.
-
-The centralized model gateway is backed by LiteLLM. Set `EVOTOWN_GATEWAY_API_KEYS`, `LITELLM_BASE_URL`, and `LITELLM_MASTER_KEY`; agents can then use `OPENAI_BASE_URL=http://localhost:8765/api/gateway/v1` and an Evotown gateway key.
-
-Arena economy and evolution knobs live in `backend/evotown_config.json` (see `backend/evotown_config.json.example`).
-
-## Arena UI
-
-| Route | Purpose |
-|-------|---------|
-| `/` | Landing page |
-| `/arena` | Main arena (Phaser map, observer panel, agent detail) |
-| `/task-history` | Task history and judge scores |
-| `/chronicle` | Generated evolution chronicle |
-
-The frontend uses WebSocket for live arena updates. A REST fallback still polls `/agents` when the socket is down (about every 15s) or connected (about every 60s) so the map stays in sync.
-
-The observer metrics chart loads per-agent `/agents/{id}/metrics` in parallel and reuses a short-lived cache to avoid hammering the API.
-
-## Economy Rules (Jungle Law)
-
-Configurable via `evotown_config.json` or environment variables:
-
-| Config | Default | Env Var |
-|--------|---------|---------|
-| initial_balance | 100 | EVOTOWN_INITIAL_BALANCE |
-| cost_accept | -5 | EVOTOWN_COST_ACCEPT |
-| reward_complete | 10 | EVOTOWN_REWARD_COMPLETE |
-| penalty_fail | -5 | EVOTOWN_PENALTY_FAIL |
-| eliminate_on_zero | true | EVOTOWN_ELIMINATE_ON_ZERO |
-
-Query current config via `GET /config/economy`.
-
-## Directory Structure
-
-```
-evotown/
-├── backend/              # FastAPI backend
-├── frontend/             # React + Phaser 3 frontend
-├── data/                 # Default persistence (override with EVOTOWN_DATA_DIR)
-├── .env.example          # LLM + arena env template
-├── docker-compose.yml
-├── docs/
-│   ├── en/               # English docs
-│   └── zh-CN/            # 中文文档
-├── en/README.md
-├── zh-CN/README.md
-└── README.md
-```
-
-## Monorepo note
-
-Some teams keep a **monorepo checkout** next to other projects for local hacking; **this GitHub repository is the standalone shipping line** and is not tied to installing SkillLite to use Evotown.
-
-```bash
-# Optional: extract a subdirectory from a larger monorepo (example only)
-git subtree split -P evotown -b evotown-main
-```
+- **Engine ingest:** `EVOTOWN_ENGINE_INGEST_TOKEN`
+- **Console:** register at `/login` or set `ADMIN_TOKEN`
+- **Private Skills Market:** [PRIVATE_SKILLS_MARKET_DEPLOYMENT.md](../docs/zh-CN/PRIVATE_SKILLS_MARKET_DEPLOYMENT.md)
+- **Gateway:** LiteLLM + `OPENAI_BASE_URL=http://localhost:8765/api/gateway/v1`
 
 ## Related Docs
 
-- [Solution Overview (中文)](../docs/zh-CN/SOLUTION.md) — **end-to-end solution doc** (positioning / architecture / modules / workflows / deployment / onboarding)
-- [Evotown spec index](../spec/README.md) — product and engineering source of truth
-- [EVOTOWN-ENGINE-INGEST-V0.1.md](../docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md) — external engine ingest API
-- [PRIVATE_SKILLS_MARKET_DEPLOYMENT.md (中文)](../docs/zh-CN/PRIVATE_SKILLS_MARKET_DEPLOYMENT.md) — private Skills Market deployment guide
-- [ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md](../docs/en/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md) — enterprise control plane product plan
-- [REWARD_MECHANISM.md](../docs/en/REWARD_MECHANISM.md) — Reward mechanism
-- [AGENT_TASK_ACCEPTANCE_ANALYSIS.md](../docs/en/AGENT_TASK_ACCEPTANCE_ANALYSIS.md) — Agent task acceptance logic
-- [EVOLUTION_MECHANISM_ANALYSIS.md](../docs/en/EVOLUTION_MECHANISM_ANALYSIS.md) — Evolution mechanism
-- [13-EVOLUTION-ARENA.md](../../todo/13-EVOLUTION-ARENA.md) — Full design
-- [12-SELF-EVOLVING-ENGINE.md](../../todo/12-SELF-EVOLVING-ENGINE.md) — Evolution engine
+- [Evotown spec index](../spec/README.md)
+- [Engine ingest API](../docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md)
+- [Enterprise control plane spec](../docs/en/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md)
+- [Reward mechanism](../docs/en/REWARD_MECHANISM.md)
+- [Evolution mechanism](../docs/en/EVOLUTION_MECHANISM_ANALYSIS.md)

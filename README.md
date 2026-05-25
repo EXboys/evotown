@@ -1,12 +1,44 @@
-# Evotown — Evolution Testing Platform
+# Evotown — Enterprise Agent Governance & Capability Platform
 
-Puts **evolution engines** in a controlled environment for **evolution effect validation** — OpenClaw-style stacks, Hermes, your own harness, or **optionally** [SkillLite](https://github.com/EXboys/skilllite). Evotown does not require a specific upstream; use the [ingest API](docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md) to attach runners. Economy rules are configurable, reproducible, fully local, and **do not depend on virtual/cryptocurrency**.
+**Evotown is a middle platform for enterprise Agent runtime governance and capability assets** — connect OpenClaw, Hermes, SkillLite, and custom runtimes in one place; accumulate **Skills** and **enterprise knowledge**; provide **observability, review, and private distribution**.
 
-Evotown — Evolution Arena
+Runners stay where they are (laptops, CI, servers, containers). Evotown is the **control plane** above them — not an IM suite and not a chat assistant for every employee.
+
+It also ships an **Evolution Arena** for benchmarks, team learning, and reproducible evolution experiments.
 
 **Language**: [English](en/README.md) | [中文](zh-CN/README.md)
 
-> 想先看整体方案 / Looking for the big picture? Read **[Evotown 解决方案文档 / Solution Overview (中文)](docs/zh-CN/SOLUTION.md)** — 一份文档讲清产品定位、总体架构、核心模块、关键工作流、部署形态与接入指南。
+## What Evotown is
+
+| Layer | Role |
+|-------|------|
+| **Runtime** | OpenClaw / Hermes / SkillLite / custom agents execute locally |
+| **Evotown (this repo)** | Engine registry, runs, costs, risk; private Skills Market; knowledge connectors + native KB; console auth |
+| **Business apps** | DingTalk/Feishu bots, internal copilots, CRM agents — consume skills & knowledge via API |
+
+**Product principles:** runtime-neutral · evidence-based asset promotion · private deploy · control without lock-in.
+
+## Platform surfaces (MVP)
+
+| Route | Purpose |
+|-------|---------|
+| `/` | Enterprise landing page |
+| `/login` | Console register / login (`evk_` API keys) |
+| `/dashboard` … `/risk` | Enterprise console (engines, runs, costs, risk, …) |
+| `/market` | Public Skills catalog & install guidance |
+| `/skills` | Admin: upload, review, deprecate skills |
+| `/knowledge` | Knowledge sources (Feishu / Yuque / native), tree editor, chunk search |
+| `/arena` | Evolution arena (Phaser map, observer panel) |
+| `/task-history` | Task history and judge scores |
+| `/chronicle` | Organizational learning log |
+
+Specs: [spec/README.md](spec/README.md) · [enterprise control plane](spec/enterprise-control-plane.md) · [knowledge connector](spec/knowledge-connector.md) · [Skills market](spec/skills-market-and-connectors.md)
+
+---
+
+## Evolution testing (original focus)
+
+Puts **evolution engines** in a controlled environment for **evolution effect validation** — OpenClaw-style stacks, Hermes, your own harness, or **optionally** [SkillLite](https://github.com/EXboys/skilllite). Evotown does not require a specific upstream; use the [ingest API](docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md) to attach runners. Economy rules are configurable, reproducible, fully local, and **do not depend on virtual/cryptocurrency**.
 
 ## Prerequisites
 
@@ -38,7 +70,7 @@ docker compose up -d
 docker compose down
 ```
 
-Visit [http://localhost](http://localhost) — landing page, click "进入竞技场" for the arena.
+Visit [http://localhost](http://localhost) — landing page; open **Console**, **Skills Market**, or **Arena** from the nav.
 
 > **Note**: `.env` must be placed in the `evotown/` directory (same level as `docker-compose.yml`).
 > Docker Compose reads it automatically on startup.
@@ -65,24 +97,9 @@ Visit [http://localhost:5174](http://localhost:5174)
 
 Copy `.env.example` to `.env` and fill in at least the main `BASE_URL`, `API_KEY`, and `MODEL`. Optional per-channel overrides (`JUDGE_`*, `DISPATCHER_*`, `SOCIAL_*`, `CHRONICLE_*`) let high-frequency flows use a cheaper model while judge and chronicle keep a stronger one. Docker Compose also accepts `OPENAI_API_KEY` / `OPENAI_BASE_URL` as aliases for the main channel.
 
-External engine ingest uses bearer auth. Set `EVOTOWN_ENGINE_INGEST_TOKEN` for OpenClaw / Hermes / custom runners. For local dev only, `EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK=1` allows ingest writes to fall back to `ADMIN_TOKEN`. **Ingest read APIs** (`GET /engines`, `/runs`, `/policy/violations`, `/costs/summary`) require `X-Admin-Token`.
+External engine ingest uses bearer auth. Set `EVOTOWN_ENGINE_INGEST_TOKEN` for OpenClaw / Hermes / custom runners. For local dev only, `EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK=1` allows ingest writes to fall back to `ADMIN_TOKEN`. Console APIs accept `X-Admin-Token` or Bearer `evk_` keys with `console.read` / `console.write` scopes (register at `/login`).
 
-Arena economy and evolution knobs live in `backend/evotown_config.json` (see `backend/evotown_config.json.example`).
-
-## Arena UI
-
-
-| Route           | Purpose                                               |
-| --------------- | ----------------------------------------------------- |
-| `/`             | Landing page                                          |
-| `/arena`        | Main arena (Phaser map, observer panel, agent detail) |
-| `/task-history` | Task history and judge scores                         |
-| `/chronicle`    | Generated evolution chronicle                         |
-
-
-The frontend uses WebSocket for live arena updates. A REST fallback still polls `/agents` when the socket is down (about every 15s) or connected (about every 60s) so the map stays in sync.
-
-The observer metrics chart loads per-agent `/agents/{id}/metrics` in parallel and reuses a short-lived cache to avoid hammering the API.
+Private Skills Market deployment: [docs/zh-CN/PRIVATE_SKILLS_MARKET_DEPLOYMENT.md](docs/zh-CN/PRIVATE_SKILLS_MARKET_DEPLOYMENT.md)
 
 ## External engine ingest (v0.1 draft)
 
@@ -137,20 +154,32 @@ Managed keys live in `data/accounts.db` (override data dir with `EVOTOWN_DATA_DI
 Set `LITELLM_BASE_URL` and `LITELLM_MASTER_KEY` for production. Docker Compose includes an optional LiteLLM service under the `litellm` profile.
 
 
-## Enterprise control plane (product plan)
+## Enterprise middle platform (implemented MVP)
 
-Evotown can grow beyond a visual arena into a central control plane for independently deployed agent runtimes. Runners stay where they are — employee laptops, CI, servers, or containers — while Evotown receives their runs, artifacts, policy events, and reusable assets for evaluation, governance, and reuse.
+Evotown grows beyond a visual arena into a **governance and capability middle platform** for independently deployed agent runtimes:
 
-The existing game page stays as the **Arena**: a visual simulation layer for evolution experiments, benchmarks, team learning, and demos.
+- **Observe** — engine registry, runs timeline, gateway usage, cost & risk events
+- **Accumulate** — private Skills Market (`/market` + admin `/skills`), knowledge connectors (Feishu / Yuque / native KB with chunk citation search)
+- **Govern** — console accounts (`evk_` keys), skill review & deprecate, team-scoped assets
+
+The **Arena** remains the visual simulation layer for evolution experiments and demos.
 
 | Doc | Link |
 |-----|------|
 | Spec index | [spec/README.md](spec/README.md) |
 | Enterprise control plane | [spec/enterprise-control-plane.md](spec/enterprise-control-plane.md) |
+| Knowledge connector | [spec/knowledge-connector.md](spec/knowledge-connector.md) |
+| Skills market | [spec/skills-market-and-connectors.md](spec/skills-market-and-connectors.md) |
 | Roadmap | [spec/roadmap.md](spec/roadmap.md) |
 | Product planning doc (English) | [docs/en/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md](docs/en/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md) |
 | 产品规划（中文） | [docs/zh-CN/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md](docs/zh-CN/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md) |
+| Private Skills Market deploy | [docs/zh-CN/PRIVATE_SKILLS_MARKET_DEPLOYMENT.md](docs/zh-CN/PRIVATE_SKILLS_MARKET_DEPLOYMENT.md) |
 
+## Arena UI notes
+
+The arena frontend uses WebSocket for live updates. REST fallback polls `/agents` when the socket is down (~15s) or connected (~60s).
+
+Arena economy and evolution knobs live in `backend/evotown_config.json` (see `backend/evotown_config.json.example`).
 
 ## Economy Rules (Jungle Law)
 
@@ -187,10 +216,8 @@ evotown/
 
 ## Related Docs
 
-- **[Solution Overview / 解决方案文档 (中文)](docs/zh-CN/SOLUTION.md)** — 一份文档讲清定位 / 架构 / 模块 / 工作流 / 部署 / 接入
 - [Evotown spec index](spec/README.md)
 - [Engine ingest API v0.1](docs/en/EVOTOWN-ENGINE-INGEST-V0.1.md) | [引擎接入 API v0.1](docs/zh-CN/EVOTOWN-ENGINE-INGEST-V0.1.md) · [OpenAPI](docs/openapi/evotown-engine-ingest-v0.1.yaml)
-- [Private Skills Market deployment / 私有 Skills 市场部署 (中文)](docs/zh-CN/PRIVATE_SKILLS_MARKET_DEPLOYMENT.md)
 - [Enterprise Control Plane Product Spec](docs/en/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md) | [企业控制面产品规格](docs/zh-CN/ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md)
 - [Reward Mechanism](docs/en/REWARD_MECHANISM.md) | [奖励机制](docs/zh-CN/REWARD_MECHANISM.md)
 - [Agent Task Acceptance](docs/en/AGENT_TASK_ACCEPTANCE_ANALYSIS.md) | [任务接受逻辑](docs/zh-CN/AGENT_TASK_ACCEPTANCE_ANALYSIS.md)

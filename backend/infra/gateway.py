@@ -208,6 +208,45 @@ def conversations(limit: int = 100) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def monthly_usage_for_key(key_id: str) -> dict[str, Any]:
+    """Aggregate gateway usage for the current UTC month."""
+    if not key_id:
+        return {"total_tokens": 0, "cost_usd": 0.0, "requests": 0}
+    row = _ensure_conn().execute(
+        """
+        SELECT
+            COUNT(*) AS requests,
+            COALESCE(SUM(total_tokens), 0) AS total_tokens,
+            COALESCE(SUM(cost_usd), 0) AS cost_usd
+        FROM gateway_requests
+        WHERE key_id = ?
+          AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')
+        """,
+        (key_id,),
+    ).fetchone()
+    return dict(row) if row else {"total_tokens": 0, "cost_usd": 0.0, "requests": 0}
+
+
+def monthly_usage_by_key(limit: int = 100) -> list[dict[str, Any]]:
+    rows = _ensure_conn().execute(
+        """
+        SELECT
+            key_id,
+            COUNT(*) AS requests,
+            COALESCE(SUM(total_tokens), 0) AS total_tokens,
+            COALESCE(SUM(cost_usd), 0) AS cost_usd
+        FROM gateway_requests
+        WHERE key_id != ''
+          AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')
+        GROUP BY key_id
+        ORDER BY total_tokens DESC
+        LIMIT ?
+        """,
+        (max(1, min(limit, 500)),),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def recent_requests(limit: int = 100) -> list[dict[str, Any]]:
     rows = _ensure_conn().execute(
         "SELECT * FROM gateway_requests ORDER BY created_at DESC LIMIT ?",

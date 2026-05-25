@@ -163,3 +163,13 @@ class GatewayApiKeyCreate(BaseModel):
     label: str = Field(default="", max_length=128)
     scopes: list[str] = Field(default_factory=lambda: ["gateway.chat"])
     expires_at: str | None = None
+    monthly_token_limit: int = Field(default=0, ge=0)
+    monthly_cost_limit_usd: float = Field(default=0, ge=0)
+
+
+class GatewayApiKeyUpdate(BaseModel):
+    label: str | None = Field(default=None, max_length=128)
+    scopes: list[str] | None = None
+    expires_at: str | None = None
+    monthly_token_limit: int | None = Field(default=None, ge=0)
+    monthly_cost_limit_usd: float | None = Field(default=None, ge=0)

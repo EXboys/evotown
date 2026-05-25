@@ -25,6 +25,9 @@ export type GatewayApiKey = {
   created_at: string;
   revoked_at: string | null;
   last_used_at: string | null;
+  monthly_token_limit?: number;
+  monthly_cost_limit_usd?: number;
+  monthly_usage?: { total_tokens?: number; cost_usd?: number; requests?: number };
 };
 
 function formatDate(value?: string | null) {
@@ -45,6 +48,8 @@ export function GatewayAccountsPanel() {
 
   const [newAccount, setNewAccount] = useState({ name: "", team_id: "", owner_email: "", notes: "" });
   const [newKeyLabel, setNewKeyLabel] = useState("");
+  const [newKeyTokenLimit, setNewKeyTokenLimit] = useState("");
+  const [newKeyCostLimit, setNewKeyCostLimit] = useState("");
   const [createdSecret, setCreatedSecret] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -52,7 +57,7 @@ export function GatewayAccountsPanel() {
     const keyUrl = accountId
       ? `/api/v1/accounts/${encodeURIComponent(accountId)}/keys`
       : "/api/v1/keys";
-    const keysRes = await fetch(keyUrl);
+    const keysRes = await adminFetch(keyUrl);
     if (keysRes.ok) {
       const keyData = (await keysRes.json()) as { keys?: GatewayApiKey[] };
       setKeys(keyData.keys || []);
@@ -65,8 +70,11 @@ export function GatewayAccountsPanel() {
     setLoading(true);
     setError("");
     try {
-      const accRes = await fetch("/api/v1/accounts");
-      if (!accRes.ok) throw new Error(`accounts ${accRes.status}`);
+      const accRes = await adminFetch("/api/v1/accounts");
+      if (!accRes.ok) {
+        if (accRes.status === 403) throw new Error("需要先在上方保存 Admin Token");
+        throw new Error(`accounts ${accRes.status}`);
+      }
       const accData = (await accRes.json()) as { accounts?: GatewayAccount[] };
       const accountsList = accData.accounts || [];
       setAccounts(accountsList);
@@ -96,6 +104,7 @@ export function GatewayAccountsPanel() {
     setAdminToken(adminToken);
     setMessage("Admin Token 已保存到浏览器本地存储");
     setTimeout(() => setMessage(""), 3000);
+    void load();
   };
 
   const createAccount = async () => {
@@ -150,7 +159,11 @@ export function GatewayAccountsPanel() {
       const res = await adminFetch(`/api/v1/accounts/${encodeURIComponent(selectedAccountId)}/keys`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: newKeyLabel }),
+        body: JSON.stringify({
+          label: newKeyLabel,
+          monthly_token_limit: newKeyTokenLimit ? Number(newKeyTokenLimit) : 0,
+          monthly_cost_limit_usd: newKeyCostLimit ? Number(newKeyCostLimit) : 0,
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -159,10 +172,34 @@ export function GatewayAccountsPanel() {
       const data = (await res.json()) as { secret?: string };
       setCreatedSecret(data.secret || null);
       setNewKeyLabel("");
+      setNewKeyTokenLimit("");
+      setNewKeyCostLimit("");
       await loadKeys(selectedAccountId);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "create key failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updateKeyQuota = async (key: GatewayApiKey, tokenLimit: number, costLimit: number) => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await adminFetch(`/api/v1/keys/${encodeURIComponent(key.key_id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          monthly_token_limit: tokenLimit,
+          monthly_cost_limit_usd: costLimit,
+        }),
+      });
+      if (!res.ok) throw new Error(`update quota ${res.status}`);
+      if (selectedAccountId) await loadKeys(selectedAccountId);
+      setMessage("额度已更新");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "update quota failed");
     } finally {
       setBusy(false);
     }
@@ -193,7 +230,7 @@ export function GatewayAccountsPanel() {
     <div className="space-y-6">
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-base font-semibold text-slate-950">管理员鉴权</h2>
-        <p className="mt-1 text-sm text-slate-500">创建账号、签发与吊销 Key 需要服务端配置的 ADMIN_TOKEN（请求头 X-Admin-Token）。</p>
+        <p className="mt-1 text-sm text-slate-500">账号/Key 列表与网关审计读接口均需 Admin Token（X-Admin-Token）。</p>
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
           <label className="flex-1 text-sm">
             <span className="mb-1 block font-medium text-slate-700">Admin Token</span>
@@ -320,13 +357,27 @@ export function GatewayAccountsPanel() {
             </button>
           </div>
 
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
             <input
               value={newKeyLabel}
               onChange={(e) => setNewKeyLabel(e.target.value)}
               placeholder="Key 标签（如 prod-laptop-01）"
-              className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
+            <input
+              value={newKeyTokenLimit}
+              onChange={(e) => setNewKeyTokenLimit(e.target.value)}
+              placeholder="月 token 上限（0=不限）"
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+            <input
+              value={newKeyCostLimit}
+              onChange={(e) => setNewKeyCostLimit(e.target.value)}
+              placeholder="月成本上限 USD（0=不限）"
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="mt-3">
             <button
               type="button"
               disabled={busy || selectedAccount.status !== "active"}
@@ -356,37 +407,83 @@ export function GatewayAccountsPanel() {
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3 font-semibold">Label / Prefix</th>
+                  <th className="w-40 px-4 py-3 font-semibold">Monthly usage / limit</th>
                   <th className="w-24 px-4 py-3 font-semibold">Status</th>
-                  <th className="w-36 px-4 py-3 font-semibold">Last used</th>
-                  <th className="w-24 px-4 py-3 font-semibold" />
+                  <th className="w-28 px-4 py-3 font-semibold">Last used</th>
+                  <th className="w-28 px-4 py-3 font-semibold" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {accountKeys.length ? (
-                  accountKeys.map((key) => (
-                    <tr key={key.key_id}>
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-slate-950">{key.label || key.key_id}</div>
-                        <div className="font-mono text-xs text-slate-500">{key.key_prefix}…</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`rounded-full px-2 py-0.5 text-xs ${key.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
-                          {key.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-slate-500">{formatDate(key.last_used_at)}</td>
-                      <td className="px-4 py-3 text-right">
-                        {key.status === "active" && (
-                          <button type="button" disabled={busy} onClick={() => revokeKey(key.key_id)} className="text-xs font-medium text-red-600 hover:text-red-700">
-                            吊销
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))
+                  accountKeys.map((key) => {
+                    const usedTokens = key.monthly_usage?.total_tokens ?? 0;
+                    const usedCost = key.monthly_usage?.cost_usd ?? 0;
+                    const tokenLimit = key.monthly_token_limit ?? 0;
+                    const costLimit = key.monthly_cost_limit_usd ?? 0;
+                    return (
+                      <tr key={key.key_id}>
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-slate-950">{key.label || key.key_id}</div>
+                          <div className="font-mono text-xs text-slate-500">{key.key_prefix}…</div>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-600">
+                          <div>{usedTokens} / {tokenLimit || "∞"} tokens</div>
+                          <div className="mt-1">${Number(usedCost).toFixed(4)} / {costLimit ? `$${costLimit}` : "∞"}</div>
+                          {key.status === "active" && (
+                            <div className="mt-2 flex gap-1">
+                              <input
+                                type="number"
+                                min={0}
+                                defaultValue={tokenLimit}
+                                id={`quota-tokens-${key.key_id}`}
+                                className="w-16 rounded border border-slate-200 px-1 py-0.5 text-xs"
+                                title="月 token 上限"
+                              />
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                defaultValue={costLimit}
+                                id={`quota-cost-${key.key_id}`}
+                                className="w-16 rounded border border-slate-200 px-1 py-0.5 text-xs"
+                                title="月成本上限 USD"
+                              />
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`rounded-full px-2 py-0.5 text-xs ${key.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
+                            {key.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-500">{formatDate(key.last_used_at)}</td>
+                        <td className="px-4 py-3 text-right">
+                          {key.status === "active" && (
+                            <div className="flex flex-col items-end gap-1">
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                  const tokenEl = document.getElementById(`quota-tokens-${key.key_id}`) as HTMLInputElement | null;
+                                  const costEl = document.getElementById(`quota-cost-${key.key_id}`) as HTMLInputElement | null;
+                                  updateKeyQuota(key, Number(tokenEl?.value || 0), Number(costEl?.value || 0));
+                                }}
+                                className="text-xs font-medium text-blue-600 hover:text-blue-700"
+                              >
+                                保存额度
+                              </button>
+                              <button type="button" disabled={busy} onClick={() => revokeKey(key.key_id)} className="text-xs font-medium text-red-600 hover:text-red-700">
+                                吊销
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
                 ) : (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
                       该账号暂无 Key
                     </td>
                   </tr>

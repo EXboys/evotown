@@ -1,0 +1,29 @@
+---
+description: Git workflow — prefer main, avoid extra feature branches
+alwaysApply: true
+---
+
+# Git workflow (Evotown)
+
+## Default
+
+- **Base branch is always `main`.** Pull latest before starting work.
+- **Do not create new feature branches** (`feat/…`, `fix/…`) unless the user explicitly asks for a branch or parallel experiments.
+- **Do not stack PRs** on other feature branches (e.g. PR base = `feat/…`). Every PR targets **`main`** only.
+
+## How to ship changes
+
+1. `git checkout main && git pull origin main`
+2. Implement on **`main`** (or a same-day branch the user named).
+3. Commit with a clear message when the user asks to commit.
+4. Push **`main`** and open **one PR → `main`**, or push to `main` directly if the user says to skip PR.
+
+## Avoid
+
+- Opening PR #N on branch A, then PR #N+1 on branch B that depends on A not yet in `main`.
+- Leaving work only on long-lived feature branches after a stacked merge.
+- Force-pushing shared branches without the user asking.
+
+## If a branch already exists
+
+Rebase onto `origin/main` and retarget the PR to **`main`** before merge — do not merge feature stacks into other feature branches.

@@ -50,15 +50,22 @@ def _ensure_conn() -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS external_runs (
             run_id              TEXT PRIMARY KEY,
             engine_id           TEXT NOT NULL,
+            engine_type         TEXT NOT NULL DEFAULT 'custom',
             engine_version      TEXT NOT NULL,
+            tenant_id           TEXT NOT NULL DEFAULT '',
+            team_id             TEXT NOT NULL DEFAULT '',
+            agent_id            TEXT NOT NULL DEFAULT '',
+            task_id             TEXT NOT NULL DEFAULT '',
             status              TEXT NOT NULL,
             exit_code           INTEGER NOT NULL,
+            started_at          TEXT NOT NULL DEFAULT '',
             finished_at         TEXT NOT NULL,
             log_excerpt         TEXT NOT NULL DEFAULT '',
             artifact_manifest   TEXT NOT NULL DEFAULT '[]',
             artifact_bundle_url TEXT,
             signals             TEXT NOT NULL DEFAULT '{}',
-            accepted_at         TEXT NOT NULL DEFAULT (datetime('now'))
+            accepted_at         TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_external_runs_engine ON external_runs(engine_id);
         CREATE INDEX IF NOT EXISTS idx_external_runs_finished ON external_runs(finished_at);
@@ -94,8 +101,26 @@ def _ensure_conn() -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_policy_violations_status ON policy_violations(status);
         """
     )
+    _ensure_external_runs_columns(conn)
     _conn = conn
     return conn
+
+
+def _ensure_external_runs_columns(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("PRAGMA table_info(external_runs)").fetchall()
+    columns = {row["name"] for row in rows}
+    migrations = {
+        "engine_type": "ALTER TABLE external_runs ADD COLUMN engine_type TEXT NOT NULL DEFAULT 'custom'",
+        "tenant_id": "ALTER TABLE external_runs ADD COLUMN tenant_id TEXT NOT NULL DEFAULT ''",
+        "team_id": "ALTER TABLE external_runs ADD COLUMN team_id TEXT NOT NULL DEFAULT ''",
+        "agent_id": "ALTER TABLE external_runs ADD COLUMN agent_id TEXT NOT NULL DEFAULT ''",
+        "task_id": "ALTER TABLE external_runs ADD COLUMN task_id TEXT NOT NULL DEFAULT ''",
+        "started_at": "ALTER TABLE external_runs ADD COLUMN started_at TEXT NOT NULL DEFAULT ''",
+        "updated_at": "ALTER TABLE external_runs ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+    }
+    for name, sql in migrations.items():
+        if name not in columns:
+            conn.execute(sql)
 
 
 def _json_dumps(value: Any) -> str:
@@ -169,31 +194,166 @@ def complete_run(run_id: str, body: RunComplete) -> tuple[dict[str, Any], bool]:
     conn = _ensure_conn()
     existing = get_run(run_id)
     if existing is not None:
-        return existing, False
+        if existing.get("status") in {"succeeded", "failed", "cancelled"}:
+            return existing, False
 
     manifest = [item.model_dump() for item in body.artifact_manifest]
-    conn.execute(
-        """
-        INSERT INTO external_runs (
-            run_id, engine_id, engine_version, status, exit_code, finished_at,
-            log_excerpt, artifact_manifest, artifact_bundle_url, signals
+    engine = get_engine(body.engine_id) or {}
+    if existing is None:
+        conn.execute(
+            """
+            INSERT INTO external_runs (
+                run_id, engine_id, engine_type, engine_version, status, exit_code,
+                started_at, finished_at, log_excerpt, artifact_manifest,
+                artifact_bundle_url, signals, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            """,
+            (
+                run_id,
+                body.engine_id,
+                engine.get("engine_type", "custom"),
+                body.engine_version,
+                body.status,
+                body.exit_code,
+                body.finished_at,
+                body.finished_at,
+                body.log_excerpt,
+                _json_dumps(manifest),
+                body.artifact_bundle_url,
+                _json_dumps(body.signals),
+            ),
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            run_id,
-            body.engine_id,
-            body.engine_version,
-            body.status,
-            body.exit_code,
-            body.finished_at,
-            body.log_excerpt,
-            _json_dumps(manifest),
-            body.artifact_bundle_url,
-            _json_dumps(body.signals),
-        ),
-    )
+    else:
+        conn.execute(
+            """
+            UPDATE external_runs
+            SET engine_version=?, status=?, exit_code=?, finished_at=?, log_excerpt=?,
+                artifact_manifest=?, artifact_bundle_url=?, signals=?, updated_at=datetime('now')
+            WHERE run_id=?
+            """,
+            (
+                body.engine_version,
+                body.status,
+                body.exit_code,
+                body.finished_at,
+                body.log_excerpt,
+                _json_dumps(manifest),
+                body.artifact_bundle_url,
+                _json_dumps(body.signals),
+                run_id,
+            ),
+        )
     return get_run(run_id) or {"run_id": run_id}, True
+
+
+def upsert_run_from_event(body: RunEventIngest, engine: dict[str, Any]) -> dict[str, Any]:
+    conn = _ensure_conn()
+    existing = get_run(body.run_id)
+    event_status = body.status or ("succeeded" if body.event_type == "run.completed" else "running")
+    if body.event_type == "run.completed" and event_status == "running":
+        event_status = "succeeded"
+    engine_version = body.engine_version or engine.get("engine_version", "")
+    engine_type = body.engine_type or engine.get("engine_type", "custom")
+    manifest = [item.model_dump() for item in body.artifact_manifest]
+    signals_json = _json_dumps(body.signals)
+    manifest_json = _json_dumps(manifest)
+
+    if existing is None:
+        conn.execute(
+            """
+            INSERT INTO external_runs (
+                run_id, engine_id, engine_type, engine_version, tenant_id, team_id,
+                agent_id, task_id, status, exit_code, started_at, finished_at,
+                log_excerpt, artifact_manifest, artifact_bundle_url, signals, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            """,
+            (
+                body.run_id,
+                body.engine_id,
+                engine_type,
+                engine_version,
+                body.tenant_id,
+                body.team_id,
+                body.agent_id,
+                body.task_id,
+                event_status,
+                body.exit_code if body.exit_code is not None else 0,
+                body.ts if body.event_type == "run.started" else "",
+                body.ts,
+                body.log_excerpt,
+                manifest_json,
+                body.artifact_bundle_url,
+                signals_json,
+            ),
+        )
+    else:
+        conn.execute(
+            """
+            UPDATE external_runs
+            SET engine_type=?,
+                engine_version=?,
+                tenant_id=COALESCE(NULLIF(?, ''), tenant_id),
+                team_id=COALESCE(NULLIF(?, ''), team_id),
+                agent_id=COALESCE(NULLIF(?, ''), agent_id),
+                task_id=COALESCE(NULLIF(?, ''), task_id),
+                status=?,
+                exit_code=?,
+                started_at=CASE WHEN ?='run.started' THEN ? ELSE started_at END,
+                finished_at=?,
+                log_excerpt=COALESCE(NULLIF(?, ''), log_excerpt),
+                artifact_manifest=CASE WHEN ?!='[]' THEN ? ELSE artifact_manifest END,
+                artifact_bundle_url=COALESCE(?, artifact_bundle_url),
+                signals=CASE WHEN ?!='{}' THEN ? ELSE signals END,
+                updated_at=datetime('now')
+            WHERE run_id=?
+            """,
+            (
+                engine_type,
+                engine_version or existing.get("engine_version", ""),
+                body.tenant_id,
+                body.team_id,
+                body.agent_id,
+                body.task_id,
+                event_status,
+                body.exit_code if body.exit_code is not None else existing.get("exit_code", 0),
+                body.event_type,
+                body.ts,
+                body.ts,
+                body.log_excerpt,
+                manifest_json,
+                manifest_json,
+                body.artifact_bundle_url,
+                signals_json,
+                signals_json,
+                body.run_id,
+            ),
+        )
+    return get_run(body.run_id) or {"run_id": body.run_id}
+
+
+def _event_payload(body: RunEventIngest) -> dict[str, Any]:
+    payload = dict(body.payload)
+    for key in (
+        "tenant_id",
+        "team_id",
+        "agent_id",
+        "engine_type",
+        "engine_version",
+        "task_id",
+        "status",
+        "exit_code",
+        "log_excerpt",
+        "artifact_bundle_url",
+        "signals",
+    ):
+        value = getattr(body, key)
+        if value not in (None, "", {}, []):
+            payload.setdefault(key, value)
+    if body.artifact_manifest:
+        payload.setdefault("artifact_manifest", [item.model_dump() for item in body.artifact_manifest])
+    return payload
 
 
 def _run_from_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -240,7 +400,7 @@ def append_event(body: RunEventIngest) -> dict[str, Any]:
             body.event_type,
             body.ts,
             body.seq,
-            _json_dumps(body.payload),
+            _json_dumps(_event_payload(body)),
         ),
     )
     row = conn.execute("SELECT * FROM run_events WHERE id=last_insert_rowid()").fetchone()

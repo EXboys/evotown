@@ -49,15 +49,31 @@ async def get_run(run_id: str):
 
 @router.post("/events", dependencies=[Depends(require_engine_ingest)])
 async def append_event(body: RunEventIngest):
-    if engine_ingest.get_run(body.run_id) is None:
+    engine = engine_ingest.get_engine(body.engine_id)
+    if engine is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"engine_id '{body.engine_id}' is not registered",
+        )
+    run = None
+    if body.event_type in {"run.started", "run.progress", "run.completed"}:
+        run = engine_ingest.upsert_run_from_event(body, engine)
+    elif engine_ingest.get_run(body.run_id) is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="run not found")
     event = engine_ingest.append_event(body)
-    return {"accepted": True, "event": event}
+    return {"accepted": True, "event": event, "run": run}
+
+
+@router.post("/runs/{run_id}/events", dependencies=[Depends(require_engine_ingest)])
+async def append_run_event(run_id: str, body: RunEventIngest):
+    if body.run_id != run_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="run_id mismatch")
+    return await append_event(body)
 
 
 @router.get("/runs/{run_id}/events", dependencies=[Depends(require_admin)])
 async def list_run_events(run_id: str, limit: int = 500):
-    if engine_ingest.get_run(run_id) is None:
+    if engine_ingest.get_run(run_id) is None and not engine_ingest.list_events(run_id=run_id, limit=1):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
     return {"events": engine_ingest.list_events(run_id=run_id, limit=limit)}
 

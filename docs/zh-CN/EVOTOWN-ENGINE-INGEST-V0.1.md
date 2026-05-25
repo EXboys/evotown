@@ -54,7 +54,64 @@
 
 ---
 
-## 2）`POST /runs/{run_id}/complete` —— **MVP 必选**
+## 2）Run 生命周期 ingest
+
+Evotown 支持两种兼容的 run ingest 方式：
+
+1. **生命周期事件** —— 推荐用于企业实时看板。
+2. **终态完成上报** —— 兼容只在结束后上报的执行端。
+
+### 2.1）`POST /events` 或 `POST /runs/{run_id}/events` —— **推荐**
+
+引擎 SHOULD 上报三类标准生命周期事件：
+
+- `run.started`
+- `run.progress`
+- `run.completed`
+
+`run.started` 与 `run.progress` 可在终态 run 入库前到达；Evotown 会保存事件，并将 run 概览 upsert 为 `running`。`run.completed` 会把概览更新为终态。
+
+**请求 JSON**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `event_type` | string | 是 | `run.started` \| `run.progress` \| `run.completed`。已有细粒度事件类型仍可用于 run 内 telemetry。 |
+| `run_id` | string | 是 | Opaque run id。使用 `POST /runs/{run_id}/events` 时须与路径一致。 |
+| `tenant_id` | string | 否 | 企业租户 / 组织 id。 |
+| `team_id` | string | 否 | 团队、部门或项目 id。 |
+| `agent_id` | string | 否 | Agent 实例 id。 |
+| `engine_id` | string | 是 | 已注册的引擎 id。 |
+| `engine_type` | string | 否 | `openclaw` \| `hermes` \| `skilllite` \| `custom`；省略时使用已注册引擎类型。 |
+| `engine_version` | string | 否 | Semver 或 git sha；省略时使用已注册引擎版本。 |
+| `task_id` | string | 否 | 引擎侧或 Evotown 侧任务 id。 |
+| `status` | string | 否 | started/progress 使用 `running`；completed 使用 `succeeded` \| `failed` \| `cancelled`。 |
+| `ts` | string | 是 | RFC3339 UTC 事件时间。 |
+| `seq` | integer | 否 | run 内单调递增序号，默认 `0`。 |
+| `signals` | object | 否 | 运行指标、评分信号或资产线索。 |
+| `payload` | object | 否 | 引擎自定义事件负载；Evotown 不透明保存。 |
+
+最小示例：
+
+```json
+{
+  "event_type": "run.started",
+  "run_id": "xxx",
+  "tenant_id": "company-a",
+  "team_id": "growth-team",
+  "agent_id": "agent-001",
+  "engine_id": "skilllite-local",
+  "engine_type": "skilllite",
+  "engine_version": "0.1.29",
+  "task_id": "task-xxx",
+  "status": "running",
+  "ts": "2026-05-25T09:00:00Z",
+  "signals": {}
+}
+```
+
+**响应：** 生命周期事件返回 `200` + `{ "accepted": true, "event": { ... }, "run": { ... } }`。
+
+### 2.2）`POST /runs/{run_id}/complete` —— 终态兼容端点
 
 **`run_id`：** Evotown 预分配或事先约定的 opaque、URL-safe 字符串。
 
@@ -88,9 +145,9 @@
 
 **错误：** `401` 鉴权、`422` 校验、`413` 过大。
 
-## 2.1）`GET /runs` 与 `GET /runs/{run_id}` —— 已实现 MVP
+## 2.3）`GET /runs`、`GET /runs/{run_id}` 与 `GET /runs/{run_id}/events`
 
-列出已保存的外部 run，可按 `engine_id` 过滤；或按 id 返回单个 run。
+列出已保存的外部 run，可按 `engine_id` 过滤；按 id 返回单个 run；或列出已接收的 run 事件。
 
 ---
 
@@ -118,8 +175,8 @@
 
 ## 语义约定
 
-- **事实源：** `complete` 成功后，以 Evotown 入库的 run 为准做基准测试与进化奖励。  
-- **引擎自由：** OpenClaw / Hermes 内部目录结构不必暴露；只需 **manifest + signals** 符合本文。  
+- **事实源：** `run.completed` 或 `complete` 成功后，以 Evotown 入库的 run 为准做看板、基准测试与进化奖励。  
+- **引擎自由：** OpenClaw / Hermes / SkillLite / 自研引擎内部目录结构不必暴露；只需生命周期字段、**manifest** 与 `signals` 符合本文。  
 - **隐私：** 勿在 `log_excerpt` / `signals` 中塞密钥；用引用或脱敏。
 
 ---

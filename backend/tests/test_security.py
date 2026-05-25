@@ -28,10 +28,17 @@ class IngestReadAuthTest(unittest.TestCase):
         self._dotenv_patch.start()
         accounts_store._conn = None  # noqa: SLF001
         gateway_store._conn = None  # noqa: SLF001
+        from infra import engine_ingest as engine_store
+        from pathlib import Path
+        engine_store._conn = None  # noqa: SLF001
+        engine_store._DATA_DIR = Path(self._tmpdir.name)  # noqa: SLF001
+        engine_store._DB_PATH = Path(self._tmpdir.name) / "engine_ingest.db"  # noqa: SLF001
 
     def tearDown(self) -> None:
         accounts_store._conn = None  # noqa: SLF001
         gateway_store._conn = None  # noqa: SLF001
+        from infra import engine_ingest as engine_store
+        engine_store._conn = None  # noqa: SLF001
         self._dotenv_patch.stop()
         self._env_patch.stop()
         self._tmpdir.cleanup()
@@ -86,6 +93,69 @@ class IngestReadAuthTest(unittest.TestCase):
             headers={"Authorization": "Bearer test-ingest-token"},
         )
         self.assertEqual(res.status_code, 200)
+
+    def test_standard_run_events_create_and_update_run(self) -> None:
+        from fastapi.testclient import TestClient
+        import importlib
+        import main
+
+        importlib.reload(main)
+        client = TestClient(main.app)
+        ingest = {"Authorization": "Bearer test-ingest-token"}
+        admin = {"X-Admin-Token": "test-admin-token"}
+
+        res = client.post(
+            "/api/v1/engines/register",
+            json={
+                "engine_id": "skilllite-local",
+                "engine_type": "skilllite",
+                "engine_version": "0.1.29",
+            },
+            headers=ingest,
+        )
+        self.assertEqual(res.status_code, 200)
+
+        started = {
+            "event_type": "run.started",
+            "run_id": "run-evt-1",
+            "tenant_id": "company-a",
+            "team_id": "growth-team",
+            "agent_id": "agent-001",
+            "engine_id": "skilllite-local",
+            "engine_type": "skilllite",
+            "engine_version": "0.1.29",
+            "task_id": "task-xxx",
+            "status": "running",
+            "ts": "2026-05-25T09:00:00Z",
+            "signals": {"source": "test"},
+        }
+        res = client.post("/api/v1/events", json=started, headers=ingest)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["run"]["status"], "running")
+
+        completed = {
+            **started,
+            "event_type": "run.completed",
+            "status": "succeeded",
+            "exit_code": 0,
+            "ts": "2026-05-25T09:01:00Z",
+            "signals": {"task_completed": True},
+            "seq": 1,
+        }
+        res = client.post("/api/v1/runs/run-evt-1/events", json=completed, headers=ingest)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["run"]["status"], "succeeded")
+
+        run = client.get("/api/v1/runs/run-evt-1", headers=admin).json()
+        self.assertEqual(run["tenant_id"], "company-a")
+        self.assertEqual(run["team_id"], "growth-team")
+        self.assertEqual(run["agent_id"], "agent-001")
+        self.assertEqual(run["engine_type"], "skilllite")
+        self.assertEqual(run["status"], "succeeded")
+        self.assertEqual(run["signals"], {"task_completed": True})
+
+        events = client.get("/api/v1/runs/run-evt-1/events", headers=admin).json()["events"]
+        self.assertEqual([e["event_type"] for e in events], ["run.started", "run.completed"])
 
 
 class LegacyGatewayMeteringTest(unittest.TestCase):

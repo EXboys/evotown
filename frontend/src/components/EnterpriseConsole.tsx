@@ -30,9 +30,15 @@ type EngineRecord = {
 type ExternalRun = {
   run_id: string;
   engine_id: string;
+  engine_type?: "openclaw" | "hermes" | "skilllite" | "custom";
   engine_version: string;
-  status: "succeeded" | "failed" | "cancelled";
+  tenant_id?: string;
+  team_id?: string;
+  agent_id?: string;
+  task_id?: string;
+  status: "running" | "succeeded" | "failed" | "cancelled";
   exit_code: number;
+  started_at?: string;
   finished_at: string;
   log_excerpt?: string;
   artifact_manifest?: Array<{ path: string; sha256: string; bytes: number }>;
@@ -138,6 +144,7 @@ const ENGINE_META: Record<EngineRecord["engine_type"], { label: string; classNam
 };
 
 const RUN_META: Record<ExternalRun["status"], { label: string; className: string; dot: string }> = {
+  running: { label: "运行中", className: "border-blue-200 bg-blue-50 text-blue-700", dot: "bg-blue-500" },
   succeeded: { label: "成功", className: "border-emerald-200 bg-emerald-50 text-emerald-700", dot: "bg-emerald-500" },
   failed: { label: "失败", className: "border-red-200 bg-red-50 text-red-700", dot: "bg-red-500" },
   cancelled: { label: "已取消", className: "border-slate-200 bg-slate-50 text-slate-600", dot: "bg-slate-400" },

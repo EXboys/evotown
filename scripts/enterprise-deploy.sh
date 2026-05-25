@@ -217,6 +217,7 @@ main() {
   write_employee_bundle "$api_key"
 
   log "完成。员工配置见：$OUTPUT_DIR/evotown.agent.env"
+  log "  CLI: sudo install -m 755 $ROOT/scripts/evotown-agent-setup.py /usr/local/bin/evotown-agent-setup.py"
   cat "$OUTPUT_DIR/IT_DEPLOY_SUMMARY.txt"
 }
 

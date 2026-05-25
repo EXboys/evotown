@@ -121,6 +121,8 @@ export function EmployeeConfigPanel({ apiKeyOverride, compact = false, className
         <p className="mt-2 text-sm leading-6 text-slate-600">
           同一 <code className="rounded bg-white/80 px-1.5 py-0.5 text-xs text-violet-700">evk_</code> key 用于模型网关与私有 SkillHub。
           IT 部署：<span className="font-mono text-xs text-slate-500">./scripts/enterprise-deploy.sh</span>
+          {" · "}
+          员工 CLI：<span className="font-mono text-xs text-slate-500">evotown-agent-setup.py sync</span>
         </p>
       </div>
 

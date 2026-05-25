@@ -128,7 +128,7 @@ OPENAI_API_KEY=evk_xxxxxxxx   # issued from /accounts console or API
 
 MVP endpoints:
 
-- `POST /api/gateway/v1/chat/completions` — OpenAI-compatible non-streaming chat completion proxy.
+- `POST /api/gateway/v1/chat/completions` — OpenAI-compatible chat completion proxy (**non-streaming and SSE streaming**).
 - `GET /api/gateway/v1/usage/summary` — gateway requests, cost, token, model, and agent summary.
 - `GET /api/gateway/v1/conversations` — conversation-level gateway rollup.
 - `GET /api/gateway/v1/api-keys` — managed + legacy env key metadata.

@@ -151,6 +151,7 @@ source ~/.config/evotown/evotown.agent.env
 | 任务 | 入口 |
 |------|------|
 | 上传 / 审核 Skills | 控制台 `/skills` 或 Admin API |
+| **发布 Bundle（员工 manifest）** | 控制台 `/skills` → **发布 Bundle**，或 `POST /api/v1/skill-bundles/{id}/publish` |
 | 查看模型用量 | `/dashboard`、`/costs`、Gateway API |
 | 为员工续签 / 吊销 key | `/accounts` 或 `POST /api/v1/accounts/{id}/keys` |
 | 知识库 | `/knowledge`（飞书 / 语雀 / 原生 Markdown） |

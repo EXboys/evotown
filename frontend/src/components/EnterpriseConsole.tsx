@@ -772,6 +772,12 @@ function SkillsMarketPanel() {
     tags: "",
     description: "",
   });
+  const [bundlePublish, setBundlePublish] = useState({
+    bundle_id: "default-agent-skills",
+    channel: "stable",
+    version: "",
+  });
+  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(new Set());
 
   const buildSkillsUrl = (nextFilters = filters) => {
     const params = new URLSearchParams({ limit: "200" });
@@ -790,9 +796,20 @@ function SkillsMarketPanel() {
       adminFetch("/api/v1/skill-candidates?limit=200").then((r) => r.json() as Promise<{ candidates?: SkillCandidate[] }>),
     ])
       .then(([bundleData, skillData, candidateData]) => {
-        setManifest(bundleData.manifest ?? null);
-        setSkills(Array.isArray(skillData.skills) ? skillData.skills : []);
+        const nextManifest = bundleData.manifest ?? null;
+        const nextSkills = Array.isArray(skillData.skills) ? skillData.skills : [];
+        setManifest(nextManifest);
+        setSkills(nextSkills);
         setCandidates(Array.isArray(candidateData.candidates) ? candidateData.candidates : []);
+        if (nextManifest?.skills?.length) {
+          const approvedIds = new Set(
+            nextSkills.filter((item) => item.status === "approved").map((item) => item.skill_id),
+          );
+          const fromManifest = nextManifest.skills
+            .map((item) => item.skill_id)
+            .filter((id) => approvedIds.has(id));
+          setSelectedSkillIds(new Set(fromManifest));
+        }
       })
       .catch((err) => setMessage(err instanceof Error ? err.message : "加载 Skills 市场失败"))
       .finally(() => setLoading(false));
@@ -824,7 +841,7 @@ function SkillsMarketPanel() {
       setMessage(`上传失败：${res.status}`);
       return;
     }
-    setMessage("私有 skill 包已上传并发布到市场。");
+    setMessage("Skill 包已上传。请在下方「发布 Bundle」勾选并发布，员工 manifest 才会更新。");
     setUpload({ skill_id: "", name: "", version: "1.0.0", runtime_targets: "openclaw,hermes,skilllite", visibility: "team", team_id: "", tags: "", description: "" });
     loadMarket();
   };
@@ -884,6 +901,54 @@ function SkillsMarketPanel() {
     loadMarket();
   };
 
+  const publishBundle = async (includeAllApproved: boolean) => {
+    const skill_ids = includeAllApproved ? [] : Array.from(selectedSkillIds);
+    if (!includeAllApproved && !skill_ids.length) {
+      setMessage("请至少选择一个 skill，或使用「发布全部已批准」。");
+      return;
+    }
+    const res = await adminFetch(
+      `/api/v1/skill-bundles/${encodeURIComponent(bundlePublish.bundle_id)}/publish`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel: bundlePublish.channel,
+          version: bundlePublish.version.trim() || null,
+          skill_ids,
+          include_all_approved: includeAllApproved,
+        }),
+      },
+    );
+    const data = await res.json() as { detail?: string; manifest?: BundleManifest };
+    if (!res.ok) {
+      setMessage(data.detail || `发布 Bundle 失败：${res.status}`);
+      return;
+    }
+    setMessage(
+      `Bundle 已发布：${data.manifest?.bundle_id}@${data.manifest?.version}，共 ${data.manifest?.skills?.length ?? 0} 个 skill。`,
+    );
+    loadMarket();
+  };
+
+  const toggleSkillSelection = (skillId: string) => {
+    setSelectedSkillIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(skillId)) {
+        next.delete(skillId);
+      } else {
+        next.add(skillId);
+      }
+      return next;
+    });
+  };
+
+  const selectAllApproved = () => {
+    setSelectedSkillIds(
+      new Set(skills.filter((item) => item.status === "approved").map((item) => item.skill_id)),
+    );
+  };
+
   const applyFilters = () => loadMarket(filters);
 
   const resetFilters = () => {
@@ -925,6 +990,75 @@ function SkillsMarketPanel() {
             选择包并上传
             <input className="hidden" type="file" onChange={(e) => uploadPackage(e.target.files?.[0] ?? null)} />
           </label>
+        </div>
+      </Card>
+
+      <Card className="p-5">
+        <SectionHeader
+          title="发布 Bundle"
+          subtitle="将已批准的 skill 写入 bootstrap manifest；员工与 evotown-agent-setup sync 拉取的是本步骤结果。"
+        />
+        <div className="mb-4 grid gap-3 md:grid-cols-3">
+          <input
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            placeholder="bundle_id"
+            value={bundlePublish.bundle_id}
+            onChange={(e) => setBundlePublish({ ...bundlePublish, bundle_id: e.target.value })}
+          />
+          <input
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            placeholder="channel（默认 stable）"
+            value={bundlePublish.channel}
+            onChange={(e) => setBundlePublish({ ...bundlePublish, channel: e.target.value })}
+          />
+          <input
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            placeholder="version（留空自动 patch+1）"
+            value={bundlePublish.version}
+            onChange={(e) => setBundlePublish({ ...bundlePublish, version: e.target.value })}
+          />
+        </div>
+        <div className="mb-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={selectAllApproved}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            全选已批准
+          </button>
+          <button
+            type="button"
+            onClick={() => publishBundle(false)}
+            className="rounded-lg bg-violet-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-violet-700"
+          >
+            发布选中（{selectedSkillIds.size}）
+          </button>
+          <button
+            type="button"
+            onClick={() => publishBundle(true)}
+            className="rounded-lg border border-violet-200 px-4 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-50"
+          >
+            发布全部已批准
+          </button>
+        </div>
+        <div className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-slate-200 p-3">
+          {skills.filter((item) => item.status === "approved").length ? (
+            skills
+              .filter((item) => item.status === "approved")
+              .map((skill) => (
+                <label key={skill.skill_id} className="flex cursor-pointer items-center gap-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedSkillIds.has(skill.skill_id)}
+                    onChange={() => toggleSkillSelection(skill.skill_id)}
+                  />
+                  <span className="font-semibold text-slate-950">{skill.name}</span>
+                  <span className="font-mono text-xs text-slate-500">{skill.skill_id}</span>
+                </label>
+              ))
+          ) : (
+            <p className="text-sm text-slate-500">暂无已批准 skill 可发布。</p>
+          )}
         </div>
       </Card>
 

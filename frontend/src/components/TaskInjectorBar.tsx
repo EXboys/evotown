@@ -19,7 +19,7 @@ export function TaskInjectorBar({ agents, taskInput, onTaskInputChange, onInject
         <div className="flex items-center gap-2">
           <span className="text-amber-500/90 text-lg" aria-hidden>📜</span>
           <h4 className="text-xs font-semibold uppercase tracking-widest text-amber-200/80">
-            军令卷轴
+            任务卷轴
           </h4>
         </div>
         {feedback && (
@@ -32,7 +32,7 @@ export function TaskInjectorBar({ agents, taskInput, onTaskInputChange, onInject
           <textarea
             value={taskInput}
             onChange={(e) => onTaskInputChange(e.target.value)}
-            placeholder="在此书写军令，如：帮我总结这份文档的要点..."
+            placeholder="在此书写任务，如：帮我总结这份文档的要点..."
             rows={2}
             className="w-full px-3.5 py-2.5 bg-slate-900/50 border border-amber-900/50 rounded-lg text-sm text-slate-200 placeholder-slate-500/80 focus:outline-none focus:ring-1 focus:ring-amber-500/40 focus:border-amber-600/50 transition-all resize-none"
           />
@@ -44,7 +44,7 @@ export function TaskInjectorBar({ agents, taskInput, onTaskInputChange, onInject
             className="flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 bg-gradient-to-b from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-amber-50 shadow-lg shadow-amber-900/40 hover:shadow-amber-800/50 border border-amber-500/30"
           >
             <span aria-hidden>⚡</span>
-            下达军令
+            下达任务
           </button>
           <button
             onClick={onEvolve}

@@ -202,7 +202,7 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
       data.agent_id,
       npcPos?.x ?? null,
       npcPos?.y ?? null,
-      data.task || "军令",
+      data.task || "任务",
     );
   }
 

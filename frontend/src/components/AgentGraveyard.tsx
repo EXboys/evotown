@@ -1,4 +1,4 @@
-/** 英魂祠 — 兵败身死的武将列表与生命周期查看 */
+/** 韧性记录 — 暂停 / 退出的 Agent 列表与生命周期查看 */
 import { useEffect, useState } from "react";
 
 const AGENT_COLORS = [
@@ -76,7 +76,7 @@ export function AgentGraveyard() {
       <section className="space-y-2">
         <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider flex items-center justify-between">
           <span className="flex items-center gap-2">
-            <span className="text-amber-500/80">⚰️</span> 英魂祠
+            <span className="text-sky-400/80">◆</span> 韧性记录
           </span>
           <button
             onClick={loadList}
@@ -87,7 +87,7 @@ export function AgentGraveyard() {
           </button>
         </h3>
         {list.length === 0 ? (
-          <p className="text-xs text-slate-500 italic">英魂祠暂无记录</p>
+          <p className="text-xs text-slate-500 italic">暂无暂停或退出记录</p>
         ) : (
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {list.map((r) => (
@@ -112,7 +112,7 @@ export function AgentGraveyard() {
                   📋{r.success_count ?? 0}/{r.task_count ?? 0} ✨{r.evolution_success_count ?? 0}/{r.evolution_count ?? 0}
                 </span>
                 <span className="shrink-0 text-[10px] text-slate-600">
-                  {r.reason === "balance_zero" ? "军功耗尽，兵败身死" : r.reason === "inferred" ? "历史" : "阵亡（调遣撤离）"}
+                  {r.reason === "balance_zero" ? "贡献值耗尽，已暂停" : r.reason === "inferred" ? "历史" : "已退出（调遣撤离）"}
                 </span>
                 <span className="shrink-0 text-slate-600 text-[10px]">
                   {r.ts ? new Date(r.ts * 1000).toLocaleDateString("zh-CN") : ""}
@@ -175,7 +175,7 @@ function LifecycleDetail({
           <span className="font-mono text-sm text-slate-200 truncate">{String(lifecycle?.display_name || agentId)}</span>
           <span className="text-[10px] text-slate-500 shrink-0">
             {String(lifecycle.reason_label ?? "")}
-            {lifecycle.final_balance != null ? ` · 军功值 ${lifecycle.final_balance}` : ""}
+            {lifecycle.final_balance != null ? ` · 贡献值 ${lifecycle.final_balance}` : ""}
             {" · "}
             📋{Number(lifecycle.success_count ?? 0)}/{Number(lifecycle.task_count ?? 0)} ✨{Number(lifecycle.evolution_success_count ?? 0)}/{Number(lifecycle.evolution_count ?? 0)}
           </span>

@@ -195,7 +195,7 @@ export function AgentDetail({
 
   const handleDelete = async () => {
     const displayName = agent?.display_name || agentId;
-    if (!window.confirm(`确定要删除 Agent「${displayName}」吗？删除后可从竞技场重新创建。`)) return;
+    if (!window.confirm(`确定要删除 Agent「${displayName}」吗？删除后可从协作地图重新创建。`)) return;
     setDeleting(true);
     try {
       const res = await fetch(`/agents/${agentId}`, { method: "DELETE" });
@@ -228,8 +228,8 @@ export function AgentDetail({
         evotownEvents.emit("request_sync", {});
       }
     } catch (err) {
-      console.error("更新军功失败:", err);
-      alert("修改军功失败");
+      console.error("更新贡献值失败:", err);
+      alert("修改贡献值失败");
     }
   };
 

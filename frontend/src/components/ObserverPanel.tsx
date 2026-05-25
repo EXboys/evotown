@@ -17,6 +17,15 @@ function teamBadgeColor(teamId: string): string {
   const palette = ["#ef4444", "#3b82f6", "#22c55e", "#f97316", "#8b5cf6", "#eab308"];
   return palette[Math.abs(hash) % palette.length];
 }
+
+interface SkillEventLike {
+  agent_id: string;
+  ts: string;
+  type: string;
+  event_type?: string;
+  target_id?: string;
+}
+
 import { useEvotownStore } from "../store/evotownStore";
 import { TaskInjectorBar } from "./TaskInjectorBar";
 import { EvolutionTimeline } from "./EvolutionTimeline";
@@ -41,10 +50,21 @@ export function ObserverPanel() {
   const repairingAgentId = Object.entries(repairStateByAgent).find(([, s]) => s?.repairing)?.[0] ?? null;
   const selectedAgentId = useEvotownStore((s) => s.selectedAgentId);
   const evolutionEvents = useEvotownStore((s) => s.evolutionEvents);
+  const availableTasks = useEvotownStore((s) => s.availableTasks);
+  const taskRecords = useEvotownStore((s) => s.taskRecords);
+  const socialMessages = useEvotownStore((s) => s.socialMessages);
   const setSelectedAgent = useEvotownStore((s) => s.setSelectedAgent);
   const setExperimentInfo = useEvotownStore((s) => s.setExperimentInfo);
   const experimentInfo = useEvotownStore((s) => s.experimentInfo);
   const [tokenUsage, setTokenUsage] = useState<{ prompt_tokens: number; completion_tokens: number; total_tokens: number } | null>(null);
+  const runningAgents = agents.filter((a) => a.in_task).length;
+  const teamCount = new Set(agents.map((a) => a.team_id).filter(Boolean)).size;
+  const recentRiskCount =
+    agents.filter((a) => a.status === "bankrupt").length +
+    taskRecords.filter((r) => !r.success).slice(-10).length;
+  const skillEventCount = evolutionEvents.filter((e) =>
+    ["skill_generated", "skill_pending", "skill_confirmed", "skill_refined"].includes(e.event_type ?? e.type)
+  ).length;
 
   useEffect(() => {
     fetch("/config/experiment")
@@ -156,7 +176,7 @@ export function ObserverPanel() {
   const deleteAgent = async (agentId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const displayName = agents.find((a) => a.id === agentId)?.display_name || agentId;
-    if (!window.confirm(`确定要删除 Agent「${displayName}」吗？删除后可从竞技场重新创建。`)) return;
+    if (!window.confirm(`确定要删除 Agent「${displayName}」吗？删除后可从协作地图重新创建。`)) return;
     setDeletingId(agentId);
     try {
       const res = await adminFetch(`/agents/${agentId}`, { method: "DELETE" });
@@ -230,15 +250,15 @@ export function ObserverPanel() {
           <span className="text-slate-500 text-[10px] shrink-0">点击查看</span>
         </button>
       )}
-      {/* 紧凑头部：观测面板 + 实验 ID */}
-      <div className="px-3 py-3 sm:px-4 sm:py-3.5 border-b border-slate-600/50 shrink-0">
+      {/* 监控控制台头部 */}
+      <div className="px-3 py-3 sm:px-4 sm:py-3.5 border-b border-slate-600/50 shrink-0 bg-slate-950/22">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-2 min-w-0">
           <div className="min-w-0">
             <h2 className="text-sm sm:text-base font-semibold text-slate-200 tracking-wide flex items-center gap-2">
               <span className="w-1.5 h-3.5 sm:h-4 rounded-full bg-evo-accent shrink-0" />
-              <span className="truncate">观测面板</span>
+              <span className="truncate">监控控制台</span>
             </h2>
-            <p className="text-[10px] sm:text-xs text-slate-500 mt-0.5">监控与操控智能体</p>
+            <p className="text-[10px] sm:text-xs text-slate-500 mt-0.5">运行概览 · 技能沉淀 · 风险韧性</p>
           </div>
           <div className="flex flex-col items-end gap-1">
             {/* 实验 ID 选择器 */}
@@ -315,14 +335,21 @@ export function ObserverPanel() {
         </div>
       </div>
 
+      <div className="grid grid-cols-4 gap-1.5 px-3 py-2 border-b border-slate-700/45 bg-slate-900/45 shrink-0">
+        <ControlStat label="在线" value={agents.length} tone="sky" />
+        <ControlStat label="运行" value={runningAgents} tone="emerald" />
+        <ControlStat label="任务池" value={availableTasks.length} tone="blue" />
+        <ControlStat label="风险" value={recentRiskCount} tone={recentRiskCount > 0 ? "rose" : "slate"} />
+      </div>
+
       {/* Tab 栏：6 个 Tab，史记入口已移至游戏区右上角悬浮按钮 */}
       <div className="flex border-b border-slate-600/50 shrink-0">
         {[
-          { id: "leaderboard" as TabId, label: "排名" },
-          { id: "arena" as TabId, label: "竞技" },
-          { id: "social" as TabId, label: "🕸社交" },
+          { id: "leaderboard" as TabId, label: "贡献" },
+          { id: "arena" as TabId, label: "调度" },
+          { id: "social" as TabId, label: "协作" },
           { id: "agents" as TabId, label: "智能体" },
-          { id: "graveyard" as TabId, label: "墓园" },
+          { id: "graveyard" as TabId, label: "韧性" },
           { id: "metrics" as TabId, label: "EGL" },
         ].map((t) => (
           <button
@@ -490,8 +517,19 @@ export function ObserverPanel() {
 
         {tab === "leaderboard" && (
           <div className="space-y-4">
-            {/* 1. 排行榜 */}
+            {/* 1. 贡献看板 */}
             <Leaderboard />
+
+            <SkillFactoryPanel
+              events={evolutionEvents}
+              agentNameMap={Object.fromEntries(agents.map((a) => [a.id, a.display_name || a.id]))}
+              totalSignals={skillEventCount}
+            />
+
+            <div className="grid grid-cols-2 gap-2 border-t border-slate-700/50 pt-3">
+              <ControlStat label="团队" value={teamCount || "—"} tone="violet" />
+              <ControlStat label="协作消息" value={socialMessages.length} tone="sky" />
+            </div>
 
             {/* 2. 回放控制 */}
             <div className="border-t border-slate-700/50 pt-3 space-y-2">
@@ -616,4 +654,94 @@ export function ObserverPanel() {
       )}
     </div>
   );
+}
+
+function ControlStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string | number;
+  tone: "sky" | "blue" | "emerald" | "violet" | "rose" | "slate";
+}) {
+  const tones = {
+    sky: "border-sky-500/25 bg-sky-500/10 text-sky-200",
+    blue: "border-blue-500/25 bg-blue-500/10 text-blue-200",
+    emerald: "border-emerald-500/25 bg-emerald-500/10 text-emerald-200",
+    violet: "border-violet-500/25 bg-violet-500/10 text-violet-200",
+    rose: "border-rose-500/30 bg-rose-500/10 text-rose-200",
+    slate: "border-slate-600/35 bg-slate-800/45 text-slate-300",
+  };
+
+  return (
+    <div className={`rounded-lg border px-2 py-1.5 text-center ${tones[tone]}`}>
+      <div className="text-[9px] text-slate-500">{label}</div>
+      <div className="text-sm font-semibold font-mono">{value}</div>
+    </div>
+  );
+}
+
+function SkillFactoryPanel({
+  events,
+  agentNameMap,
+  totalSignals,
+}: {
+  events: SkillEventLike[];
+  agentNameMap: Record<string, string>;
+  totalSignals: number;
+}) {
+  const skillEvents = events
+    .filter((e) => ["skill_generated", "skill_pending", "skill_confirmed", "skill_refined"].includes(e.event_type ?? e.type))
+    .slice(-8)
+    .reverse();
+  const countByType = (types: string[]) =>
+    events.filter((e) => types.includes(e.event_type ?? e.type)).length;
+  const discovered = countByType(["skill_generated", "skill_pending"]);
+  const reviewed = countByType(["skill_pending"]);
+  const published = countByType(["skill_confirmed", "skill_refined"]);
+
+  return (
+    <section className="rounded-xl border border-violet-500/20 bg-violet-950/10 p-3 shadow-inner">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-violet-200">Skill Factory</h3>
+          <p className="text-[10px] text-slate-500">候选技能线索，后续接企业私有 Skills 市场</p>
+        </div>
+        <span className="rounded-md border border-violet-500/25 bg-violet-500/10 px-2 py-1 text-[10px] font-mono text-violet-200">
+          {totalSignals}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-1.5">
+        <ControlStat label="候选" value={discovered} tone="violet" />
+        <ControlStat label="待审" value={reviewed} tone="blue" />
+        <ControlStat label="发布" value={published} tone="emerald" />
+      </div>
+
+      <div className="mt-2 space-y-1.5">
+        {skillEvents.length === 0 ? (
+          <p className="rounded-lg border border-slate-700/35 bg-slate-900/35 px-2 py-2 text-[10px] text-slate-500">
+            暂无技能线索。Agent 生成或确认技能后会显示在这里。
+          </p>
+        ) : (
+          skillEvents.slice(0, 3).map((e, idx) => (
+            <div key={`${e.agent_id}-${e.ts}-${idx}`} className="flex items-center gap-2 rounded-lg border border-slate-700/35 bg-slate-900/35 px-2 py-1.5 text-[10px]">
+              <span className="h-1.5 w-1.5 rounded-full bg-violet-400" />
+              <span className="min-w-0 flex-1 truncate text-slate-300">{agentNameMap[e.agent_id] ?? e.agent_id}</span>
+              <span className="shrink-0 text-slate-500">{skillEventLabel(e.event_type ?? e.type)}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function skillEventLabel(type: string) {
+  if (type === "skill_generated") return "生成";
+  if (type === "skill_pending") return "待审";
+  if (type === "skill_confirmed") return "确认";
+  if (type === "skill_refined") return "优化";
+  return "技能";
 }

@@ -3,7 +3,7 @@
  *
  * 仿《三国演义》回目布局：
  *   左栏：章节目录（第N回 · 日期）
- *   右栏：正文（文言文战报全文 + 武将军功表）
+ *   右栏：正文（文言文运行实录 + Agent 贡献表）
  */
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -217,7 +217,7 @@ export function ChronicleBook() {
                       {formatChapterTitle(item)}
                     </div>
                     <div className="text-[10px] text-amber-800/80 leading-relaxed line-clamp-2">{item.preview || "（无预览）"}</div>
-                    <div className="text-[9px] text-amber-900/50 mt-1">军令 {item.total_tasks} 条</div>
+                    <div className="text-[9px] text-amber-900/50 mt-1">任务 {item.total_tasks} 条</div>
                   </div>
                 </button>
               );
@@ -260,7 +260,7 @@ function ChapterContent({
 }) {
   const chNums = ["零","一","二","三","四","五","六","七","八","九","十","十一","十二","十三","十四","十五","十六","十七","十八","十九","二十"];
   const genTime = detail.generated_at ? new Date(detail.generated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "";
-  const fallbackTitle = detail.virtual_date ? `${detail.virtual_date} · 战场实录` : "战场实录";
+  const fallbackTitle = detail.virtual_date ? `${detail.virtual_date} · 运行实录` : "运行实录";
   return (
     <article>
       {/* 回目标题 */}
@@ -293,9 +293,9 @@ function ChapterContent({
       {/* 统计徽章 */}
       <div className="flex gap-4 justify-center mb-8 flex-wrap">
         {[
-          { label: "军令", value: detail.summary.total_tasks },
-          { label: "告捷", value: detail.summary.total_completed },
-          { label: "兵败", value: detail.summary.total_failed },
+          { label: "任务", value: detail.summary.total_tasks },
+          { label: "达成", value: detail.summary.total_completed },
+          { label: "未达成", value: detail.summary.total_failed },
         ].map(({ label, value }) => (
           <div key={label} className="text-center px-5 py-2 border border-amber-900/40 rounded bg-amber-900/10">
             <div className="text-xl font-bold text-amber-300">{value}</div>
@@ -312,17 +312,17 @@ function ChapterContent({
         {detail.text || "（战报内容为空）"}
       </div>
 
-      {/* 武将军功录 */}
+      {/* Agent 贡献录 */}
       {detail.agent_stats && detail.agent_stats.length > 0 && (
         <section className="mt-4">
-          <div className="text-center text-sm text-amber-600 tracking-[0.4em] mb-4 border-t border-amber-900/30 pt-6">— 武 将 军 功 录 —</div>
+          <div className="text-center text-sm text-amber-600 tracking-[0.4em] mb-4 border-t border-amber-900/30 pt-6">— Agent 贡献录 —</div>
           <div className="space-y-2">
             {detail.agent_stats.map((s, i) => (
               <div key={s.agent_id} className="flex items-center gap-3 px-4 py-2.5 rounded border border-amber-900/25 bg-amber-900/8 hover:bg-amber-900/15 transition-colors">
                 <span className="text-amber-800 text-xs w-5 text-right shrink-0">{i + 1}</span>
                 <span className="font-bold text-amber-200 w-16 shrink-0">{s.display_name}</span>
                 <RewardBadge value={s.total_reward} />
-                <span className="text-amber-800/70 text-xs">告捷 {s.completed} · 兵败 {s.failed}</span>
+                <span className="text-amber-800/70 text-xs">达成 {s.completed} · 未达成 {s.failed}</span>
                 {s.best_task && <span className="ml-auto text-[11px] text-amber-800/50 truncate max-w-[200px]" title={s.best_task}>最佳：{s.best_task}</span>}
               </div>
             ))}

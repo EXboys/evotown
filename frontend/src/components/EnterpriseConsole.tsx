@@ -13,7 +13,7 @@ import {
 import { GatewayAccountsPanel } from "./GatewayAccountsPanel";
 import { adminFetch } from "../hooks/useAdminToken";
 
-type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "runs" | "costs" | "risk";
+type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "runs" | "skills" | "costs" | "risk";
 
 type EngineRecord = {
   engine_id: string;
@@ -116,6 +116,54 @@ type GatewayKeyInfo = {
   scope: string;
 };
 
+type SkillRecord = {
+  skill_id: string;
+  name: string;
+  description?: string;
+  version: string;
+  runtime_targets: Array<EngineRecord["engine_type"]>;
+  package_url?: string;
+  package_sha256?: string;
+  package_bytes?: number;
+  status: "approved" | "deprecated";
+  visibility: "private" | "team" | "company";
+  team_id?: string;
+  tags?: string[];
+  source_run_id?: string;
+  updated_at?: string;
+};
+
+type SkillCandidate = {
+  candidate_id: string;
+  source_run_id: string;
+  tenant_id?: string;
+  team_id?: string;
+  agent_id?: string;
+  engine_id: string;
+  runtime_target: EngineRecord["engine_type"];
+  name: string;
+  description?: string;
+  package_url?: string;
+  inline_manifest?: Record<string, unknown>;
+  signals?: Record<string, unknown>;
+  status: "pending" | "approved" | "rejected";
+  reviewer?: string;
+  review_reason?: string;
+  visibility?: "private" | "team" | "company";
+  created_at?: string;
+  reviewed_at?: string;
+};
+
+type BundleManifest = {
+  bundle_id: string;
+  version: string;
+  channel: string;
+  runtime_targets: Array<EngineRecord["engine_type"]>;
+  skills: Array<{ skill_id: string; name: string; version: string; package_url: string }>;
+  signature: string;
+  published_at: string;
+};
+
 type ConsoleData = {
   engines: EngineRecord[];
   runs: ExternalRun[];
@@ -132,6 +180,7 @@ const NAV_ITEMS: Array<{ id: ConsoleTab; label: string; desc: string }> = [
   { id: "accounts", label: "账号", desc: "Accounts" },
   { id: "engines", label: "引擎", desc: "Engines" },
   { id: "runs", label: "运行", desc: "Runs" },
+  { id: "skills", label: "技能", desc: "Skills" },
   { id: "costs", label: "成本", desc: "Costs" },
   { id: "risk", label: "风控", desc: "Risk" },
 ];
@@ -434,6 +483,7 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
             {tab === "accounts" && <GatewayAccountsPanel />}
             {tab === "engines" && <Engines engines={data.engines} runs={data.runs} violations={data.violations} />}
             {tab === "runs" && <Runs runs={data.runs} selectedRun={selectedRun} events={events} loading={eventsLoading} onRun={openRun} />}
+            {tab === "skills" && <SkillsMarketPanel />}
             {tab === "costs" && <Costs cost={data.cost} />}
             {tab === "risk" && (
               <Risks
@@ -671,6 +721,244 @@ function EngineCard({ engine, runs, violations }: { engine: EngineRecord; runs: 
       </div>
     </div>
   );
+}
+
+function SkillsMarketPanel() {
+  const [skills, setSkills] = useState<SkillRecord[]>([]);
+  const [candidates, setCandidates] = useState<SkillCandidate[]>([]);
+  const [manifest, setManifest] = useState<BundleManifest | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [upload, setUpload] = useState({
+    skill_id: "",
+    name: "",
+    version: "1.0.0",
+    runtime_targets: "openclaw,hermes,skilllite",
+    visibility: "team",
+    team_id: "",
+    tags: "",
+    description: "",
+  });
+
+  const loadMarket = () => {
+    setLoading(true);
+    Promise.all([
+      adminFetch("/api/v1/skill-bundles/default-agent-skills/manifest").then((r) => r.json() as Promise<{ manifest?: BundleManifest }>),
+      adminFetch("/api/v1/skills?limit=200").then((r) => r.json() as Promise<{ skills?: SkillRecord[] }>),
+      adminFetch("/api/v1/skill-candidates?limit=200").then((r) => r.json() as Promise<{ candidates?: SkillCandidate[] }>),
+    ])
+      .then(([bundleData, skillData, candidateData]) => {
+        setManifest(bundleData.manifest ?? null);
+        setSkills(Array.isArray(skillData.skills) ? skillData.skills : []);
+        setCandidates(Array.isArray(candidateData.candidates) ? candidateData.candidates : []);
+      })
+      .catch((err) => setMessage(err instanceof Error ? err.message : "加载 Skills 市场失败"))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadMarket();
+  }, []);
+
+  const uploadPackage = async (file: File | null) => {
+    if (!file) return;
+    if (!upload.skill_id.trim() || !upload.name.trim()) {
+      setMessage("请先填写 skill_id 和名称。");
+      return;
+    }
+    const content_base64 = await fileToBase64(file);
+    const body = {
+      ...upload,
+      runtime_targets: upload.runtime_targets.split(",").map((v) => v.trim()).filter(Boolean),
+      tags: upload.tags.split(",").map((v) => v.trim()).filter(Boolean),
+      filename: file.name,
+      content_base64,
+    };
+    const res = await adminFetch("/api/v1/skill-packages", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      setMessage(`上传失败：${res.status}`);
+      return;
+    }
+    setMessage("私有 skill 包已上传并发布到市场。");
+    setUpload({ skill_id: "", name: "", version: "1.0.0", runtime_targets: "openclaw,hermes,skilllite", visibility: "team", team_id: "", tags: "", description: "" });
+    loadMarket();
+  };
+
+  const reviewCandidate = async (candidate: SkillCandidate, decision: "approved" | "rejected") => {
+    const res = await adminFetch(`/api/v1/skill-candidates/${encodeURIComponent(candidate.candidate_id)}/review`, {
+      method: "POST",
+      body: JSON.stringify({
+        decision,
+        reviewer: "admin",
+        reason: decision === "approved" ? "approved from console" : "rejected from console",
+        visibility: candidate.team_id ? "team" : "company",
+        promotion_channel: decision === "approved" ? "stable" : undefined,
+      }),
+    });
+    if (!res.ok) {
+      setMessage(`审核失败：${res.status}`);
+      return;
+    }
+    setMessage(decision === "approved" ? "候选技能已批准并进入市场。" : "候选技能已拒绝。");
+    loadMarket();
+  };
+
+  const downloadSkillPackage = async (skill: SkillRecord) => {
+    if (!skill.package_url) return;
+    const res = await adminFetch(skill.package_url);
+    if (!res.ok) {
+      setMessage(`下载失败：${res.status}`);
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${skill.skill_id}.skill.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const pending = candidates.filter((item) => item.status === "pending");
+
+  return (
+    <div className="space-y-6">
+      <section className="grid gap-4 md:grid-cols-4">
+        <StatCard label="市场 Skills" value={skills.length} note="已批准 / 可搜索" />
+        <StatCard label="待审核候选" value={pending.length} note="Connector 提交" />
+        <StatCard label="Bootstrap Bundle" value={manifest ? manifest.skills.length : "-"} note={manifest?.bundle_id ?? "default-agent-skills"} />
+        <StatCard label="Runtime Targets" value={manifest?.runtime_targets.length ?? "-"} note={manifest?.runtime_targets.join(", ") ?? "未加载"} />
+      </section>
+
+      {message && <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">{message}</div>}
+
+      <Card className="p-5">
+        <SectionHeader title="私有化部署包上传" subtitle="上传 zip/tar/.skill 包后，运行端可通过 manifest 获取 package_url。" />
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder="skill_id，例如 private-crm-summary" value={upload.skill_id} onChange={(e) => setUpload({ ...upload, skill_id: e.target.value })} />
+          <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder="名称" value={upload.name} onChange={(e) => setUpload({ ...upload, name: e.target.value })} />
+          <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder="版本" value={upload.version} onChange={(e) => setUpload({ ...upload, version: e.target.value })} />
+          <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder="team_id" value={upload.team_id} onChange={(e) => setUpload({ ...upload, team_id: e.target.value })} />
+          <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm xl:col-span-2" placeholder="runtime_targets: openclaw,hermes,skilllite" value={upload.runtime_targets} onChange={(e) => setUpload({ ...upload, runtime_targets: e.target.value })} />
+          <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm xl:col-span-2" placeholder="tags: crm,private" value={upload.tags} onChange={(e) => setUpload({ ...upload, tags: e.target.value })} />
+          <textarea className="rounded-lg border border-slate-200 px-3 py-2 text-sm md:col-span-2 xl:col-span-3" placeholder="描述" value={upload.description} onChange={(e) => setUpload({ ...upload, description: e.target.value })} />
+          <label className="flex cursor-pointer items-center justify-center rounded-lg bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
+            选择包并上传
+            <input className="hidden" type="file" onChange={(e) => uploadPackage(e.target.files?.[0] ?? null)} />
+          </label>
+        </div>
+      </Card>
+
+      <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <Card className="p-5">
+          <SectionHeader title="Bootstrap Manifest" subtitle="运行端首次安装时使用的初始化能力包。" action={<button onClick={loadMarket} className="text-sm font-medium text-blue-600">{loading ? "刷新中..." : "刷新"}</button>} />
+          {manifest ? (
+            <div className="space-y-3">
+              <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
+                <div className="font-mono text-slate-900">{manifest.bundle_id}@{manifest.version}</div>
+                <div className="mt-1">channel: {manifest.channel} · signature: {manifest.signature}</div>
+              </div>
+              {manifest.skills.map((skill) => (
+                <div key={skill.skill_id} className="flex items-center justify-between rounded-xl border border-slate-200 p-3 text-sm">
+                  <div>
+                    <div className="font-semibold text-slate-950">{skill.name}</div>
+                    <div className="font-mono text-xs text-slate-500">{skill.package_url}</div>
+                  </div>
+                  <Badge>{skill.version}</Badge>
+                </div>
+              ))}
+            </div>
+          ) : <EmptyState>暂无 bootstrap manifest。</EmptyState>}
+        </Card>
+
+        <Card className="p-5">
+          <SectionHeader title="候选技能审核" subtitle="Connector 从 OpenClaw / Hermes / SkillLite 收集的技能候选。" />
+          {candidates.length ? (
+            <div className="space-y-3">
+              {candidates.map((candidate) => (
+                <div key={candidate.candidate_id} className="rounded-xl border border-slate-200 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-slate-950">{candidate.name}</div>
+                      <div className="mt-1 text-sm text-slate-500">{candidate.description || "无描述"}</div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                        <span>{candidate.runtime_target}</span>
+                        <span>{candidate.engine_id}</span>
+                        <span>{candidate.team_id || "no-team"}</span>
+                      </div>
+                    </div>
+                    <Badge className={candidate.status === "pending" ? "border-amber-200 bg-amber-50 text-amber-700" : candidate.status === "approved" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}>{candidate.status}</Badge>
+                  </div>
+                  {candidate.status === "pending" && (
+                    <div className="mt-3 flex gap-2">
+                      <button onClick={() => reviewCandidate(candidate, "approved")} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white">批准</button>
+                      <button onClick={() => reviewCandidate(candidate, "rejected")} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600">拒绝</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : <EmptyState>暂无候选技能。</EmptyState>}
+        </Card>
+      </section>
+
+      <Card className="p-5">
+        <SectionHeader title="已发布 Skills" subtitle="审核通过或手动上传的企业私有技能。" />
+        {skills.length ? (
+          <div className="overflow-hidden rounded-xl border border-slate-200">
+            <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Skill</th>
+                  <th className="px-4 py-3">Runtime</th>
+                  <th className="px-4 py-3">Visibility</th>
+                  <th className="px-4 py-3">Package</th>
+                  <th className="px-4 py-3">Updated</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {skills.map((skill) => (
+                  <tr key={skill.skill_id}>
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-slate-950">{skill.name}</div>
+                      <div className="font-mono text-xs text-slate-500">{skill.skill_id}</div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">{skill.runtime_targets.join(", ")}</td>
+                    <td className="px-4 py-3 text-slate-600">{skill.visibility}{skill.team_id ? ` · ${skill.team_id}` : ""}</td>
+                    <td className="px-4 py-3">
+                      {skill.package_url ? (
+                        <button onClick={() => downloadSkillPackage(skill)} className="text-blue-600 hover:text-blue-700">
+                          {skill.package_bytes ? `${skill.package_bytes} bytes` : "download"}
+                        </button>
+                      ) : <span className="text-slate-400">builtin</span>}
+                    </td>
+                    <td className="px-4 py-3 text-slate-500">{formatDate(skill.updated_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <EmptyState>暂无已发布技能。</EmptyState>}
+      </Card>
+    </div>
+  );
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      resolve(result.includes(",") ? result.split(",")[1] : result);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 function Engines({ engines, runs, violations }: { engines: EngineRecord[]; runs: ExternalRun[]; violations: PolicyViolation[] }) {

@@ -1,10 +1,13 @@
 """Private Skills Market API."""
 from __future__ import annotations
 
+import binascii
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 
 from core.auth import require_admin, require_engine_ingest
-from domain.models import SkillCandidateCreate, SkillCandidateReview
+from domain.models import SkillCandidateCreate, SkillCandidateReview, SkillPackageUpload
 from infra import skill_market
 
 router = APIRouter(prefix="/api/v1", tags=["skill-market"])
@@ -45,6 +48,24 @@ async def list_skills(
             limit=limit,
         )
     }
+
+
+@router.post("/skill-packages", dependencies=[Depends(require_admin)])
+async def upload_skill_package(body: SkillPackageUpload):
+    try:
+        skill = skill_market.upload_skill_package(body)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="invalid base64 package content") from exc
+    return {"uploaded": True, "skill": skill}
+
+
+@router.get("/skill-packages/{skill_id}/download", dependencies=[Depends(require_admin)])
+async def download_skill_package(skill_id: str):
+    package = skill_market.get_package_file(skill_id)
+    if package is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="package not found")
+    path, filename = package
+    return FileResponse(path, filename=filename, media_type="application/octet-stream")
 
 
 @router.post("/skill-candidates", dependencies=[Depends(require_engine_ingest)])

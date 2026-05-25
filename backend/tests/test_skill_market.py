@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import base64
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -105,6 +106,45 @@ class SkillMarketApiTest(unittest.TestCase):
         self.assertEqual(skills.status_code, 200)
         names = [item["name"] for item in skills.json()["skills"]]
         self.assertIn("Summarize CRM Notes", names)
+
+    def test_admin_uploads_private_skill_package(self) -> None:
+        from fastapi.testclient import TestClient
+        import importlib
+        import main
+
+        importlib.reload(main)
+        client = TestClient(main.app)
+        admin = {"X-Admin-Token": "test-admin-token"}
+        package_bytes = b"# SKILL\nprivate package\n"
+        res = client.post(
+            "/api/v1/skill-packages",
+            json={
+                "skill_id": "private-crm-summary",
+                "name": "Private CRM Summary",
+                "description": "Internal package for CRM notes.",
+                "version": "1.0.0",
+                "runtime_targets": ["openclaw", "hermes", "skilllite"],
+                "visibility": "team",
+                "team_id": "growth-team",
+                "tags": ["crm", "private"],
+                "filename": "private-crm-summary.skill.zip",
+                "content_base64": base64.b64encode(package_bytes).decode("ascii"),
+            },
+            headers=admin,
+        )
+        self.assertEqual(res.status_code, 200)
+        skill = res.json()["skill"]
+        self.assertEqual(skill["skill_id"], "private-crm-summary")
+        self.assertEqual(skill["package_bytes"], len(package_bytes))
+        self.assertTrue(skill["package_url"].endswith("/api/v1/skill-packages/private-crm-summary/download"))
+
+        listed = client.get("/api/v1/skills?runtime_target=hermes&tag=crm", headers=admin)
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.json()["skills"][0]["skill_id"], "private-crm-summary")
+
+        downloaded = client.get("/api/v1/skill-packages/private-crm-summary/download", headers=admin)
+        self.assertEqual(downloaded.status_code, 200)
+        self.assertEqual(downloaded.content, package_bytes)
 
     def test_candidate_submission_requires_ingest_token(self) -> None:
         from fastapi.testclient import TestClient

@@ -183,6 +183,20 @@ class SkillCandidateReview(BaseModel):
     promotion_channel: str | None = Field(default=None, max_length=64)
 
 
+class SkillPackageUpload(BaseModel):
+    skill_id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=2000)
+    version: str = Field(default="0.1.0", max_length=64)
+    runtime_targets: list[RuntimeTarget] = Field(default_factory=lambda: ["custom"])
+    visibility: SkillVisibility = "team"
+    team_id: str = Field(default="", max_length=128)
+    tags: list[str] = Field(default_factory=list)
+    filename: str = Field(min_length=1, max_length=256)
+    content_base64: str = Field(min_length=1)
+    source_run_id: str = Field(default="", max_length=128)
+
+
 AccountStatus = Literal["active", "disabled"]
 ApiKeyStatus = Literal["active", "revoked"]
 

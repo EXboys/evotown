@@ -66,6 +66,7 @@ def _migrate_gateway_schema(conn: sqlite3.Connection) -> None:
     if "key_id" not in cols:
         conn.execute("ALTER TABLE gateway_requests ADD COLUMN key_id TEXT NOT NULL DEFAULT ''")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_gateway_account ON gateway_requests(account_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_gateway_key_created ON gateway_requests(key_id, created_at)")
 
 
 def _json_dumps(value: Any) -> str:
@@ -245,6 +246,30 @@ def monthly_usage_by_key(limit: int = 100) -> list[dict[str, Any]]:
         (max(1, min(limit, 500)),),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def request_count_in_window(key_id: str, window_seconds: int = 60) -> int:
+    """Count gateway requests for key_id in the last window_seconds."""
+    if not key_id:
+        return 0
+    window = max(1, int(window_seconds))
+    row = _ensure_conn().execute(
+        """
+        SELECT COUNT(*) AS cnt
+        FROM gateway_requests
+        WHERE key_id = ?
+          AND datetime(created_at) >= datetime('now', ?)
+        """,
+        (key_id, f"-{window} seconds"),
+    ).fetchone()
+    return int(row["cnt"]) if row else 0
+
+
+def update_request_risk_status(request_id: str, risk_status: str) -> None:
+    _ensure_conn().execute(
+        "UPDATE gateway_requests SET risk_status=? WHERE request_id=?",
+        (risk_status, request_id),
+    )
 
 
 def recent_requests(limit: int = 100) -> list[dict[str, Any]]:

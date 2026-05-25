@@ -94,6 +94,7 @@ async def create_account_key(account_id: str, body: GatewayApiKeyCreate):
             expires_at=body.expires_at,
             monthly_token_limit=body.monthly_token_limit,
             monthly_cost_limit_usd=body.monthly_cost_limit_usd,
+            burst_rpm_limit=body.burst_rpm_limit,
         )
     except ValueError as exc:
         detail = str(exc)
@@ -128,6 +129,7 @@ async def update_key(key_id: str, body: GatewayApiKeyUpdate):
         expires_at=body.expires_at,
         monthly_token_limit=body.monthly_token_limit,
         monthly_cost_limit_usd=body.monthly_cost_limit_usd,
+        burst_rpm_limit=body.burst_rpm_limit,
     )
     return {"key": _enrich_key(updated or {})}
 

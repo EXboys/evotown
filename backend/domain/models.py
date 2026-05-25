@@ -165,6 +165,7 @@ class GatewayApiKeyCreate(BaseModel):
     expires_at: str | None = None
     monthly_token_limit: int = Field(default=0, ge=0)
     monthly_cost_limit_usd: float = Field(default=0, ge=0)
+    burst_rpm_limit: int = Field(default=0, ge=0)
 
 
 class GatewayApiKeyUpdate(BaseModel):
@@ -173,3 +174,4 @@ class GatewayApiKeyUpdate(BaseModel):
     expires_at: str | None = None
     monthly_token_limit: int | None = Field(default=None, ge=0)
     monthly_cost_limit_usd: float | None = Field(default=None, ge=0)
+    burst_rpm_limit: int | None = Field(default=None, ge=0)

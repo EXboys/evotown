@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { adminFetch, getAdminToken, setAdminToken } from "../utils/adminAuth";
+import { adminFetch, getAdminToken, setAdminToken } from "../hooks/useAdminToken";
 
 export type GatewayAccount = {
   account_id: string;
@@ -27,8 +27,14 @@ export type GatewayApiKey = {
   last_used_at: string | null;
   monthly_token_limit?: number;
   monthly_cost_limit_usd?: number;
+  burst_rpm_limit?: number;
   monthly_usage?: { total_tokens?: number; cost_usd?: number; requests?: number };
 };
+
+const SCOPE_OPTIONS = [
+  { id: "gateway.chat", label: "gateway.chat（调用模型）" },
+  { id: "gateway.read", label: "gateway.read（只读，预留）" },
+] as const;
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
@@ -50,6 +56,10 @@ export function GatewayAccountsPanel() {
   const [newKeyLabel, setNewKeyLabel] = useState("");
   const [newKeyTokenLimit, setNewKeyTokenLimit] = useState("");
   const [newKeyCostLimit, setNewKeyCostLimit] = useState("");
+  const [newKeyBurstRpm, setNewKeyBurstRpm] = useState("");
+  const [newKeyScopes, setNewKeyScopes] = useState<string[]>(["gateway.chat"]);
+  const [newKeyExpiresAt, setNewKeyExpiresAt] = useState("");
+  const [accountDraft, setAccountDraft] = useState({ name: "", team_id: "", owner_email: "", notes: "" });
   const [createdSecret, setCreatedSecret] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -100,9 +110,21 @@ export function GatewayAccountsPanel() {
     }
   }, [selectedAccountId, loadKeys]);
 
+  useEffect(() => {
+    const account = accounts.find((a) => a.account_id === selectedAccountId);
+    if (account) {
+      setAccountDraft({
+        name: account.name,
+        team_id: account.team_id,
+        owner_email: account.owner_email,
+        notes: account.notes,
+      });
+    }
+  }, [selectedAccountId, accounts]);
+
   const saveAdminToken = () => {
     setAdminToken(adminToken);
-    setMessage("Admin Token 已保存到浏览器本地存储");
+    setMessage("Admin Token 已保存到本次会话（sessionStorage，关 Tab 后清除）");
     setTimeout(() => setMessage(""), 3000);
     void load();
   };
@@ -150,6 +172,32 @@ export function GatewayAccountsPanel() {
     }
   };
 
+  const saveAccountDetails = async () => {
+    if (!selectedAccountId) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await adminFetch(`/api/v1/accounts/${encodeURIComponent(selectedAccountId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(accountDraft),
+      });
+      if (!res.ok) throw new Error(`update account ${res.status}`);
+      await load();
+      setMessage("账号信息已更新");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "update failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleNewKeyScope = (scope: string) => {
+    setNewKeyScopes((current) =>
+      current.includes(scope) ? current.filter((s) => s !== scope) : [...current, scope]
+    );
+  };
+
   const createKey = async () => {
     if (!selectedAccountId) return;
     setBusy(true);
@@ -161,8 +209,11 @@ export function GatewayAccountsPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           label: newKeyLabel,
+          scopes: newKeyScopes.length ? newKeyScopes : ["gateway.chat"],
+          expires_at: newKeyExpiresAt || null,
           monthly_token_limit: newKeyTokenLimit ? Number(newKeyTokenLimit) : 0,
           monthly_cost_limit_usd: newKeyCostLimit ? Number(newKeyCostLimit) : 0,
+          burst_rpm_limit: newKeyBurstRpm ? Number(newKeyBurstRpm) : 0,
         }),
       });
       if (!res.ok) {
@@ -174,6 +225,9 @@ export function GatewayAccountsPanel() {
       setNewKeyLabel("");
       setNewKeyTokenLimit("");
       setNewKeyCostLimit("");
+      setNewKeyBurstRpm("");
+      setNewKeyScopes(["gateway.chat"]);
+      setNewKeyExpiresAt("");
       await loadKeys(selectedAccountId);
       await load();
     } catch (err) {
@@ -183,7 +237,16 @@ export function GatewayAccountsPanel() {
     }
   };
 
-  const updateKeyQuota = async (key: GatewayApiKey, tokenLimit: number, costLimit: number) => {
+  const updateKeySettings = async (
+    key: GatewayApiKey,
+    fields: {
+      tokenLimit: number;
+      costLimit: number;
+      burstRpm: number;
+      scopes: string[];
+      expiresAt: string;
+    }
+  ) => {
     setBusy(true);
     setError("");
     try {
@@ -191,15 +254,18 @@ export function GatewayAccountsPanel() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          monthly_token_limit: tokenLimit,
-          monthly_cost_limit_usd: costLimit,
+          monthly_token_limit: fields.tokenLimit,
+          monthly_cost_limit_usd: fields.costLimit,
+          burst_rpm_limit: fields.burstRpm,
+          scopes: fields.scopes.length ? fields.scopes : ["gateway.chat"],
+          expires_at: fields.expiresAt || null,
         }),
       });
-      if (!res.ok) throw new Error(`update quota ${res.status}`);
+      if (!res.ok) throw new Error(`update key ${res.status}`);
       if (selectedAccountId) await loadKeys(selectedAccountId);
-      setMessage("额度已更新");
+      setMessage("Key 设置已更新");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "update quota failed");
+      setError(err instanceof Error ? err.message : "update key failed");
     } finally {
       setBusy(false);
     }
@@ -230,7 +296,7 @@ export function GatewayAccountsPanel() {
     <div className="space-y-6">
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-base font-semibold text-slate-950">管理员鉴权</h2>
-        <p className="mt-1 text-sm text-slate-500">账号/Key 列表与网关审计读接口均需 Admin Token（X-Admin-Token）。</p>
+        <p className="mt-1 text-sm text-slate-500">Token 存于 sessionStorage（关 Tab 自动清除），Arena 与企业控制台共用。</p>
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
           <label className="flex-1 text-sm">
             <span className="mb-1 block font-medium text-slate-700">Admin Token</span>
@@ -357,7 +423,46 @@ export function GatewayAccountsPanel() {
             </button>
           </div>
 
-          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          <div className="mt-6 rounded-xl border border-slate-100 bg-slate-50 p-4">
+            <h3 className="text-sm font-semibold text-slate-900">编辑账号信息</h3>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <input
+                value={accountDraft.name}
+                onChange={(e) => setAccountDraft({ ...accountDraft, name: e.target.value })}
+                placeholder="账号名称"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+              />
+              <input
+                value={accountDraft.team_id}
+                onChange={(e) => setAccountDraft({ ...accountDraft, team_id: e.target.value })}
+                placeholder="团队 ID"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+              />
+              <input
+                value={accountDraft.owner_email}
+                onChange={(e) => setAccountDraft({ ...accountDraft, owner_email: e.target.value })}
+                placeholder="负责人邮箱"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+              />
+              <input
+                value={accountDraft.notes}
+                onChange={(e) => setAccountDraft({ ...accountDraft, notes: e.target.value })}
+                placeholder="备注"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+              />
+            </div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={saveAccountDetails}
+              className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              保存账号信息
+            </button>
+          </div>
+
+          <h3 className="mt-6 text-sm font-semibold text-slate-900">签发新 Key</h3>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             <input
               value={newKeyLabel}
               onChange={(e) => setNewKeyLabel(e.target.value)}
@@ -376,6 +481,31 @@ export function GatewayAccountsPanel() {
               placeholder="月成本上限 USD（0=不限）"
               className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
+            <input
+              value={newKeyBurstRpm}
+              onChange={(e) => setNewKeyBurstRpm(e.target.value)}
+              placeholder="Burst RPM / 60s（0=用全局默认）"
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+            <input
+              type="datetime-local"
+              value={newKeyExpiresAt}
+              onChange={(e) => setNewKeyExpiresAt(e.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              title="过期时间（可选）"
+            />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-3">
+            {SCOPE_OPTIONS.map((scope) => (
+              <label key={scope.id} className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={newKeyScopes.includes(scope.id)}
+                  onChange={() => toggleNewKeyScope(scope.id)}
+                />
+                {scope.label}
+              </label>
+            ))}
           </div>
           <div className="mt-3">
             <button
@@ -406,8 +536,9 @@ export function GatewayAccountsPanel() {
             <table className="w-full table-fixed text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="px-4 py-3 font-semibold">Label / Prefix</th>
-                  <th className="w-40 px-4 py-3 font-semibold">Monthly usage / limit</th>
+                  <th className="px-4 py-3 font-semibold">Label / Scopes</th>
+                  <th className="w-48 px-4 py-3 font-semibold">Limits / usage</th>
+                  <th className="w-28 px-4 py-3 font-semibold">Expires</th>
                   <th className="w-24 px-4 py-3 font-semibold">Status</th>
                   <th className="w-28 px-4 py-3 font-semibold">Last used</th>
                   <th className="w-28 px-4 py-3 font-semibold" />
@@ -420,35 +551,33 @@ export function GatewayAccountsPanel() {
                     const usedCost = key.monthly_usage?.cost_usd ?? 0;
                     const tokenLimit = key.monthly_token_limit ?? 0;
                     const costLimit = key.monthly_cost_limit_usd ?? 0;
+                    const burstLimit = key.burst_rpm_limit ?? 0;
+                    const scopeValue = (key.scopes || ["gateway.chat"]).join(",");
                     return (
                       <tr key={key.key_id}>
                         <td className="px-4 py-3">
                           <div className="font-medium text-slate-950">{key.label || key.key_id}</div>
-                          <div className="font-mono text-xs text-slate-500">{key.key_prefix}…</div>
+                          <p className="font-mono text-xs text-slate-500">{key.key_prefix}…</p>
+                          <p className="mt-1 text-xs text-slate-500">{(key.scopes || []).join(", ") || "gateway.chat"}</p>
                         </td>
                         <td className="px-4 py-3 text-xs text-slate-600">
                           <div>{usedTokens} / {tokenLimit || "∞"} tokens</div>
                           <div className="mt-1">${Number(usedCost).toFixed(4)} / {costLimit ? `$${costLimit}` : "∞"}</div>
+                          <div className="mt-1">burst: {burstLimit || "默认"} rpm</div>
                           {key.status === "active" && (
-                            <div className="mt-2 flex gap-1">
-                              <input
-                                type="number"
-                                min={0}
-                                defaultValue={tokenLimit}
-                                id={`quota-tokens-${key.key_id}`}
-                                className="w-16 rounded border border-slate-200 px-1 py-0.5 text-xs"
-                                title="月 token 上限"
-                              />
-                              <input
-                                type="number"
-                                min={0}
-                                step={0.01}
-                                defaultValue={costLimit}
-                                id={`quota-cost-${key.key_id}`}
-                                className="w-16 rounded border border-slate-200 px-1 py-0.5 text-xs"
-                                title="月成本上限 USD"
-                              />
+                            <div className="mt-2 grid grid-cols-2 gap-1">
+                              <input type="number" min={0} defaultValue={tokenLimit} id={`quota-tokens-${key.key_id}`} className="rounded border border-slate-200 px-1 py-0.5 text-xs" title="月 token 上限" />
+                              <input type="number" min={0} step={0.01} defaultValue={costLimit} id={`quota-cost-${key.key_id}`} className="rounded border border-slate-200 px-1 py-0.5 text-xs" title="月成本上限 USD" />
+                              <input type="number" min={0} defaultValue={burstLimit} id={`burst-${key.key_id}`} className="rounded border border-slate-200 px-1 py-0.5 text-xs" title="Burst RPM" />
+                              <input defaultValue={scopeValue} id={`scopes-${key.key_id}`} className="rounded border border-slate-200 px-1 py-0.5 text-xs" placeholder="scopes" title="逗号分隔 scopes" />
                             </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-500">
+                          {key.status === "active" ? (
+                            <input type="datetime-local" defaultValue={key.expires_at ? key.expires_at.slice(0, 16) : ""} id={`expires-${key.key_id}`} className="w-full rounded border border-slate-200 px-1 py-0.5 text-xs" />
+                          ) : (
+                            formatDate(key.expires_at)
                           )}
                         </td>
                         <td className="px-4 py-3">
@@ -466,11 +595,21 @@ export function GatewayAccountsPanel() {
                                 onClick={() => {
                                   const tokenEl = document.getElementById(`quota-tokens-${key.key_id}`) as HTMLInputElement | null;
                                   const costEl = document.getElementById(`quota-cost-${key.key_id}`) as HTMLInputElement | null;
-                                  updateKeyQuota(key, Number(tokenEl?.value || 0), Number(costEl?.value || 0));
+                                  const burstEl = document.getElementById(`burst-${key.key_id}`) as HTMLInputElement | null;
+                                  const scopesEl = document.getElementById(`scopes-${key.key_id}`) as HTMLInputElement | null;
+                                  const expiresEl = document.getElementById(`expires-${key.key_id}`) as HTMLInputElement | null;
+                                  const scopes = (scopesEl?.value || "gateway.chat").split(",").map((s) => s.trim()).filter(Boolean);
+                                  updateKeySettings(key, {
+                                    tokenLimit: Number(tokenEl?.value || 0),
+                                    costLimit: Number(costEl?.value || 0),
+                                    burstRpm: Number(burstEl?.value || 0),
+                                    scopes,
+                                    expiresAt: expiresEl?.value || "",
+                                  });
                                 }}
                                 className="text-xs font-medium text-blue-600 hover:text-blue-700"
                               >
-                                保存额度
+                                保存设置
                               </button>
                               <button type="button" disabled={busy} onClick={() => revokeKey(key.key_id)} className="text-xs font-medium text-red-600 hover:text-red-700">
                                 吊销
@@ -483,7 +622,7 @@ export function GatewayAccountsPanel() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
                       该账号暂无 Key
                     </td>
                   </tr>

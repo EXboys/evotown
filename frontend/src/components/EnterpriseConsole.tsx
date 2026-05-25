@@ -11,7 +11,7 @@ import {
 } from "recharts";
 
 import { GatewayAccountsPanel } from "./GatewayAccountsPanel";
-import { adminFetch } from "../utils/adminAuth";
+import { adminFetch } from "../hooks/useAdminToken";
 
 type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "runs" | "costs" | "risk";
 

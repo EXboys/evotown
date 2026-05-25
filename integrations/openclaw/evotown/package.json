@@ -1,0 +1,9 @@
+{
+  "name": "@evotown/openclaw-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenClaw official-format plugin for Evotown enterprise gateway + SkillHub",
+  "openclaw": {
+    "extensions": ["./index.js"]
+  }
+}

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from domain.models import SkillCandidateCreate, SkillCandidateReview, SkillPackageUpload
+from infra import skill_signing
 
 _backend_dir = Path(__file__).resolve().parent.parent
 _evotown_data = _backend_dir.parent / "data"
@@ -147,6 +148,8 @@ def _migrate_skills_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE skills ADD COLUMN dependencies TEXT NOT NULL DEFAULT '[]'")
     if "download_count" not in cols:
         conn.execute("ALTER TABLE skills ADD COLUMN download_count INTEGER NOT NULL DEFAULT 0")
+    if "package_signature" not in cols:
+        conn.execute("ALTER TABLE skills ADD COLUMN package_signature TEXT NOT NULL DEFAULT ''")
 
 
 def _json_dumps(value: Any) -> str:
@@ -232,6 +235,25 @@ def _skill_from_row(row: sqlite3.Row) -> dict[str, Any]:
     item["runtime_targets"] = _json_loads(item.get("runtime_targets", "[]"), [])
     item["tags"] = _json_loads(item.get("tags", "[]"), [])
     item["dependencies"] = _json_loads(item.get("dependencies", "[]"), [])
+    digest = str(item.get("package_sha256") or "")
+    if digest and not item.get("package_signature"):
+        item["package_signature"] = skill_signing.sign_digest_hex(digest)
+    return item
+
+
+def _manifest_entry_with_signature(entry: dict[str, Any]) -> dict[str, Any]:
+    item = dict(entry)
+    skill_id = item.get("skill_id", "")
+    package_url = item.get("package_url", "")
+    if not skill_id or str(package_url).startswith("builtin://"):
+        return item
+    skill = get_skill(skill_id)
+    if skill is None:
+        return item
+    digest = str(skill.get("package_sha256") or "")
+    if digest:
+        item["package_sha256"] = digest
+        item["signature"] = skill.get("package_signature") or skill_signing.sign_digest_hex(digest)
     return item
 
 
@@ -362,7 +384,7 @@ def get_bundle_manifest(
         return None
     manifest_skills = _json_loads(item.get("skills", "[]"), [])
     approved_skills = [
-        entry
+        _manifest_entry_with_signature(dict(entry))
         for entry in manifest_skills
         if _manifest_skill_is_installable(entry.get("skill_id", ""))
     ]
@@ -424,6 +446,7 @@ def list_skills(
 def upload_skill_package(body: SkillPackageUpload) -> dict[str, Any]:
     raw = base64.b64decode(body.content_base64, validate=True)
     digest = hashlib.sha256(raw).hexdigest()
+    signature = skill_signing.sign_digest_hex(digest)
     safe_id = _safe_skill_id(body.skill_id)
     safe_name = _safe_filename(body.filename)
     relative_name = f"{safe_id}-{digest[:12]}-{safe_name}"
@@ -435,10 +458,10 @@ def upload_skill_package(body: SkillPackageUpload) -> dict[str, Any]:
         """
         INSERT INTO skills (
             skill_id, name, description, version, runtime_targets, package_url,
-            package_sha256, package_bytes, status, visibility, team_id, tags,
+            package_sha256, package_signature, package_bytes, status, visibility, team_id, tags,
             source_run_id, readme, dependencies, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, datetime('now'))
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, datetime('now'))
         ON CONFLICT(skill_id) DO UPDATE SET
             name=excluded.name,
             description=excluded.description,
@@ -446,6 +469,7 @@ def upload_skill_package(body: SkillPackageUpload) -> dict[str, Any]:
             runtime_targets=excluded.runtime_targets,
             package_url=excluded.package_url,
             package_sha256=excluded.package_sha256,
+            package_signature=excluded.package_signature,
             package_bytes=excluded.package_bytes,
             status='approved',
             visibility=excluded.visibility,
@@ -464,6 +488,7 @@ def upload_skill_package(body: SkillPackageUpload) -> dict[str, Any]:
             _json_dumps(body.runtime_targets),
             package_url,
             digest,
+            signature,
             len(raw),
             body.visibility,
             body.team_id,
@@ -498,6 +523,28 @@ def upload_skill_package(body: SkillPackageUpload) -> dict[str, Any]:
         (body.skill_id, safe_name, relative_name, digest, len(raw)),
     )
     return get_skill(body.skill_id) or {"skill_id": body.skill_id}
+
+
+def verify_package_integrity(skill_id: str) -> bool:
+    skill = get_skill(skill_id)
+    if skill is None:
+        return False
+    package = get_package_file(skill_id)
+    if package is None:
+        return True
+    path, _ = package
+    digest = str(skill.get("package_sha256") or "")
+    if not digest:
+        return True
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != digest:
+        return False
+    signature = str(skill.get("package_signature") or "")
+    if signature:
+        return skill_signing.verify_digest_hex(digest, signature)
+    if skill_signing.require_signed_downloads():
+        return skill_signing.signing_enabled()
+    return True
 
 
 def get_skill(skill_id: str) -> dict[str, Any] | None:

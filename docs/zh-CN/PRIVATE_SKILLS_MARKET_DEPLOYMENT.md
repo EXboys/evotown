@@ -139,6 +139,24 @@ curl -X POST http://127.0.0.1:8765/api/v1/skill-candidates/cand_001/review \
 
 审核通过后，候选技能会进入 `GET /api/v1/skills`。
 
+## 下线 skill
+
+```bash
+curl -X POST http://127.0.0.1:8765/api/v1/skills/private-crm-summary/deprecate \
+  -H "X-Admin-Token: $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reason": "replaced by v2",
+    "reviewer": "platform-owner"
+  }'
+```
+
+下线后：
+
+- `GET /api/v1/skills?status_filter=deprecated` 仍可查到该 skill（审计保留）
+- `GET /api/v1/skill-bundles/default-agent-skills/manifest` 不再包含该 skill
+- 重新上传同 `skill_id` 的包会自动恢复为 `approved`
+
 ## Runtime 接入示例
 
 ### OpenClaw

@@ -23,6 +23,9 @@ _conn: sqlite3.Connection | None = None
 
 KEY_PREFIX = "evk_"
 DEFAULT_SCOPES = ["gateway.chat"]
+CONSOLE_SCOPE_READ = "console.read"
+CONSOLE_SCOPE_WRITE = "console.write"
+DEFAULT_CONSOLE_KEY_SCOPES = ["gateway.chat", CONSOLE_SCOPE_READ, CONSOLE_SCOPE_WRITE]
 
 
 def _ensure_conn() -> sqlite3.Connection:
@@ -124,6 +127,15 @@ def create_account(
     )
     row = conn.execute("SELECT * FROM gateway_accounts WHERE account_id=?", (account_id,)).fetchone()
     return _account_from_row(row)
+
+
+def count_accounts(*, status: str | None = "active") -> int:
+    conn = _ensure_conn()
+    if status:
+        row = conn.execute("SELECT COUNT(*) AS n FROM gateway_accounts WHERE status=?", (status,)).fetchone()
+    else:
+        row = conn.execute("SELECT COUNT(*) AS n FROM gateway_accounts").fetchone()
+    return int(row["n"]) if row else 0
 
 
 def list_accounts(*, status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:

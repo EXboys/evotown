@@ -146,6 +146,41 @@ class SkillMarketApiTest(unittest.TestCase):
         self.assertEqual(downloaded.status_code, 200)
         self.assertEqual(downloaded.content, package_bytes)
 
+    def test_admin_deprecates_skill_and_manifest_filters_it(self) -> None:
+        from fastapi.testclient import TestClient
+        import importlib
+        import main
+
+        importlib.reload(main)
+        client = TestClient(main.app)
+        admin = {"X-Admin-Token": "test-admin-token"}
+
+        before = client.get(
+            "/api/v1/skill-bundles/default-agent-skills/manifest?runtime_target=hermes",
+            headers=admin,
+        )
+        self.assertEqual(before.status_code, 200)
+        self.assertIn("http-request", {item["skill_id"] for item in before.json()["manifest"]["skills"]})
+
+        deprecate = client.post(
+            "/api/v1/skills/http-request/deprecate",
+            json={"reason": "retired", "reviewer": "platform-owner"},
+            headers=admin,
+        )
+        self.assertEqual(deprecate.status_code, 200)
+        self.assertEqual(deprecate.json()["skill"]["status"], "deprecated")
+
+        after = client.get(
+            "/api/v1/skill-bundles/default-agent-skills/manifest?runtime_target=hermes",
+            headers=admin,
+        )
+        self.assertEqual(after.status_code, 200)
+        self.assertNotIn("http-request", {item["skill_id"] for item in after.json()["manifest"]["skills"]})
+
+        filtered = client.get("/api/v1/skills?status_filter=deprecated&query=http", headers=admin)
+        self.assertEqual(filtered.status_code, 200)
+        self.assertEqual(filtered.json()["skills"][0]["skill_id"], "http-request")
+
     def test_candidate_submission_requires_ingest_token(self) -> None:
         from fastapi.testclient import TestClient
         import importlib

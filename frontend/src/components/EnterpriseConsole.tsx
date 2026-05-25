@@ -11,9 +11,10 @@ import {
 } from "recharts";
 
 import { GatewayAccountsPanel } from "./GatewayAccountsPanel";
-import { adminFetch } from "../hooks/useAdminToken";
+import { KnowledgePanel } from "./KnowledgePanel";
+import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hooks/useAdminToken";
 
-type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "runs" | "skills" | "costs" | "risk";
+type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "runs" | "skills" | "knowledge" | "costs" | "risk";
 
 type EngineRecord = {
   engine_id: string;
@@ -181,6 +182,7 @@ const NAV_ITEMS: Array<{ id: ConsoleTab; label: string; desc: string }> = [
   { id: "engines", label: "引擎", desc: "Engines" },
   { id: "runs", label: "运行", desc: "Runs" },
   { id: "skills", label: "技能", desc: "Skills" },
+  { id: "knowledge", label: "知识库", desc: "Knowledge" },
   { id: "costs", label: "成本", desc: "Costs" },
   { id: "risk", label: "风控", desc: "Risk" },
 ];
@@ -282,6 +284,18 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
   const [eventsLoading, setEventsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [sessionName, setSessionName] = useState("");
+
+  useEffect(() => {
+    if (!isConsoleAuthenticated()) {
+      navigate(`/login?return=${encodeURIComponent(window.location.pathname)}`, { replace: true });
+      return;
+    }
+    adminFetch("/api/v1/auth/me")
+      .then((r) => r.ok ? r.json() as Promise<{ session?: { account_name?: string } }> : null)
+      .then((data) => setSessionName(data?.session?.account_name || ""))
+      .catch(() => setSessionName(""));
+  }, [navigate]);
 
   const load = () => {
     setLoading(true);
@@ -331,7 +345,7 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : "load failed";
-        setError(msg.includes("403") || msg.includes("401") ? `${msg} — 请在「账号」页保存 Admin Token` : msg);
+        setError(msg.includes("403") || msg.includes("401") ? `${msg} — 请重新登录` : msg);
       })
       .finally(() => setLoading(false));
   };
@@ -444,12 +458,22 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
                 <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">企业管理后台</h1>
                 <p className="mt-1 text-sm text-slate-500">外部引擎接入、运行记录、成本和风控事件统一观测。</p>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {sessionName && <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">已登录：{sessionName}</span>}
                 <button
                   onClick={() => navigate("/arena")}
                   className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 md:hidden"
                 >
                   Arena
+                </button>
+                <button
+                  onClick={() => {
+                    clearConsoleSession();
+                    navigate("/login");
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                >
+                  退出登录
                 </button>
                 <button
                   onClick={load}
@@ -484,6 +508,7 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
             {tab === "engines" && <Engines engines={data.engines} runs={data.runs} violations={data.violations} />}
             {tab === "runs" && <Runs runs={data.runs} selectedRun={selectedRun} events={events} loading={eventsLoading} onRun={openRun} />}
             {tab === "skills" && <SkillsMarketPanel />}
+            {tab === "knowledge" && <KnowledgePanel />}
             {tab === "costs" && <Costs cost={data.cost} />}
             {tab === "risk" && (
               <Risks
@@ -729,6 +754,12 @@ function SkillsMarketPanel() {
   const [manifest, setManifest] = useState<BundleManifest | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [filters, setFilters] = useState({
+    query: "",
+    tag: "",
+    runtime_target: "",
+    status_filter: "",
+  });
   const [upload, setUpload] = useState({
     skill_id: "",
     name: "",
@@ -740,11 +771,20 @@ function SkillsMarketPanel() {
     description: "",
   });
 
-  const loadMarket = () => {
+  const buildSkillsUrl = (nextFilters = filters) => {
+    const params = new URLSearchParams({ limit: "200" });
+    if (nextFilters.query.trim()) params.set("query", nextFilters.query.trim());
+    if (nextFilters.tag.trim()) params.set("tag", nextFilters.tag.trim());
+    if (nextFilters.runtime_target.trim()) params.set("runtime_target", nextFilters.runtime_target.trim());
+    if (nextFilters.status_filter) params.set("status_filter", nextFilters.status_filter);
+    return `/api/v1/skills?${params.toString()}`;
+  };
+
+  const loadMarket = (nextFilters = filters) => {
     setLoading(true);
     Promise.all([
       adminFetch("/api/v1/skill-bundles/default-agent-skills/manifest").then((r) => r.json() as Promise<{ manifest?: BundleManifest }>),
-      adminFetch("/api/v1/skills?limit=200").then((r) => r.json() as Promise<{ skills?: SkillRecord[] }>),
+      adminFetch(buildSkillsUrl(nextFilters)).then((r) => r.json() as Promise<{ skills?: SkillRecord[] }>),
       adminFetch("/api/v1/skill-candidates?limit=200").then((r) => r.json() as Promise<{ candidates?: SkillCandidate[] }>),
     ])
       .then(([bundleData, skillData, candidateData]) => {
@@ -824,21 +864,53 @@ function SkillsMarketPanel() {
     URL.revokeObjectURL(url);
   };
 
+  const deprecateSkill = async (skill: SkillRecord) => {
+    if (skill.status === "deprecated") return;
+    if (!window.confirm(`确定下线「${skill.name}」（${skill.skill_id}）？下线后将从 Bootstrap manifest 中移除。`)) return;
+    const res = await adminFetch(`/api/v1/skills/${encodeURIComponent(skill.skill_id)}/deprecate`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "deprecated from console",
+        reviewer: "admin",
+      }),
+    });
+    if (!res.ok) {
+      setMessage(`下线失败：${res.status}`);
+      return;
+    }
+    setMessage(`技能 ${skill.skill_id} 已下线。`);
+    loadMarket();
+  };
+
+  const applyFilters = () => loadMarket(filters);
+
+  const resetFilters = () => {
+    const cleared = { query: "", tag: "", runtime_target: "", status_filter: "" };
+    setFilters(cleared);
+    loadMarket(cleared);
+  };
+
   const pending = candidates.filter((item) => item.status === "pending");
+  const approvedCount = skills.filter((item) => item.status !== "deprecated").length;
+  const deprecatedCount = skills.filter((item) => item.status === "deprecated").length;
 
   return (
     <div className="space-y-6">
       <section className="grid gap-4 md:grid-cols-4">
-        <StatCard label="市场 Skills" value={skills.length} note="已批准 / 可搜索" />
+        <StatCard label="可用 Skills" value={approvedCount} note="approved / 可安装" />
+        <StatCard label="已下线" value={deprecatedCount} note="deprecated / 不可安装" />
         <StatCard label="待审核候选" value={pending.length} note="Connector 提交" />
         <StatCard label="Bootstrap Bundle" value={manifest ? manifest.skills.length : "-"} note={manifest?.bundle_id ?? "default-agent-skills"} />
-        <StatCard label="Runtime Targets" value={manifest?.runtime_targets.length ?? "-"} note={manifest?.runtime_targets.join(", ") ?? "未加载"} />
       </section>
 
       {message && <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">{message}</div>}
 
       <Card className="p-5">
-        <SectionHeader title="私有化部署包上传" subtitle="上传 zip/tar/.skill 包后，运行端可通过 manifest 获取 package_url。" />
+        <SectionHeader
+          title="私有化部署包上传"
+          subtitle="上传后可在 /market 前台展示；运行端通过 manifest 获取 package_url。"
+          action={<a href="/market" target="_blank" rel="noreferrer" className="text-sm font-medium text-violet-600 hover:text-violet-700">打开市场前台 →</a>}
+        />
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder="skill_id，例如 private-crm-summary" value={upload.skill_id} onChange={(e) => setUpload({ ...upload, skill_id: e.target.value })} />
           <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder="名称" value={upload.name} onChange={(e) => setUpload({ ...upload, name: e.target.value })} />
@@ -856,7 +928,7 @@ function SkillsMarketPanel() {
 
       <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <Card className="p-5">
-          <SectionHeader title="Bootstrap Manifest" subtitle="运行端首次安装时使用的初始化能力包。" action={<button onClick={loadMarket} className="text-sm font-medium text-blue-600">{loading ? "刷新中..." : "刷新"}</button>} />
+          <SectionHeader title="Bootstrap Manifest" subtitle="运行端首次安装时使用的初始化能力包。" action={<button onClick={() => loadMarket()} className="text-sm font-medium text-blue-600">{loading ? "刷新中..." : "刷新"}</button>} />
           {manifest ? (
             <div className="space-y-3">
               <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
@@ -908,17 +980,63 @@ function SkillsMarketPanel() {
       </section>
 
       <Card className="p-5">
-        <SectionHeader title="已发布 Skills" subtitle="审核通过或手动上传的企业私有技能。" />
+        <SectionHeader
+          title="已发布 Skills"
+          subtitle="支持关键词、标签、runtime 与状态筛选；下线后不再出现在 Bootstrap manifest。"
+          action={<button onClick={() => loadMarket()} className="text-sm font-medium text-blue-600">{loading ? "刷新中..." : "刷新"}</button>}
+        />
+        <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <input
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm xl:col-span-2"
+            placeholder="搜索名称或描述"
+            value={filters.query}
+            onChange={(e) => setFilters({ ...filters, query: e.target.value })}
+            onKeyDown={(e) => e.key === "Enter" && applyFilters()}
+          />
+          <input
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            placeholder="tag，例如 crm"
+            value={filters.tag}
+            onChange={(e) => setFilters({ ...filters, tag: e.target.value })}
+            onKeyDown={(e) => e.key === "Enter" && applyFilters()}
+          />
+          <select
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            value={filters.runtime_target}
+            onChange={(e) => setFilters({ ...filters, runtime_target: e.target.value })}
+          >
+            <option value="">全部 runtime</option>
+            <option value="openclaw">openclaw</option>
+            <option value="hermes">hermes</option>
+            <option value="skilllite">skilllite</option>
+            <option value="custom">custom</option>
+          </select>
+          <select
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            value={filters.status_filter}
+            onChange={(e) => setFilters({ ...filters, status_filter: e.target.value })}
+          >
+            <option value="">全部状态</option>
+            <option value="approved">approved</option>
+            <option value="deprecated">deprecated</option>
+          </select>
+        </div>
+        <div className="mb-4 flex gap-2">
+          <button onClick={applyFilters} className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">应用筛选</button>
+          <button onClick={resetFilters} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">重置</button>
+        </div>
         {skills.length ? (
           <div className="overflow-hidden rounded-xl border border-slate-200">
             <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Skill</th>
+                  <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Runtime</th>
                   <th className="px-4 py-3">Visibility</th>
                   <th className="px-4 py-3">Package</th>
                   <th className="px-4 py-3">Updated</th>
+                  <th className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
@@ -927,6 +1045,12 @@ function SkillsMarketPanel() {
                     <td className="px-4 py-3">
                       <div className="font-semibold text-slate-950">{skill.name}</div>
                       <div className="font-mono text-xs text-slate-500">{skill.skill_id}</div>
+                      {skill.tags?.length ? <div className="mt-1 text-xs text-slate-400">{skill.tags.join(", ")}</div> : null}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge className={skill.status === "deprecated" ? "border-slate-200 bg-slate-100 text-slate-600" : "border-emerald-200 bg-emerald-50 text-emerald-700"}>
+                        {skill.status}
+                      </Badge>
                     </td>
                     <td className="px-4 py-3 text-slate-600">{skill.runtime_targets.join(", ")}</td>
                     <td className="px-4 py-3 text-slate-600">{skill.visibility}{skill.team_id ? ` · ${skill.team_id}` : ""}</td>
@@ -938,12 +1062,17 @@ function SkillsMarketPanel() {
                       ) : <span className="text-slate-400">builtin</span>}
                     </td>
                     <td className="px-4 py-3 text-slate-500">{formatDate(skill.updated_at)}</td>
+                    <td className="px-4 py-3">
+                      {skill.status !== "deprecated" ? (
+                        <button onClick={() => deprecateSkill(skill)} className="text-xs font-medium text-red-600 hover:text-red-700">下线</button>
+                      ) : <span className="text-xs text-slate-400">已下线</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        ) : <EmptyState>暂无已发布技能。</EmptyState>}
+        ) : <EmptyState>没有匹配的技能，请调整筛选条件。</EmptyState>}
       </Card>
     </div>
   );

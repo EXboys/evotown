@@ -12,6 +12,7 @@ import {
 
 import { GatewayAccountsPanel } from "./GatewayAccountsPanel";
 import { KnowledgePanel } from "./KnowledgePanel";
+import { EmployeeConfigPanel } from "./market/EmployeeConfigPanel";
 import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hooks/useAdminToken";
 
 type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "runs" | "skills" | "knowledge" | "costs" | "risk";
@@ -605,21 +606,13 @@ function Gateway({ data }: { data: ConsoleData }) {
           title="接入方式"
           subtitle="子 agent 只需要把 OpenAI-compatible endpoint 指到 Evotown"
         />
-        <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-          <pre className="overflow-auto rounded-xl bg-slate-950 p-4 text-xs leading-relaxed text-slate-200">{`OPENAI_BASE_URL=http://127.0.0.1:8765/api/gateway/v1
-OPENAI_API_KEY=evotown_agent_key_xxx
-
-# optional attribution headers
-X-Evotown-Agent-Id: agent-local-001
-X-Evotown-Team-Id: platform
-X-Evotown-Engine-Id: openclaw-local`}</pre>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-            <div className="font-semibold text-slate-950">LiteLLM backend</div>
+        <EmployeeConfigPanel compact className="border-slate-200 bg-slate-50/50" />
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+          <div className="font-semibold text-slate-950">LiteLLM backend</div>
             <p className="mt-2">
               Evotown 负责企业身份、对话审计、成本归属和风控；LiteLLM 负责模型供应商适配、fallback、路由和基础成本统计。
             </p>
             <div className="mt-4 text-xs text-slate-500">Configured gateway keys: {data.gatewayKeys.length}</div>
-          </div>
         </div>
       </Card>
 

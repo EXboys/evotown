@@ -25,11 +25,16 @@ class MarketApiTest(unittest.TestCase):
         from infra import skill_market
 
         skill_market._conn = None  # noqa: SLF001
+        from infra import accounts as accounts_store
+
+        accounts_store._conn = None  # noqa: SLF001
 
     def tearDown(self) -> None:
         from infra import skill_market
+        from infra import accounts as accounts_store
 
         skill_market._conn = None  # noqa: SLF001
+        accounts_store._conn = None  # noqa: SLF001
         self._dotenv_patch.stop()
         self._env_patch.stop()
         self._tmpdir.cleanup()
@@ -89,6 +94,44 @@ class MarketApiTest(unittest.TestCase):
 
         detail_after = client.get("/api/v1/market/skills/market-demo")
         self.assertEqual(detail_after.json()["skill"]["download_count"], 1)
+
+    def test_market_manifest_requires_employee_key(self) -> None:
+        from fastapi.testclient import TestClient
+        import importlib
+        import main
+
+        importlib.reload(main)
+        client = TestClient(main.app)
+
+        unauth = client.get(
+            "/api/v1/market/bundles/default-agent-skills/manifest?runtime_target=hermes",
+        )
+        self.assertEqual(unauth.status_code, 401)
+
+        admin = {"X-Admin-Token": "test-admin-token"}
+        account = client.post(
+            "/api/v1/accounts",
+            json={"name": "Manifest User", "team_id": "default", "owner_email": "manifest@example.com"},
+            headers=admin,
+        )
+        self.assertEqual(account.status_code, 200)
+        account_id = account.json()["account"]["account_id"]
+        key_resp = client.post(
+            f"/api/v1/accounts/{account_id}/keys",
+            json={"label": "employee", "scopes": ["gateway.chat", "console.read"]},
+            headers=admin,
+        )
+        self.assertEqual(key_resp.status_code, 200)
+        api_key = key_resp.json()["secret"]
+
+        manifest = client.get(
+            "/api/v1/market/bundles/default-agent-skills/manifest?runtime_target=hermes",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        self.assertEqual(manifest.status_code, 200)
+        body = manifest.json()["manifest"]
+        self.assertEqual(body["bundle_id"], "default-agent-skills")
+        self.assertGreaterEqual(len(body["skills"]), 1)
 
 
 if __name__ == "__main__":

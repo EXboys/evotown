@@ -63,7 +63,7 @@ Visit [http://localhost:5174](http://localhost:5174)
 
 Copy `.env.example` to `.env` and fill in at least the main `BASE_URL`, `API_KEY`, and `MODEL`. Optional per-channel overrides (`JUDGE_`*, `DISPATCHER_*`, `SOCIAL_*`, `CHRONICLE_*`) let high-frequency flows use a cheaper model while judge and chronicle keep a stronger one. Docker Compose also accepts `OPENAI_API_KEY` / `OPENAI_BASE_URL` as aliases for the main channel.
 
-External engine ingest uses bearer auth. Set `EVOTOWN_ENGINE_INGEST_TOKEN` for OpenClaw / Hermes / custom runners; if it is unset, the backend falls back to `ADMIN_TOKEN` for local single-node development.
+External engine ingest uses bearer auth. Set `EVOTOWN_ENGINE_INGEST_TOKEN` for OpenClaw / Hermes / custom runners. For local dev only, `EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK=1` allows ingest writes to fall back to `ADMIN_TOKEN`. **Ingest read APIs** (`GET /engines`, `/runs`, `/policy/violations`, `/costs/summary`) require `X-Admin-Token`.
 
 Arena economy and evolution knobs live in `backend/evotown_config.json` (see `backend/evotown_config.json.example`).
 
@@ -130,7 +130,7 @@ Managed keys live in `data/accounts.db` (override data dir with `EVOTOWN_DATA_DI
 
 **CI:** GitHub Actions runs backend tests and frontend build on push/PR to `main` (`.github/workflows/ci.yml`).
 
-**Backward compatibility:** `EVOTOWN_GATEWAY_API_KEYS` and `ADMIN_TOKEN` still work as legacy gateway bearer tokens for local dev (legacy keys skip DB quotas unless `EVOTOWN_GATEWAY_LEGACY_MONTHLY_*` env limits are set).
+**Backward compatibility:** `EVOTOWN_GATEWAY_API_KEYS` supplies legacy env bearer tokens (each gets a stable `legacy:…` audit id for burst/quota). Optional limits: `EVOTOWN_GATEWAY_LEGACY_MONTHLY_*` and `EVOTOWN_GATEWAY_LEGACY_BURST_RPM`. For local dev only, `EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY=1` also accepts `ADMIN_TOKEN` as a gateway bearer — **do not enable in production**.
 
 Set `LITELLM_BASE_URL` and `LITELLM_MASTER_KEY` for production. Docker Compose includes an optional LiteLLM service under the `litellm` profile.
 

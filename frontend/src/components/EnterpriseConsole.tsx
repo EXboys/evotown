@@ -231,19 +231,19 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
     setLoading(true);
     setError("");
     Promise.all([
-      fetch("/api/v1/engines").then((r) => {
+      adminFetch("/api/v1/engines").then((r) => {
         if (!r.ok) throw new Error(`engines ${r.status}`);
         return r.json() as Promise<{ engines?: EngineRecord[] }>;
       }),
-      fetch("/api/v1/runs?limit=200").then((r) => {
+      adminFetch("/api/v1/runs?limit=200").then((r) => {
         if (!r.ok) throw new Error(`runs ${r.status}`);
         return r.json() as Promise<{ runs?: ExternalRun[] }>;
       }),
-      fetch("/api/v1/policy/violations?limit=200").then((r) => {
+      adminFetch("/api/v1/policy/violations?limit=200").then((r) => {
         if (!r.ok) throw new Error(`violations ${r.status}`);
         return r.json() as Promise<{ violations?: PolicyViolation[] }>;
       }),
-      fetch("/api/v1/costs/summary").then((r) => {
+      adminFetch("/api/v1/costs/summary").then((r) => {
         if (!r.ok) throw new Error(`costs ${r.status}`);
         return r.json() as Promise<CostSummary>;
       }),
@@ -314,8 +314,8 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
     navigate("/runs");
     setEventsLoading(true);
     Promise.all([
-      fetch(`/api/v1/runs/${encodeURIComponent(run.run_id)}/events`).then((r) => r.json() as Promise<{ events?: RunEvent[] }>),
-      fetch(`/api/v1/policy/violations?run_id=${encodeURIComponent(run.run_id)}`).then((r) => r.json() as Promise<{ violations?: PolicyViolation[] }>),
+      adminFetch(`/api/v1/runs/${encodeURIComponent(run.run_id)}/events`).then((r) => r.json() as Promise<{ events?: RunEvent[] }>),
+      adminFetch(`/api/v1/policy/violations?run_id=${encodeURIComponent(run.run_id)}`).then((r) => r.json() as Promise<{ violations?: PolicyViolation[] }>),
     ])
       .then(([eventData, violationData]) => {
         const riskEvents = (violationData.violations || []).map((item, index) => ({

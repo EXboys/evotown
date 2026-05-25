@@ -1,19 +1,19 @@
-"""简单双 Token 鉴权
+"""Simple multi-role token auth.
 
-策略：
-  - 管理面读/写（账号、Key、网关审计）→ X-Admin-Token
-  - Arena 观战 GET + WebSocket               → 公开（agents / runs 等）
-  - Gateway chat/completions                 → Bearer API key + scope 校验
+Roles (separate env vars in production):
+  - Admin (X-Admin-Token)           → ADMIN_TOKEN
+  - Engine ingest (Bearer)          → EVOTOWN_ENGINE_INGEST_TOKEN
+  - Gateway legacy env keys         → EVOTOWN_GATEWAY_API_KEYS (comma-separated)
 
-启动前在环境变量或 .env 中设置：
-  ADMIN_TOKEN=your-secret-here
+Managed gateway keys (evk_…) are stored in SQLite (infra.accounts).
 
-Gateway API keys:
-  - 优先查 SQLite 账号库（infra.accounts）
-  - 回退到 EVOTOWN_GATEWAY_API_KEYS / ADMIN_TOKEN（本地兼容）
+Local dev fallbacks (opt-in via EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK=1):
+  - Ingest may fall back to ADMIN_TOKEN when ingest token is unset
+  - Gateway may treat ADMIN_TOKEN as a legacy bearer when EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY=1
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from typing import Any
@@ -30,12 +30,22 @@ GATEWAY_SCOPE_CHAT = "gateway.chat"
 LEGACY_GATEWAY_SCOPES = [GATEWAY_SCOPE_CHAT]
 
 
+def _truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _get_configured_token() -> str:
     return os.environ.get("ADMIN_TOKEN", "").strip()
 
 
+def legacy_key_id(raw_token: str) -> str:
+    """Stable synthetic key_id for legacy env bearer tokens (audit + rate limits)."""
+    digest = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    return f"legacy:{digest[:16]}"
+
+
 async def require_admin(key: str | None = Security(_HEADER_SCHEME)) -> None:
-    """FastAPI 依赖：校验 X-Admin-Token 请求头。"""
+    """FastAPI dependency: validate X-Admin-Token header."""
     admin_token = _get_configured_token()
     if not admin_token:
         raise HTTPException(
@@ -50,7 +60,12 @@ async def require_admin(key: str | None = Security(_HEADER_SCHEME)) -> None:
 
 
 def _get_engine_ingest_token() -> str:
-    return os.environ.get("EVOTOWN_ENGINE_INGEST_TOKEN", "").strip() or _get_configured_token()
+    ingest = os.environ.get("EVOTOWN_ENGINE_INGEST_TOKEN", "").strip()
+    if ingest:
+        return ingest
+    if _truthy_env("EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK"):
+        return _get_configured_token()
+    return ""
 
 
 async def require_engine_ingest(
@@ -60,7 +75,10 @@ async def require_engine_ingest(
     if not token:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Server not configured: EVOTOWN_ENGINE_INGEST_TOKEN or ADMIN_TOKEN is missing.",
+            detail=(
+                "Server not configured: set EVOTOWN_ENGINE_INGEST_TOKEN "
+                "(or EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK=1 for local dev)."
+            ),
         )
     if credentials is None or credentials.scheme.lower() != "bearer" or credentials.credentials != token:
         raise HTTPException(
@@ -72,14 +90,15 @@ async def require_engine_ingest(
 def _legacy_gateway_keys() -> list[str]:
     raw = os.environ.get("EVOTOWN_GATEWAY_API_KEYS", "").strip()
     keys = [item.strip() for item in raw.split(",") if item.strip()]
-    admin_token = _get_configured_token()
-    if admin_token:
-        keys.append(admin_token)
+    if _truthy_env("EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY"):
+        admin_token = _get_configured_token()
+        if admin_token and admin_token not in keys:
+            keys.append(admin_token)
     return keys
 
 
 def _gateway_key_label(token: str) -> str:
-    if token == _get_configured_token():
+    if _truthy_env("EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY") and token == _get_configured_token():
         return "admin-token"
     if token.startswith(accounts_store.KEY_PREFIX):
         return token[:12] + "…"
@@ -111,7 +130,16 @@ def _identity_from_record(record: dict[str, Any]) -> dict[str, Any]:
         "scopes": _scopes_list(record.get("scopes")),
         "monthly_token_limit": int(record.get("monthly_token_limit") or 0),
         "monthly_cost_limit_usd": float(record.get("monthly_cost_limit_usd") or 0),
+        "burst_rpm_limit": int(record.get("burst_rpm_limit") or 0),
         "source": "database",
+    }
+
+
+def _legacy_env_limits() -> dict[str, int | float]:
+    return {
+        "monthly_token_limit": int(os.environ.get("EVOTOWN_GATEWAY_LEGACY_MONTHLY_TOKEN_LIMIT", "0") or 0),
+        "monthly_cost_limit_usd": float(os.environ.get("EVOTOWN_GATEWAY_LEGACY_MONTHLY_COST_LIMIT_USD", "0") or 0),
+        "burst_rpm_limit": int(os.environ.get("EVOTOWN_GATEWAY_LEGACY_BURST_RPM", "0") or 0),
     }
 
 
@@ -121,19 +149,28 @@ def _resolve_gateway_identity(raw_token: str) -> dict[str, Any] | None:
         return _identity_from_record(record)
 
     if raw_token in _legacy_gateway_keys():
+        limits = _legacy_env_limits()
         return {
-            "key_id": "",
+            "key_id": legacy_key_id(raw_token),
             "account_id": "",
             "account_name": "",
             "team_id": "",
             "key_label": _gateway_key_label(raw_token),
             "key_prefix": "",
             "scopes": list(LEGACY_GATEWAY_SCOPES),
-            "monthly_token_limit": int(os.environ.get("EVOTOWN_GATEWAY_LEGACY_MONTHLY_TOKEN_LIMIT", "0") or 0),
-            "monthly_cost_limit_usd": float(os.environ.get("EVOTOWN_GATEWAY_LEGACY_MONTHLY_COST_LIMIT_USD", "0") or 0),
             "source": "legacy_env",
+            **limits,
         }
     return None
+
+
+def key_record_for_checks(identity: dict[str, Any]) -> dict[str, Any]:
+    """Resolve DB key row or pass through legacy identity for quota/burst checks."""
+    if identity.get("source") == "database":
+        key_id = identity.get("key_id") or ""
+        if key_id:
+            return accounts_store.get_api_key(key_id) or identity
+    return identity
 
 
 def _assert_gateway_scope(identity: dict[str, Any], required_scope: str) -> None:
@@ -190,6 +227,41 @@ def admin_token_status() -> str:
     if not token:
         return "NOT SET ⚠️  — all write endpoints will return 503"
     return f"configured ({len(token)} chars) ✓"
+
+
+def security_status() -> dict[str, str]:
+    admin = _get_configured_token()
+    ingest = os.environ.get("EVOTOWN_ENGINE_INGEST_TOKEN", "").strip()
+    gateway_keys = _legacy_gateway_keys()
+    dev_fallback = _truthy_env("EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK")
+    dev_admin_gateway = _truthy_env("EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY")
+
+    ingest_effective = ingest or (admin if dev_fallback else "")
+    shared_admin_ingest = bool(admin and ingest_effective == admin and ingest == "")
+    shared_admin_gateway = bool(admin and dev_admin_gateway and admin in gateway_keys)
+
+    warnings: list[str] = []
+    if not ingest and not dev_fallback:
+        warnings.append("EVOTOWN_ENGINE_INGEST_TOKEN unset (ingest writes return 503)")
+    if shared_admin_ingest and not dev_fallback:
+        pass
+    if shared_admin_ingest and dev_fallback:
+        warnings.append("ingest uses ADMIN_TOKEN via dev fallback")
+    if shared_admin_gateway:
+        warnings.append("ADMIN_TOKEN enabled as legacy gateway bearer (dev only)")
+    if admin and ingest and admin == ingest:
+        warnings.append("ADMIN_TOKEN equals EVOTOWN_ENGINE_INGEST_TOKEN")
+    if admin and admin in os.environ.get("EVOTOWN_GATEWAY_API_KEYS", "").split(","):
+        warnings.append("ADMIN_TOKEN also listed in EVOTOWN_GATEWAY_API_KEYS")
+
+    return {
+        "admin_token": admin_token_status(),
+        "engine_ingest_token": "configured ✓" if ingest else ("dev fallback → ADMIN" if dev_fallback and admin else "NOT SET"),
+        "legacy_gateway_keys": f"{len(gateway_keys)} key(s)" if gateway_keys else "none (use managed evk_ keys)",
+        "dev_admin_as_gateway": "enabled ⚠️" if dev_admin_gateway else "disabled",
+        "dev_ingest_fallback": "enabled ⚠️" if dev_fallback else "disabled",
+        "warnings": "; ".join(warnings) if warnings else "none",
+    }
 
 
 # ── Prompt Injection Guard ─────────────────────────────────────────────────────

@@ -1,0 +1,178 @@
+"""Security hardening: ingest read auth, token role split, legacy gateway metering."""
+from __future__ import annotations
+
+import os
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from core.auth import legacy_key_id, _resolve_gateway_identity
+from infra import accounts as accounts_store
+from infra import gateway as gateway_store
+
+
+class IngestReadAuthTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._env_patch = patch.dict(
+            os.environ,
+            {
+                "EVOTOWN_DATA_DIR": self._tmpdir.name,
+                "ADMIN_TOKEN": "test-admin-token",
+                "EVOTOWN_ENGINE_INGEST_TOKEN": "test-ingest-token",
+            },
+            clear=False,
+        )
+        self._env_patch.start()
+        self._dotenv_patch = patch("dotenv.load_dotenv")
+        self._dotenv_patch.start()
+        accounts_store._conn = None  # noqa: SLF001
+        gateway_store._conn = None  # noqa: SLF001
+
+    def tearDown(self) -> None:
+        accounts_store._conn = None  # noqa: SLF001
+        gateway_store._conn = None  # noqa: SLF001
+        self._dotenv_patch.stop()
+        self._env_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_ingest_reads_require_admin(self) -> None:
+        from fastapi.testclient import TestClient
+        import importlib
+        import main
+
+        importlib.reload(main)
+        client = TestClient(main.app)
+
+        for path in (
+            "/api/v1/engines",
+            "/api/v1/runs",
+            "/api/v1/policy/violations",
+            "/api/v1/costs/summary",
+        ):
+            self.assertEqual(client.get(path).status_code, 403, path)
+
+        admin = {"X-Admin-Token": "test-admin-token"}
+        self.assertEqual(client.get("/api/v1/engines", headers=admin).status_code, 200)
+        self.assertEqual(client.get("/api/v1/runs", headers=admin).status_code, 200)
+
+    def test_ingest_write_requires_ingest_token_not_admin_header(self) -> None:
+        from fastapi.testclient import TestClient
+        import importlib
+        import main
+
+        importlib.reload(main)
+        client = TestClient(main.app)
+        admin = {"X-Admin-Token": "test-admin-token"}
+
+        res = client.post(
+            "/api/v1/engines/register",
+            json={
+                "engine_id": "eng_test",
+                "engine_type": "custom",
+                "engine_version": "1.0",
+            },
+            headers=admin,
+        )
+        self.assertEqual(res.status_code, 403)
+
+        res = client.post(
+            "/api/v1/engines/register",
+            json={
+                "engine_id": "eng_test",
+                "engine_type": "custom",
+                "engine_version": "1.0",
+            },
+            headers={"Authorization": "Bearer test-ingest-token"},
+        )
+        self.assertEqual(res.status_code, 200)
+
+
+class LegacyGatewayMeteringTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._env_patch = patch.dict(
+            os.environ,
+            {
+                "EVOTOWN_DATA_DIR": self._tmpdir.name,
+                "EVOTOWN_GATEWAY_API_KEYS": "legacy-secret-key",
+                "EVOTOWN_GATEWAY_LEGACY_MONTHLY_TOKEN_LIMIT": "100",
+                "EVOTOWN_GATEWAY_LEGACY_BURST_RPM": "2",
+            },
+            clear=False,
+        )
+        self._env_patch.start()
+        accounts_store._conn = None  # noqa: SLF001
+        gateway_store._conn = None  # noqa: SLF001
+
+    def tearDown(self) -> None:
+        accounts_store._conn = None  # noqa: SLF001
+        gateway_store._conn = None  # noqa: SLF001
+        self._env_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_legacy_key_gets_synthetic_key_id(self) -> None:
+        identity = _resolve_gateway_identity("legacy-secret-key")
+        self.assertIsNotNone(identity)
+        assert identity is not None
+        self.assertEqual(identity["source"], "legacy_env")
+        self.assertTrue(identity["key_id"].startswith("legacy:"))
+        self.assertEqual(identity["key_id"], legacy_key_id("legacy-secret-key"))
+
+    def test_legacy_monthly_quota_uses_synthetic_key_id(self) -> None:
+        identity = _resolve_gateway_identity("legacy-secret-key")
+        assert identity is not None
+        key_id = identity["key_id"]
+        gateway_store.record_request(
+            {
+                "request_id": "gw_legacy1",
+                "conversation_id": "c1",
+                "api_key_label": "legacy",
+                "account_id": "",
+                "key_id": key_id,
+                "agent_id": "",
+                "team_id": "",
+                "engine_id": "",
+                "model": "m",
+                "status_code": 200,
+                "total_tokens": 100,
+                "latency_ms": 1,
+                "risk_status": "allowed",
+                "request_excerpt": "",
+                "response_excerpt": "",
+                "error": "",
+            }
+        )
+        usage = gateway_store.monthly_usage_for_key(key_id)
+        allowed, reason = accounts_store.check_monthly_quota(identity, usage)
+        self.assertFalse(allowed)
+        self.assertEqual(reason, "monthly_token_limit_exceeded")
+
+    def test_admin_token_not_legacy_gateway_without_dev_flag(self) -> None:
+        with patch.dict(os.environ, {"ADMIN_TOKEN": "admin-only", "EVOTOWN_GATEWAY_API_KEYS": ""}, clear=False):
+            from core import auth as auth_mod
+            import importlib
+            importlib.reload(auth_mod)
+            self.assertIsNone(auth_mod._resolve_gateway_identity("admin-only"))
+
+    def test_admin_token_legacy_gateway_with_dev_flag(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "ADMIN_TOKEN": "admin-only",
+                "EVOTOWN_GATEWAY_API_KEYS": "",
+                "EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY": "1",
+            },
+            clear=False,
+        ):
+            from core import auth as auth_mod
+            import importlib
+            importlib.reload(auth_mod)
+            identity = auth_mod._resolve_gateway_identity("admin-only")
+            self.assertIsNotNone(identity)
+            assert identity is not None
+            self.assertTrue(identity["key_id"].startswith("legacy:"))
+
+
+if __name__ == "__main__":
+    unittest.main()

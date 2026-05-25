@@ -46,7 +46,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("evotown.main")
 
-from core.auth import admin_token_status  # noqa: E402
+from core.auth import admin_token_status, security_status  # noqa: E402
 
 
 @asynccontextmanager
@@ -246,9 +246,16 @@ _cors_origins: list[str] = (
     else ["*"]
 )
 
+_sec = security_status()
 logger.info("── Security ──────────────────────────────────────────")
-logger.info("  ADMIN_TOKEN : %s", admin_token_status())
-logger.info("  CORS origins: %s", _cors_origins)
+logger.info("  ADMIN_TOKEN      : %s", _sec["admin_token"])
+logger.info("  Engine ingest    : %s", _sec["engine_ingest_token"])
+logger.info("  Legacy GW keys   : %s", _sec["legacy_gateway_keys"])
+logger.info("  Dev GW+admin     : %s", _sec["dev_admin_as_gateway"])
+logger.info("  Dev ingest fall. : %s", _sec["dev_ingest_fallback"])
+if _sec["warnings"] != "none":
+    logger.warning("  Security notes   : %s", _sec["warnings"])
+logger.info("  CORS origins     : %s", _cors_origins)
 logger.info("─────────────────────────────────────────────────────")
 
 app = FastAPI(

@@ -102,7 +102,7 @@ Evotown can also sit in front of LiteLLM as an enterprise API gateway. Agents ca
 
 ```bash
 OPENAI_BASE_URL=http://localhost:8765/api/gateway/v1
-OPENAI_API_KEY=evotown_agent_key_xxx
+OPENAI_API_KEY=evk_xxxxxxxx   # issued from /accounts console or API
 ```
 
 MVP endpoints:
@@ -110,9 +110,24 @@ MVP endpoints:
 - `POST /api/gateway/v1/chat/completions` — OpenAI-compatible non-streaming chat completion proxy.
 - `GET /api/gateway/v1/usage/summary` — gateway requests, cost, token, model, and agent summary.
 - `GET /api/gateway/v1/conversations` — conversation-level gateway rollup.
-- `GET /api/gateway/v1/api-keys` — configured gateway key labels.
+- `GET /api/gateway/v1/api-keys` — managed + legacy env key metadata.
 
-Set `EVOTOWN_GATEWAY_API_KEYS`, `LITELLM_BASE_URL`, and `LITELLM_MASTER_KEY` for production. Docker Compose includes an optional LiteLLM service under the `litellm` profile.
+### Gateway accounts & API keys
+
+Managed keys live in `data/accounts.db` (override data dir with `EVOTOWN_DATA_DIR`). Admins create accounts and issue keys via the enterprise console **`/accounts`** tab or the REST API below. Secrets are shown **once** at creation (`evk_…` prefix); only SHA-256 hashes are stored.
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| POST | `/api/v1/accounts` | X-Admin-Token | Create gateway account |
+| GET | `/api/v1/accounts` | public read | List accounts |
+| PATCH | `/api/v1/accounts/{account_id}` | X-Admin-Token | Update / disable account |
+| POST | `/api/v1/accounts/{account_id}/keys` | X-Admin-Token | Issue new API key (returns `secret`) |
+| GET | `/api/v1/accounts/{account_id}/keys` | public read | List keys (metadata only) |
+| POST | `/api/v1/keys/{key_id}/revoke` | X-Admin-Token | Revoke a key |
+
+**Backward compatibility:** `EVOTOWN_GATEWAY_API_KEYS` and `ADMIN_TOKEN` still work as legacy gateway bearer tokens for local dev.
+
+Set `LITELLM_BASE_URL` and `LITELLM_MASTER_KEY` for production. Docker Compose includes an optional LiteLLM service under the `litellm` profile.
 
 
 ## Enterprise control plane (product plan)

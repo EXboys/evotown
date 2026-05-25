@@ -138,3 +138,28 @@ class PolicyViolationIngest(BaseModel):
     message: str = Field(default="", max_length=2000)
     ts: str
     context: dict[str, Any] = Field(default_factory=dict)
+
+
+AccountStatus = Literal["active", "disabled"]
+ApiKeyStatus = Literal["active", "revoked"]
+
+
+class GatewayAccountCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    team_id: str = Field(default="", max_length=128)
+    owner_email: str = Field(default="", max_length=256)
+    notes: str = Field(default="", max_length=2000)
+
+
+class GatewayAccountUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    team_id: str | None = Field(default=None, max_length=128)
+    owner_email: str | None = Field(default=None, max_length=256)
+    status: AccountStatus | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class GatewayApiKeyCreate(BaseModel):
+    label: str = Field(default="", max_length=128)
+    scopes: list[str] = Field(default_factory=lambda: ["gateway.chat"])
+    expires_at: str | None = None

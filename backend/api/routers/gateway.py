@@ -112,8 +112,10 @@ async def chat_completions(
                 "request_id": request_id,
                 "conversation_id": conversation_id,
                 "api_key_label": identity["key_label"],
+                "account_id": identity.get("account_id", ""),
+                "key_id": identity.get("key_id", ""),
                 "agent_id": x_evotown_agent_id or "",
-                "team_id": x_evotown_team_id or "",
+                "team_id": x_evotown_team_id or identity.get("team_id", "") or "",
                 "engine_id": x_evotown_engine_id or "",
                 "model": model,
                 "status_code": 502,
@@ -136,8 +138,10 @@ async def chat_completions(
             "request_id": request_id,
             "conversation_id": conversation_id,
             "api_key_label": identity["key_label"],
+            "account_id": identity.get("account_id", ""),
+            "key_id": identity.get("key_id", ""),
             "agent_id": x_evotown_agent_id or "",
-            "team_id": x_evotown_team_id or "",
+            "team_id": x_evotown_team_id or identity.get("team_id", "") or "",
             "engine_id": x_evotown_engine_id or "",
             "model": model,
             "status_code": upstream.status_code,
@@ -172,11 +176,34 @@ async def list_requests(limit: int = 100):
 
 @router.get("/api-keys")
 async def list_api_keys():
+    """Legacy env keys plus managed keys (metadata only)."""
+    from infra import accounts as accounts_store
+
     configured = [item.strip() for item in os.environ.get("EVOTOWN_GATEWAY_API_KEYS", "").split(",") if item.strip()]
+    legacy = [
+        {
+            "key_label": f"gateway-key-{key[-6:]}" if len(key) >= 6 else "gateway-key",
+            "scope": "chat.completions",
+            "source": "legacy_env",
+        }
+        for key in configured
+    ]
+    managed = [
+        {
+            "key_id": k["key_id"],
+            "key_label": k.get("label") or k.get("key_prefix", "") + "…",
+            "key_prefix": k.get("key_prefix", ""),
+            "account_id": k.get("account_id", ""),
+            "status": k.get("status", ""),
+            "scope": ", ".join(k.get("scopes") or ["gateway.chat"]),
+            "source": "database",
+            "last_used_at": k.get("last_used_at"),
+        }
+        for k in accounts_store.list_api_keys(status="active", limit=500)
+    ]
     return {
-        "keys": [
-            {"key_label": f"gateway-key-{key[-6:]}" if len(key) >= 6 else "gateway-key", "scope": "chat.completions"}
-            for key in configured
-        ],
+        "keys": managed + legacy,
+        "managed_count": len(managed),
+        "legacy_env_count": len(legacy),
         "admin_token_fallback": bool(os.environ.get("ADMIN_TOKEN", "").strip()),
     }

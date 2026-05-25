@@ -53,8 +53,19 @@ def _ensure_conn() -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_gateway_conversation ON gateway_requests(conversation_id, created_at);
         """
     )
+    _migrate_gateway_schema(conn)
     _conn = conn
     return conn
+
+
+def _migrate_gateway_schema(conn: sqlite3.Connection) -> None:
+    """Add account/key columns to existing gateway.db installs."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(gateway_requests)").fetchall()}
+    if "account_id" not in cols:
+        conn.execute("ALTER TABLE gateway_requests ADD COLUMN account_id TEXT NOT NULL DEFAULT ''")
+    if "key_id" not in cols:
+        conn.execute("ALTER TABLE gateway_requests ADD COLUMN key_id TEXT NOT NULL DEFAULT ''")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_gateway_account ON gateway_requests(account_id)")
 
 
 def _json_dumps(value: Any) -> str:
@@ -73,16 +84,19 @@ def record_request(item: dict[str, Any]) -> dict[str, Any]:
     conn.execute(
         """
         INSERT OR REPLACE INTO gateway_requests (
-            request_id, conversation_id, api_key_label, agent_id, team_id, engine_id,
+            request_id, conversation_id, api_key_label, account_id, key_id,
+            agent_id, team_id, engine_id,
             model, status_code, prompt_tokens, completion_tokens, total_tokens,
             cost_usd, latency_ms, risk_status, request_excerpt, response_excerpt, error
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             item["request_id"],
             item.get("conversation_id", ""),
             item.get("api_key_label", ""),
+            item.get("account_id", ""),
+            item.get("key_id", ""),
             item.get("agent_id", ""),
             item.get("team_id", ""),
             item.get("engine_id", ""),
@@ -151,10 +165,23 @@ def usage_summary(limit: int = 10) -> dict[str, Any]:
         """,
         (max(1, min(limit, 100)),),
     ).fetchall()
+    by_account = conn.execute(
+        """
+        SELECT account_id, COUNT(*) AS requests, COALESCE(SUM(cost_usd), 0) AS cost_usd,
+               COALESCE(SUM(total_tokens), 0) AS total_tokens
+        FROM gateway_requests
+        WHERE account_id != ''
+        GROUP BY account_id
+        ORDER BY requests DESC
+        LIMIT ?
+        """,
+        (max(1, min(limit, 100)),),
+    ).fetchall()
     return {
         "total": dict(total) if total else {},
         "by_model": [dict(row) for row in by_model],
         "by_agent": [dict(row) for row in by_agent],
+        "by_account": [dict(row) for row in by_account],
     }
 
 

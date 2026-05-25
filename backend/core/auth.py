@@ -8,11 +8,17 @@
   ADMIN_TOKEN=your-secret-here
 
 若未配置 ADMIN_TOKEN，所有写操作返回 503，提醒部署者先设置。
+
+Gateway API keys:
+  - 优先查 SQLite 账号库（infra.accounts）
+  - 回退到 EVOTOWN_GATEWAY_API_KEYS / ADMIN_TOKEN（本地兼容）
 """
 import os
 
 from fastapi import HTTPException, Security, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
+
+from infra import accounts as accounts_store
 
 _HEADER_SCHEME = APIKeyHeader(name="X-Admin-Token", auto_error=False)
 _BEARER_SCHEME = HTTPBearer(auto_error=False)
@@ -69,8 +75,8 @@ async def require_engine_ingest(
         )
 
 
-def _get_gateway_api_keys() -> list[str]:
-    """Gateway virtual keys, falling back to ADMIN_TOKEN for local development."""
+def _legacy_gateway_keys() -> list[str]:
+    """Env-configured gateway keys for backward compatibility."""
     raw = os.environ.get("EVOTOWN_GATEWAY_API_KEYS", "").strip()
     keys = [item.strip() for item in raw.split(",") if item.strip()]
     admin_token = _get_configured_token()
@@ -82,25 +88,63 @@ def _get_gateway_api_keys() -> list[str]:
 def _gateway_key_label(token: str) -> str:
     if token == _get_configured_token():
         return "admin-token"
+    if token.startswith(accounts_store.KEY_PREFIX):
+        return token[:12] + "…"
     return f"gateway-key-{token[-6:]}" if len(token) >= 6 else "gateway-key"
+
+
+def _resolve_gateway_identity(raw_token: str) -> dict[str, str] | None:
+    """Resolve bearer token to gateway identity metadata."""
+    record = accounts_store.lookup_api_key(raw_token)
+    if record is not None:
+        label = record.get("label") or record.get("key_prefix", "") + "…"
+        return {
+            "key_id": record["key_id"],
+            "account_id": record["account_id"],
+            "account_name": record.get("account_name", ""),
+            "team_id": record.get("account_team_id") or record.get("team_id", ""),
+            "key_label": label,
+            "key_prefix": record.get("key_prefix", ""),
+            "source": "database",
+        }
+
+    legacy_keys = _legacy_gateway_keys()
+    if raw_token in legacy_keys:
+        return {
+            "key_id": "",
+            "account_id": "",
+            "account_name": "",
+            "team_id": "",
+            "key_label": _gateway_key_label(raw_token),
+            "key_prefix": "",
+            "source": "legacy_env",
+        }
+    return None
 
 
 async def require_gateway_api_key(
     credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
 ) -> dict[str, str]:
     """Validate bearer token for the centralized model gateway."""
-    keys = _get_gateway_api_keys()
-    if not keys:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Server not configured: EVOTOWN_GATEWAY_API_KEYS or ADMIN_TOKEN is missing.",
-        )
-    if credentials is None or credentials.scheme.lower() != "bearer" or credentials.credentials not in keys:
+    if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid or missing gateway bearer token.",
         )
-    return {"key_label": _gateway_key_label(credentials.credentials)}
+
+    identity = _resolve_gateway_identity(credentials.credentials)
+    if identity is None:
+        legacy_keys = _legacy_gateway_keys()
+        if not legacy_keys:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Server not configured: create gateway keys via /api/v1/accounts or set EVOTOWN_GATEWAY_API_KEYS.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or missing gateway bearer token.",
+        )
+    return identity
 
 
 def admin_token_status() -> str:

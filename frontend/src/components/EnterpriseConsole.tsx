@@ -11,6 +11,7 @@ import {
 } from "recharts";
 
 import { GatewayAccountsPanel } from "./GatewayAccountsPanel";
+import { GatewayModelRoutesPanel } from "./GatewayModelRoutesPanel";
 import { KnowledgePanel } from "./KnowledgePanel";
 import { EmployeeConfigPanel } from "./market/EmployeeConfigPanel";
 import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hooks/useAdminToken";
@@ -614,6 +615,14 @@ function Gateway({ data }: { data: ConsoleData }) {
             </p>
             <div className="mt-4 text-xs text-slate-500">Configured gateway keys: {data.gatewayKeys.length}</div>
         </div>
+      </Card>
+
+      <Card className="p-5">
+        <SectionHeader
+          title="模型路由"
+          subtitle="按 alias 将客户端 model 映射到 LiteLLM target；支持团队 / 账号 scope"
+        />
+        <GatewayModelRoutesPanel />
       </Card>
 
       <section className="grid gap-6 xl:grid-cols-3">

@@ -72,6 +72,11 @@ async def download_skill_package(skill_id: str):
     package = skill_market.get_package_file(skill_id)
     if package is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="package not found")
+    if not skill_market.verify_package_integrity(skill_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="skill package failed integrity or signature verification",
+        )
     skill_market.record_download(skill_id)
     path, filename = package
     return FileResponse(path, filename=filename, media_type="application/octet-stream")

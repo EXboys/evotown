@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 from core.auth import key_record_for_checks, require_admin, require_gateway_chat
 from infra import accounts as accounts_store
 from infra import gateway
+from infra import gateway_routes as gateway_routes_store
 
 router = APIRouter(prefix="/api/gateway/v1", tags=["gateway"])
 
@@ -174,7 +175,17 @@ def _prepare_chat_request(
 ) -> tuple[str, str, str, dict[str, Any], str, dict[str, str]]:
     request_id = f"gw_{uuid.uuid4().hex}"
     conversation_id = x_evotown_conversation_id or str(body.get("conversation_id") or body.get("thread_id") or request_id)
-    model = str(body.get("model") or "")
+    client_model = str(body.get("model") or "")
+    team_scope = (x_evotown_team_id or identity.get("team_id") or "").strip()
+    account_scope = (identity.get("account_id") or "").strip()
+    target_model, matched_route = gateway_routes_store.resolve_target_model(
+        client_model,
+        account_id=account_scope,
+        team_id=team_scope,
+    )
+    if target_model and target_model != client_model:
+        body["model"] = target_model
+    model = client_model or target_model
 
     _check_burst_or_raise(
         identity,
@@ -206,6 +217,9 @@ def _prepare_chat_request(
         "evotown_agent_id": x_evotown_agent_id or "",
         "evotown_team_id": x_evotown_team_id or "",
         "evotown_engine_id": x_evotown_engine_id or "",
+        "evotown_client_model": client_model,
+        "evotown_routed_model": target_model,
+        "evotown_route_id": (matched_route or {}).get("route_id", ""),
     }
 
     target = f"{litellm_base}/chat/completions"

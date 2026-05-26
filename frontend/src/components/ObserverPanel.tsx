@@ -212,7 +212,7 @@ export function ObserverPanel() {
         evotownEvents.emit("sprite_move", {
           agent_id: agentId,
           from: "开放办公区",
-          to: "升级中心",
+          to: "数据中心",
           reason: "forced_evolution",
         });
         const msg = data.message || (data.ok ? "进化已触发" : "进化未产生变更");

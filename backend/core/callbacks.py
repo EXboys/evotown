@@ -183,7 +183,7 @@ async def trigger_evolve_background(agent_id: str, agent_home: str) -> None:
         ok, msg = await process_mgr.trigger_evolve(agent_id, agent_home)
         logger.info("[%s] auto evolution %s", agent_id, "ok" if ok else f"failed: {msg[:200]}")
         if ok:
-            await ws.send_sprite_move(agent_id, "广场", "进化神殿", "auto_evolution")
+            await ws.send_sprite_move(agent_id, "广场", "数据中心", "auto_evolution")
     except Exception as e:
         logger.warning("[%s] auto evolution failed: %s", agent_id, e)
 

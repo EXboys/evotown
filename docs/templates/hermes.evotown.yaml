@@ -16,6 +16,7 @@ skills_market:
   install_scope: team
 
 # Evotown Connector：在 Hermes gateway 配置中增加 webhook 路由（示例，按 Hermes 版本调整）
+# 端到端验收步骤：docs/zh-CN/AGENT_DISPATCH.md § Hermes 端到端验收清单
 # Connector 默认 POST http://127.0.0.1:18789/hooks/evotown
 # gateway:
 #   platforms:

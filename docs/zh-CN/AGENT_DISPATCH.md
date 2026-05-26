@@ -118,6 +118,20 @@ evotown-agent-setup.py handoff \
 
 第一个 Agent 成功 `complete` 后，Evotown 自动创建子任务给 `finance` 团队队列。
 
+## Hermes 端到端验收清单
+
+在至少一台 Hermes 环境完成：
+
+1. 合并 `docs/templates/hermes.evotown.yaml` 中的 webhook 路由（path 以现场 Hermes 版本为准）。
+2. 员工 env：`EVOTOWN_RUNTIME=hermes`，`HERMES_HOOK_URL` / `HERMES_HOOK_TOKEN` 与 gateway 配置一致。
+3. `evotown-agent-setup.py register --save-token`，确认 `EVOTOWN_ENGINE_INGEST_TOKEN=evi_…`。
+4. `evotown-agent-setup.py connector --once`（或常驻 connector）。
+5. 控制台 `/dispatch` 派发 `dispatch` 任务到该引擎或所在团队。
+6. 验收：任务经 `leased` → `running` → `completed`/`failed`；webhook 收到含 `job_id` 的 body。
+7. 将 **Hermes 版本、webhook URL、验收日期** 记入运维 runbook。
+
+非阻塞 webhook（仅 202）：须由 Agent 调用 `complete` 或 ingest `run.completed`（与 OpenClaw 相同）。
+
 ## 运维说明
 
 - **leased** 超时 5 分钟自动回队列；**running** 超时 1 小时自动回队列

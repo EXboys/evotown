@@ -120,9 +120,7 @@ evotown-agent-setup.py handoff \
 
 第一个 Agent 成功 `complete` 后，Evotown 自动创建子任务给 `finance` 团队队列。
 
-## notify 任务
 
-`kind=notify`：Connector **触发本机 hook 后立即** `complete`（不进入 `poll_run` 长等待）。适用于仅通知、无需等待 Agent 长任务的场景。
 
 ## 运维说明
 

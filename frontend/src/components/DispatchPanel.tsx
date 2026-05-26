@@ -151,7 +151,7 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
               >
                 <option value="dispatch">dispatch（中心派活）</option>
                 <option value="handoff">handoff（交接）</option>
-                <option value="notify">notify（通知）</option>
+                <option value="notify">notify（通知，触发后即完成）</option>
               </select>
             </label>
 

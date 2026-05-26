@@ -95,10 +95,12 @@ evotown-agent-setup.py handoff \
 
 ## 策略
 
-环境变量 **`EVOTOWN_DISPATCH_TEAM_PAIRS`**（仅 `from-engine` handoff）：
+Handoff 团队策略（仅 `from-engine`）：
 
-- `*`（默认）：允许任意团队交接
-- `sales:finance,it:finance`：仅允许列出的 `源团队:目标团队`
+- 控制台 **`/dispatch`** →「Handoff 团队白名单」写入 `evotown_config.json` 的 `dispatch.team_pairs`
+- 环境变量 **`EVOTOWN_DISPATCH_TEAM_PAIRS`** 若设置则 **覆盖** 配置文件
+- `*`：允许任意团队；`sales:finance,it:finance`：仅列出的 `源团队:目标团队`
+- Admin API：`GET/PUT /api/v1/dispatch/policy`
 
 禁止 `source_engine_id` 与 `target_engine_id` 相同。
 

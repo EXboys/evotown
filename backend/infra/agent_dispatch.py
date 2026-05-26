@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from core.config import load_dispatch_config
 from domain.models import (
     DispatchHandoffSpec,
     DispatchJobAck,
@@ -164,7 +165,7 @@ def _validate_targets(body: DispatchJobCreate) -> None:
 
 
 def _team_pairs_policy() -> str:
-    return os.environ.get("EVOTOWN_DISPATCH_TEAM_PAIRS", "*").strip() or "*"
+    return load_dispatch_config().get("team_pairs", "*")
 
 
 def validate_handoff_policy(

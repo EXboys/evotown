@@ -104,6 +104,29 @@ def load_team_config() -> dict[str, Any]:
     return defaults
 
 
+def load_dispatch_config() -> dict[str, Any]:
+    """Dispatch / handoff policy: env EVOTOWN_DISPATCH_TEAM_PAIRS overrides evotown_config.json."""
+    data = _load_json()
+    dispatch = data.get("dispatch", {})
+    team_pairs = dispatch.get("team_pairs", "*")
+    if team_pairs is None:
+        team_pairs = "*"
+    team_pairs = str(team_pairs).strip() or "*"
+    env_pairs = os.environ.get("EVOTOWN_DISPATCH_TEAM_PAIRS")
+    if env_pairs is not None:
+        team_pairs = env_pairs.strip() or "*"
+    return {"team_pairs": team_pairs}
+
+
+def save_dispatch_team_pairs(team_pairs: str) -> dict[str, Any]:
+    """Persist handoff team pairs to evotown_config.json (env still overrides at runtime)."""
+    raw = (team_pairs or "*").strip() or "*"
+    data = _load_json()
+    data.setdefault("dispatch", {})["team_pairs"] = raw
+    _CONFIG_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return load_dispatch_config()
+
+
 def load_timeout_config() -> dict[str, Any]:
     """超时配置：任务执行超时、Judge LLM 调用超时、单任务最大工具调用步数"""
     data = _load_json()

@@ -49,6 +49,8 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
   const [message, setMessage] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [selected, setSelected] = useState<DispatchJob | null>(null);
+  const [teamPairs, setTeamPairs] = useState("*");
+  const [policyLoading, setPolicyLoading] = useState(false);
   const [form, setForm] = useState({
     kind: "dispatch" as "dispatch" | "handoff" | "notify",
     target_engine_id: "",
@@ -75,6 +77,29 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
     const t = setInterval(loadJobs, 15000);
     return () => clearInterval(t);
   }, [loadJobs]);
+
+  useEffect(() => {
+    adminFetch("/api/v1/dispatch/policy")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data: { team_pairs?: string }) => setTeamPairs(data.team_pairs || "*"))
+      .catch(() => setTeamPairs("*"));
+  }, []);
+
+  const savePolicy = async () => {
+    setPolicyLoading(true);
+    setMessage("");
+    const r = await adminFetch("/api/v1/dispatch/policy", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ team_pairs: teamPairs }),
+    });
+    setPolicyLoading(false);
+    if (!r.ok) {
+      setMessage(`策略保存失败: ${(await r.text()).slice(0, 120)}`);
+      return;
+    }
+    setMessage("Handoff 策略已保存（若设置了环境变量 EVOTOWN_DISPATCH_TEAM_PAIRS 仍以 env 为准）");
+  };
 
   const submit = async () => {
     setMessage("");
@@ -133,7 +158,29 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
         <strong>部署检查：</strong> 员工机需 <code className="text-xs">register</code> +{" "}
         <code className="text-xs">connector</code>；OpenClaw 配置 <code className="text-xs">hooks</code> 与{" "}
         <code className="text-xs">OPENCLAW_HOOK_TOKEN</code>。跨团队 handoff 受服务端{" "}
-        <code className="text-xs">EVOTOWN_DISPATCH_TEAM_PAIRS</code> 控制（默认 <code className="text-xs">*</code>）。
+        <code className="text-xs">EVOTOWN_DISPATCH_TEAM_PAIRS</code> 控制；可在下方编辑并保存到{" "}
+        <code className="text-xs">evotown_config.json</code>。
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 className="text-sm font-semibold text-slate-950">Handoff 团队白名单</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          格式：<code>*</code> 允许全部，或 <code>sales:finance,it:finance</code>（源团队:目标团队，逗号分隔）
+        </p>
+        <textarea
+          className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs"
+          rows={2}
+          value={teamPairs}
+          onChange={(e) => setTeamPairs(e.target.value)}
+        />
+        <button
+          type="button"
+          disabled={policyLoading}
+          onClick={savePolicy}
+          className="mt-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50"
+        >
+          保存策略
+        </button>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">

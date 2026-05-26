@@ -209,6 +209,31 @@ class AgentDispatchApiTest(unittest.TestCase):
         lease = client.get("/api/v1/jobs/lease?engine_id=openclaw-alice", headers=alice_ingest)
         self.assertEqual(lease.status_code, 204)
 
+    def test_dispatch_policy_get_and_put(self) -> None:
+        from pathlib import Path
+        from unittest.mock import patch
+
+        cfg_path = Path(self._tmpdir.name) / "evotown_config.json"
+        cfg_path.write_text('{"dispatch": {"team_pairs": "*"}}', encoding="utf-8")
+        with patch("core.config._CONFIG_PATH", cfg_path):
+            client = self._client()
+            admin = {"X-Admin-Token": "test-admin"}
+            get_res = client.get("/api/v1/dispatch/policy", headers=admin)
+            self.assertEqual(get_res.status_code, 200)
+            self.assertEqual(get_res.json().get("team_pairs"), "sales:finance")
+
+            put_res = client.put(
+                "/api/v1/dispatch/policy",
+                headers=admin,
+                json={"team_pairs": "it:finance"},
+            )
+            self.assertEqual(put_res.status_code, 200)
+            self.assertEqual(put_res.json().get("team_pairs"), "sales:finance")
+            import json
+
+            saved = json.loads(cfg_path.read_text(encoding="utf-8"))
+            self.assertEqual(saved["dispatch"]["team_pairs"], "it:finance")
+
     def test_heartbeat_and_fleet(self) -> None:
         client = self._client()
         bootstrap = {"Authorization": "Bearer test-ingest"}

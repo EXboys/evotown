@@ -677,6 +677,39 @@ def _process_job(cfg: dict[str, str], base: str, ingest: str, job: dict[str, Any
     )
     hook_thread.start()
 
+    if (job.get("kind") or "").strip() == "notify":
+        ok, detail = _trigger_runtime(cfg, job)
+        status = "succeeded" if ok else "failed"
+        exit_code = 0 if ok else 1
+        detail = detail or ("notify delivered" if ok else "notify hook failed")
+        _post_run_completed(
+            cfg,
+            base,
+            ingest,
+            run_id=run_id,
+            job_id=job_id,
+            status=status,
+            exit_code=exit_code,
+            detail=detail,
+            signals={"completion_source": "notify"},
+        )
+        payload = _complete_dispatch_job(
+            base,
+            ingest,
+            job_id,
+            engine_id_value=eid,
+            run_id=run_id,
+            status=status,
+            exit_code=exit_code,
+            detail=detail,
+            signals={"completion_source": "notify"},
+        )
+        if payload and payload.get("follow_up_job"):
+            f = payload["follow_up_job"]
+            log(f"→ chained handoff job {f.get('job_id')}")
+        log(f"✓ Job {job_id} notify → {status}: {detail[:120]}")
+        return
+
     status, exit_code, detail, source = _wait_for_agent_completion(
         cfg, base, ingest, job, run_id=run_id, hook_box=hook_box
     )

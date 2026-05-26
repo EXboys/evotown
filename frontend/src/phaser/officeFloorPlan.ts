@@ -58,7 +58,7 @@ export const OFFICE_BUILDINGS = {
   workshop: {
     x: ROOM_WORKSHOP.x + ROOM_WORKSHOP.w / 2,
     y: ROOM_WORKSHOP.y + ROOM_WORKSHOP.h / 2,
-    label: "Skill 工坊",
+    label: "研发室",
     w: 4, h: 3, roof: "flat" as const, color: NES.ROOF_DARK,
   },
   temple: {
@@ -82,7 +82,7 @@ export const OFFICE_BUILDINGS = {
   memory: {
     x: ROOM_MEMORY.x + ROOM_MEMORY.w / 2,
     y: ROOM_MEMORY.y + ROOM_MEMORY.h / 2,
-    label: "记忆仓",
+    label: "资料室",
     w: 3, h: 3, roof: "flat" as const, color: NES.ROOF_DARK,
   },
   task: {
@@ -692,14 +692,29 @@ function drawTaskBoard(g: Phaser.GameObjects.Graphics, ox: number, oy: number) {
 
 function drawMemory(g: Phaser.GameObjects.Graphics, ox: number, oy: number) {
   const r = ROOM_MEMORY;
-  // 记忆仓：磁带柜 / 存储阵列
-  for (let i = 0; i < 5; i++) {
-    g.fillStyle(0x475569, 1);
-    g.fillRect(r.x + 10 + i * 24 - ox, r.y + 18 - oy, 18, 28);
-    g.fillStyle(0x22d3ee, 1);
-    g.fillRect(r.x + 14 + i * 24 - ox, r.y + 24 - oy, 10, 2);
-    g.fillRect(r.x + 14 + i * 24 - ox, r.y + 30 - oy, 10, 2);
-    g.fillRect(r.x + 14 + i * 24 - ox, r.y + 36 - oy, 10, 2);
+  // 资料室：靠墙书架 + 桌上资料堆
+  const shelfColors = [0xa3826b, 0x8b6f5a, 0x9a7a64];
+  const bookPalette = [0xef4444, 0x3b82f6, 0x22c55e, 0xeab308, 0xa855f7, 0xfb923c];
+
+  for (let i = 0; i < 4; i++) {
+    const sx = r.x + 12 + i * 30;
+    const sy = r.y + 14;
+    // 书架外框
+    g.fillStyle(shelfColors[i % shelfColors.length], 1);
+    g.fillRect(sx - ox, sy - oy, 24, 30);
+    // 三层书架隔板
+    g.fillStyle(0x6b4f3e, 1);
+    g.fillRect(sx - ox, sy + 9 - oy, 24, 2);
+    g.fillRect(sx - ox, sy + 19 - oy, 24, 2);
+    // 每层 4 本书脊
+    for (let row = 0; row < 3; row++) {
+      for (let book = 0; book < 4; book++) {
+        const bx = sx + 2 + book * 5;
+        const by = sy + 1 + row * 10;
+        g.fillStyle(bookPalette[(i * 7 + row * 3 + book) % bookPalette.length], 1);
+        g.fillRect(bx - ox, by - oy, 4, 7);
+      }
+    }
   }
 }
 

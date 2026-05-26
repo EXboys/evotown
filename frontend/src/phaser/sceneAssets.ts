@@ -15,10 +15,10 @@ export const TO_LABEL: Record<string, string> = {
   广场: "square", 城池: "square", 中央广场: "square", 开放办公区: "square", 开放工位: "square", 办公区: "square",
   任务中心: "task", 任务看板: "task", 工单台: "task",
   知识图书馆: "library", 图书馆: "library", 知识库: "library",
-  技能工坊: "workshop", 工坊: "workshop",
+  技能工坊: "workshop", 工坊: "workshop", "Skill 工坊": "workshop", 研发室: "workshop", 项目室: "workshop",
   进化神殿: "temple", 神殿: "temple", 升级中心: "temple",
   决策档案馆: "archive", 档案馆: "archive", 归档室: "archive",
-  记忆仓库: "memory", 记忆仓: "memory",
+  记忆仓库: "memory", 记忆仓: "memory", 资料室: "memory", 数据资料室: "memory",
 };
 
 export const LABEL_TO_XY: Record<string, { x: number; y: number }> = {

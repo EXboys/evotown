@@ -108,6 +108,52 @@ class EngineRegister(BaseModel):
     capabilities: dict[str, Any] = Field(default_factory=dict)
 
 
+DispatchJobKind = Literal["dispatch", "handoff", "notify"]
+DispatchJobStatus = Literal["queued", "leased", "running", "completed", "failed", "cancelled"]
+
+
+class EngineHeartbeat(BaseModel):
+    engine_version: str | None = None
+    connector_version: str = ""
+    gateway_reachable: bool | None = None
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class DispatchJobCreate(BaseModel):
+    kind: DispatchJobKind = "dispatch"
+    source_engine_id: str | None = Field(default=None, max_length=128)
+    target_engine_id: str | None = Field(default=None, max_length=128)
+    target_team_id: str | None = Field(default=None, max_length=128)
+    title: str = Field(default="", max_length=256)
+    message: str = Field(min_length=1, max_length=32000)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    refs: dict[str, Any] = Field(default_factory=dict)
+
+
+class DispatchJobAck(BaseModel):
+    engine_id: str = Field(min_length=1, max_length=128)
+
+
+class DispatchJobComplete(BaseModel):
+    engine_id: str = Field(min_length=1, max_length=128)
+    status: TerminalRunStatus = "succeeded"
+    exit_code: int = 0
+    log_excerpt: str = Field(default="", max_length=65536)
+    result_summary: str = Field(default="", max_length=8000)
+    run_id: str | None = Field(default=None, max_length=128)
+    signals: dict[str, Any] = Field(default_factory=dict)
+
+
+class DispatchHandoffSpec(BaseModel):
+    """Enqueue after parent job succeeds (payload.on_success_handoff)."""
+    target_engine_id: str | None = Field(default=None, max_length=128)
+    target_team_id: str | None = Field(default=None, max_length=128)
+    kind: DispatchJobKind = "handoff"
+    title: str = Field(default="", max_length=256)
+    message: str = Field(min_length=1, max_length=32000)
+    refs: dict[str, Any] = Field(default_factory=dict)
+
+
 class ArtifactManifestItem(BaseModel):
     path: str = Field(min_length=1)
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")

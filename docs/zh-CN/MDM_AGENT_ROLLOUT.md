@@ -51,6 +51,15 @@ python3 /usr/local/bin/evotown-agent-setup.py sync
 eval "$(python3 evotown-agent-setup.py print-env)"
 ```
 
+派活（可选，需 IT 下发 `EVOTOWN_INGEST_TOKEN`）：
+
+```bash
+evotown-agent-setup.py register
+evotown-agent-setup.py connector --poll 15 --long-poll 25
+```
+
+详见 [AGENT_DISPATCH.md](./AGENT_DISPATCH.md)。
+
 OpenClaw / Hermes 指向：
 
 ```bash

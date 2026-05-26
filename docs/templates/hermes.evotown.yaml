@@ -14,3 +14,15 @@ skills_market:
   auth_prefix: "Bearer "
   auth_token: ${EVOTOWN_API_KEY}
   install_scope: team
+
+# Evotown Connector：在 Hermes gateway 配置中增加 webhook 路由（示例，按 Hermes 版本调整）
+# Connector 默认 POST http://127.0.0.1:18789/hooks/evotown
+# gateway:
+#   platforms:
+#     webhook:
+#       extra:
+#         routes:
+#           - name: evotown
+#             path: /hooks/evotown
+#             action: agent
+#             deliver: false

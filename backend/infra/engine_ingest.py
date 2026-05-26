@@ -156,7 +156,7 @@ def register_engine(body: EngineRegister) -> dict[str, Any]:
         """,
         (
             body.engine_id,
-            body.engine_type,
+            body.engine_type or "custom",
             body.engine_version,
             body.display_name,
             body.owner_team,

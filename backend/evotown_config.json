@@ -12,9 +12,9 @@
     "min_pool_size": 5
   },
   "evolution": {
-    "auto_trigger": true,
+    "auto_trigger": false,
     "interval_tasks": 3,
-    "on_failure": true
+    "on_failure": false
   },
   "team": {
     "reorganize_interval_tasks": 20,

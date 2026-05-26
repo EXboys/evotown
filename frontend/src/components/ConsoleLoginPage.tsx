@@ -256,8 +256,8 @@ export function ConsoleLoginPage() {
         </div>
 
         <div className="mt-6 flex items-center justify-between text-sm text-slate-500">
-          <Link to="/" className="hover:text-slate-300">返回首页</Link>
-          <Link to="/arena" className="hover:text-slate-300">进入协作地图</Link>
+          <Link to="/" className="hover:text-slate-300">协作地图</Link>
+          <Link to="/" className="hover:text-slate-300">进入协作地图</Link>
         </div>
       </div>
     </div>

@@ -49,15 +49,15 @@ def load_economy_config() -> dict[str, Any]:
 
 
 def load_evolution_config() -> dict[str, Any]:
-    """进化触发配置。降低默认门槛以促进进化产出。"""
+    """进化触发配置。默认关闭自动进化，协作地图以观测为主；可在 evotown_config.json 或环境变量开启。"""
     data = _load_json()
     evo = data.get("evolution", {})
     rewards = evo.get("rewards") or {}
     defaults = {
-        "auto_trigger": evo.get("auto_trigger", True),
-        "interval_tasks": int(evo.get("interval_tasks", 2)),  # 2: 更频繁触发进化
-        "on_failure": evo.get("on_failure", True),
-        "failure_cooldown": int(evo.get("failure_cooldown", 2)),  # 2: 失败后更快再触发
+        "auto_trigger": evo.get("auto_trigger", False),
+        "interval_tasks": int(evo.get("interval_tasks", 2)),
+        "on_failure": evo.get("on_failure", False),
+        "failure_cooldown": int(evo.get("failure_cooldown", 2)),
         "rewards": {
             "rule_added": int(rewards.get("rule_added", 5)),
             "example_added": int(rewards.get("example_added", 3)),
@@ -67,6 +67,8 @@ def load_evolution_config() -> dict[str, Any]:
         },
     }
     env_map = {
+        "EVOTOWN_EVOLUTION_AUTO_TRIGGER": ("auto_trigger", lambda x: x.lower() in ("1", "true", "yes")),
+        "EVOTOWN_EVOLUTION_ON_FAILURE": ("on_failure", lambda x: x.lower() in ("1", "true", "yes")),
         "EVOTOWN_INTERVAL_TASKS": ("interval_tasks", int),
         "EVOTOWN_FAILURE_COOLDOWN": ("failure_cooldown", int),
     }

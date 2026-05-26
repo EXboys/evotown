@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { adminFetch } from "../hooks/useAdminToken";
-import { evotownEvents } from "../phaser/events";
+import { evotownEvents, type EvotownEventMap } from "../phaser/events";
 
 export type FleetEngine = {
   engine_id: string;
@@ -14,6 +14,22 @@ export type FleetEngine = {
   connector_version?: string;
   ingest_token_prefix?: string;
 };
+
+function toDispatchJob(raw: EvotownEventMap["dispatch_job_updated"]["job"]): DispatchJob {
+  return {
+    job_id: raw.job_id,
+    status: raw.status,
+    kind: raw.kind ?? "dispatch",
+    message: raw.message ?? "",
+    title: raw.title,
+    source_engine_id: raw.source_engine_id as string | undefined,
+    target_engine_id: raw.target_engine_id as string | undefined,
+    target_team_id: raw.target_team_id as string | undefined,
+    result_summary: raw.result_summary as string | undefined,
+    created_at: raw.created_at as string | undefined,
+    completed_at: raw.completed_at as string | undefined,
+  };
+}
 
 function mergeJob(list: DispatchJob[], incoming: DispatchJob): DispatchJob[] {
   const idx = list.findIndex((j) => j.job_id === incoming.job_id);
@@ -96,9 +112,10 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
   }, []);
 
   useEffect(() => {
-    const onUpdate = (data: { job: DispatchJob }) => {
-      setJobs((prev) => mergeJob(prev, data.job));
-      setSelected((cur) => (cur?.job_id === data.job.job_id ? { ...cur, ...data.job } : cur));
+    const onUpdate = (data: EvotownEventMap["dispatch_job_updated"]) => {
+      const job = toDispatchJob(data.job);
+      setJobs((prev) => mergeJob(prev, job));
+      setSelected((cur) => (cur?.job_id === job.job_id ? { ...cur, ...job } : cur));
     };
     evotownEvents.on("dispatch_job_updated", onUpdate);
     return () => evotownEvents.off("dispatch_job_updated", onUpdate);

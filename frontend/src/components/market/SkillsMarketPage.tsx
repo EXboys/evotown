@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { adminFetch, isConsoleAuthenticated } from "../../hooks/useAdminToken";
-import { EmployeeConfigPanel } from "./EmployeeConfigPanel";
+import { EasyInstallWizard } from "./EasyInstallWizard";
 import { manifestUrl } from "../../lib/employeeConfig";
 
 type MarketSkill = {
@@ -73,7 +73,7 @@ function MarketShell({ children }: { children: ReactNode }) {
             </span>
           </Link>
           <nav className="relative flex flex-wrap items-center gap-2 text-sm">
-            <Link to="/" className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">首页</Link>
+            <Link to="/" className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">协作地图</Link>
             <Link to="/dashboard" className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">控制台</Link>
             <Link to="/skills" className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">管理后台</Link>
             {signedIn ? (
@@ -137,36 +137,32 @@ function MarketCatalog() {
 
   return (
     <MarketShell>
-      <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-        <div className="grid lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="p-8 md:p-10">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-violet-600">Private Skills Marketplace</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
-              发现、安装、复用企业 Agent 技能
-            </h1>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600">
-              面向业务与工程团队的技能 storefront。浏览已发布能力、查看 README 与版本历史；
-              上传、审核与下线请在管理后台完成。
-            </p>
-          </div>
-          <div className="grid grid-cols-3 gap-px border-t border-slate-200 bg-slate-200 lg:border-l lg:border-t-0">
-            {[
-              { label: "可用技能", value: stats.total },
-              { label: "累计下载", value: stats.downloads },
-              { label: "Runtime", value: stats.runtimes },
-            ].map((item) => (
-              <div key={item.label} className="bg-slate-50 p-5 text-center">
-                <p className="text-2xl font-semibold text-slate-950">{item.value}</p>
-                <p className="mt-1 text-xs text-slate-500">{item.label}</p>
-              </div>
-            ))}
-          </div>
+      <section className="flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-5 shadow-sm md:px-6">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-600">Skills Market</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950 md:text-3xl">企业 Agent 技能目录</h1>
+          <p className="mt-2 max-w-xl text-sm text-slate-600">
+            浏览、搜索已发布技能。上传与审核请至{" "}
+            <Link to="/skills" className="font-medium text-violet-700 hover:underline">管理后台</Link>。
+          </p>
         </div>
+        <dl className="flex shrink-0 gap-6 text-center sm:gap-8">
+          {[
+            { label: "技能", value: stats.total },
+            { label: "下载", value: stats.downloads },
+            { label: "Runtime", value: stats.runtimes },
+          ].map((item) => (
+            <div key={item.label}>
+              <dd className="text-xl font-semibold tabular-nums text-slate-950">{item.value}</dd>
+              <dt className="mt-0.5 text-xs text-slate-500">{item.label}</dt>
+            </div>
+          ))}
+        </dl>
       </section>
 
-      <EmployeeConfigPanel className="mt-6" />
-
-      <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+      <div className="mt-6 lg:grid lg:grid-cols-[minmax(0,1fr)_288px] lg:items-start lg:gap-8">
+        <div className="min-w-0 space-y-6">
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
         <form
           className="grid gap-3 lg:grid-cols-[1.4fr_0.7fr_0.7fr_auto]"
           onSubmit={(e: FormEvent) => {
@@ -227,22 +223,30 @@ function MarketCatalog() {
       </section>
 
       {error && (
-        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
       )}
 
+      <div>
+        <div className="mb-4 flex items-baseline justify-between gap-2">
+          <h2 className="text-lg font-semibold text-slate-950">全部技能</h2>
+          {!loading && (
+            <span className="text-sm text-slate-500">{skills.length} 个结果</span>
+          )}
+        </div>
+
       {loading ? (
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="h-56 animate-pulse rounded-2xl border border-slate-200 bg-white" />
           ))}
         </div>
       ) : skills.length === 0 ? (
-        <div className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-white py-20 text-center">
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-white py-20 text-center">
           <p className="text-base font-medium text-slate-700">暂无已发布技能</p>
           <p className="mt-2 text-sm text-slate-500">管理员可在 /skills 上传并审核技能包。</p>
         </div>
       ) : (
-        <div className="mt-8 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
           {skills.map((skill) => (
             <Link
               key={skill.skill_id}
@@ -292,6 +296,13 @@ function MarketCatalog() {
           ))}
         </div>
       )}
+      </div>
+        </div>
+
+        <aside className="mt-6 lg:mt-0 lg:sticky lg:top-[5.5rem] lg:self-start">
+          <EasyInstallWizard layout="sidebar" />
+        </aside>
+      </div>
     </MarketShell>
   );
 }
@@ -306,6 +317,7 @@ function MarketSkillDetail() {
   const [skill, setSkill] = useState<MarketSkill | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [showAdvancedInstall, setShowAdvancedInstall] = useState(false);
   const signedIn = isConsoleAuthenticated();
 
   useEffect(() => {
@@ -329,7 +341,18 @@ function MarketSkillDetail() {
     }
     const res = await marketFetch(`/api/v1/market/skills/${encodeURIComponent(skill.skill_id)}/download`);
     if (!res.ok) {
-      setMessage(`下载失败 (${res.status})，请确认已登录且账号有 console.read 权限。`);
+      let detail = "";
+      try {
+        const body = (await res.json()) as { detail?: string };
+        detail = body.detail ? `：${body.detail}` : "";
+      } catch {
+        /* ignore */
+      }
+      if (res.status === 401 || res.status === 403) {
+        setMessage(`下载失败 (${res.status})${detail}。请登录并使用含 console.read 的 evk_ Key。`);
+      } else {
+        setMessage(`下载失败 (${res.status})${detail}`);
+      }
       return;
     }
     const blob = await res.blob();
@@ -371,6 +394,7 @@ function MarketSkillDetail() {
   auth_prefix: "Bearer "
   auth_token: \${EVOTOWN_API_KEY}
 
+# 单包安装（通常不必手写，sync 会拉 bundle）
 package_url: /api/v1/market/skills/${skill.skill_id}/download
 skill_id: ${skill.skill_id}
 version: ${skill.version}`;
@@ -381,7 +405,9 @@ version: ${skill.version}`;
         ← 返回市场
       </Link>
 
-      <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_288px] lg:items-start lg:gap-8">
+        <div className="min-w-0 space-y-6">
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 bg-gradient-to-r from-violet-50 via-white to-blue-50 p-8 md:p-10">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
             <div className="flex gap-5">
@@ -436,10 +462,36 @@ version: ${skill.version}`;
           </div>
 
           <div className="bg-white p-6 md:p-8">
-            <h2 className="text-base font-semibold text-slate-950">安装指引</h2>
-            <p className="mt-2 text-sm text-slate-500">Runtime 可通过 manifest 或 package_url 安装此 skill。</p>
-            <pre className="mt-4 overflow-x-auto rounded-2xl bg-slate-950 p-5 text-xs leading-6 text-cyan-100">{installSnippet}</pre>
-            <p className="mt-3 text-xs text-slate-500">下载与 manifest 需员工 evk_ key；见上方「员工两行配置」。</p>
+            <h2 className="text-base font-semibold text-slate-950">安装方式</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              推荐在{" "}
+              <Link to="/market" className="font-medium text-violet-700 hover:underline">
+                市场首页
+              </Link>{" "}
+              使用「傻瓜式接入」一键安装；已安装的企业包会自动包含本技能（需 IT 已发布 Bundle）。
+            </p>
+            <p className="mt-3 text-sm text-slate-600">
+              只装这一个技能（无需 sync 全量 bundle）：
+            </p>
+            <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-950 p-3 text-xs leading-6 text-emerald-100">
+              {`source ~/.config/evotown/evotown.agent.env
+evotown-agent-setup.py install ${skill.skill_id}`}
+            </pre>
+            <p className="mt-2 text-sm text-slate-600">
+              或在网页登录后点击右侧「下载 Skill 包」手动解压。
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowAdvancedInstall((v) => !v)}
+              className="mt-4 text-xs font-medium text-violet-700 hover:text-violet-900"
+            >
+              {showAdvancedInstall ? "▾ 收起 manifest YAML" : "▸ 查看 manifest / package_url 高级配置"}
+            </button>
+            {showAdvancedInstall && (
+              <pre className="mt-3 overflow-x-auto rounded-2xl bg-slate-950 p-5 text-xs leading-6 text-cyan-100">
+                {installSnippet}
+              </pre>
+            )}
           </div>
         </div>
       </section>
@@ -487,6 +539,12 @@ version: ${skill.version}`;
           </div>
         </section>
       ) : null}
+        </div>
+
+        <aside className="mt-6 lg:mt-0 lg:sticky lg:top-[5.5rem] lg:self-start">
+          <EasyInstallWizard layout="sidebar" />
+        </aside>
+      </div>
     </MarketShell>
   );
 }

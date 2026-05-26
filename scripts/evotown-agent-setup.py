@@ -230,7 +230,130 @@ def install_zip_bytes(content: bytes, target_dir: Path) -> None:
         tmp.unlink(missing_ok=True)
 
 
-def cmd_sync(cfg: dict[str, str], *, dry_run: bool = False) -> int:
+def _market_download_path(skill_id: str) -> str:
+    return f"/api/v1/market/skills/{skill_id}/download"
+
+
+def _install_skill_entry(
+    *,
+    base: str,
+    key: str,
+    skills_dir: Path,
+    entry: dict[str, Any],
+    lock: dict[str, Any],
+    dry_run: bool,
+) -> str:
+    """Install one manifest/market entry. Returns installed | skipped | failed."""
+    skill_id = entry.get("skill_id") or ""
+    version = entry.get("version") or "0.0.0"
+    package_url = entry.get("package_url") or ""
+    if not skill_id:
+        return "failed"
+    resolved = resolve_package_url(base, package_url)
+    if resolved is None:
+        resolved = resolve_package_url(base, _market_download_path(skill_id))
+    if resolved is None:
+        log(f"· {skill_id}@{version} (no package URL — skipped)")
+        return "skipped"
+
+    prev = lock.get(skill_id, {})
+    if prev.get("version") == version and prev.get("package_url") == package_url:
+        target = skills_dir / skill_id
+        if target.is_dir() and any(target.iterdir()):
+            log(f"· {skill_id}@{version} (up to date)")
+            return "skipped"
+
+    log(f"↓ {skill_id}@{version}")
+    if dry_run:
+        return "installed"
+
+    try:
+        blob = http_bytes(resolved, api_key=key)
+        digest = hashlib.sha256(blob).hexdigest()
+        expected_sha = entry.get("package_sha256") or ""
+        expected_sig = entry.get("signature") or entry.get("package_signature") or ""
+        if expected_sha and digest != expected_sha:
+            log(f"  ! sha256 mismatch for {skill_id}")
+            return "failed"
+        if expected_sig and not verify_package_signature(digest, expected_sig):
+            log(f"  ! signature verification failed for {skill_id}")
+            return "failed"
+        target = skills_dir / skill_id
+        if target.exists():
+            for child in target.iterdir():
+                if child.is_dir():
+                    shutil.rmtree(child)
+                else:
+                    child.unlink()
+        install_zip_bytes(blob, target)
+        lock[skill_id] = {
+            "version": version,
+            "package_url": package_url or _market_download_path(skill_id),
+            "sha256": digest,
+            "installed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        return "installed"
+    except SystemExit:
+        return "failed"
+    except OSError as exc:
+        log(f"  ! failed: {exc}")
+        return "failed"
+
+
+def cmd_install(cfg: dict[str, str], skill_ids: list[str], *, dry_run: bool = False) -> int:
+    """Install only the listed skill_id values from the public market catalog."""
+    base, key = require(cfg)
+    skills_dir = Path(cfg.get("EVOTOWN_SKILLS_DIR") or DEFAULT_SKILLS_DIR).expanduser()
+    state_path = Path(cfg.get("EVOTOWN_STATE_PATH") or DEFAULT_STATE_PATH).expanduser()
+    state = load_state(state_path)
+    lock = state.setdefault("skills", {})
+
+    installed = skipped = failed = 0
+    for skill_id in skill_ids:
+        sid = skill_id.strip()
+        if not sid:
+            continue
+        try:
+            meta = http_json("GET", f"{base}/api/v1/market/skills/{sid}", api_key=key)
+        except SystemExit:
+            failed += 1
+            continue
+        skill = meta.get("skill") or {}
+        if not skill:
+            log(f"! {sid}: not found or not approved")
+            failed += 1
+            continue
+        entry = {
+            "skill_id": sid,
+            "version": skill.get("version", "0.0.0"),
+            "package_url": _market_download_path(sid),
+            "package_sha256": skill.get("package_sha256") or "",
+            "signature": skill.get("package_signature") or "",
+        }
+        outcome = _install_skill_entry(
+            base=base,
+            key=key,
+            skills_dir=skills_dir,
+            entry=entry,
+            lock=lock,
+            dry_run=dry_run,
+        )
+        if outcome == "installed":
+            installed += 1
+        elif outcome == "skipped":
+            skipped += 1
+        else:
+            failed += 1
+
+    state["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    save_state(state_path, state)
+    log("")
+    log(f"Install done — installed/updated: {installed}, skipped: {skipped}, failed: {failed}")
+    log(f"Skills dir: {skills_dir}")
+    return 1 if failed else 0
+
+
+def cmd_sync(cfg: dict[str, str], *, dry_run: bool = False, only_skills: list[str] | None = None) -> int:
     base, key = require(cfg)
     runtime = (cfg.get("EVOTOWN_RUNTIME") or "openclaw").strip()
     skills_dir = Path(cfg.get("EVOTOWN_SKILLS_DIR") or DEFAULT_SKILLS_DIR).expanduser()
@@ -253,64 +376,29 @@ def cmd_sync(cfg: dict[str, str], *, dry_run: bool = False) -> int:
     )
     lock = state.setdefault("skills", {})
 
+    only = {s.strip() for s in (only_skills or []) if s.strip()}
     installed = skipped = failed = 0
     for entry in skills:
         skill_id = entry.get("skill_id") or ""
-        version = entry.get("version") or "0.0.0"
-        package_url = entry.get("package_url") or ""
-        resolved = resolve_package_url(base, package_url)
         if not skill_id:
             continue
-        if resolved is None:
-            log(f"· {skill_id}@{version} (builtin — skipped)")
+        if only and skill_id not in only:
+            continue
+        if str(entry.get("package_url") or "").startswith("builtin://"):
+            entry = {**entry, "package_url": _market_download_path(skill_id)}
+        outcome = _install_skill_entry(
+            base=base,
+            key=key,
+            skills_dir=skills_dir,
+            entry=entry,
+            lock=lock,
+            dry_run=dry_run,
+        )
+        if outcome == "installed":
+            installed += 1
+        elif outcome == "skipped":
             skipped += 1
-            continue
-
-        prev = lock.get(skill_id, {})
-        if prev.get("version") == version and prev.get("package_url") == package_url:
-            target = skills_dir / skill_id
-            if target.is_dir() and any(target.iterdir()):
-                log(f"· {skill_id}@{version} (up to date)")
-                skipped += 1
-                continue
-
-        log(f"↓ {skill_id}@{version}")
-        if dry_run:
-            installed += 1
-            continue
-
-        try:
-            blob = http_bytes(resolved, api_key=key)
-            digest = hashlib.sha256(blob).hexdigest()
-            expected_sha = entry.get("package_sha256") or ""
-            expected_sig = entry.get("signature") or ""
-            if expected_sha and digest != expected_sha:
-                log(f"  ! sha256 mismatch for {skill_id}")
-                failed += 1
-                continue
-            if expected_sig and not verify_package_signature(digest, expected_sig):
-                log(f"  ! signature verification failed for {skill_id}")
-                failed += 1
-                continue
-            target = skills_dir / skill_id
-            if target.exists():
-                for child in target.iterdir():
-                    if child.is_dir():
-                        shutil.rmtree(child)
-                    else:
-                        child.unlink()
-            install_zip_bytes(blob, target)
-            lock[skill_id] = {
-                "version": version,
-                "package_url": package_url,
-                "sha256": digest,
-                "installed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            }
-            installed += 1
-        except SystemExit:
-            failed += 1
-        except OSError as exc:
-            log(f"  ! failed: {exc}")
+        else:
             failed += 1
 
     save_state(state_path, state)
@@ -917,6 +1005,16 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("check", help="Verify Evotown, gateway, and manifest access")
     p_sync = sub.add_parser("sync", help="Download/update skills from private SkillHub manifest")
     p_sync.add_argument("--dry-run", action="store_true", help="Show actions without downloading")
+    p_sync.add_argument(
+        "--only",
+        action="append",
+        dest="only_skills",
+        metavar="SKILL_ID",
+        help="Only install these skill_ids from the bundle manifest (repeatable)",
+    )
+    p_install = sub.add_parser("install", help="Install specific skills from the market catalog (not the whole bundle)")
+    p_install.add_argument("skill_ids", nargs="+", metavar="SKILL_ID", help="e.g. http-request calculator")
+    p_install.add_argument("--dry-run", action="store_true", help="Show actions without downloading")
     sub.add_parser("print-env", help="Print shell export lines for OpenClaw/Hermes")
     p_reg = sub.add_parser("register", help="Register this laptop engine (requires IT bootstrap ingest token)")
     p_reg.add_argument("--save-token", action="store_true", help="Write issued evi_ token to config file")
@@ -950,7 +1048,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "check":
         return cmd_check(cfg)
     if args.command == "sync":
-        return cmd_sync(cfg, dry_run=args.dry_run)
+        return cmd_sync(cfg, dry_run=args.dry_run, only_skills=args.only_skills)
+    if args.command == "install":
+        return cmd_install(cfg, args.skill_ids, dry_run=args.dry_run)
     if args.command == "print-env":
         return cmd_print_env(cfg)
     if args.command == "register":

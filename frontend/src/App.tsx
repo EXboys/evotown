@@ -38,7 +38,8 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<LandingPage />} />
+        <Route path="/" element={<ArenaApp />} />
+        <Route path="/welcome" element={<LandingPage />} />
         <Route path="/login" element={<ConsoleLoginPage />} />
         <Route path="/market" element={<SkillsMarketPage />} />
         <Route path="/market/:skillId" element={<SkillsMarketPage />} />

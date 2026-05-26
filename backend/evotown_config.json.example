@@ -8,9 +8,9 @@
     "eliminate_on_zero": true
   },
   "evolution": {
-    "auto_trigger": true,
+    "auto_trigger": false,
     "interval_tasks": 2,
-    "on_failure": true,
+    "on_failure": false,
     "failure_cooldown": 2,
     "rewards": {
       "rule_added": 5,

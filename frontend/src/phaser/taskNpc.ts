@@ -5,64 +5,29 @@
 import Phaser from "phaser";
 import { createCharacterContainer, setCharFacing, type CharFacing } from "./characterAssets";
 import { CHAR_LAYOUT } from "./characterAssets";
+import {
+  buildOfficePath,
+  clampToOfficeWalkable,
+  getRandomOfficePoint,
+} from "./officeFloorPlan";
 
-/** NPC 生成点 — 分散在四角与边缘（世界坐标，均在可走区域内） */
+/** 任务 NPC 生成点 — 走廊与任务看板附近 */
 const SPAWN_ZONES: { x: number; y: number }[] = [
-  { x: 140, y: 115 },
-  { x: 450, y: 115 },
-  { x: 140, y: 340 },
-  { x: 450, y: 340 },
-  { x: 200, y: 95 },
-  { x: 400, y: 95 },
-  { x: 135, y: 220 },
-  { x: 450, y: 220 },
-  { x: 200, y: 345 },
-  { x: 400, y: 345 },
-  { x: 280, y: 160 },
-  { x: 360, y: 290 },
+  { x: 322, y: 328 },
+  { x: 280, y: 214 },
+  { x: 364, y: 214 },
+  { x: 200, y: 214 },
+  { x: 440, y: 214 },
+  { x: 322, y: 120 },
+  { x: 168, y: 214 },
+  { x: 472, y: 214 },
 ];
 
 /** NPC 之间最小距离（避免扎堆） */
 const MIN_NPC_DISTANCE = 80;
 
-/** 可行走区域边界（世界坐标）— 避开屏幕边缘与水域 */
-const BOUNDS = {
-  xMin: 135,
-  xMax: 465,
-  yMin: 105,
-  yMax: 370,
-};
-
-/** 休息区边界（原河道区域，Agent 不可走入） */
-function getRiverShoreX(y: number): number {
-  const shoreEdge = [
-    { x: 640, y: 200 }, { x: 632, y: 256 }, { x: 616, y: 320 },
-    { x: 576, y: 376 }, { x: 520, y: 416 }, { x: 480, y: 448 },
-  ];
-  for (let i = 0; i < shoreEdge.length - 1; i++) {
-    const a = shoreEdge[i], b = shoreEdge[i + 1];
-    if (y >= a.y && y <= b.y) {
-      const t = (y - a.y) / (b.y - a.y);
-      return a.x + (b.x - a.x) * t;
-    }
-  }
-  return y < 200 ? 640 : 480;
-}
-
-const POND = { cx: 544, cy: 416, w: 50, h: 25 };
-
-/** 将坐标限制在可走区域内 */
 function clampToWalkable(wx: number, wy: number): { x: number; y: number } {
-  let x = Phaser.Math.Clamp(wx, BOUNDS.xMin, BOUNDS.xMax);
-  let y = Phaser.Math.Clamp(wy, BOUNDS.yMin, BOUNDS.yMax);
-  const shoreX = getRiverShoreX(y) - 15;
-  if (x >= shoreX) x = shoreX - 1;
-  const dx = Math.abs(x - POND.cx), dy = Math.abs(y - POND.cy);
-  if (dx < POND.w && dy < POND.h) {
-    if (x > POND.cx) x = POND.cx + POND.w;
-    else x = POND.cx - POND.w;
-  }
-  return { x, y };
+  return clampToOfficeWalkable(wx, wy);
 }
 
 /** Agent 接任务时与 NPC 的偏移距离（避免重合） */
@@ -70,9 +35,7 @@ const AGENT_NPC_OFFSET = 22;
 
 /** 在可走区域内随机取一点（供 Agent 闲逛） */
 export function getRandomWanderPoint(): { x: number; y: number } {
-  const x = BOUNDS.xMin + Math.random() * (BOUNDS.xMax - BOUNDS.xMin);
-  const y = BOUNDS.yMin + Math.random() * (BOUNDS.yMax - BOUNDS.yMin);
-  return clampToWalkable(x, y);
+  return getRandomOfficePoint();
 }
 
 /** NPC 行走半径范围（像素）— 随机，偏大以延长单次走动 */
@@ -93,7 +56,7 @@ const MAX_TASK_NPCS = 3;
 const NPC_COLORS = [0xe8a317, 0xd97706, 0xb45309, 0xf59e0b];
 
 /** 任务 NPC 名字池 */
-const NPC_NAMES = ["任务使", "信使", "委托人", "使者", "任务官", "猎头", "管事", "差役"];
+const NPC_NAMES = ["工单派发", "任务协调", "需求对接", "调度员", "看板员", "PMO", "值班", "接口人"];
 
 let npcIdCounter = 0;
 
@@ -105,6 +68,7 @@ export interface TaskNpcState {
   base: Phaser.GameObjects.Sprite;
   helmet: Phaser.GameObjects.Sprite;
   target: { x: number; y: number };
+  pathQueue: { x: number; y: number }[];
   centerWorld: { x: number; y: number };
   assignedAgentId: string | null;
   targetTimer: number;
@@ -209,12 +173,14 @@ export class TaskNpcManager {
         base,
         helmet,
         target: this.worldToLocal(target.x, target.y),
+        pathQueue: [],
         centerWorld: { x: wx, y: wy },
         assignedAgentId: null,
         targetTimer: nextInterval,
         phaseOffset: Math.random() * Math.PI * 2,
         facing: "front",
       };
+      this.setNpcDestination(state, target);
       this.npcs.set(id, state);
       return state;
     }
@@ -233,6 +199,14 @@ export class TaskNpcManager {
   /** 随机生成下一次更换目标的间隔 */
   private randomTargetInterval(): number {
     return TARGET_INTERVAL_MIN + Math.random() * (TARGET_INTERVAL_MAX - TARGET_INTERVAL_MIN);
+  }
+
+  private setNpcDestination(npc: TaskNpcState, worldTarget: { x: number; y: number }): void {
+    const start = this.localToWorld(npc.container.x, npc.container.y);
+    const path = buildOfficePath(start, worldTarget);
+    const localPath = path.map((p) => this.worldToLocal(p.x, p.y));
+    npc.pathQueue = localPath.slice(1);
+    npc.target = localPath[0] ?? this.worldToLocal(worldTarget.x, worldTarget.y);
   }
 
   /** 任务被认领时，将 agent 关联到该任务的 NPC（task_taken 时调用） */
@@ -342,6 +316,8 @@ export class TaskNpcManager {
           setCharFacing(npc.base, npc.helmet, npc.facing, 0);
           npc.container.x += Phaser.Math.Clamp(dx, -WALK_SPEED, WALK_SPEED);
           npc.container.y += Phaser.Math.Clamp(dy, -WALK_SPEED, WALK_SPEED);
+        } else if (npc.pathQueue.length > 0) {
+          npc.target = npc.pathQueue.shift()!;
         }
 
         const world = this.localToWorld(npc.container.x, npc.container.y);
@@ -354,7 +330,7 @@ export class TaskNpcManager {
           npc.targetTimer = this.randomTargetInterval();
           const curWorld = this.localToWorld(npc.container.x, npc.container.y);
           const newTarget = this.pickRandomTargetInRadius(curWorld.x, curWorld.y);
-          npc.target = this.worldToLocal(newTarget.x, newTarget.y);
+          this.setNpcDestination(npc, newTarget);
         }
       }
 

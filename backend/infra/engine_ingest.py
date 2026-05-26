@@ -6,11 +6,15 @@ state persistence.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import secrets
 import sqlite3
 from pathlib import Path
 from typing import Any
+
+INGEST_TOKEN_PREFIX = "evi_"
 
 from domain.models import EngineRegister, PolicyViolationIngest, RunComplete, RunEventIngest
 
@@ -102,8 +106,24 @@ def _ensure_conn() -> sqlite3.Connection:
         """
     )
     _ensure_external_runs_columns(conn)
+    _ensure_engine_token_columns(conn)
     _conn = conn
     return conn
+
+
+def _ensure_engine_token_columns(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("PRAGMA table_info(engines)").fetchall()
+    columns = {row["name"] for row in rows}
+    for name, sql in {
+        "ingest_token_hash": "ALTER TABLE engines ADD COLUMN ingest_token_hash TEXT NOT NULL DEFAULT ''",
+        "ingest_token_prefix": "ALTER TABLE engines ADD COLUMN ingest_token_prefix TEXT NOT NULL DEFAULT ''",
+    }.items():
+        if name not in columns:
+            conn.execute(sql)
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_engines_ingest_token_hash "
+        "ON engines(ingest_token_hash) WHERE ingest_token_hash != ''"
+    )
 
 
 def _ensure_external_runs_columns(conn: sqlite3.Connection) -> None:
@@ -134,8 +154,40 @@ def _json_loads(value: str, fallback: Any) -> Any:
         return fallback
 
 
-def register_engine(body: EngineRegister) -> dict[str, Any]:
+def hash_ingest_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def lookup_engine_id_for_ingest_token(raw_token: str) -> str | None:
+    if not raw_token.startswith(INGEST_TOKEN_PREFIX):
+        return None
+    token_hash = hash_ingest_token(raw_token)
+    row = _ensure_conn().execute(
+        "SELECT engine_id FROM engines WHERE ingest_token_hash=?",
+        (token_hash,),
+    ).fetchone()
+    return row["engine_id"] if row else None
+
+
+def issue_ingest_token(engine_id: str) -> str:
+    """Create or rotate per-engine ingest token; returns plaintext once."""
+    raw = f"{INGEST_TOKEN_PREFIX}{secrets.token_urlsafe(32)}"
+    token_hash = hash_ingest_token(raw)
+    prefix = raw[:16]
+    _ensure_conn().execute(
+        """
+        UPDATE engines
+        SET ingest_token_hash=?, ingest_token_prefix=?, updated_at=datetime('now')
+        WHERE engine_id=?
+        """,
+        (token_hash, prefix, engine_id),
+    )
+    return raw
+
+
+def register_engine(body: EngineRegister) -> tuple[dict[str, Any], str | None]:
     conn = _ensure_conn()
+    existing = get_engine(body.engine_id)
     capabilities = _json_dumps(body.capabilities)
     conn.execute(
         """
@@ -165,11 +217,17 @@ def register_engine(body: EngineRegister) -> dict[str, Any]:
             capabilities,
         ),
     )
-    return get_engine(body.engine_id) or {"engine_id": body.engine_id}
+    issued: str | None = None
+    needs_token = existing is None or body.rotate_ingest_token or not (existing.get("ingest_token_hash") or "")
+    if needs_token:
+        issued = issue_ingest_token(body.engine_id)
+    engine = get_engine(body.engine_id) or {"engine_id": body.engine_id}
+    return engine, issued
 
 
 def _engine_from_row(row: sqlite3.Row) -> dict[str, Any]:
     data = dict(row)
+    data.pop("ingest_token_hash", None)
     data["capabilities"] = _json_loads(data.get("capabilities", "{}"), {})
     return data
 

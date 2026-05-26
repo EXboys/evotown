@@ -71,6 +71,7 @@ class IngestReadAuthTest(unittest.TestCase):
         importlib.reload(main)
         client = TestClient(main.app)
         admin = {"X-Admin-Token": "test-admin-token"}
+        bootstrap = {"Authorization": "Bearer test-ingest-token"}
 
         res = client.post(
             "/api/v1/engines/register",
@@ -81,16 +82,37 @@ class IngestReadAuthTest(unittest.TestCase):
             },
             headers=admin,
         )
+        self.assertEqual(res.status_code, 200)
+        evi = res.json().get("ingest_token")
+        self.assertTrue(evi and evi.startswith("evi_"))
+
+        event = {
+            "event_type": "run.started",
+            "run_id": "run-admin-deny",
+            "engine_id": "eng_test",
+            "engine_type": "custom",
+            "engine_version": "1.0",
+            "status": "running",
+            "ts": "2026-05-25T09:00:00Z",
+        }
+        res = client.post("/api/v1/events", json=event, headers=admin)
         self.assertEqual(res.status_code, 403)
+
+        res = client.post(
+            "/api/v1/events",
+            json=event,
+            headers={"Authorization": f"Bearer {evi}"},
+        )
+        self.assertEqual(res.status_code, 200)
 
         res = client.post(
             "/api/v1/engines/register",
             json={
-                "engine_id": "eng_test",
+                "engine_id": "eng_bootstrap",
                 "engine_type": "custom",
                 "engine_version": "1.0",
             },
-            headers={"Authorization": "Bearer test-ingest-token"},
+            headers=bootstrap,
         )
         self.assertEqual(res.status_code, 200)
 

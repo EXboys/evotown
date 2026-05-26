@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from core.auth import require_admin, require_console_read, require_engine_ingest
+from core.auth import require_admin, require_console_read, require_engine_ingest_global
 from domain.models import (
     KnowledgeDocumentIngestBatch,
     KnowledgeFolderCreate,
@@ -213,7 +213,7 @@ async def list_knowledge_documents(
     }
 
 
-@router.post("/documents/ingest", dependencies=[Depends(require_engine_ingest)])
+@router.post("/documents/ingest", dependencies=[Depends(require_engine_ingest_global)])
 async def ingest_knowledge_documents(body: KnowledgeDocumentIngestBatch):
     if knowledge.get_source(body.source_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="source not found")

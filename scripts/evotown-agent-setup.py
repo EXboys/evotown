@@ -15,11 +15,17 @@ Environment:
   OPENCLAW_HOOK_TOKEN  Bearer token matching OpenClaw hooks.token
   HERMES_HOOK_URL      Hermes webhook URL for evotown route (see hermes.evotown.yaml)
   HERMES_HOOK_TOKEN    Optional bearer for Hermes webhook
-  EVOTOWN_DISPATCH_TIMEOUT  Seconds to wait for gateway hook (default 300)
+  EVOTOWN_DISPATCH_TIMEOUT  Max seconds to wait for agent completion (default 300)
+  EVOTOWN_DISPATCH_POLL_SEC Poll interval when waiting for run terminal status (default 5)
+  EVOTOWN_DISPATCH_COMPLETION poll_run (default) | hook_only
+    poll_run: trigger gateway hook in background, complete when run is terminal
+              (via ingest events) or hook returns; hook HTTP 2xx alone does not complete
+    hook_only: wait for blocking hook response only (legacy)
 """
 from __future__ import annotations
 
 import argparse
+import threading
 import base64
 import hashlib
 import hmac
@@ -39,7 +45,8 @@ DEFAULT_CONFIG_PATH = Path.home() / ".config" / "evotown" / "evotown.agent.env"
 DEFAULT_STATE_PATH = Path.home() / ".config" / "evotown" / "skills-lock.json"
 DEFAULT_SKILLS_DIR = Path.home() / ".evotown" / "skills"
 RUNTIMES = {"openclaw", "hermes", "skilllite", "custom"}
-CONNECTOR_VERSION = "evotown-setup-1.0"
+CONNECTOR_VERSION = "evotown-setup-1.1"
+_RUN_TERMINAL = frozenset({"succeeded", "failed", "cancelled"})
 
 
 def log(msg: str) -> None:
@@ -325,10 +332,24 @@ def cmd_print_env(cfg: dict[str, str]) -> int:
     return 0
 
 
-def cmd_register(cfg: dict[str, str]) -> int:
-    ingest = ingest_token(cfg)
-    if not ingest:
-        die("EVOTOWN_INGEST_TOKEN or EVOTOWN_ENGINE_INGEST_TOKEN required for register")
+def _write_ingest_token_to_config(cfg_path: Path, token: str) -> None:
+    lines: list[str] = []
+    if cfg_path.is_file():
+        for raw in cfg_path.read_text(encoding="utf-8").splitlines():
+            if raw.strip().startswith("EVOTOWN_ENGINE_INGEST_TOKEN=") or raw.strip().startswith(
+                "EVOTOWN_INGEST_TOKEN="
+            ):
+                continue
+            lines.append(raw)
+    lines.append(f"EVOTOWN_ENGINE_INGEST_TOKEN={token}")
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def cmd_register(cfg: dict[str, str], *, save_token: bool = False, rotate: bool = False) -> int:
+    bootstrap = ingest_token(cfg)
+    if not bootstrap:
+        die("EVOTOWN_INGEST_TOKEN or EVOTOWN_ENGINE_INGEST_TOKEN required for register (IT bootstrap)")
     base = (cfg.get("EVOTOWN_URL") or "").rstrip("/")
     eid = engine_id(cfg)
     runtime = (cfg.get("EVOTOWN_RUNTIME") or "openclaw").strip()
@@ -344,16 +365,30 @@ def cmd_register(cfg: dict[str, str]) -> int:
             "events": True,
             "handoff": True,
         },
+        "rotate_ingest_token": rotate,
     }
     status, payload = http_json_soft(
         "POST",
         f"{base}/api/v1/engines/register",
-        api_key=ingest,
+        api_key=bootstrap,
         body=body,
     )
     if status >= 400:
         die(f"register failed HTTP {status}: {payload}")
     log(f"✓ Engine registered: {payload.get('engine', {}).get('engine_id', eid)}")
+    issued = payload.get("ingest_token")
+    if issued:
+        log("")
+        log("Per-engine ingest token (save to this machine only, shown once):")
+        log(issued)
+        if save_token:
+            cfg_path = Path(os.environ.get("EVOTOWN_CONFIG", str(DEFAULT_CONFIG_PATH)))
+            _write_ingest_token_to_config(cfg_path, issued)
+            log(f"✓ Wrote token to {cfg_path}")
+        else:
+            log("Tip: re-run with --save-token to write EVOTOWN_ENGINE_INGEST_TOKEN into your env file.")
+    elif not (cfg.get("EVOTOWN_INGEST_TOKEN") or cfg.get("EVOTOWN_ENGINE_INGEST_TOKEN")):
+        log("! No new token issued; set rotate_ingest_token or use existing evi_ token on disk.")
     return 0
 
 
@@ -443,6 +478,171 @@ def _ingest_event(base: str, ingest: str, payload: dict[str, Any]) -> None:
     http_json("POST", f"{base}/api/v1/events", api_key=ingest, body=payload)
 
 
+def _dispatch_wait_timeout(cfg: dict[str, str]) -> int:
+    try:
+        return max(30, int(cfg.get("EVOTOWN_DISPATCH_TIMEOUT") or "300"))
+    except ValueError:
+        return 300
+
+
+def _dispatch_poll_interval(cfg: dict[str, str]) -> int:
+    try:
+        return max(2, int(cfg.get("EVOTOWN_DISPATCH_POLL_SEC") or "5"))
+    except ValueError:
+        return 5
+
+
+def _dispatch_completion_mode(cfg: dict[str, str]) -> str:
+    mode = (cfg.get("EVOTOWN_DISPATCH_COMPLETION") or "poll_run").strip().lower()
+    if mode in {"hook_only", "hook_blocking", "blocking"}:
+        return "hook_only"
+    return "poll_run"
+
+
+def _fetch_run_status(base: str, ingest: str, engine_id_value: str, run_id: str) -> dict[str, Any] | None:
+    q = urllib.parse.urlencode({"engine_id": engine_id_value})
+    status_code, raw = http_raw(
+        "GET",
+        f"{base}/api/v1/runs/{urllib.parse.quote(run_id)}/status?{q}",
+        api_key=ingest,
+        timeout=30,
+    )
+    if status_code != 200:
+        return None
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
+def _post_run_completed(
+    cfg: dict[str, str],
+    base: str,
+    ingest: str,
+    *,
+    run_id: str,
+    job_id: str,
+    status: str,
+    exit_code: int,
+    detail: str,
+    signals: dict[str, Any] | None = None,
+) -> None:
+    eid = engine_id(cfg)
+    version = cfg.get("EVOTOWN_ENGINE_VERSION") or "local"
+    runtime = (cfg.get("EVOTOWN_RUNTIME") or "openclaw").strip()
+    merged = {"dispatch_ok": status == "succeeded"}
+    if signals:
+        merged.update(signals)
+    _ingest_event(
+        base,
+        ingest,
+        {
+            "run_id": run_id,
+            "engine_id": eid,
+            "event_type": "run.completed",
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "seq": 1,
+            "engine_type": runtime if runtime in RUNTIMES else "custom",
+            "engine_version": version,
+            "task_id": job_id,
+            "status": status,
+            "exit_code": exit_code,
+            "log_excerpt": detail[:2000],
+            "signals": merged,
+        },
+    )
+
+
+def _complete_dispatch_job(
+    base: str,
+    ingest: str,
+    job_id: str,
+    *,
+    engine_id_value: str,
+    run_id: str,
+    status: str,
+    exit_code: int,
+    detail: str,
+    signals: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    merged = {"dispatch_ok": status == "succeeded"}
+    if signals:
+        merged.update(signals)
+    status_code, payload = http_json_soft(
+        "POST",
+        f"{base}/api/v1/jobs/{job_id}/complete",
+        api_key=ingest,
+        body={
+            "engine_id": engine_id_value,
+            "status": status,
+            "exit_code": exit_code,
+            "log_excerpt": detail[:8000],
+            "result_summary": detail[:2000],
+            "run_id": run_id,
+            "signals": merged,
+        },
+    )
+    if status_code >= 400:
+        log(f"! complete HTTP {status_code}: {payload}")
+        return None
+    return payload
+
+
+def _run_hook_worker(cfg: dict[str, str], job: dict[str, Any], out: dict[str, Any]) -> None:
+    try:
+        ok, detail = _trigger_runtime(cfg, job)
+        out["ok"] = ok
+        out["detail"] = detail
+    except Exception as exc:  # noqa: BLE001
+        out["ok"] = False
+        out["detail"] = str(exc)
+    finally:
+        out["done"] = True
+
+
+def _wait_for_agent_completion(
+    cfg: dict[str, str],
+    base: str,
+    ingest: str,
+    job: dict[str, Any],
+    *,
+    run_id: str,
+    hook_box: dict[str, Any],
+) -> tuple[str, int, str, str]:
+    """Returns (status, exit_code, detail, completion_source)."""
+    deadline = time.monotonic() + _dispatch_wait_timeout(cfg)
+    poll_sec = _dispatch_poll_interval(cfg)
+    eid = engine_id(cfg)
+    mode = _dispatch_completion_mode(cfg)
+
+    while time.monotonic() < deadline:
+        if mode == "poll_run":
+            run = _fetch_run_status(base, ingest, eid, run_id)
+            if run and run.get("status") in _RUN_TERMINAL:
+                st = str(run["status"])
+                exit_code = int(run.get("exit_code") or 0)
+                detail = (run.get("log_excerpt") or "").strip() or f"run {st}"
+                return st, exit_code, detail, "run_status"
+
+        if hook_box.get("done"):
+            ok = bool(hook_box.get("ok"))
+            detail = str(hook_box.get("detail") or "")
+            if ok:
+                return "succeeded", 0, detail, "hook"
+            return "failed", 1, detail or "gateway hook failed", "hook"
+
+        time.sleep(poll_sec)
+
+    if hook_box.get("done"):
+        ok = bool(hook_box.get("ok"))
+        detail = str(hook_box.get("detail") or "")
+        if ok:
+            return "succeeded", 0, detail, "hook"
+        return "failed", 1, detail or "gateway hook failed", "hook"
+
+    return "failed", 1, f"timed out after {_dispatch_wait_timeout(cfg)}s waiting for agent", "timeout"
+
+
 def _process_job(cfg: dict[str, str], base: str, ingest: str, job: dict[str, Any]) -> None:
     eid = engine_id(cfg)
     job_id = job["job_id"]
@@ -468,48 +668,92 @@ def _process_job(cfg: dict[str, str], base: str, ingest: str, job: dict[str, Any
         },
     )
 
-    ok, detail = _trigger_runtime(cfg, job)
-    status = "succeeded" if ok else "failed"
-    exit_code = 0 if ok else 1
-    _ingest_event(
+    hook_box: dict[str, Any] = {"done": False, "ok": False, "detail": ""}
+    hook_thread = threading.Thread(
+        target=_run_hook_worker,
+        args=(cfg, job, hook_box),
+        name=f"evotown-hook-{job_id}",
+        daemon=True,
+    )
+    hook_thread.start()
+
+    status, exit_code, detail, source = _wait_for_agent_completion(
+        cfg, base, ingest, job, run_id=run_id, hook_box=hook_box
+    )
+
+    if source != "run_status":
+        _post_run_completed(
+            cfg,
+            base,
+            ingest,
+            run_id=run_id,
+            job_id=job_id,
+            status=status,
+            exit_code=exit_code,
+            detail=detail,
+            signals={"completion_source": source},
+        )
+
+    payload = _complete_dispatch_job(
         base,
         ingest,
-        {
-            "run_id": run_id,
-            "engine_id": eid,
-            "event_type": "run.completed",
-            "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "seq": 1,
-            "engine_type": runtime if runtime in RUNTIMES else "custom",
-            "engine_version": version,
-            "task_id": job_id,
-            "status": status,
-            "exit_code": exit_code,
-            "log_excerpt": detail[:2000],
-            "signals": {"dispatch_ok": ok},
-        },
+        job_id,
+        engine_id_value=eid,
+        run_id=run_id,
+        status=status,
+        exit_code=exit_code,
+        detail=detail,
+        signals={"completion_source": source},
     )
-    complete_body = {
-        "engine_id": eid,
-        "status": status,
-        "exit_code": exit_code,
-        "log_excerpt": detail[:8000],
-        "result_summary": detail[:2000],
-        "run_id": run_id,
-        "signals": {"dispatch_ok": ok},
-    }
-    status_code, payload = http_json_soft(
-        "POST",
-        f"{base}/api/v1/jobs/{job_id}/complete",
-        api_key=ingest,
-        body=complete_body,
-    )
-    if status_code >= 400:
-        log(f"! complete HTTP {status_code}: {payload}")
     follow = (payload or {}).get("follow_up_job")
     if follow:
         log(f"→ chained handoff job {follow.get('job_id')} → {follow.get('target_team_id') or follow.get('target_engine_id')}")
-    log(f"✓ Job {job_id} → {status}: {detail[:120]}")
+    log(f"✓ Job {job_id} → {status} ({source}): {detail[:120]}")
+
+
+def cmd_complete(
+    cfg: dict[str, str],
+    *,
+    job_id: str,
+    status: str,
+    summary: str,
+    exit_code: int,
+) -> int:
+    """Agent/runtime calls this after real work finishes (posts run.completed + job complete)."""
+    ingest = ingest_token(cfg)
+    if not ingest:
+        die("EVOTOWN_ENGINE_INGEST_TOKEN required for complete")
+    if status not in _RUN_TERMINAL:
+        die(f"status must be one of {sorted(_RUN_TERMINAL)}")
+    base = (cfg.get("EVOTOWN_URL") or "").rstrip("/")
+    eid = engine_id(cfg)
+    run_id = job_id
+    _post_run_completed(
+        cfg,
+        base,
+        ingest,
+        run_id=run_id,
+        job_id=job_id,
+        status=status,
+        exit_code=exit_code,
+        detail=summary,
+        signals={"completion_source": "agent_cli"},
+    )
+    payload = _complete_dispatch_job(
+        base,
+        ingest,
+        job_id,
+        engine_id_value=eid,
+        run_id=run_id,
+        status=status,
+        exit_code=exit_code,
+        detail=summary,
+        signals={"completion_source": "agent_cli"},
+    )
+    if payload is None:
+        die("complete failed")
+    log(f"✓ Job {job_id} completed ({status})")
+    return 0
 
 
 def cmd_handoff(
@@ -566,10 +810,13 @@ def _gateway_reachable(cfg: dict[str, str]) -> bool | None:
 def cmd_connector(cfg: dict[str, str], poll_sec: int, once: bool, long_poll: int) -> int:
     ingest = ingest_token(cfg)
     if not ingest:
-        die("EVOTOWN_INGEST_TOKEN required for connector")
+        die("EVOTOWN_ENGINE_INGEST_TOKEN (evi_…) required for connector — run register --save-token first")
+    if not ingest.startswith("evi_"):
+        log("! Warning: connector should use per-engine evi_ token, not the IT bootstrap token.")
     base = (cfg.get("EVOTOWN_URL") or "").rstrip("/")
     eid = engine_id(cfg)
-    cmd_register(cfg)
+    if not ingest.startswith("evi_"):
+        cmd_register(cfg)
 
     log(f"Connector {CONNECTOR_VERSION} for {eid} @ {base} (poll {poll_sec}s, long_poll {long_poll}s)")
     while True:
@@ -621,7 +868,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync = sub.add_parser("sync", help="Download/update skills from private SkillHub manifest")
     p_sync.add_argument("--dry-run", action="store_true", help="Show actions without downloading")
     sub.add_parser("print-env", help="Print shell export lines for OpenClaw/Hermes")
-    sub.add_parser("register", help="Register this laptop engine (requires ingest token)")
+    p_reg = sub.add_parser("register", help="Register this laptop engine (requires IT bootstrap ingest token)")
+    p_reg.add_argument("--save-token", action="store_true", help="Write issued evi_ token to config file")
+    p_reg.add_argument("--rotate", action="store_true", help="Rotate per-engine ingest token")
     p_conn = sub.add_parser("connector", help="Poll Evotown for jobs and trigger local OpenClaw/Hermes gateway")
     p_conn.add_argument("--poll", type=int, default=15, help="Seconds between lease polls (min 3)")
     p_conn.add_argument("--long-poll", type=int, default=25, help="Server-side lease wait seconds (max 60)")
@@ -632,6 +881,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_hand.add_argument("--title", default="", help="Short title")
     p_hand.add_argument("--message", required=True, help="Task message for the receiving agent")
     p_hand.add_argument("--kind", default="handoff", choices=["handoff", "notify", "dispatch"])
+    p_done = sub.add_parser("complete", help="Mark dispatch job done after agent finished (ingest)")
+    p_done.add_argument("--job-id", required=True, help="Dispatch job_id (also used as run_id)")
+    p_done.add_argument("--status", default="succeeded", choices=sorted(_RUN_TERMINAL))
+    p_done.add_argument("--summary", default="", help="Result summary / log excerpt")
+    p_done.add_argument("--exit-code", type=int, default=None, help="Exit code (default 0 if succeeded)")
     p_watch = sub.add_parser("watch", help="Periodically run sync")
     p_watch.add_argument("--interval", type=int, default=3600, help="Seconds between sync runs (min 60)")
     return parser
@@ -650,7 +904,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "print-env":
         return cmd_print_env(cfg)
     if args.command == "register":
-        return cmd_register(cfg)
+        return cmd_register(cfg, save_token=args.save_token, rotate=args.rotate)
     if args.command == "connector":
         try:
             return cmd_connector(cfg, args.poll, args.once, args.long_poll)
@@ -665,6 +919,17 @@ def main(argv: list[str] | None = None) -> int:
             message=args.message,
             title=args.title,
             kind=args.kind,
+        )
+    if args.command == "complete":
+        exit_code = args.exit_code
+        if exit_code is None:
+            exit_code = 0 if args.status == "succeeded" else 1
+        return cmd_complete(
+            cfg,
+            job_id=args.job_id,
+            status=args.status,
+            summary=args.summary or f"completed via CLI ({args.status})",
+            exit_code=exit_code,
         )
     if args.command == "watch":
         try:

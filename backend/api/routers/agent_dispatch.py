@@ -5,7 +5,12 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
-from core.auth import require_admin, require_engine_ingest
+from core.auth import (
+    EngineIngestAuth,
+    assert_engine_ingest_scope,
+    get_engine_ingest_auth,
+    require_admin,
+)
 from domain.models import DispatchJobAck, DispatchJobComplete, DispatchJobCreate, EngineHeartbeat
 from infra import agent_dispatch, engine_ingest
 
@@ -19,8 +24,13 @@ def _public_api_base(request: Request) -> str:
     return str(request.base_url).rstrip("/") + "/api/v1"
 
 
-@router.post("/engines/{engine_id}/heartbeat", dependencies=[Depends(require_engine_ingest)])
-async def engine_heartbeat(engine_id: str, body: EngineHeartbeat):
+@router.post("/engines/{engine_id}/heartbeat")
+async def engine_heartbeat(
+    engine_id: str,
+    body: EngineHeartbeat,
+    auth: EngineIngestAuth = Depends(get_engine_ingest_auth),
+):
+    assert_engine_ingest_scope(auth, engine_id)
     engine = agent_dispatch.record_heartbeat(engine_id, body)
     if engine is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="engine not registered")
@@ -41,13 +51,17 @@ async def create_job_admin(body: DispatchJobCreate):
     return {"job": job}
 
 
-@router.post("/jobs/from-engine", dependencies=[Depends(require_engine_ingest)])
-async def create_job_from_engine(body: DispatchJobCreate):
+@router.post("/jobs/from-engine")
+async def create_job_from_engine(
+    body: DispatchJobCreate,
+    auth: EngineIngestAuth = Depends(get_engine_ingest_auth),
+):
     if not body.source_engine_id:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="source_engine_id is required for engine-originated jobs",
         )
+    assert_engine_ingest_scope(auth, body.source_engine_id)
     if engine_ingest.get_engine(body.source_engine_id) is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -79,8 +93,14 @@ async def list_jobs(
     }
 
 
-@router.get("/jobs/lease", dependencies=[Depends(require_engine_ingest)])
-async def lease_job_endpoint(request: Request, engine_id: str, timeout: int = 0):
+@router.get("/jobs/lease")
+async def lease_job_endpoint(
+    request: Request,
+    engine_id: str,
+    timeout: int = 0,
+    auth: EngineIngestAuth = Depends(get_engine_ingest_auth),
+):
+    assert_engine_ingest_scope(auth, engine_id)
     if engine_ingest.get_engine(engine_id) is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="engine not registered")
     leased = agent_dispatch.lease_job_wait(engine_id, timeout_sec=timeout)
@@ -90,10 +110,14 @@ async def lease_job_endpoint(request: Request, engine_id: str, timeout: int = 0)
     return leased
 
 
-@router.get("/runs/lease", dependencies=[Depends(require_engine_ingest)])
-async def lease_run_compat(request: Request, engine_id: str, timeout: int = 0):
-    """Compatibility alias (engine-ingest v0.1 §4)."""
-    return await lease_job_endpoint(request, engine_id, timeout)
+@router.get("/runs/lease")
+async def lease_run_compat(
+    request: Request,
+    engine_id: str,
+    timeout: int = 0,
+    auth: EngineIngestAuth = Depends(get_engine_ingest_auth),
+):
+    return await lease_job_endpoint(request, engine_id, timeout, auth)
 
 
 @router.get("/jobs/{job_id}", dependencies=[Depends(require_admin)])
@@ -112,8 +136,13 @@ async def cancel_job(job_id: str, reason: str = ""):
     return {"job": job}
 
 
-@router.post("/jobs/{job_id}/ack", dependencies=[Depends(require_engine_ingest)])
-async def ack_job(job_id: str, body: DispatchJobAck):
+@router.post("/jobs/{job_id}/ack")
+async def ack_job(
+    job_id: str,
+    body: DispatchJobAck,
+    auth: EngineIngestAuth = Depends(get_engine_ingest_auth),
+):
+    assert_engine_ingest_scope(auth, body.engine_id)
     if engine_ingest.get_engine(body.engine_id) is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="engine not registered")
     job = agent_dispatch.ack_job(job_id, body)
@@ -122,8 +151,13 @@ async def ack_job(job_id: str, body: DispatchJobAck):
     return {"job": job}
 
 
-@router.post("/jobs/{job_id}/complete", dependencies=[Depends(require_engine_ingest)])
-async def complete_job(job_id: str, body: DispatchJobComplete):
+@router.post("/jobs/{job_id}/complete")
+async def complete_job(
+    job_id: str,
+    body: DispatchJobComplete,
+    auth: EngineIngestAuth = Depends(get_engine_ingest_auth),
+):
+    assert_engine_ingest_scope(auth, body.engine_id)
     if engine_ingest.get_engine(body.engine_id) is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="engine not registered")
     job, follow_up = agent_dispatch.complete_job(job_id, body)

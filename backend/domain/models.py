@@ -106,6 +106,7 @@ class EngineRegister(BaseModel):
     deployment_kind: DeploymentKind = "server"
     dispatch_url: str | None = None
     capabilities: dict[str, Any] = Field(default_factory=dict)
+    rotate_ingest_token: bool = False
 
 
 DispatchJobKind = Literal["dispatch", "handoff", "notify"]

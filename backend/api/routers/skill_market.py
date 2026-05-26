@@ -6,7 +6,8 @@ import binascii
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 
-from core.auth import require_admin, require_engine_ingest
+from core.auth import assert_engine_ingest_scope, get_engine_ingest_auth, require_admin
+from core.auth import EngineIngestAuth
 from domain.models import (
     SkillBundlePublish,
     SkillCandidateCreate,
@@ -111,8 +112,12 @@ async def download_skill_package(skill_id: str):
     return FileResponse(path, filename=filename, media_type="application/octet-stream")
 
 
-@router.post("/skill-candidates", dependencies=[Depends(require_engine_ingest)])
-async def create_skill_candidate(body: SkillCandidateCreate):
+@router.post("/skill-candidates")
+async def create_skill_candidate(
+    body: SkillCandidateCreate,
+    auth: EngineIngestAuth = Depends(get_engine_ingest_auth),
+):
+    assert_engine_ingest_scope(auth, body.engine_id)
     candidate, created = skill_market.create_candidate(body)
     return {"accepted": True, "created": created, "candidate": candidate}
 

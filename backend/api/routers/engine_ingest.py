@@ -1,17 +1,40 @@
 """External engine ingest API."""
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from core.auth import require_admin, require_engine_ingest
+from core.auth import (
+    EngineIngestAuth,
+    assert_engine_ingest_scope,
+    get_engine_ingest_auth,
+    require_admin,
+    require_engine_ingest_global,
+    require_engine_register,
+)
 from domain.models import EngineRegister, PolicyViolationIngest, RunComplete, RunEventIngest
 from infra import engine_ingest
 
 router = APIRouter(prefix="/api/v1", tags=["engine-ingest"])
 
 
-@router.post("/engines/register", dependencies=[Depends(require_engine_ingest)])
+@router.post("/engines/register", dependencies=[Depends(require_engine_register)])
 async def register_engine(body: EngineRegister):
-    engine = engine_ingest.register_engine(body)
-    return {"registered": True, "engine": engine}
+    engine, issued = engine_ingest.register_engine(body)
+    out: dict = {"registered": True, "engine": engine}
+    if issued:
+        out["ingest_token"] = issued
+        out["ingest_token_warning"] = "Store ingest_token as EVOTOWN_ENGINE_INGEST_TOKEN on this machine; shown once."
+    return out
+
+
+@router.post("/engines/{engine_id}/rotate-ingest-token", dependencies=[Depends(require_admin)])
+async def rotate_engine_ingest_token(engine_id: str):
+    if engine_ingest.get_engine(engine_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="engine not found")
+    token = engine_ingest.issue_ingest_token(engine_id)
+    return {
+        "engine_id": engine_id,
+        "ingest_token": token,
+        "ingest_token_warning": "Shown once. Update the employee machine EVOTOWN_ENGINE_INGEST_TOKEN.",
+    }
 
 
 @router.get("/engines", dependencies=[Depends(require_admin)])
@@ -19,11 +42,15 @@ async def list_engines(limit: int = 100):
     return {"engines": engine_ingest.list_engines(limit=limit)}
 
 
-@router.post("/runs/{run_id}/complete", dependencies=[Depends(require_engine_ingest)])
-async def complete_run(run_id: str, body: RunComplete):
+@router.post("/runs/{run_id}/complete")
+async def complete_run(
+    run_id: str,
+    body: RunComplete,
+    auth: EngineIngestAuth = Depends(get_engine_ingest_auth),
+):
+    assert_engine_ingest_scope(auth, body.engine_id)
     engine = engine_ingest.get_engine(body.engine_id)
     if engine is None:
-        # Accepting unknown engines would weaken provenance. Register first.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"engine_id '{body.engine_id}' is not registered",
@@ -39,6 +66,28 @@ async def list_runs(engine_id: str | None = None, limit: int = 100):
     return {"runs": engine_ingest.list_runs(engine_id=engine_id, limit=limit)}
 
 
+@router.get("/runs/{run_id}/status")
+async def get_run_status_for_engine(
+    run_id: str,
+    engine_id: str,
+    auth: EngineIngestAuth = Depends(get_engine_ingest_auth),
+):
+    """Connector polls run terminal state without admin token."""
+    assert_engine_ingest_scope(auth, engine_id)
+    run = engine_ingest.get_run(run_id)
+    if run is None or run.get("engine_id") != engine_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
+    return {
+        "run_id": run_id,
+        "engine_id": run["engine_id"],
+        "status": run.get("status", "running"),
+        "exit_code": run.get("exit_code", 0),
+        "log_excerpt": run.get("log_excerpt", ""),
+        "signals": run.get("signals") or {},
+        "finished_at": run.get("finished_at", ""),
+    }
+
+
 @router.get("/runs/{run_id}", dependencies=[Depends(require_admin)])
 async def get_run(run_id: str):
     run = engine_ingest.get_run(run_id)
@@ -47,8 +96,12 @@ async def get_run(run_id: str):
     return run
 
 
-@router.post("/events", dependencies=[Depends(require_engine_ingest)])
-async def append_event(body: RunEventIngest):
+@router.post("/events")
+async def append_event(
+    body: RunEventIngest,
+    auth: EngineIngestAuth = Depends(get_engine_ingest_auth),
+):
+    assert_engine_ingest_scope(auth, body.engine_id)
     engine = engine_ingest.get_engine(body.engine_id)
     if engine is None:
         raise HTTPException(
@@ -64,11 +117,15 @@ async def append_event(body: RunEventIngest):
     return {"accepted": True, "event": event, "run": run}
 
 
-@router.post("/runs/{run_id}/events", dependencies=[Depends(require_engine_ingest)])
-async def append_run_event(run_id: str, body: RunEventIngest):
+@router.post("/runs/{run_id}/events")
+async def append_run_event(
+    run_id: str,
+    body: RunEventIngest,
+    auth: EngineIngestAuth = Depends(get_engine_ingest_auth),
+):
     if body.run_id != run_id:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="run_id mismatch")
-    return await append_event(body)
+    return await append_event(body, auth)
 
 
 @router.get("/runs/{run_id}/events", dependencies=[Depends(require_admin)])
@@ -78,8 +135,12 @@ async def list_run_events(run_id: str, limit: int = 500):
     return {"events": engine_ingest.list_events(run_id=run_id, limit=limit)}
 
 
-@router.post("/policy/violations", dependencies=[Depends(require_engine_ingest)])
-async def append_policy_violation(body: PolicyViolationIngest):
+@router.post("/policy/violations")
+async def append_policy_violation(
+    body: PolicyViolationIngest,
+    auth: EngineIngestAuth = Depends(get_engine_ingest_auth),
+):
+    assert_engine_ingest_scope(auth, body.engine_id)
     if engine_ingest.get_run(body.run_id) is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="run not found")
     violation = engine_ingest.append_policy_violation(body)
@@ -106,4 +167,3 @@ async def list_policy_violations(
 @router.get("/costs/summary", dependencies=[Depends(require_admin)])
 async def cost_summary():
     return engine_ingest.cost_summary()
-

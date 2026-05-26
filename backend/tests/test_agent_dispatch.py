@@ -21,11 +21,17 @@ class AgentDispatchApiTest(unittest.TestCase):
             clear=False,
         )
         self._env_patch.start()
+        from pathlib import Path
         from infra import engine_ingest
 
         engine_ingest._conn = None
+        engine_ingest._DATA_DIR = Path(self._tmpdir.name)
+        engine_ingest._DB_PATH = Path(self._tmpdir.name) / "engine_ingest.db"
 
     def tearDown(self) -> None:
+        from infra import engine_ingest
+
+        engine_ingest._conn = None
         self._env_patch.stop()
         self._tmpdir.cleanup()
 
@@ -37,10 +43,10 @@ class AgentDispatchApiTest(unittest.TestCase):
         importlib.reload(main)
         return TestClient(main.app)
 
-    def _register_pair(self, client, ingest):
-        client.post(
+    def _register_pair(self, client, bootstrap):
+        r1 = client.post(
             "/api/v1/engines/register",
-            headers=ingest,
+            headers=bootstrap,
             json={
                 "engine_id": "openclaw-alice",
                 "engine_type": "openclaw",
@@ -48,9 +54,9 @@ class AgentDispatchApiTest(unittest.TestCase):
                 "owner_team": "sales",
             },
         )
-        client.post(
+        r2 = client.post(
             "/api/v1/engines/register",
-            headers=ingest,
+            headers=bootstrap,
             json={
                 "engine_id": "hermes-bob",
                 "engine_type": "hermes",
@@ -58,12 +64,16 @@ class AgentDispatchApiTest(unittest.TestCase):
                 "owner_team": "finance",
             },
         )
+        return (
+            {"Authorization": f"Bearer {r1.json()['ingest_token']}"},
+            {"Authorization": f"Bearer {r2.json()['ingest_token']}"},
+        )
 
     def test_dispatch_lease_and_complete(self) -> None:
         client = self._client()
-        ingest = {"Authorization": "Bearer test-ingest"}
+        bootstrap = {"Authorization": "Bearer test-ingest"}
         admin = {"X-Admin-Token": "test-admin"}
-        self._register_pair(client, ingest)
+        alice_ingest, _ = self._register_pair(client, bootstrap)
 
         create = client.post(
             "/api/v1/jobs",
@@ -78,23 +88,23 @@ class AgentDispatchApiTest(unittest.TestCase):
         self.assertEqual(create.status_code, 200)
         job_id = create.json()["job"]["job_id"]
 
-        lease = client.get("/api/v1/jobs/lease?engine_id=openclaw-alice", headers=ingest)
+        lease = client.get("/api/v1/jobs/lease?engine_id=openclaw-alice", headers=alice_ingest)
         self.assertEqual(lease.status_code, 200)
         self.assertEqual(lease.json()["job_id"], job_id)
 
-        wrong = client.get("/api/v1/jobs/lease?engine_id=hermes-bob", headers=ingest)
-        self.assertEqual(wrong.status_code, 204)
+        wrong = client.get("/api/v1/jobs/lease?engine_id=hermes-bob", headers=alice_ingest)
+        self.assertEqual(wrong.status_code, 403)
 
         ack = client.post(
             f"/api/v1/jobs/{job_id}/ack",
-            headers=ingest,
+            headers=alice_ingest,
             json={"engine_id": "openclaw-alice"},
         )
         self.assertEqual(ack.status_code, 200)
 
         done = client.post(
             f"/api/v1/jobs/{job_id}/complete",
-            headers=ingest,
+            headers=alice_ingest,
             json={
                 "engine_id": "openclaw-alice",
                 "status": "succeeded",
@@ -107,12 +117,12 @@ class AgentDispatchApiTest(unittest.TestCase):
 
     def test_handoff_to_team(self) -> None:
         client = self._client()
-        ingest = {"Authorization": "Bearer test-ingest"}
-        self._register_pair(client, ingest)
+        bootstrap = {"Authorization": "Bearer test-ingest"}
+        alice_ingest, bob_ingest = self._register_pair(client, bootstrap)
 
         handoff = client.post(
             "/api/v1/jobs/from-engine",
-            headers=ingest,
+            headers=alice_ingest,
             json={
                 "kind": "handoff",
                 "source_engine_id": "openclaw-alice",
@@ -122,18 +132,18 @@ class AgentDispatchApiTest(unittest.TestCase):
         )
         self.assertEqual(handoff.status_code, 200)
 
-        lease = client.get("/api/v1/jobs/lease?engine_id=hermes-bob", headers=ingest)
+        lease = client.get("/api/v1/jobs/lease?engine_id=hermes-bob", headers=bob_ingest)
         self.assertEqual(lease.status_code, 200)
         self.assertIn("expense", lease.json()["message"])
 
     def test_handoff_policy_denied(self) -> None:
         client = self._client()
-        ingest = {"Authorization": "Bearer test-ingest"}
-        self._register_pair(client, ingest)
+        bootstrap = {"Authorization": "Bearer test-ingest"}
+        alice_ingest, _ = self._register_pair(client, bootstrap)
 
         denied = client.post(
             "/api/v1/jobs/from-engine",
-            headers=ingest,
+            headers=alice_ingest,
             json={
                 "kind": "handoff",
                 "source_engine_id": "openclaw-alice",
@@ -145,9 +155,9 @@ class AgentDispatchApiTest(unittest.TestCase):
 
     def test_chain_handoff_on_complete(self) -> None:
         client = self._client()
-        ingest = {"Authorization": "Bearer test-ingest"}
+        bootstrap = {"Authorization": "Bearer test-ingest"}
         admin = {"X-Admin-Token": "test-admin"}
-        self._register_pair(client, ingest)
+        alice_ingest, bob_ingest = self._register_pair(client, bootstrap)
 
         create = client.post(
             "/api/v1/jobs",
@@ -166,10 +176,10 @@ class AgentDispatchApiTest(unittest.TestCase):
         )
         job_id = create.json()["job"]["job_id"]
 
-        client.post(f"/api/v1/jobs/{job_id}/ack", headers=ingest, json={"engine_id": "openclaw-alice"})
+        client.post(f"/api/v1/jobs/{job_id}/ack", headers=alice_ingest, json={"engine_id": "openclaw-alice"})
         done = client.post(
             f"/api/v1/jobs/{job_id}/complete",
-            headers=ingest,
+            headers=alice_ingest,
             json={"engine_id": "openclaw-alice", "status": "succeeded", "exit_code": 0, "result_summary": "done"},
         )
         self.assertEqual(done.status_code, 200)
@@ -177,14 +187,14 @@ class AgentDispatchApiTest(unittest.TestCase):
         self.assertIsNotNone(follow)
         self.assertEqual(follow.get("target_team_id"), "finance")
 
-        lease = client.get("/api/v1/jobs/lease?engine_id=hermes-bob", headers=ingest)
+        lease = client.get("/api/v1/jobs/lease?engine_id=hermes-bob", headers=bob_ingest)
         self.assertEqual(lease.status_code, 200)
 
     def test_cancel_job(self) -> None:
         client = self._client()
-        ingest = {"Authorization": "Bearer test-ingest"}
+        bootstrap = {"Authorization": "Bearer test-ingest"}
         admin = {"X-Admin-Token": "test-admin"}
-        self._register_pair(client, ingest)
+        alice_ingest, _ = self._register_pair(client, bootstrap)
 
         create = client.post(
             "/api/v1/jobs",
@@ -196,22 +206,23 @@ class AgentDispatchApiTest(unittest.TestCase):
         self.assertEqual(cancel.status_code, 200)
         self.assertEqual(cancel.json()["job"]["status"], "cancelled")
 
-        lease = client.get("/api/v1/jobs/lease?engine_id=openclaw-alice", headers=ingest)
+        lease = client.get("/api/v1/jobs/lease?engine_id=openclaw-alice", headers=alice_ingest)
         self.assertEqual(lease.status_code, 204)
 
     def test_heartbeat_and_fleet(self) -> None:
         client = self._client()
-        ingest = {"Authorization": "Bearer test-ingest"}
+        bootstrap = {"Authorization": "Bearer test-ingest"}
         admin = {"X-Admin-Token": "test-admin"}
 
-        client.post(
+        reg = client.post(
             "/api/v1/engines/register",
-            headers=ingest,
+            headers=bootstrap,
             json={"engine_id": "eng-1", "engine_type": "openclaw", "engine_version": "1.0.0"},
         )
+        eng_token = {"Authorization": f"Bearer {reg.json()['ingest_token']}"}
         hb = client.post(
             "/api/v1/engines/eng-1/heartbeat",
-            headers=ingest,
+            headers=eng_token,
             json={"connector_version": "test", "gateway_reachable": True},
         )
         self.assertEqual(hb.status_code, 200)

@@ -16,12 +16,14 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
-from fastapi import HTTPException, Security, status
+from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 
 from infra import accounts as accounts_store
+from infra import engine_ingest as engine_ingest_store
 
 _HEADER_SCHEME = APIKeyHeader(name="X-Admin-Token", auto_error=False)
 _BEARER_SCHEME = HTTPBearer(auto_error=False)
@@ -133,23 +135,89 @@ def _get_engine_ingest_token() -> str:
     return ""
 
 
-async def require_engine_ingest(
-    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
-) -> None:
-    token = _get_engine_ingest_token()
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "Server not configured: set EVOTOWN_ENGINE_INGEST_TOKEN "
-                "(or EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK=1 for local dev)."
-            ),
-        )
-    if credentials is None or credentials.scheme.lower() != "bearer" or credentials.credentials != token:
+@dataclass(frozen=True)
+class EngineIngestAuth:
+    """Resolved ingest bearer: IT global token or per-engine evi_ token."""
+
+    mode: Literal["global", "engine"]
+    engine_id: str | None = None
+
+
+def _parse_bearer(credentials: HTTPAuthorizationCredentials | None) -> str:
+    if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid or missing bearer token.",
         )
+    return credentials.credentials
+
+
+async def get_engine_ingest_auth(
+    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
+) -> EngineIngestAuth:
+    """Accept IT global ingest token or per-engine evi_ token."""
+    raw = _parse_bearer(credentials)
+    global_token = _get_engine_ingest_token()
+    if global_token and raw == global_token:
+        return EngineIngestAuth(mode="global", engine_id=None)
+    engine_id = engine_ingest_store.lookup_engine_id_for_ingest_token(raw)
+    if engine_id:
+        return EngineIngestAuth(mode="engine", engine_id=engine_id)
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Invalid or missing bearer token.",
+    )
+
+
+def assert_engine_ingest_scope(auth: EngineIngestAuth, engine_id: str) -> None:
+    if auth.mode == "global":
+        return
+    if auth.engine_id != engine_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"ingest token is not authorized for engine_id '{engine_id}'",
+        )
+
+
+async def require_engine_ingest_global(
+    auth: EngineIngestAuth = Depends(get_engine_ingest_auth),
+) -> EngineIngestAuth:
+    """Endpoints that only IT / connector bootstrap should call with the shared token."""
+    if auth.mode != "global":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This endpoint requires the IT engine ingest token (not a per-engine evi_ token).",
+        )
+    return auth
+
+
+async def require_engine_ingest(
+    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
+) -> EngineIngestAuth:
+    """Backward-compatible alias: returns resolved ingest auth (global or per-engine)."""
+    return await get_engine_ingest_auth(credentials)
+
+
+async def require_engine_register(
+    key: str | None = Security(_HEADER_SCHEME),
+    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
+) -> None:
+    """Register / rotate tokens: admin header OR IT global ingest bearer."""
+    admin_token = _get_configured_token()
+    if admin_token and key and key == admin_token:
+        return
+    global_token = _get_engine_ingest_token()
+    if (
+        global_token
+        and credentials is not None
+        and credentials.scheme.lower() == "bearer"
+        and credentials.credentials == global_token
+    ):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Register requires X-Admin-Token or IT EVOTOWN_ENGINE_INGEST_TOKEN bearer.",
+    )
 
 
 def _legacy_gateway_keys() -> list[str]:

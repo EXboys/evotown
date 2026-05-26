@@ -40,3 +40,11 @@ Authorization: Bearer {EVOTOWN_INGEST_TOKEN}
 ```
 
 The receiving machine's **Connector** will lease the job and trigger local OpenClaw/Hermes Gateway.
+
+When **this** agent finishes the leased job, report completion (do not rely on hook HTTP alone):
+
+```bash
+evotown-agent-setup.py complete --job-id <job_id from task payload> --status succeeded --summary "..."
+```
+
+Or POST `run.completed` to `/api/v1/events` with the same `run_id` as the dispatch job.

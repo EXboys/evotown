@@ -396,10 +396,19 @@ def _format_dispatch_message(job: dict[str, Any]) -> str:
     title = (job.get("title") or "").strip()
     body = job.get("message") or ""
     parent = (job.get("refs") or {}).get("parent_job_id")
-    prefix = f"【Evotown · {title}】" if title else f"【Evotown 任务 {job.get('job_id', '')}】"
+    job_id = job.get("job_id") or ""
+    run_id = job.get("run_id") or job_id
+    prefix = f"【Evotown · {title}】" if title else f"【Evotown 任务 {job_id}】"
     if parent:
         prefix += f" (接续 {parent})"
-    return f"{prefix}\n\n{body}"
+    footer = (
+        f"\n\n---\n"
+        f"[evotown] job_id={job_id} run_id={run_id}\n"
+        f"When this task is fully done, run:\n"
+        f"  evotown-agent-setup.py complete --job-id {job_id} --status succeeded --summary \"<brief result>\"\n"
+        f"Or POST run.completed to Evotown ingest with run_id={run_id}."
+    )
+    return f"{prefix}\n\n{body}{footer}"
 
 
 def _hook_timeout(cfg: dict[str, str]) -> int:
@@ -414,6 +423,13 @@ def _trigger_openclaw(cfg: dict[str, str], message: str) -> tuple[bool, str]:
     token = (cfg.get("OPENCLAW_HOOK_TOKEN") or cfg.get("EVOTOWN_HOOK_TOKEN") or "").strip()
     if not token:
         return False, "OPENCLAW_HOOK_TOKEN not set (must match OpenClaw hooks.token)"
+    job_id = ""
+    if "[evotown] job_id=" in message:
+        try:
+            fragment = message.split("[evotown] job_id=", 1)[1]
+            job_id = fragment.split()[0].strip()
+        except IndexError:
+            job_id = ""
     body = {
         "message": message,
         "name": "Evotown",
@@ -421,6 +437,7 @@ def _trigger_openclaw(cfg: dict[str, str], message: str) -> tuple[bool, str]:
         "wakeMode": "now",
         "deliver": False,
         "timeoutSeconds": min(_hook_timeout(cfg), 600),
+        "metadata": {"source": "evotown", "job_id": job_id} if job_id else {"source": "evotown"},
     }
     data = json.dumps(body).encode("utf-8")
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}

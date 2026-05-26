@@ -137,7 +137,7 @@ async def trigger_evolve(agent_id: str) -> tuple[bool, str]:
     agent_home = a.agent_home or a.chat_dir
     evolution_division = a.evolution_division or "all"
     ok, message = await process_mgr.trigger_evolve(agent_id, agent_home, evolution_division=evolution_division)
-    await ws.send_sprite_move(agent_id, "广场", "进化神殿", "forced_evolution")
+    await ws.send_sprite_move(agent_id, "广场", "数据中心", "forced_evolution")
     return ok, message
 
 

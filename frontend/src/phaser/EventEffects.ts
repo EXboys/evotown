@@ -35,7 +35,7 @@ export class EventEffects {
     const cx = this.getCx();
     const cy = this.getCy();
 
-    // 1. 升级中心建筑强脉冲
+    // 1. 数据中心建筑强脉冲
     const templeContainer = this.getBuilding("temple");
     if (templeContainer) {
       this.scene.tweens.add({

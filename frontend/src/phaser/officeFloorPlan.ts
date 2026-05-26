@@ -4,7 +4,7 @@
  *
  * 布局结构：
  *   ┌─────────────────────────────────────────────┐
- *   │ 知识库 (含会议室) │ Skill 工坊 │   升级中心     │
+ *   │ 知识库 (含会议室) │ Skill 工坊 │   数据中心     │
  *   │                  │           │              │
  *   └────door──────────door────────door───────────┘
  *                  ═══ 横向主走廊 ═══
@@ -28,7 +28,7 @@ export const OFFICE_FLOOR = {
 } as const;
 
 // ── 房间矩形定义 ─────────────────────────────────────────────
-// 上排三房：知识库（含会议室） / Skill 工坊 / 升级中心
+// 上排三房：知识库（含会议室） / Skill 工坊 / 数据中心
 const ROOM_KNOWLEDGE: Rect = { x: 36, y: 36, w: 176, h: 154 };
 const ROOM_WORKSHOP: Rect = { x: 220, y: 36, w: 172, h: 154 };
 const ROOM_TEMPLE: Rect = { x: 400, y: 36, w: 204, h: 154 };
@@ -64,7 +64,7 @@ export const OFFICE_BUILDINGS = {
   temple: {
     x: ROOM_TEMPLE.x + ROOM_TEMPLE.w / 2,
     y: ROOM_TEMPLE.y + ROOM_TEMPLE.h / 2,
-    label: "升级中心",
+    label: "数据中心",
     w: 4, h: 4, roof: "flat" as const, color: NES.ROOF_BROWN,
   },
   square: {
@@ -159,7 +159,7 @@ const KNOWLEDGE_WORKSTATIONS: Workstation[] = (() => {
   return list;
 })();
 
-/** 升级中心 三联屏 + 机柜检修位（共 5 个工位） */
+/** 数据中心 三联屏 + 机柜检修位（共 5 个工位） */
 const TEMPLE_WORKSTATIONS: Workstation[] = (() => {
   const r = ROOM_TEMPLE;
   const consoleX = r.x + 32;
@@ -575,7 +575,7 @@ function drawWorkshop(g: Phaser.GameObjects.Graphics, ox: number, oy: number) {
 function drawTemple(g: Phaser.GameObjects.Graphics, ox: number, oy: number) {
   const r = ROOM_TEMPLE;
 
-  // 上排：服务器机柜墙（升级中心 + 机房合并）
+  // 上排：服务器机柜墙（数据中心）
   const rackY = r.y + 16;
   for (let i = 0; i < 8; i++) {
     const x = r.x + 14 + i * 22;

@@ -1,0 +1,41 @@
+---
+description: Issue-first workflow — open issue before PR, link with Closes
+alwaysApply: true
+---
+
+# Issue → PR workflow (Evotown)
+
+## Default (follow-up work after the first merge)
+
+For **non-trivial** changes (features, security, dispatch/connector, infra, multi-file refactors):
+
+1. **Open a GitHub Issue first** (`gh issue create` or UI) with acceptance criteria.
+2. **Implement** on `main` or a short-lived branch the user named.
+3. **Open one PR → `main`** whose body includes **`Closes #<issue>`** (auto-closes on merge).
+4. **One Issue ↔ one PR** scope; split large work into multiple issues/PRs instead of stacking.
+
+## Issue content (minimum)
+
+- **Problem / context** (why now)
+- **Proposed change** (what)
+- **Acceptance criteria** (checkboxes, testable)
+- **Labels** when useful: `security`, `dispatch`, `docs`, `P0` / `P1`
+
+## PR content (minimum)
+
+- First line or section: `Closes #123` (or `Fixes #123`)
+- **Summary** (1–3 bullets)
+- **Test plan** (checkboxes)
+- Link related docs paths if applicable
+
+Use **`Refs #123`** only when the PR does **not** fully close the issue.
+
+## Exceptions
+
+- **Hotfix / same-session tiny fix**: PR first is OK; open a tracking issue immediately and add `Refs #N` before merge.
+- **User explicitly says “skip issue”**: proceed without issue; note that in the PR.
+
+## Agent behavior
+
+- When the user asks to **commit, push, or open a PR** for substantive work: **offer or create the issue first**, then use its number in the PR body.
+- Do not open a second PR for work that belongs to an already-open issue without checking existing issues/PRs.

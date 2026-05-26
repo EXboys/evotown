@@ -14,9 +14,10 @@ alwaysApply: true
 ## How to ship changes
 
 1. `git checkout main && git pull origin main`
-2. Implement on **`main`** (or a same-day branch the user named).
-3. Commit with a clear message when the user asks to commit.
-4. Push **`main`** and open **one PR → `main`**, or push to `main` directly if the user says to skip PR.
+2. **Open a GitHub Issue** (see `issue-pr-workflow.mdc`) unless hotfix / user says skip.
+3. Implement on **`main`** (or a same-day branch the user named).
+4. Commit with a clear message when the user asks to commit.
+5. Push and open **one PR → `main`** with **`Closes #<issue>`** in the body, or push to `main` directly if the user says to skip PR.
 
 ## Avoid
 

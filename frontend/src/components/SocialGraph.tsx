@@ -1,6 +1,6 @@
 /**
  * 社交图谱 — NES/FC 风格力导向关系图（纯 React + SVG，无外部依赖）
- * 节点 = 武将，边 = 消息往来权重，队伍颜色区分阵营
+ * 节点 = Agent，边 = 消息往来权重，队伍颜色区分项目组
  */
 import { useEffect, useRef, useState, useCallback } from "react";
 
@@ -243,7 +243,7 @@ export function SocialGraph() {
       {loading && <p className="text-xs text-slate-500 text-center py-8 animate-pulse">载入中…</p>}
       {error && <p className="text-xs text-red-400 text-center py-4">{error}</p>}
       {!loading && !error && data && data.nodes.length === 0 && (
-        <p className="text-xs text-slate-500 italic text-center py-8">暂无社交记录，武将尚未互通书信</p>
+        <p className="text-xs text-slate-500 italic text-center py-8">暂无协作记录，Agent 之间尚未产生消息往来</p>
       )}
 
       {!loading && data && nodes.length > 0 && (

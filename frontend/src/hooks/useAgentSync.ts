@@ -75,7 +75,7 @@ async function doFullSync(
   if (useEvotownStore.getState().replayMode) return;
   try {
     const list = await fetchAgents();
-    // 先更新 store（setAgents 内部会将英文名转为三国中文名）
+    // 先更新 store（setAgents 内部会为无中文名的 Agent 分配办公场景显示名）
     setAgents(list);
     // 取 store 中已转换的中文名列表同步给 Phaser，而非原始 API 列表
     syncStoreToPhaser(useEvotownStore.getState().agents);

@@ -1,6 +1,6 @@
 /** Evotown 全局状态 — 进化事件、Agent 列表、裁判评分、分发器 */
 import { create } from "zustand";
-import { WARRIORS, type WarriorId } from "../phaser/warriorPortraits";
+import { AGENT_AVATARS, type AvatarId } from "../phaser/agentAvatars";
 
 /** 事件数组内存上限配置 */
 const EVENT_LIMITS = {
@@ -17,20 +17,21 @@ const EVENT_LIMITS = {
 /** 事件保留时间（毫秒），超过此时间的事件将被清理 */
 const EVENT_RETENTION_MS = 24 * 60 * 60 * 1000; // 24 小时
 
-/** 武将 ID 池 */
-const WARRIOR_IDS: WarriorId[] = ["kongming", "zhaoyun", "simayi", "zhouyu", "guanyu", "zhangfei", "liubei", "caocao", "sunquan", "zhangliao", "guojia", "huanggai", "lusu"];
+/** 办公角色 ID 池 */
+const AVATAR_IDS: AvatarId[] = [
+  "engineer", "analyst", "ops", "lead", "qa", "devops",
+  "security", "data", "pm", "architect", "support", "intern",
+];
 
-/** 根据 agentId 哈希分配一个三国武将显示名，避开 usedNames 中已占用的名字 */
-function autoWarriorName(agentId: string, usedNames: Set<string> = new Set()): string {
+/** 根据 agentId 哈希分配办公场景显示名 */
+function autoOfficeAgentName(agentId: string, usedNames: Set<string> = new Set()): string {
   const hash = agentId.split("").reduce((a, c) => ((a << 5) - a) + c.charCodeAt(0), 0);
-  const start = Math.abs(hash) % WARRIOR_IDS.length;
-  // 从哈希位置开始，找第一个未被占用的武将
-  for (let i = 0; i < WARRIOR_IDS.length; i++) {
-    const name = WARRIORS[WARRIOR_IDS[(start + i) % WARRIOR_IDS.length]].name;
+  const start = Math.abs(hash) % AVATAR_IDS.length;
+  for (let i = 0; i < AVATAR_IDS.length; i++) {
+    const name = AGENT_AVATARS[AVATAR_IDS[(start + i) % AVATAR_IDS.length]].name;
     if (!usedNames.has(name)) return name;
   }
-  // 全部占满时加序号区分
-  return WARRIORS[WARRIOR_IDS[start]].name + `·${agentId.slice(-2)}`;
+  return AGENT_AVATARS[AVATAR_IDS[start]].name + `·${agentId.slice(-2)}`;
 }
 
 export interface AgentInfo {
@@ -45,7 +46,7 @@ export interface AgentInfo {
   success_count?: number;
   evolution_count?: number;
   evolution_success_count?: number;
-  /** 队伍信息（结阵后由 team_formed WS 事件填充） */
+  /** 队伍信息（组队后由 team_formed WS 事件填充） */
   team_id?: string;
   team_name?: string;
   /** 社会分工：进化方向 all|prompts|skills|memory */
@@ -155,7 +156,7 @@ interface EvotownState {
   addAgent: (agent: AgentInfo) => void;
   updateAgentBalance: (agentId: string, balance: number) => void;
   removeAgent: (agentId: string) => void;
-  /** 结阵后批量更新队伍归属，teams = [{team_id, name, members:[agent_id]}] */
+  /** 组队后批量更新队伍归属，teams = [{team_id, name, members:[agent_id]}] */
   setAgentTeams: (teams: { team_id: string; name: string; members: { agent_id: string }[] }[]) => void;
 
   addAvailableTask: (task: AvailableTask) => void;
@@ -232,7 +233,7 @@ export const useEvotownStore = create<EvotownState>((set, get) => ({
           usedNames.add(withTeam.display_name!);
           return withTeam;
         }
-        const name = autoWarriorName(withTeam.id, usedNames);
+        const name = autoOfficeAgentName(withTeam.id, usedNames);
         usedNames.add(name);
         return { ...withTeam, display_name: name };
       });
@@ -241,11 +242,10 @@ export const useEvotownStore = create<EvotownState>((set, get) => ({
   addAgent: (agent) =>
     set((s) => {
       const usedNames = new Set(s.agents.map((a) => a.display_name).filter(Boolean) as string[]);
-      // 已经是中文且未重复则保留，否则强制分配三国武将名
       const isChinese = agent.display_name && /[\u4e00-\u9fff]/.test(agent.display_name);
       const withName = (isChinese && !usedNames.has(agent.display_name!))
         ? agent
-        : { ...agent, display_name: autoWarriorName(agent.id, usedNames) };
+        : { ...agent, display_name: autoOfficeAgentName(agent.id, usedNames) };
       const exists = s.agents.some((a) => a.id === agent.id);
       if (exists) {
         return {

@@ -200,7 +200,7 @@ export class TerrainRenderer {
     this.worldMid = this.scene.add.container(0, 0);
     this.worldFront = this.scene.add.container(0, 0);
 
-    // 背景层：草地、森林、山脉
+    // 背景层：办公地面、绿植、机房装饰
     const grass = this.scene.add.tileSprite(0, 0, w + 64, h + 64, "grass");
     grass.setTileScale(1);
     this.worldBack.add(grass);
@@ -231,7 +231,7 @@ export class TerrainRenderer {
     const bubblePositions = [{ x: 580 - cx, y: 280 - cy }, { x: 560 - cx, y: 360 - cy }, { x: 530 - cx, y: 320 - cy }];
     bubblePositions.forEach((pos) => {
       const g = this.scene.add.graphics();
-      g.fillStyle(0x88aacc, 0.4);
+      g.fillStyle(0x94a3b8, 0.35);
       g.fillCircle(pos.x, pos.y, 2);
       this.worldMid.add(g);
       this.waterBubbles.push({ g, baseY: pos.y });

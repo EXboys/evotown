@@ -13,7 +13,7 @@ export interface AgentState {
   label: Phaser.GameObjects.Text;
   displayName: string;
   color: number;
-  warriorId: string;
+  avatarId: string;
   phaseOffset: number;
   taskPhase: TaskPhase;
   wanderTimer: number;
@@ -112,11 +112,11 @@ export class AgentManager {
       if (isMoving) {
         agent.facing = this.getFacing(dx, dy);
         const walkFrame = Math.floor((time + agent.phaseOffset) * 0.004) % 2;
-        setCharFacing(agent.base, agent.helmet, agent.facing, walkFrame, agent.warriorId);
+        setCharFacing(agent.base, agent.helmet, agent.facing, walkFrame);
         agent.container.x += Phaser.Math.Clamp(dx, -speed, speed);
         agent.container.y += Phaser.Math.Clamp(dy, -speed, speed);
       } else {
-        setCharFacing(agent.base, agent.helmet, agent.facing, 0, agent.warriorId);
+        setCharFacing(agent.base, agent.helmet, agent.facing, 0);
 
         // Handle delivery completion
         if (agent.taskPhase === "deliver") {

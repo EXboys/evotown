@@ -1,9 +1,5 @@
 /**
- * 📜 三国·进化演绎 — 章节式史书展示
- *
- * 仿《三国演义》回目布局：
- *   左栏：章节目录（第N回 · 日期）
- *   右栏：正文（文言文运行实录 + Agent 贡献表）
+ * 组织运行日志 — 按期汇总 Agent 运行与协作实录
  */
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -113,7 +109,7 @@ export function ChronicleBook() {
         return;
       }
       const data = await r.json();
-      setGenMsg(`✅ 已重新生成 ${data.chapter_label || `第${data.chapter}回`} 战报`);
+      setGenMsg(`✅ 已重新生成 ${data.chapter_label || `第 ${data.chapter} 期`} 运行简报`);
       loadList();
       setDetail(null);
       setLoadingDetail(true);
@@ -138,7 +134,7 @@ export function ChronicleBook() {
         return;
       }
       const data = await r.json();
-      setGenMsg(`✅ 已生成 ${data.chapter_label || `第${data.chapter}回`} 战报`);
+      setGenMsg(`✅ 已生成 ${data.chapter_label || `第 ${data.chapter} 期`} 运行简报`);
       loadList();
       if (data.chapter != null) handleSelectChapter(data.chapter);
     } catch (e) {
@@ -149,44 +145,43 @@ export function ChronicleBook() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0d0b07] text-[#e8d5a3] flex flex-col" style={{ fontFamily: "'Noto Serif SC', 'Source Han Serif CN', serif" }}>
-      {/* 顶部书脊 */}
-      <header className="flex items-center justify-between px-8 py-3 border-b border-amber-900/50 bg-[#13100a]">
-        <button onClick={() => navigate("/")} className="text-amber-600 hover:text-amber-400 text-sm transition-colors">← 返回</button>
+    <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
+      <header className="flex items-center justify-between px-8 py-3 border-b border-slate-800 bg-slate-900">
+        <button onClick={() => navigate("/arena")} className="text-slate-400 hover:text-sky-300 text-sm transition-colors">← 协作地图</button>
         <div className="text-center">
-          <div className="text-xs tracking-[0.4em] text-amber-700 uppercase mb-0.5">Evolution Town · Three Kingdoms</div>
-          <h1 className="text-lg font-bold tracking-[0.25em] text-amber-300">三 国 · 进 化 演 绎</h1>
+          <div className="text-xs tracking-[0.2em] text-slate-500 uppercase mb-0.5">Evotown · Operations Log</div>
+          <h1 className="text-lg font-semibold tracking-wide text-slate-100">组织运行日志</h1>
         </div>
         <button
           onClick={handleGenerate}
           disabled={generating}
-          className="text-xs px-3 py-1.5 rounded border border-amber-800 text-amber-600 hover:border-amber-500 hover:text-amber-300 transition-colors disabled:opacity-40"
+          className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300 hover:border-sky-500 hover:text-sky-200 transition-colors disabled:opacity-40"
         >
-          {generating ? "生成中…" : "手动生成战报"}
+          {generating ? "生成中…" : "生成运行简报"}
         </button>
       </header>
       {genMsg && (
-        <div className="text-center text-xs py-1.5 bg-amber-900/20 text-amber-400 border-b border-amber-900/30">{genMsg}</div>
+        <div className="text-center text-xs py-1.5 bg-sky-950/40 text-sky-300 border-b border-slate-800">{genMsg}</div>
       )}
 
       <div className="flex flex-1 min-h-0">
         {/* 左侧目录 — 时间线样式 */}
-        <aside className="w-56 shrink-0 border-r border-amber-900/40 bg-[#0f0c08] overflow-y-auto">
-          <div className="px-4 py-3 text-xs text-amber-700 tracking-widest border-b border-amber-900/30 flex items-center gap-2">
-            <span className="w-px h-3 bg-amber-800/60" />
-            <span>战 报 时 间 线</span>
+        <aside className="w-56 shrink-0 border-r border-slate-800 bg-slate-900/80 overflow-y-auto">
+          <div className="px-4 py-3 text-xs text-slate-500 tracking-widest border-b border-slate-800 flex items-center gap-2">
+            <span className="w-px h-3 bg-sky-600/60" />
+            <span>日志时间线</span>
           </div>
-          {loadingList && <div className="px-4 py-6 text-amber-800 text-xs animate-pulse">加载中…</div>}
+          {loadingList && <div className="px-4 py-6 text-slate-500 text-xs animate-pulse">加载中…</div>}
           {!loadingList && list.length === 0 && (
-            <div className="px-4 py-6 text-amber-800/60 text-xs text-center leading-relaxed">
-              尚无战报<br/>点击右上角生成
+            <div className="px-4 py-6 text-slate-500 text-xs text-center leading-relaxed">
+              尚无运行简报<br/>点击右上角生成
             </div>
           )}
           {/* Timeline container */}
           <div className="relative">
             {/* Vertical connecting line */}
             {list.length > 1 && (
-              <div className="absolute left-[22px] top-5 bottom-5 w-px bg-amber-900/35 pointer-events-none" />
+              <div className="absolute left-[22px] top-5 bottom-5 w-px bg-slate-700 pointer-events-none" />
             )}
             {list.map((item, idx) => {
               const isSelected = selectedChapter === item.chapter;
@@ -195,29 +190,29 @@ export function ChronicleBook() {
                 <button
                   key={item.chapter}
                   onClick={() => handleSelectChapter(item.chapter)}
-                  className={`w-full text-left py-3 pr-3 pl-3 border-b border-amber-900/20 transition-colors group relative ${
-                    isSelected ? "bg-amber-900/30" : "hover:bg-amber-900/15"
+                  className={`w-full text-left py-3 pr-3 pl-3 border-b border-slate-800 transition-colors group relative ${
+                    isSelected ? "bg-sky-950/50" : "hover:bg-slate-800/60"
                   }`}
                 >
                   {/* Timeline dot */}
                   <div className={`absolute left-[17px] top-[18px] w-[11px] h-[11px] rounded-full z-10 transition-all ${
                     isSelected
-                      ? "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]"
+                      ? "bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.5)]"
                       : isLatest
-                        ? "bg-amber-700 border border-amber-600 animate-pulse"
-                        : "bg-[#1a1409] border border-amber-800/60"
+                        ? "bg-sky-600 border border-sky-500 animate-pulse"
+                        : "bg-slate-800 border border-slate-600"
                   }`} />
                   <div className="pl-6 min-w-0">
                     {isLatest && (
-                      <span className="inline-block text-[9px] bg-amber-600/20 text-amber-500 px-1.5 py-0.5 rounded border border-amber-700/40 mb-1 tracking-wide leading-none">
+                      <span className="inline-block text-[9px] bg-sky-600/20 text-sky-400 px-1.5 py-0.5 rounded border border-sky-700/40 mb-1 tracking-wide leading-none">
                         最新
                       </span>
                     )}
-                    <div className={`text-xs font-bold mb-1 leading-snug ${isSelected ? "text-amber-300" : "text-amber-700 group-hover:text-amber-500"}`}>
+                    <div className={`text-xs font-bold mb-1 leading-snug ${isSelected ? "text-sky-200" : "text-slate-400 group-hover:text-slate-200"}`}>
                       {formatChapterTitle(item)}
                     </div>
-                    <div className="text-[10px] text-amber-800/80 leading-relaxed line-clamp-2">{item.preview || "（无预览）"}</div>
-                    <div className="text-[9px] text-amber-900/50 mt-1">任务 {item.total_tasks} 条</div>
+                    <div className="text-[10px] text-slate-500 leading-relaxed line-clamp-2">{item.preview || "（无预览）"}</div>
+                    <div className="text-[9px] text-slate-600 mt-1">任务 {item.total_tasks} 条</div>
                   </div>
                 </button>
               );
@@ -228,10 +223,10 @@ export function ChronicleBook() {
         {/* 右侧正文 */}
         <main className="flex-1 overflow-y-auto px-10 py-8 max-w-3xl mx-auto">
           {selectedChapter == null && !loadingList && (
-            <div className="text-center mt-32 text-amber-800/50 text-sm tracking-widest">选择左侧章节以阅读史记</div>
+            <div className="text-center mt-32 text-slate-500 text-sm">选择左侧期次查看运行简报</div>
           )}
           {loadingDetail && (
-            <div className="text-center mt-32 text-amber-700 text-sm animate-pulse tracking-widest">载入战报中…</div>
+            <div className="text-center mt-32 text-slate-400 text-sm animate-pulse">载入简报中…</div>
           )}
           {detail && !loadingDetail && selectedChapter != null && (
             <ChapterContent
@@ -265,29 +260,27 @@ function ChapterContent({
     <article>
       {/* 回目标题 */}
       <div className="text-center mb-8">
-        <div className="text-xs text-amber-700 tracking-[0.5em] mb-3">{detail.chapter_label ?? `第${chNums[chapterNum] ?? chapterNum}回`}</div>
+        <div className="text-xs text-slate-500 tracking-widest mb-3">{detail.chapter_label ?? `第 ${chNums[chapterNum] ?? chapterNum} 期`}</div>
         {detail.title ? (
-          /* 有 LLM 生成的回目标题：上下句竖排展示 */
           <div className="flex flex-col items-center gap-1 mb-2">
             {detail.title.split(" ").filter(Boolean).map((line, i) => (
-              <div key={i} className="text-xl font-bold text-amber-300 tracking-[0.25em]">{line}</div>
+              <div key={i} className="text-xl font-semibold text-slate-100 tracking-wide">{line}</div>
             ))}
           </div>
         ) : (
-          /* 旧战报无标题时兜底 */
-          <div className="text-xl font-bold text-amber-300 tracking-[0.2em] mb-1">{fallbackTitle}</div>
+          <div className="text-xl font-semibold text-slate-100 tracking-wide mb-1">{fallbackTitle}</div>
         )}
         <div className="flex items-center justify-center gap-4 mt-2">
-          <span className="text-xs text-amber-800">{genTime && `说书人注：录于 ${genTime}`}</span>
+          <span className="text-xs text-slate-500">{genTime && `生成于 ${genTime}`}</span>
           <button
             onClick={onRegenerate}
             disabled={regenerating}
-            className="text-xs px-2.5 py-1 rounded border border-amber-800/60 text-amber-600 hover:border-amber-500 hover:text-amber-400 transition-colors disabled:opacity-40"
+            className="text-xs px-2.5 py-1 rounded-lg border border-slate-600 text-slate-400 hover:border-sky-500 hover:text-sky-300 transition-colors disabled:opacity-40"
           >
             {regenerating ? "重新生成中…" : "重新生成"}
           </button>
         </div>
-        <div className="mt-4 border-t border-amber-900/40" />
+        <div className="mt-4 border-t border-slate-800" />
       </div>
 
       {/* 统计徽章 */}
@@ -297,33 +290,31 @@ function ChapterContent({
           { label: "达成", value: detail.summary.total_completed },
           { label: "未达成", value: detail.summary.total_failed },
         ].map(({ label, value }) => (
-          <div key={label} className="text-center px-5 py-2 border border-amber-900/40 rounded bg-amber-900/10">
-            <div className="text-xl font-bold text-amber-300">{value}</div>
-            <div className="text-[10px] text-amber-700 tracking-widest">{label}</div>
+          <div key={label} className="text-center px-5 py-2 border border-slate-700 rounded-lg bg-slate-900/60">
+            <div className="text-xl font-bold text-sky-300">{value}</div>
+            <div className="text-[10px] text-slate-500 tracking-widest">{label}</div>
           </div>
         ))}
       </div>
 
-      {/* 战报正文 */}
       <div
-        className="leading-[2.2] text-[#d4b87a] text-[15px] mb-10 whitespace-pre-wrap tracking-[0.05em]"
+        className="leading-relaxed text-slate-300 text-[15px] mb-10 whitespace-pre-wrap"
         style={{ textIndent: "2em" }}
       >
-        {detail.text || "（战报内容为空）"}
+        {detail.text || "（简报内容为空）"}
       </div>
 
-      {/* Agent 贡献录 */}
       {detail.agent_stats && detail.agent_stats.length > 0 && (
         <section className="mt-4">
-          <div className="text-center text-sm text-amber-600 tracking-[0.4em] mb-4 border-t border-amber-900/30 pt-6">— Agent 贡献录 —</div>
+          <div className="text-center text-sm text-slate-500 tracking-widest mb-4 border-t border-slate-800 pt-6">Agent 贡献统计</div>
           <div className="space-y-2">
             {detail.agent_stats.map((s, i) => (
-              <div key={s.agent_id} className="flex items-center gap-3 px-4 py-2.5 rounded border border-amber-900/25 bg-amber-900/8 hover:bg-amber-900/15 transition-colors">
-                <span className="text-amber-800 text-xs w-5 text-right shrink-0">{i + 1}</span>
-                <span className="font-bold text-amber-200 w-16 shrink-0">{s.display_name}</span>
+              <div key={s.agent_id} className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-slate-700 bg-slate-900/50 hover:bg-slate-800/60 transition-colors">
+                <span className="text-slate-500 text-xs w-5 text-right shrink-0">{i + 1}</span>
+                <span className="font-medium text-slate-200 w-20 shrink-0 truncate">{s.display_name}</span>
                 <RewardBadge value={s.total_reward} />
-                <span className="text-amber-800/70 text-xs">达成 {s.completed} · 未达成 {s.failed}</span>
-                {s.best_task && <span className="ml-auto text-[11px] text-amber-800/50 truncate max-w-[200px]" title={s.best_task}>最佳：{s.best_task}</span>}
+                <span className="text-slate-500 text-xs">达成 {s.completed} · 未达成 {s.failed}</span>
+                {s.best_task && <span className="ml-auto text-[11px] text-slate-500 truncate max-w-[200px]" title={s.best_task}>最佳：{s.best_task}</span>}
               </div>
             ))}
           </div>

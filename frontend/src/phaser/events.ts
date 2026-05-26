@@ -30,7 +30,7 @@ export type EvotownEventMap = {
     reason: string;
     ts: string;
   };
-  /** 结阵事件：队伍分配完成，Phaser 更新旗帜颜色 */
+  /** 组队事件：队伍分配完成，Phaser 更新旗帜颜色 */
   team_formed: {
     teams: { team_id: string; name: string; members: { agent_id: string; display_name: string }[] }[];
   };

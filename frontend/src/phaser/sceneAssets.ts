@@ -4,22 +4,15 @@
  */
 import Phaser from "phaser";
 import { NES, NES_HEX } from "./nesColors";
+import { OFFICE_BUILDINGS } from "./officeFloorPlan";
 
 const PIXEL = 2;
 
-/** 建筑配置 */
-export const BUILDINGS = {
-  square: { x: 320, y: 224, label: "开放办公区", w: 7, h: 5, roof: "flat" as const, color: NES.ROOF_BROWN },
-  task: { x: 340, y: 340, label: "任务看板", w: 4, h: 3, roof: "flat" as const, color: NES.ROOF_DARK },
-  library: { x: 120, y: 90, label: "知识库", w: 3, h: 4, roof: "flat" as const, color: NES.ROOF_DARK },
-  workshop: { x: 300, y: 85, label: "Skill 工坊", w: 4, h: 3, roof: "flat" as const, color: NES.ROOF_DARK },
-  temple: { x: 500, y: 100, label: "升级中心", w: 4, h: 4, roof: "flat" as const, color: NES.ROOF_BROWN },
-  archive: { x: 110, y: 340, label: "归档室", w: 3, h: 3, roof: "flat" as const, color: NES.ROOF_DARK },
-  memory: { x: 500, y: 335, label: "记忆仓", w: 3, h: 3, roof: "flat" as const, color: NES.ROOF_DARK },
-} as const;
+/** 建筑配置 — 与室内平面图房间对齐 */
+export const BUILDINGS = OFFICE_BUILDINGS;
 
 export const TO_LABEL: Record<string, string> = {
-  广场: "square", 城池: "square", 中央广场: "square", 开放办公区: "square", 办公区: "square",
+  广场: "square", 城池: "square", 中央广场: "square", 开放办公区: "square", 开放工位: "square", 办公区: "square",
   任务中心: "task", 任务看板: "task", 工单台: "task",
   知识图书馆: "library", 图书馆: "library", 知识库: "library",
   技能工坊: "workshop", 工坊: "workshop",
@@ -33,8 +26,9 @@ export const LABEL_TO_XY: Record<string, { x: number; y: number }> = {
   workshop: BUILDINGS.workshop, temple: BUILDINGS.temple, archive: BUILDINGS.archive, memory: BUILDINGS.memory,
 };
 
-export const VIEW_SCALE_Y = 0.65;
-export const VIEW_FILL_SCALE = 1 / VIEW_SCALE_Y;
+/** 室内平面图 — 正俯视，不做伪 3D 压扁 */
+export const VIEW_SCALE_Y = 1;
+export const VIEW_FILL_SCALE = 1;
 
 // ── 像素绘制工具函数 ──────────────────────────────────────────
 

@@ -6,6 +6,7 @@ import { avatarColorHex, getAvatarForAgent } from "./agentAvatars";
 import { getRandomWanderPoint, TaskNpcManager } from "./taskNpc";
 import { VIEW_SCALE_Y, VIEW_FILL_SCALE, LABEL_TO_XY, TO_LABEL } from "./sceneAssets";
 import { AgentManager, AgentState } from "./AgentManager";
+import { getWorkstations, type Workstation } from "./officeFloorPlan";
 import { TerrainRenderer } from "./TerrainRenderer";
 import { UIRenderer } from "./TerrainRenderer";
 import { EventEffects } from "./EventEffects";
@@ -24,6 +25,39 @@ export default class TownScene extends Phaser.Scene {
   }> = [];
 
   private lastTeamFormedFingerprint = "";
+
+  /** 工位占用：roomKey → 已占用的工位 index 集合 */
+  private workstationOccupancy: Map<string, Set<number>> = new Map();
+  /** Agent → 当前占用的 (roomKey, index) */
+  private agentWorkstation: Map<string, { roomKey: string; index: number }> = new Map();
+
+  /** 给 agent 分配房间内一个空闲工位（无则回退到房间中心） */
+  private claimWorkstation(agentId: string, roomKey: string): Workstation | null {
+    this.releaseWorkstation(agentId);
+    const list = getWorkstations(roomKey);
+    if (list.length === 0) return null;
+    let occupied = this.workstationOccupancy.get(roomKey);
+    if (!occupied) {
+      occupied = new Set();
+      this.workstationOccupancy.set(roomKey, occupied);
+    }
+    for (let i = 0; i < list.length; i++) {
+      if (!occupied.has(i)) {
+        occupied.add(i);
+        this.agentWorkstation.set(agentId, { roomKey, index: i });
+        return list[i];
+      }
+    }
+    return null;
+  }
+
+  private releaseWorkstation(agentId: string): void {
+    const cur = this.agentWorkstation.get(agentId);
+    if (!cur) return;
+    const occupied = this.workstationOccupancy.get(cur.roomKey);
+    occupied?.delete(cur.index);
+    this.agentWorkstation.delete(agentId);
+  }
 
   constructor() {
     super({ key: "TownScene" });
@@ -275,7 +309,8 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
         body,
         base,
         helmet,
-        target: { x: wander.x - cx, y: wander.y - cy },
+        target: { x: spawn.x - cx, y: spawn.y - cy },
+        pathQueue: [],
         label,
         displayName: name,
         color: avatarColor,
@@ -284,11 +319,13 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
         taskPhase: "idle",
         wanderTimer: 0,
         facing: "front",
+        restFacing: null,
         pendingBalance: null,
         pendingSuccess: null,
         eliminating: false,
       };
       this.agentManager.getAll().set(agentId, agent);
+      this.agentManager.setDestination(agent, wander, cx, cy);
     }
     return agent;
   }
@@ -302,54 +339,63 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
     if (agent.taskPhase === "deliver") return;
 
     if (data.to === "任务中心") {
+      this.releaseWorkstation(data.agent_id);
       agent.taskPhase = "accept";
       const npcPos = this.taskNpcManager.assignToAgent(data.agent_id);
       if (npcPos) {
-        agent.target = { x: npcPos.x - cx, y: npcPos.y - cy };
+        this.agentManager.setDestination(agent, npcPos, cx, cy);
       } else {
         agent.taskPhase = "idle";
         const wander = getRandomWanderPoint();
-        agent.target = { x: wander.x - cx, y: wander.y - cy };
+        this.agentManager.setDestination(agent, wander, cx, cy);
       }
       return;
     }
 
-    if (["广场", "城池", "中央广场", "开放办公区", "办公区"].includes(data.to)) {
+    if (["广场", "城池", "中央广场", "开放办公区", "办公区", "开放工位"].includes(data.to)) {
       agent.taskPhase = "idle";
-      const wander = getRandomWanderPoint();
-      agent.target = { x: wander.x - cx, y: wander.y - cy };
+      this.releaseWorkstation(data.agent_id);
+      // 回到开放工位区随机一个工位摸鱼
+      const station = this.claimWorkstation(data.agent_id, "square");
+      if (station) {
+        this.agentManager.setDestination(agent, station, cx, cy, station.facing);
+      } else {
+        const wander = getRandomWanderPoint();
+        this.agentManager.setDestination(agent, wander, cx, cy);
+      }
       return;
     }
 
     const key = TO_LABEL[data.to];
-    const taskBuildings = ["library", "workshop", "archive", "memory"];
-    if (key && LABEL_TO_XY[key] && taskBuildings.includes(key)) {
-      agent.taskPhase = "execute";
-      this.taskNpcManager.assignToAgent(data.agent_id);
-      const pos = LABEL_TO_XY[key];
-      agent.target = { x: pos.x - cx, y: pos.y - cy + 12 };
-      return;
-    }
-
     if (key && LABEL_TO_XY[key]) {
       agent.taskPhase = "execute";
-      const pos = LABEL_TO_XY[key];
-      agent.target = { x: pos.x - cx, y: pos.y - cy + 12 };
+      this.taskNpcManager.assignToAgent(data.agent_id);
+      // 优先分配该房间的具体工位（电脑/机柜前），失败再退到房间中心
+      const station = this.claimWorkstation(data.agent_id, key);
+      if (station) {
+        this.agentManager.setDestination(agent, station, cx, cy, station.facing);
+      } else {
+        const pos = LABEL_TO_XY[key];
+        this.agentManager.setDestination(agent, { x: pos.x, y: pos.y + 12 }, cx, cy);
+      }
       return;
     }
 
     agent.taskPhase = "idle";
+    this.releaseWorkstation(data.agent_id);
     const wander = getRandomWanderPoint();
-    agent.target = { x: wander.x - cx, y: wander.y - cy };
+    this.agentManager.setDestination(agent, wander, cx, cy);
   }
 
   private onTaskComplete(data: { agent_id: string; success: boolean; balance: number }) {
     const agent = this.agentManager.get(data.agent_id);
     if (!agent) {
       this.taskNpcManager.despawnByAgent(data.agent_id);
+      this.releaseWorkstation(data.agent_id);
       return;
     }
 
+    this.releaseWorkstation(data.agent_id);
     agent.pendingBalance = data.balance;
     agent.pendingSuccess = data.success;
     const npcPos = this.taskNpcManager.getAssignedNpcPosition(data.agent_id);
@@ -357,7 +403,7 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
       agent.taskPhase = "deliver";
       const cx = this.scale.width / 2;
       const cy = this.scale.height / 2;
-      agent.target = { x: npcPos.x - cx, y: npcPos.y - cy };
+      this.agentManager.setDestination(agent, npcPos, cx, cy);
     } else {
       // 无 NPC 时在当前位置直接播胜负过场
       this.eventEffects.playTaskResult(data.agent_id, data.success);
@@ -367,7 +413,7 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
       const cx = this.scale.width / 2;
       const cy = this.scale.height / 2;
       const wander = getRandomWanderPoint();
-      agent.target = { x: wander.x - cx, y: wander.y - cy };
+      this.agentManager.setDestination(agent, wander, cx, cy);
       this.taskNpcManager.despawnByAgent(data.agent_id);
     }
   }
@@ -386,10 +432,11 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
     agent.taskPhase = "idle";
     agent.wanderTimer = 0;
     const wander = getRandomWanderPoint();
-    agent.target = { x: wander.x - cx, y: wander.y - cy };
+    this.agentManager.setDestination(agent, wander, cx, cy);
   }
 
   private onAgentEliminated(data: { agent_id: string; reason?: string }) {
+    this.releaseWorkstation(data.agent_id);
     if (data.reason === "replay_clear" || data.reason === "replay_end") {
       this.agentManager.delete(data.agent_id);
       return;

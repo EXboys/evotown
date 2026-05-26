@@ -1,6 +1,12 @@
 import Phaser from "phaser";
 import { CharFacing, setCharFacing } from "./characterAssets";
 import { getRandomWanderPoint } from "./taskNpc";
+import {
+  buildOfficePath,
+  clampToOfficeWalkable,
+  isOfficeWalkable,
+  type WorkstationFacing,
+} from "./officeFloorPlan";
 
 export type TaskPhase = "idle" | "accept" | "execute" | "deliver";
 
@@ -10,6 +16,7 @@ export interface AgentState {
   base: Phaser.GameObjects.Sprite;
   helmet: Phaser.GameObjects.Sprite;
   target: { x: number; y: number };
+  pathQueue: { x: number; y: number }[];
   label: Phaser.GameObjects.Text;
   displayName: string;
   color: number;
@@ -18,6 +25,8 @@ export interface AgentState {
   taskPhase: TaskPhase;
   wanderTimer: number;
   facing: CharFacing;
+  /** 到达后保持的朝向（执行任务时面向显示器 = back） */
+  restFacing: CharFacing | null;
   pendingBalance: number | null;
   /** 本次交付的胜负，在 onDeliverComplete 时用于播放胜负过场 */
   pendingSuccess: boolean | null;
@@ -96,6 +105,37 @@ export class AgentManager {
     return dx > 0 ? "right" : "left";
   }
 
+  setDestination(
+    agent: AgentState,
+    worldTarget: { x: number; y: number },
+    cx = this.getCx(),
+    cy = this.getCy(),
+    restFacing: CharFacing | null = null,
+  ) {
+    // 先把 agent 拉到合法位置，避免起点在墙内导致直线穿墙。
+    const worldStart = { x: agent.container.x + cx, y: agent.container.y + cy };
+    if (!isOfficeWalkable(worldStart.x, worldStart.y)) {
+      const safe = clampToOfficeWalkable(worldStart.x, worldStart.y);
+      agent.container.x = safe.x - cx;
+      agent.container.y = safe.y - cy;
+      worldStart.x = safe.x;
+      worldStart.y = safe.y;
+    }
+    const safeTarget = isOfficeWalkable(worldTarget.x, worldTarget.y)
+      ? worldTarget
+      : clampToOfficeWalkable(worldTarget.x, worldTarget.y);
+    const path = buildOfficePath(worldStart, safeTarget);
+    const localPath = path.map((p) => ({ x: p.x - cx, y: p.y - cy }));
+    agent.pathQueue = localPath.slice(1);
+    agent.target = localPath[0] ?? { x: safeTarget.x - cx, y: safeTarget.y - cy };
+    agent.restFacing = restFacing;
+  }
+
+  /** 工作位朝向 → CharFacing（保留语义一致）。 */
+  static restFacingFromWorkstation(facing: WorkstationFacing): CharFacing {
+    return facing;
+  }
+
   update(time: number, delta: number) {
     const cx = this.getCx();
     const cy = this.getCy();
@@ -104,6 +144,15 @@ export class AgentManager {
     const moveThreshold = this.getMoveThreshold();
 
     this.agents.forEach((agent, agentId) => {
+      // 每帧位置纠错 — 任何情况下都不能停留在墙内
+      const worldX = agent.container.x + cx;
+      const worldY = agent.container.y + cy;
+      if (!isOfficeWalkable(worldX, worldY)) {
+        const safe = clampToOfficeWalkable(worldX, worldY);
+        agent.container.x = safe.x - cx;
+        agent.container.y = safe.y - cy;
+      }
+
       const speed = agent.taskPhase === "idle" ? speedWander : speedTask;
       const dx = agent.target.x - agent.container.x;
       const dy = agent.target.y - agent.container.y;
@@ -113,10 +162,26 @@ export class AgentManager {
         agent.facing = this.getFacing(dx, dy);
         const walkFrame = Math.floor((time + agent.phaseOffset) * 0.004) % 2;
         setCharFacing(agent.base, agent.helmet, agent.facing, walkFrame);
-        agent.container.x += Phaser.Math.Clamp(dx, -speed, speed);
-        agent.container.y += Phaser.Math.Clamp(dy, -speed, speed);
+        const stepX = Phaser.Math.Clamp(dx, -speed, speed);
+        const stepY = Phaser.Math.Clamp(dy, -speed, speed);
+        const nextWorldX = worldX + stepX;
+        const nextWorldY = worldY + stepY;
+        // 只有走到合法位置才迈步，否则该帧停在原地（防穿墙最后一道关卡）
+        if (isOfficeWalkable(nextWorldX, nextWorldY)) {
+          agent.container.x += stepX;
+          agent.container.y += stepY;
+        } else if (agent.pathQueue.length > 0) {
+          agent.target = agent.pathQueue.shift()!;
+        }
       } else {
-        setCharFacing(agent.base, agent.helmet, agent.facing, 0);
+        // 已到达：到达工作位时朝向显示器
+        const rest = agent.restFacing ?? agent.facing;
+        setCharFacing(agent.base, agent.helmet, rest, 0);
+
+        if (agent.pathQueue.length > 0) {
+          agent.target = agent.pathQueue.shift()!;
+          return;
+        }
 
         // Handle delivery completion
         if (agent.taskPhase === "deliver") {
@@ -129,7 +194,7 @@ export class AgentManager {
           if (agent.wanderTimer >= 4000) {
             agent.wanderTimer = 0;
             const wander = getRandomWanderPoint();
-            agent.target = { x: wander.x - cx, y: wander.y - cy };
+            this.setDestination(agent, wander, cx, cy);
           }
         }
       }

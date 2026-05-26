@@ -8,7 +8,7 @@ export const getPhaserConfig = (parent: string | HTMLElement | null): Phaser.Typ
   parent: parent || undefined,
   width: 640,
   height: 448,
-  backgroundColor: "#30B830",
+  backgroundColor: "#1e293b",
   physics: {
     default: "arcade",
     arcade: { debug: false },

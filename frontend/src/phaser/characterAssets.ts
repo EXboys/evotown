@@ -588,11 +588,11 @@ export function registerCharacterTextures(scene: Phaser.Scene): void {
   add("char_helmet", HELMET_FRONT);
 }
 
-/** 角色布局常量 — scale 1.8 略缩小，同屏可容纳更多 agent，与 NPC 用颜色区分即可 */
+/** 角色布局常量 — 室内办公地图缩放偏小，避免视觉压墙 */
 export const CHAR_LAYOUT = {
-  scale: 1.8,
+  scale: 1.2,
   depth: 400,
-  labelOffsetY: 14,
+  labelOffsetY: 11,
 } as const;
 
 export type CharFacing = "front" | "back" | "left" | "right";

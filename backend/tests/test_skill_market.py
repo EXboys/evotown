@@ -61,7 +61,21 @@ class SkillMarketApiTest(unittest.TestCase):
         importlib.reload(main)
         client = TestClient(main.app)
         admin = {"X-Admin-Token": "test-admin-token"}
-        ingest = {"Authorization": "Bearer test-ingest-token"}
+        bootstrap = {"Authorization": "Bearer test-ingest-token"}
+        registered = client.post(
+            "/api/v1/engines/register",
+            headers=bootstrap,
+            json={
+                "engine_id": "hermes-local",
+                "engine_type": "hermes",
+                "engine_version": "1.0.0",
+                "owner_team": "growth-team",
+            },
+        )
+        self.assertEqual(registered.status_code, 200, registered.text)
+        evi_token = registered.json().get("ingest_token", "")
+        self.assertTrue(evi_token.startswith("evi_"), registered.json())
+        ingest = {"Authorization": f"Bearer {evi_token}"}
 
         bundle = client.get(
             "/api/v1/skill-bundles/default-agent-skills/manifest?runtime_target=hermes",

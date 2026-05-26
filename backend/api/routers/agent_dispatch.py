@@ -1,9 +1,11 @@
 """Agent dispatch — center-to-engine tasks and engine-to-engine handoffs."""
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel, Field
 
 from core.auth import (
     EngineIngestAuth,
@@ -11,11 +13,29 @@ from core.auth import (
     get_engine_ingest_auth,
     require_admin,
 )
+from core.config import load_dispatch_config, save_dispatch_team_pairs
 from domain.models import DispatchJobAck, DispatchJobComplete, DispatchJobCreate, EngineHeartbeat
 from infra import agent_dispatch, engine_ingest
 from infra.dispatch_notify import broadcast_dispatch_job
 
 router = APIRouter(prefix="/api/v1", tags=["agent-dispatch"])
+logger = logging.getLogger("evotown.dispatch")
+
+
+class DispatchPolicyUpdate(BaseModel):
+    team_pairs: str = Field(default="*", max_length=4096)
+
+
+@router.get("/dispatch/policy", dependencies=[Depends(require_admin)])
+async def get_dispatch_policy():
+    return load_dispatch_config()
+
+
+@router.put("/dispatch/policy", dependencies=[Depends(require_admin)])
+async def update_dispatch_policy(body: DispatchPolicyUpdate):
+    saved = save_dispatch_team_pairs(body.team_pairs)
+    logger.info("dispatch handoff policy updated: team_pairs=%s", saved.get("team_pairs"))
+    return saved
 
 
 def _public_api_base(request: Request) -> str:
@@ -76,7 +96,21 @@ async def create_job_from_engine(
             source_engine_id=body.source_engine_id,
         )
     except ValueError as exc:
+        logger.info(
+            "handoff denied: source=%s target_team=%s target_engine=%s reason=%s",
+            body.source_engine_id,
+            body.target_team_id,
+            body.target_engine_id,
+            exc,
+        )
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    logger.info(
+        "handoff queued: job_id=%s source=%s target_team=%s target_engine=%s",
+        job.get("job_id"),
+        body.source_engine_id,
+        body.target_team_id,
+        body.target_engine_id,
+    )
     broadcast_dispatch_job(job, action="created")
     return {"job": job}
 

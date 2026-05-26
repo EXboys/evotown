@@ -23,5 +23,8 @@
   },
   "social": {
     "decision_interval": 10
+  },
+  "dispatch": {
+    "team_pairs": "*"
   }
 }

@@ -44,10 +44,8 @@ const ROOM_ARCHIVE: Rect = { x: 36, y: 244, w: 140, h: 56 };
 const ROOM_TASK: Rect = { x: 36, y: 304, w: 140, h: 52 };
 const ROOM_MEMORY: Rect = { x: 36, y: 360, w: 140, h: 52 };
 
-// 右侧三房（机房 / 茶水间 / 休息区）
-const ROOM_IT: Rect = { x: 440, y: 244, w: 164, h: 56 };
-const ROOM_PANTRY: Rect = { x: 440, y: 304, w: 164, h: 52 };
-const ROOM_LOUNGE: Rect = { x: 440, y: 360, w: 164, h: 52 };
+// 右侧整合为一个茶水休闲区（合并原机房 / 茶水间 / 休息区）
+const ROOM_LOUNGE: Rect = { x: 440, y: 244, w: 164, h: 168 };
 
 /** 建筑锚点（房间中心，与 LABEL_TO_XY 对齐） */
 export const OFFICE_BUILDINGS = {
@@ -161,17 +159,20 @@ const KNOWLEDGE_WORKSTATIONS: Workstation[] = (() => {
   return list;
 })();
 
-/** 升级中心 圆桌 4 个座位 */
+/** 升级中心 三联屏 + 机柜检修位（共 5 个工位） */
 const TEMPLE_WORKSTATIONS: Workstation[] = (() => {
   const r = ROOM_TEMPLE;
-  const cx = r.x + r.w / 2;
-  const cy = r.y + 108;
-  return [
-    { x: cx - 16, y: cy - 8, facing: "right" } as Workstation,
-    { x: cx + 16, y: cy - 8, facing: "left" } as Workstation,
-    { x: cx - 16, y: cy + 22, facing: "right" } as Workstation,
-    { x: cx + 16, y: cy + 22, facing: "left" } as Workstation,
-  ];
+  const consoleX = r.x + 32;
+  const consoleY = r.y + 86;
+  const list: Workstation[] = [];
+  // 控制台三联屏前 3 个座位（背对镜头，朝向屏幕）
+  for (let i = 0; i < 3; i++) {
+    list.push({ x: consoleX + 32 + i * 38, y: consoleY + 32, facing: "back" });
+  }
+  // 机柜阵列前 2 个巡检位
+  list.push({ x: r.x + 46, y: r.y + 72, facing: "back" });
+  list.push({ x: r.x + r.w - 46, y: r.y + 72, facing: "back" });
+  return list;
 })();
 
 /** 归档室 4 个文件柜前位置 */
@@ -203,16 +204,6 @@ const MEMORY_WORKSTATIONS: Workstation[] = (() => {
   return list;
 })();
 
-/** 机房 6 个机柜前位置 */
-const IT_WORKSTATIONS: Workstation[] = (() => {
-  const r = ROOM_IT;
-  const list: Workstation[] = [];
-  for (let i = 0; i < 6; i++) {
-    list.push({ x: r.x + 12 + i * 24 + 9, y: r.y + r.h - 4, facing: "back" });
-  }
-  return list;
-})();
-
 const WORKSTATIONS: Record<string, Workstation[]> = {
   square: OPEN_WORKSTATIONS,
   workshop: WORKSHOP_WORKSTATIONS,
@@ -221,7 +212,6 @@ const WORKSTATIONS: Record<string, Workstation[]> = {
   archive: ARCHIVE_WORKSTATIONS,
   task: TASK_WORKSTATIONS,
   memory: MEMORY_WORKSTATIONS,
-  it: IT_WORKSTATIONS,
 };
 
 export function getWorkstations(roomKey: string): Workstation[] {
@@ -237,8 +227,6 @@ const ROOM_ZONES: { rect: Rect; fill: number }[] = [
   { rect: ROOM_ARCHIVE, fill: NES.ZONE_ROOM_B },
   { rect: ROOM_TASK, fill: NES.ZONE_ROOM_A },
   { rect: ROOM_MEMORY, fill: NES.ZONE_ROOM_B },
-  { rect: ROOM_IT, fill: NES.ZONE_IT },
-  { rect: ROOM_PANTRY, fill: NES.ZONE_ROOM_A },
   { rect: ROOM_LOUNGE, fill: NES.LOUNGE_BASE },
 ];
 
@@ -270,9 +258,6 @@ const WALL: Rect[] = [
   { x: 38, y: 298, w: 138, h: 8 },
   { x: 38, y: 354, w: 138, h: 8 },
 
-  // 右侧三房水平分隔（厚 8）
-  { x: 442, y: 298, w: 162, h: 8 },
-  { x: 442, y: 354, w: 162, h: 8 },
 ];
 
 // ── 门洞（覆盖在墙上，重新开通走道） ────────────────────────────
@@ -290,10 +275,8 @@ const DOOR: Rect[] = [
   { x: 170, y: 318, w: 20, h: 22 },
   { x: 170, y: 374, w: 20, h: 24 },
 
-  // 右侧三房 ↔ 开放工位（朝左开门）
-  { x: 426, y: 260, w: 20, h: 24 },
-  { x: 426, y: 318, w: 20, h: 22 },
-  { x: 426, y: 374, w: 20, h: 24 },
+  // 茶水休闲区 ↔ 开放工位（朝左开一道大门）
+  { x: 426, y: 308, w: 20, h: 40 },
 ];
 
 // ── 几何判定 ──────────────────────────────────────────────────
@@ -515,8 +498,6 @@ export function drawOfficeFloorPlan(
   drawArchive(g, ox, oy);
   drawTaskBoard(g, ox, oy);
   drawMemory(g, ox, oy);
-  drawItCloset(g, ox, oy);
-  drawPantry(g, ox, oy);
   drawLounge(g, ox, oy);
 
   drawZoneLabels(scene, parent, ox, oy);
@@ -549,21 +530,41 @@ function drawMeetingRoom(g: Phaser.GameObjects.Graphics, ox: number, oy: number)
 
 function drawWorkshop(g: Phaser.GameObjects.Graphics, ox: number, oy: number) {
   const r = ROOM_WORKSHOP;
-  // 工坊：两排开发桌
+
+  // 顶部白板（贴上沿墙）
+  g.fillStyle(0xf8fafc, 1);
+  g.fillRect(r.x + 20 - ox, r.y + 8 - oy, r.w - 40, 16);
+  g.fillStyle(0x6b7a90, 1);
+  g.fillRect(r.x + 20 - ox, r.y + 8 - oy, r.w - 40, 2);
+  // 白板上的笔画
+  g.fillStyle(0xef4444, 1);
+  g.fillRect(r.x + 30 - ox, r.y + 14 - oy, 12, 2);
+  g.fillStyle(0x3b82f6, 1);
+  g.fillRect(r.x + 50 - ox, r.y + 14 - oy, 10, 2);
+  g.fillStyle(0x22c55e, 1);
+  g.fillRect(r.x + 70 - ox, r.y + 14 - oy, 14, 2);
+  g.fillStyle(0xeab308, 1);
+  g.fillRect(r.x + 92 - ox, r.y + 14 - oy, 8, 2);
+
+  // 工坊桌：3 桌 × 2 排（开发工位 — 高显示器 + 文件柜）
   for (let row = 0; row < 2; row++) {
     for (let col = 0; col < 3; col++) {
       const dx = r.x + 22 + col * 44;
-      const dy = r.y + 36 + row * 56;
+      const dy = r.y + 40 + row * 56;
       // 桌面
       g.fillStyle(NES.WALL_EDGE, 1);
       g.fillRect(dx - ox, dy - oy, 32, 16);
       // 双显示器
       g.fillStyle(0x1e293b, 1);
-      g.fillRect(dx + 2 - ox, dy + 3 - oy, 12, 8);
-      g.fillRect(dx + 18 - ox, dy + 3 - oy, 12, 8);
+      g.fillRect(dx + 2 - ox, dy + 2 - oy, 12, 9);
+      g.fillRect(dx + 18 - ox, dy + 2 - oy, 12, 9);
       g.fillStyle(0x38bdf8, 1);
-      g.fillRect(dx + 3 - ox, dy + 4 - oy, 10, 6);
-      g.fillRect(dx + 19 - ox, dy + 4 - oy, 10, 6);
+      g.fillRect(dx + 3 - ox, dy + 3 - oy, 10, 7);
+      g.fillRect(dx + 19 - ox, dy + 3 - oy, 10, 7);
+      // 屏上代码行
+      g.fillStyle(0x7dd3fc, 1);
+      g.fillRect(dx + 4 - ox, dy + 4 - oy, 6, 1);
+      g.fillRect(dx + 20 - ox, dy + 4 - oy, 7, 1);
       // 椅子
       g.fillStyle(0x64748b, 1);
       g.fillRect(dx + 10 - ox, dy + 18 - oy, 12, 6);
@@ -573,25 +574,46 @@ function drawWorkshop(g: Phaser.GameObjects.Graphics, ox: number, oy: number) {
 
 function drawTemple(g: Phaser.GameObjects.Graphics, ox: number, oy: number) {
   const r = ROOM_TEMPLE;
-  // 升级中心：一面服务器墙 + 一个高级工位
-  const wallX = r.x + 18;
-  for (let i = 0; i < 6; i++) {
+
+  // 上排：服务器机柜墙（升级中心 + 机房合并）
+  const rackY = r.y + 16;
+  for (let i = 0; i < 8; i++) {
+    const x = r.x + 14 + i * 22;
     g.fillStyle(0x334155, 1);
-    g.fillRect(wallX + i * 22 - ox, r.y + 18 - oy, 16, 40);
+    g.fillRect(x - ox, rackY - oy, 18, 48);
     g.fillStyle(0x22d3ee, 1);
-    g.fillRect(wallX + i * 22 + 3 - ox, r.y + 22 - oy, 10, 2);
-    g.fillRect(wallX + i * 22 + 3 - ox, r.y + 28 - oy, 10, 2);
-    g.fillRect(wallX + i * 22 + 3 - ox, r.y + 34 - oy, 10, 2);
+    g.fillRect(x + 3 - ox, rackY + 4 - oy, 12, 2);
+    g.fillRect(x + 3 - ox, rackY + 10 - oy, 12, 2);
+    g.fillRect(x + 3 - ox, rackY + 16 - oy, 12, 2);
+    g.fillRect(x + 3 - ox, rackY + 22 - oy, 12, 2);
+    // 状态灯
+    g.fillStyle(0x22c55e, 1);
+    g.fillRect(x + 3 - ox, rackY + 38 - oy, 4, 2);
+    g.fillStyle(0xfbbf24, 1);
+    g.fillRect(x + 10 - ox, rackY + 38 - oy, 4, 2);
   }
-  // 圆桌 + 椅
-  const cx = r.x + r.w / 2;
-  g.fillStyle(0xcbd5e1, 1);
-  g.fillRect(cx - 26 - ox, r.y + 90 - oy, 52, 36);
-  g.fillStyle(0x64748b, 1);
-  g.fillRect(cx - 24 - ox, r.y + 82 - oy, 16, 8);
-  g.fillRect(cx + 8 - ox, r.y + 82 - oy, 16, 8);
-  g.fillRect(cx - 24 - ox, r.y + 128 - oy, 16, 8);
-  g.fillRect(cx + 8 - ox, r.y + 128 - oy, 16, 8);
+
+  // 中部：训练监控站（控制台 + 多屏）
+  const consoleX = r.x + 32;
+  const consoleY = r.y + 86;
+  g.fillStyle(NES.WALL_EDGE, 1);
+  g.fillRect(consoleX - ox, consoleY - oy, r.w - 64, 22);
+  // 三联屏
+  for (let i = 0; i < 3; i++) {
+    g.fillStyle(0x1e293b, 1);
+    g.fillRect(consoleX + 18 + i * 38 - ox, consoleY + 2 - oy, 28, 12);
+    g.fillStyle(0x38bdf8, 1);
+    g.fillRect(consoleX + 19 + i * 38 - ox, consoleY + 3 - oy, 26, 10);
+    g.fillStyle(0x7dd3fc, 1);
+    g.fillRect(consoleX + 20 + i * 38 - ox, consoleY + 4 - oy, 12, 1);
+    g.fillRect(consoleX + 35 + i * 38 - ox, consoleY + 7 - oy, 8, 1);
+  }
+
+  // 控制台椅
+  g.fillStyle(0x475569, 1);
+  for (let i = 0; i < 3; i++) {
+    g.fillRect(consoleX + 24 + i * 38 - ox, consoleY + 26 - oy, 16, 6);
+  }
 }
 
 function drawOpenOffice(g: Phaser.GameObjects.Graphics, ox: number, oy: number) {
@@ -681,66 +703,85 @@ function drawMemory(g: Phaser.GameObjects.Graphics, ox: number, oy: number) {
   }
 }
 
-function drawItCloset(g: Phaser.GameObjects.Graphics, ox: number, oy: number) {
-  const r = ROOM_IT;
-  // 机房：服务器机柜阵列
-  for (let i = 0; i < 6; i++) {
-    g.fillStyle(0x334155, 1);
-    g.fillRect(r.x + 12 + i * 24 - ox, r.y + 14 - oy, 18, 36);
-    g.fillStyle(0x38bdf8, 1);
-    g.fillRect(r.x + 16 + i * 24 - ox, r.y + 18 - oy, 10, 2);
-    g.fillRect(r.x + 16 + i * 24 - ox, r.y + 24 - oy, 10, 2);
-    g.fillRect(r.x + 16 + i * 24 - ox, r.y + 30 - oy, 10, 2);
-    g.fillStyle(0x22c55e, 1);
-    g.fillRect(r.x + 16 + i * 24 - ox, r.y + 38 - oy, 4, 2);
-  }
-}
-
-function drawPantry(g: Phaser.GameObjects.Graphics, ox: number, oy: number) {
-  const r = ROOM_PANTRY;
-  // 操作台
-  g.fillStyle(0xe2e8f0, 1);
-  g.fillRect(r.x + 10 - ox, r.y + 14 - oy, r.w - 60, 18);
-  g.fillStyle(0x94a3b8, 1);
-  g.fillRect(r.x + 10 - ox, r.y + 32 - oy, r.w - 60, 2);
-  // 咖啡机
-  g.fillStyle(0x475569, 1);
-  g.fillRect(r.x + 18 - ox, r.y + 16 - oy, 12, 14);
-  g.fillStyle(0xfde68a, 1);
-  g.fillRect(r.x + 20 - ox, r.y + 22 - oy, 8, 4);
-  // 水机
-  g.fillStyle(0x38bdf8, 1);
-  g.fillRect(r.x + 38 - ox, r.y + 16 - oy, 12, 6);
-  g.fillStyle(0x94a3b8, 1);
-  g.fillRect(r.x + 38 - ox, r.y + 22 - oy, 12, 8);
-  // 冰箱
-  g.fillStyle(0xcbd5e1, 1);
-  g.fillRect(r.x + r.w - 38 - ox, r.y + 10 - oy, 22, 36);
-  g.fillStyle(0x94a3b8, 1);
-  g.fillRect(r.x + r.w - 38 - ox, r.y + 26 - oy, 22, 2);
-  g.fillStyle(0x475569, 1);
-  g.fillRect(r.x + r.w - 22 - ox, r.y + 16 - oy, 3, 2);
-  g.fillRect(r.x + r.w - 22 - ox, r.y + 32 - oy, 3, 2);
-}
-
+/** 茶水休闲区：合并咖啡区 / 沙发组 / 盆栽 */
 function drawLounge(g: Phaser.GameObjects.Graphics, ox: number, oy: number) {
   const r = ROOM_LOUNGE;
-  // 沙发
-  g.fillStyle(0x6b7a90, 1);
-  g.fillRect(r.x + 18 - ox, r.y + 14 - oy, 64, 22);
+
+  // 顶部：咖啡操作台 + 咖啡机 + 水机 + 冰箱
+  const counter = { x: r.x + 16, y: r.y + 16, w: r.w - 90, h: 18 };
+  g.fillStyle(0xe2e8f0, 1);
+  g.fillRect(counter.x - ox, counter.y - oy, counter.w, counter.h);
   g.fillStyle(0x94a3b8, 1);
-  g.fillRect(r.x + 18 - ox, r.y + 14 - oy, 64, 4);
-  g.fillStyle(0x4b5363, 1);
-  g.fillRect(r.x + 18 - ox, r.y + 32 - oy, 64, 4);
+  g.fillRect(counter.x - ox, counter.y + counter.h - oy, counter.w, 2);
+  // 咖啡机
+  g.fillStyle(0x475569, 1);
+  g.fillRect(counter.x + 6 - ox, counter.y + 2 - oy, 14, 14);
+  g.fillStyle(0xfde68a, 1);
+  g.fillRect(counter.x + 8 - ox, counter.y + 8 - oy, 10, 4);
+  // 水机
+  g.fillStyle(0x38bdf8, 1);
+  g.fillRect(counter.x + 28 - ox, counter.y + 2 - oy, 14, 6);
+  g.fillStyle(0x94a3b8, 1);
+  g.fillRect(counter.x + 28 - ox, counter.y + 8 - oy, 14, 8);
+  // 微波炉
+  g.fillStyle(0x334155, 1);
+  g.fillRect(counter.x + 48 - ox, counter.y + 2 - oy, 16, 10);
+  g.fillStyle(0x7dd3fc, 1);
+  g.fillRect(counter.x + 50 - ox, counter.y + 4 - oy, 12, 6);
+
+  // 冰箱（独立柜，紧贴右上）
+  const fridge = { x: r.x + r.w - 56, y: r.y + 12, w: 24, h: 44 };
+  g.fillStyle(0xcbd5e1, 1);
+  g.fillRect(fridge.x - ox, fridge.y - oy, fridge.w, fridge.h);
+  g.fillStyle(0x94a3b8, 1);
+  g.fillRect(fridge.x - ox, fridge.y + 20 - oy, fridge.w, 2);
+  g.fillStyle(0x475569, 1);
+  g.fillRect(fridge.x + fridge.w - 4 - ox, fridge.y + 4 - oy, 2, 4);
+  g.fillRect(fridge.x + fridge.w - 4 - ox, fridge.y + 24 - oy, 2, 4);
+
+  // 中部：两张沙发面对茶几
+  const sofa1 = { x: r.x + 22, y: r.y + 64, w: 58, h: 20 };
+  const sofa2 = { x: r.x + 22, y: r.y + 116, w: 58, h: 20 };
+  const tea = { x: r.x + 30, y: r.y + 92, w: 42, h: 18 };
+
+  [sofa1, sofa2].forEach((s, idx) => {
+    g.fillStyle(0x6b7a90, 1);
+    g.fillRect(s.x - ox, s.y - oy, s.w, s.h);
+    g.fillStyle(0x94a3b8, 1);
+    if (idx === 0) {
+      g.fillRect(s.x - ox, s.y - oy, s.w, 4); // 上沙发靠背在上
+    } else {
+      g.fillRect(s.x - ox, s.y + s.h - 4 - oy, s.w, 4); // 下沙发靠背在下
+    }
+  });
   // 茶几
   g.fillStyle(0x78593a, 1);
-  g.fillRect(r.x + 32 - ox, r.y + 38 - oy, 36, 10);
-  // 盆栽角
+  g.fillRect(tea.x - ox, tea.y - oy, tea.w, tea.h);
+  g.fillStyle(0x5b4128, 1);
+  g.fillRect(tea.x - ox, tea.y + tea.h - 2 - oy, tea.w, 2);
+
+  // 茶几上的杯子
+  g.fillStyle(0xfafafa, 1);
+  g.fillRect(tea.x + 6 - ox, tea.y + 6 - oy, 4, 6);
+  g.fillRect(tea.x + tea.w - 10 - ox, tea.y + 6 - oy, 4, 6);
+
+  // 右下角：吧台 + 高脚椅
+  const bar = { x: r.x + r.w - 60, y: r.y + 80, w: 48, h: 12 };
   g.fillStyle(0x78593a, 1);
-  g.fillRect(r.x + r.w - 26 - ox, r.y + 30 - oy, 14, 6);
+  g.fillRect(bar.x - ox, bar.y - oy, bar.w, bar.h);
+  g.fillStyle(0x5b4128, 1);
+  g.fillRect(bar.x - ox, bar.y + bar.h - 2 - oy, bar.w, 2);
+  g.fillStyle(0x475569, 1);
+  for (let i = 0; i < 3; i++) {
+    g.fillRect(bar.x + 8 + i * 14 - ox, bar.y + bar.h + 4 - oy, 8, 8);
+  }
+
+  // 右下角盆栽
+  g.fillStyle(0x78593a, 1);
+  g.fillRect(r.x + r.w - 22 - ox, r.y + r.h - 28 - oy, 14, 6);
   g.fillStyle(0x3d9a50, 1);
-  g.fillRect(r.x + r.w - 24 - ox, r.y + 22 - oy, 10, 8);
-  g.fillRect(r.x + r.w - 26 - ox, r.y + 18 - oy, 14, 6);
+  g.fillRect(r.x + r.w - 20 - ox, r.y + r.h - 38 - oy, 10, 10);
+  g.fillRect(r.x + r.w - 22 - ox, r.y + r.h - 42 - oy, 14, 6);
 }
 
 function drawZoneLabels(
@@ -749,13 +790,9 @@ function drawZoneLabels(
   ox: number,
   oy: number,
 ) {
-  const labels = [
-    { text: "茶水间", rect: ROOM_PANTRY },
-    { text: "休息区", rect: ROOM_LOUNGE },
-    { text: "机房", rect: ROOM_IT },
-  ];
+  const labels = [{ text: "茶水休闲区", rect: ROOM_LOUNGE }];
   labels.forEach(({ text, rect }) => {
-    const t = scene.add.text(rect.x + rect.w / 2 - ox, rect.y + 6 - oy, text, {
+    const t = scene.add.text(rect.x + rect.w / 2 - ox, rect.y + 4 - oy, text, {
       fontSize: "8px",
       color: "#1e293b",
       fontStyle: "bold",

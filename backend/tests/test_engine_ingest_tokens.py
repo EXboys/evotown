@@ -145,6 +145,38 @@ class EngineIngestTokenTest(unittest.TestCase):
         other = client.get("/api/v1/runs/run-poll-1/status?engine_id=other-engine", headers=headers)
         self.assertEqual(other.status_code, 403)
 
+    def test_global_ingest_cannot_lease_without_scope_flag(self) -> None:
+        client = self._client()
+        bootstrap = {"Authorization": "Bearer test-ingest-bootstrap"}
+        client.post(
+            "/api/v1/engines/register",
+            headers=bootstrap,
+            json={"engine_id": "eng-lease", "engine_type": "openclaw", "engine_version": "1"},
+        )
+        res = client.get(
+            "/api/v1/jobs/lease?engine_id=eng-lease",
+            headers=bootstrap,
+        )
+        self.assertEqual(res.status_code, 403)
+
+    def test_global_ingest_scope_when_explicitly_enabled(self) -> None:
+        with patch.dict(os.environ, {"EVOTOWN_ALLOW_GLOBAL_INGEST_SCOPE": "1"}, clear=False):
+            from infra import engine_ingest
+
+            engine_ingest._conn = None
+            client = self._client()
+            bootstrap = {"Authorization": "Bearer test-ingest-bootstrap"}
+            client.post(
+                "/api/v1/engines/register",
+                headers=bootstrap,
+                json={"engine_id": "eng-legacy", "engine_type": "openclaw", "engine_version": "1"},
+            )
+            res = client.get(
+                "/api/v1/jobs/lease?engine_id=eng-legacy",
+                headers=bootstrap,
+            )
+            self.assertIn(res.status_code, {200, 204})
+
     def test_admin_rotate_token(self) -> None:
         client = self._client()
         bootstrap = {"Authorization": "Bearer test-ingest-bootstrap"}

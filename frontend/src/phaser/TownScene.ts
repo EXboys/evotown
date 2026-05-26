@@ -79,6 +79,10 @@ export default class TownScene extends Phaser.Scene {
     this.worldContainer.setScale(1, VIEW_FILL_SCALE);
     this.worldContainer.add(this.worldInner);
 
+    // 镜头拉近：让室内平面图占满视野，墙线视觉更分明
+    this.cameras.main.setZoom(1.05);
+    this.cameras.main.centerOn(w / 2, h / 2 + 4);
+
     // 初始化渲染器
     this.terrainRenderer = new TerrainRenderer({
       scene: this,

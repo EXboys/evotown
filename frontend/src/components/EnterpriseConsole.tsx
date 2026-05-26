@@ -14,9 +14,10 @@ import { GatewayAccountsPanel } from "./GatewayAccountsPanel";
 import { GatewayModelRoutesPanel } from "./GatewayModelRoutesPanel";
 import { KnowledgePanel } from "./KnowledgePanel";
 import { EmployeeConfigPanel } from "./market/EmployeeConfigPanel";
+import { DispatchPanel } from "./DispatchPanel";
 import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hooks/useAdminToken";
 
-type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "runs" | "skills" | "knowledge" | "costs" | "risk";
+type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "runs" | "skills" | "knowledge" | "costs" | "risk";
 
 type EngineRecord = {
   engine_id: string;
@@ -28,6 +29,9 @@ type EngineRecord = {
   capabilities?: Record<string, unknown>;
   registered_at?: string;
   updated_at?: string;
+  online?: boolean;
+  last_seen_at?: string;
+  connector_version?: string;
 };
 
 type ExternalRun = {
@@ -182,6 +186,7 @@ const NAV_ITEMS: Array<{ id: ConsoleTab; label: string; desc: string }> = [
   { id: "gateway", label: "网关", desc: "Gateway" },
   { id: "accounts", label: "账号", desc: "Accounts" },
   { id: "engines", label: "引擎", desc: "Engines" },
+  { id: "dispatch", label: "派活", desc: "Dispatch" },
   { id: "runs", label: "运行", desc: "Runs" },
   { id: "skills", label: "技能", desc: "Skills" },
   { id: "knowledge", label: "知识库", desc: "Knowledge" },
@@ -303,7 +308,7 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
     setLoading(true);
     setError("");
     Promise.all([
-      adminFetch("/api/v1/engines").then((r) => {
+      adminFetch("/api/v1/engines/fleet").then((r) => {
         if (!r.ok) throw new Error(`engines ${r.status}`);
         return r.json() as Promise<{ engines?: EngineRecord[] }>;
       }),
@@ -508,6 +513,7 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
             {tab === "gateway" && <Gateway data={data} />}
             {tab === "accounts" && <GatewayAccountsPanel />}
             {tab === "engines" && <Engines engines={data.engines} runs={data.runs} violations={data.violations} />}
+            {tab === "dispatch" && <DispatchPanel engines={data.engines} onRefresh={load} />}
             {tab === "runs" && <Runs runs={data.runs} selectedRun={selectedRun} events={events} loading={eventsLoading} onRun={openRun} />}
             {tab === "skills" && <SkillsMarketPanel />}
             {tab === "knowledge" && <KnowledgePanel />}
@@ -727,7 +733,18 @@ function EngineCard({ engine, runs, violations }: { engine: EngineRecord; runs: 
           <div className="truncate font-mono text-sm font-semibold text-slate-950">{engine.display_name || engine.engine_id}</div>
           <div className="mt-1 truncate text-sm text-slate-500">{engine.owner_team || "No team"} · {engine.deployment_kind || "server"}</div>
         </div>
-        <Badge className={meta.className}>{meta.label}</Badge>
+        <div className="flex flex-col items-end gap-1">
+          <Badge className={meta.className}>{meta.label}</Badge>
+          <Badge
+            className={
+              engine.online
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-slate-200 bg-slate-50 text-slate-500"
+            }
+          >
+            {engine.online ? "在线" : "离线"}
+          </Badge>
+        </div>
       </div>
       <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
         <div>

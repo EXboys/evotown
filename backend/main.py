@@ -34,7 +34,7 @@ from core.config import load_economy_config
 from domain.arena import AgentRecord
 from infra.experiment import get_or_create_experiment_id
 from infra.persistence import load_state
-from api.routers import agents, accounts, config, dispatcher, engine_ingest, gateway, gateway_routes, integrations, monitor, tasks, websocket, replay
+from api.routers import agents, accounts, agent_dispatch, config, dispatcher, engine_ingest, gateway, gateway_routes, integrations, monitor, tasks, websocket, replay
 from api.routers import skill_market, console_auth, market, knowledge
 from api.routers import teams
 from api.routers import chronicle as chronicle_router
@@ -277,6 +277,7 @@ app.include_router(tasks.router)
 app.include_router(config.router)
 app.include_router(dispatcher.router)
 app.include_router(engine_ingest.router)
+app.include_router(agent_dispatch.router)
 app.include_router(accounts.router)
 app.include_router(console_auth.router)
 app.include_router(gateway.router)

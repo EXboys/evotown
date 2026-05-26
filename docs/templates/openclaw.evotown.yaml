@@ -14,3 +14,13 @@ skills_market:
   auth_prefix: "Bearer "
   auth_token: ${EVOTOWN_API_KEY}
   channel: stable
+
+# Evotown Connector 派活：本机 Gateway 接收 POST /hooks/agent
+# 将 EVOTOWN_HOOK_TOKEN 与 OPENCLAW_HOOK_TOKEN 设为同一随机串
+hooks:
+  enabled: true
+  token: "${EVOTOWN_HOOK_TOKEN}"
+  path: "/hooks"
+  defaultSessionKey: "hook:evotown"
+  allowRequestSessionKey: false
+  allowedSessionKeyPrefixes: ["hook:"]

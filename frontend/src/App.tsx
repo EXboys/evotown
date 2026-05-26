@@ -46,6 +46,7 @@ function App() {
         <Route path="/gateway" element={<EnterpriseConsole initialTab="gateway" />} />
         <Route path="/accounts" element={<EnterpriseConsole initialTab="accounts" />} />
         <Route path="/engines" element={<EnterpriseConsole initialTab="engines" />} />
+        <Route path="/dispatch" element={<EnterpriseConsole initialTab="dispatch" />} />
         <Route path="/runs" element={<EnterpriseConsole initialTab="runs" />} />
         <Route path="/skills" element={<EnterpriseConsole initialTab="skills" />} />
         <Route path="/knowledge" element={<EnterpriseConsole initialTab="knowledge" />} />

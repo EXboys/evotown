@@ -81,6 +81,21 @@ export type EvotownEventMap = {
     is_error: boolean;
     task: string;
   };
+  /** 企业派活队列任务状态变更 */
+  dispatch_job_updated: {
+    action: string;
+    job: {
+      job_id: string;
+      status: string;
+      kind?: string;
+      title?: string;
+      message?: string;
+      target_engine_id?: string;
+      target_team_id?: string;
+      result_summary?: string;
+      [key: string]: unknown;
+    };
+  };
 };
 
 type Listener<T> = (data: T) => void;

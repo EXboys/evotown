@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { adminFetch } from "../hooks/useAdminToken";
+import { evotownEvents } from "../phaser/events";
 
 export type FleetEngine = {
   engine_id: string;
@@ -11,7 +12,16 @@ export type FleetEngine = {
   online?: boolean;
   last_seen_at?: string;
   connector_version?: string;
+  ingest_token_prefix?: string;
 };
+
+function mergeJob(list: DispatchJob[], incoming: DispatchJob): DispatchJob[] {
+  const idx = list.findIndex((j) => j.job_id === incoming.job_id);
+  if (idx < 0) return [incoming, ...list].slice(0, 80);
+  const next = [...list];
+  next[idx] = { ...next[idx], ...incoming };
+  return next;
+}
 
 export type DispatchJob = {
   job_id: string;
@@ -74,7 +84,7 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
 
   useEffect(() => {
     loadJobs();
-    const t = setInterval(loadJobs, 15000);
+    const t = setInterval(loadJobs, 60000);
     return () => clearInterval(t);
   }, [loadJobs]);
 
@@ -83,6 +93,15 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((data: { team_pairs?: string }) => setTeamPairs(data.team_pairs || "*"))
       .catch(() => setTeamPairs("*"));
+  }, []);
+
+  useEffect(() => {
+    const onUpdate = (data: { job: DispatchJob }) => {
+      setJobs((prev) => mergeJob(prev, data.job));
+      setSelected((cur) => (cur?.job_id === data.job.job_id ? { ...cur, ...data.job } : cur));
+    };
+    evotownEvents.on("dispatch_job_updated", onUpdate);
+    return () => evotownEvents.off("dispatch_job_updated", onUpdate);
   }, []);
 
   const savePolicy = async () => {
@@ -152,6 +171,25 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
     }
   };
 
+  const rotateIngestToken = async (engineId: string) => {
+    if (!window.confirm(`轮换引擎 ${engineId} 的 evi_ token？旧 token 将立即失效。`)) return;
+    setMessage("");
+    const r = await adminFetch(`/api/v1/engines/${encodeURIComponent(engineId)}/rotate-ingest-token`, {
+      method: "POST",
+    });
+    if (!r.ok) {
+      setMessage(`轮换失败: ${(await r.text()).slice(0, 120)}`);
+      return;
+    }
+    const data = (await r.json()) as { ingest_token?: string };
+    setMessage(
+      data.ingest_token
+        ? `已轮换 ${engineId}。请将新 token 写入员工机 EVOTOWN_ENGINE_INGEST_TOKEN（仅显示一次）：${data.ingest_token.slice(0, 12)}…`
+        : `已轮换 ${engineId}`,
+    );
+    onRefresh();
+  };
+
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-blue-100 bg-blue-50/80 p-4 text-sm text-slate-700">
@@ -198,7 +236,7 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
               >
                 <option value="dispatch">dispatch（中心派活）</option>
                 <option value="handoff">handoff（交接）</option>
-                <option value="notify">notify（通知）</option>
+                <option value="notify">notify（通知，触发后即完成）</option>
               </select>
             </label>
 
@@ -309,20 +347,46 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
             </div>
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2">
-            {engines.map((e) => (
-              <button
-                key={e.engine_id}
-                type="button"
-                onClick={() => setForm((f) => ({ ...f, target_engine_id: e.engine_id }))}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${
-                  e.online ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-slate-50 text-slate-600"
-                }`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${e.online ? "bg-emerald-500" : "bg-slate-400"}`} />
-                {e.display_name || e.engine_id}
-              </button>
-            ))}
+          <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">引擎</th>
+                  <th className="px-3 py-2">团队</th>
+                  <th className="px-3 py-2">token</th>
+                  <th className="px-3 py-2">操作</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {engines.map((e) => (
+                  <tr key={e.engine_id} className="hover:bg-slate-50">
+                    <td className="px-3 py-2">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 font-medium text-slate-800"
+                        onClick={() => setForm((f) => ({ ...f, target_engine_id: e.engine_id }))}
+                      >
+                        <span className={`h-1.5 w-1.5 rounded-full ${e.online ? "bg-emerald-500" : "bg-slate-400"}`} />
+                        {e.display_name || e.engine_id}
+                      </button>
+                    </td>
+                    <td className="px-3 py-2 text-slate-600">{e.owner_team || "—"}</td>
+                    <td className="px-3 py-2 font-mono text-slate-500">
+                      {e.ingest_token_prefix ? `${e.ingest_token_prefix}…` : "未签发"}
+                    </td>
+                    <td className="px-3 py-2">
+                      <button
+                        type="button"
+                        className="rounded border border-slate-200 px-2 py-0.5 hover:bg-white"
+                        onClick={() => rotateIngestToken(e.engine_id)}
+                      >
+                        轮换 evi_
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-2">

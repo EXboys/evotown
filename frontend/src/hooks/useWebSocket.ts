@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { evotownEvents } from "../phaser/events";
+import { evotownEvents, type EvotownEventMap } from "../phaser/events";
 import { useEvotownStore } from "../store/evotownStore";
 import { useChronicleStore } from "../store/chronicleStore";
 
@@ -343,6 +343,14 @@ export function useWebSocket() {
               is_error: Boolean(msg.is_error ?? false),
               task: String(msg.task ?? ""),
             });
+          } else if (type === "dispatch_job_updated") {
+            const job = msg.job as Record<string, unknown> | undefined;
+            if (job && typeof job.job_id === "string") {
+              evotownEvents.emit("dispatch_job_updated", {
+                action: String(msg.action ?? "updated"),
+                job: job as EvotownEventMap["dispatch_job_updated"]["job"],
+              });
+            }
           } else if (type === "evolution_event") {
             const agentId = String(msg.agent_id ?? "");
             const balance = msg.balance as number | undefined;

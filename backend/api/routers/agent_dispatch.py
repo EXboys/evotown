@@ -16,6 +16,7 @@ from core.auth import (
 from core.config import load_dispatch_config, save_dispatch_team_pairs
 from domain.models import DispatchJobAck, DispatchJobComplete, DispatchJobCreate, EngineHeartbeat
 from infra import agent_dispatch, engine_ingest
+from infra.dispatch_notify import broadcast_dispatch_job
 
 router = APIRouter(prefix="/api/v1", tags=["agent-dispatch"])
 logger = logging.getLogger("evotown.dispatch")
@@ -68,6 +69,7 @@ async def create_job_admin(body: DispatchJobCreate):
         job = agent_dispatch.create_job(body, source_type="control_plane")
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    broadcast_dispatch_job(job, action="created")
     return {"job": job}
 
 
@@ -109,6 +111,7 @@ async def create_job_from_engine(
         body.target_team_id,
         body.target_engine_id,
     )
+    broadcast_dispatch_job(job, action="created")
     return {"job": job}
 
 
@@ -167,6 +170,7 @@ async def cancel_job(job_id: str, reason: str = ""):
     job = agent_dispatch.cancel_job(job_id, reason=reason)
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job not found")
+    broadcast_dispatch_job(job, action="cancelled")
     return {"job": job}
 
 
@@ -182,6 +186,7 @@ async def ack_job(
     job = agent_dispatch.ack_job(job_id, body)
     if job is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="cannot ack job")
+    broadcast_dispatch_job(job, action="acked")
     return {"job": job}
 
 
@@ -197,6 +202,9 @@ async def complete_job(
     job, follow_up = agent_dispatch.complete_job(job_id, body)
     if job is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="cannot complete job")
+    broadcast_dispatch_job(job, action="completed")
+    if follow_up:
+        broadcast_dispatch_job(follow_up, action="created")
     out: dict = {"job": job}
     if follow_up:
         out["follow_up_job"] = follow_up

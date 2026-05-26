@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import { registerSceneTextures } from "./sceneAssets";
-import { registerCharacterTextures, registerWarriorTextures } from "./characterAssets";
+import { registerCharacterTextures } from "./characterAssets";
 import { NES } from "./nesColors";
 
 /** 预加载场景 — 注册程序化纹理，NES 风格加载条 */
@@ -15,7 +15,6 @@ export default class PreloadScene extends Phaser.Scene {
 
     registerSceneTextures(this);
     registerCharacterTextures(this);
-    registerWarriorTextures(this);
 
     // NES 风格加载框 — 黑底白边，无圆角
     const boxW = 200;

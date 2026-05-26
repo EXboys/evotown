@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { useEvotownStore } from "../store/evotownStore";
 import { evotownEvents, EvotownEventMap } from "./events";
 import { createCharacterContainer } from "./characterAssets";
-import { getWarriorForAgent } from "./warriorPortraits";
+import { avatarColorHex, getAvatarForAgent } from "./agentAvatars";
 import { getRandomWanderPoint, TaskNpcManager } from "./taskNpc";
 import { VIEW_SCALE_Y, VIEW_FILL_SCALE, LABEL_TO_XY, TO_LABEL } from "./sceneAssets";
 import { AgentManager, AgentState } from "./AgentManager";
@@ -257,14 +257,14 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
       const spawn = getRandomWanderPoint();
       const name = displayName || agentId;
       const labelText = this.agentLabel(name, agentId);
-      const warriorId = getWarriorForAgent(name);
+      const avatarId = getAvatarForAgent(name);
+      const avatarColor = avatarColorHex(avatarId);
       const { container, label, body, base, helmet } = createCharacterContainer(
         this,
         spawn.x - cx,
         spawn.y - cy,
-        color,
+        avatarColor,
         labelText,
-        warriorId,
       );
 
       this.worldInner.add(container);
@@ -278,8 +278,8 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
         target: { x: wander.x - cx, y: wander.y - cy },
         label,
         displayName: name,
-        color,
-        warriorId,
+        color: avatarColor,
+        avatarId,
         phaseOffset: Math.random() * Math.PI * 2,
         taskPhase: "idle",
         wanderTimer: 0,
@@ -314,7 +314,7 @@ type TownEventKey = "sprite_move" | "task_complete" | "agent_eliminated" | "agen
       return;
     }
 
-    if (["广场", "城池", "中央广场"].includes(data.to)) {
+    if (["广场", "城池", "中央广场", "开放办公区", "办公区"].includes(data.to)) {
       agent.taskPhase = "idle";
       const wander = getRandomWanderPoint();
       agent.target = { x: wander.x - cx, y: wander.y - cy };

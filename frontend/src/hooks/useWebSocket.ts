@@ -130,7 +130,7 @@ export function useWebSocket() {
               team_id?: string;
               team_name?: string;
             }[];
-            // 先更新 store（setAgents 内部会将英文名转为三国中文名，并保留已有队伍信息）
+            // 先更新 store（setAgents 内部分配办公场景显示名，并保留已有队伍信息）
             const previousAgents = store.agents; // 保存同步前的 agent 列表
             store.setAgents(agentList.map((a) => ({
               id: a.agent_id,
@@ -274,7 +274,7 @@ export function useWebSocket() {
             store.pushAgentDecision(dec);
             evotownEvents.emit("agent_decision", dec);
           } else if (type === "team_formed") {
-            // 结阵：批量更新 store 中 agent 的队伍归属 + 通知 Phaser 更新旗帜颜色
+            // 组队：批量更新 store 中 agent 的队伍归属 + 通知 Phaser 更新旗帜颜色
             const teams = (msg.teams ?? []) as {
               team_id: string;
               name: string;

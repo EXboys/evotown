@@ -1,7 +1,7 @@
 /** 贡献看板 — 按贡献值从高到低排序，弱化个人 PK 语义 */
 import { useRef } from "react";
 import { useEvotownStore } from "../store/evotownStore";
-import { WarriorPortraitCanvas } from "./WarriorPortraitCanvas";
+import { AgentAvatarCanvas } from "./AgentAvatarCanvas";
 
 /** 根据 team_id 哈希返回 NES 风格阵营颜色 */
 function teamBadgeColor(teamId: string): string {
@@ -109,12 +109,10 @@ export function Leaderboard() {
                   </span>
                 )}
 
-                {/* 武将像素头像（32×48 → scale=1 → 32×48px，裁剪显示上半身） */}
                 <div className="shrink-0 overflow-hidden rounded-sm" style={{ width: 20, height: 28 }}>
-                  <WarriorPortraitCanvas
+                  <AgentAvatarCanvas
                     agentDisplayName={agent.display_name || agent.id}
                     scale={1}
-                    showLabel={false}
                   />
                 </div>
 

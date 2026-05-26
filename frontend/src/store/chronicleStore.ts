@@ -1,4 +1,4 @@
-/** 战报通知 store — 接收 WS chronicle_published 事件 */
+/** 组织日志通知 store — 接收 WS chronicle_published 事件 */
 import { create } from "zustand";
 
 interface ChronicleNotification {

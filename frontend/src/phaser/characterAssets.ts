@@ -2,7 +2,7 @@
  * 角色资产 — NES/FC 吞食天地2 风格 16×16 像素精灵
  * 双层结构：char_base（身体/轮廓）+ char_helmet（头盔填充，可 tint 变色）
  */
-import type Phaser from "phaser";
+import Phaser from "phaser";
 import { NES_HEX } from "./nesColors";
 
 type PixelRow = (string | null)[];
@@ -668,7 +668,8 @@ export function createCharacterContainer(
   if (warriorId) {
     helmet.setVisible(false);  // 武将使用烘焙纹理，不需要单独 helmet 层
   } else {
-    helmet.setTint(color);
+    base.setTint(color);
+    helmet.setTint(Phaser.Display.Color.ValueToColor(color).lighten(30).color);
   }
   body.add([base, helmet]);
 

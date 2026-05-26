@@ -57,7 +57,7 @@ export function ShareCard({
   const [serverLoading, setServerLoading] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
-  /** 从后端下载 Pillow 生成的三国战报 PNG */
+  /** 从后端下载运行摘要 PNG */
   const downloadServerCard = useCallback(async () => {
     setServerLoading(true);
     setServerError(null);
@@ -70,7 +70,7 @@ export function ShareCard({
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.download = `${agentName}-战报.png`;
+      a.download = `${agentName}-运行摘要.png`;
       a.href = url;
       a.click();
       URL.revokeObjectURL(url);
@@ -233,7 +233,7 @@ export function ShareCard({
           disabled={serverLoading}
           className="w-full py-2.5 rounded-lg text-sm font-medium bg-amber-700/80 hover:bg-amber-600 text-amber-100 border border-amber-600/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {serverLoading ? "生成中…" : "🏯 下载三国战报（后端高清）"}
+          {serverLoading ? "生成中…" : "下载运行摘要（后端高清）"}
         </button>
         {serverError && (
           <p className="text-center text-rose-400 text-[10px]">{serverError}</p>

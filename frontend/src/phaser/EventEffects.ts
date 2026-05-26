@@ -35,7 +35,7 @@ export class EventEffects {
     const cx = this.getCx();
     const cy = this.getCy();
 
-    // 1. 神殿建筑强脉冲
+    // 1. 升级中心建筑强脉冲
     const templeContainer = this.getBuilding("temple");
     if (templeContainer) {
       this.scene.tweens.add({
@@ -378,14 +378,14 @@ export class EventEffects {
     const cy = this.getCy();
     const w = this.scene.scale.width;
     const bubble = this.scene.add.container(w / 2, cy - 60);
-    // 结阵：横幅风格，宽扁圆角
+    // 组队完成：横幅风格
     const bg = this.scene.add.graphics();
     bg.fillStyle(0x1a0f00, 0.92);
     bg.fillRoundedRect(-80, -14, 160, 28, 6);
     bg.lineStyle(2, 0xf97316, 1);
     bg.strokeRoundedRect(-80, -14, 160, 28, 6);
-    const txt = this.scene.add.text(0, 0, `⚔ 结阵完成 — ${teams.length} 支队伍`, {
-      fontSize: "10px", color: "#f97316", fontStyle: "bold",
+    const txt = this.scene.add.text(0, 0, `✓ 组队完成 — ${teams.length} 个项目组`, {
+      fontSize: "10px", color: "#38bdf8", fontStyle: "bold",
     }).setOrigin(0.5).setResolution(2);
     bubble.add([bg, txt]);
     bubble.setDepth(950);

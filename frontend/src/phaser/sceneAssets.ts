@@ -1,7 +1,6 @@
 /**
- * 场景资产 — 严格参考 FC/NES 吞食天地2 大地图风格
- * 所有纹理程序化生成，仅使用 NES 受限调色板
- * 禁止：渐变、半透明、抗锯齿、圆角
+ * 场景资产 — 企业办公园区像素俯视地图（NES 受限调色板）
+ * 所有纹理程序化生成；禁止渐变、半透明、抗锯齿、圆角
  */
 import Phaser from "phaser";
 import { NES, NES_HEX } from "./nesColors";
@@ -10,19 +9,23 @@ const PIXEL = 2;
 
 /** 建筑配置 */
 export const BUILDINGS = {
-  square: { x: 320, y: 224, label: "城池", w: 7, h: 5, roof: "flat" as const, color: NES.ROOF_BROWN },
-  task: { x: 340, y: 340, label: "任务中心", w: 4, h: 3, roof: "flat" as const, color: NES.ROOF_DARK },
-  library: { x: 120, y: 90, label: "图书馆", w: 3, h: 4, roof: "flat" as const, color: NES.ROOF_DARK },
-  workshop: { x: 300, y: 85, label: "技能工坊", w: 4, h: 3, roof: "flat" as const, color: NES.ROOF_DARK },
-  temple: { x: 500, y: 100, label: "进化神殿", w: 4, h: 4, roof: "flat" as const, color: NES.ROOF_BROWN },
-  archive: { x: 110, y: 340, label: "档案馆", w: 3, h: 3, roof: "flat" as const, color: NES.ROOF_DARK },
-  memory: { x: 500, y: 335, label: "记忆仓库", w: 3, h: 3, roof: "flat" as const, color: NES.ROOF_DARK },
+  square: { x: 320, y: 224, label: "开放办公区", w: 7, h: 5, roof: "flat" as const, color: NES.ROOF_BROWN },
+  task: { x: 340, y: 340, label: "任务看板", w: 4, h: 3, roof: "flat" as const, color: NES.ROOF_DARK },
+  library: { x: 120, y: 90, label: "知识库", w: 3, h: 4, roof: "flat" as const, color: NES.ROOF_DARK },
+  workshop: { x: 300, y: 85, label: "Skill 工坊", w: 4, h: 3, roof: "flat" as const, color: NES.ROOF_DARK },
+  temple: { x: 500, y: 100, label: "升级中心", w: 4, h: 4, roof: "flat" as const, color: NES.ROOF_BROWN },
+  archive: { x: 110, y: 340, label: "归档室", w: 3, h: 3, roof: "flat" as const, color: NES.ROOF_DARK },
+  memory: { x: 500, y: 335, label: "记忆仓", w: 3, h: 3, roof: "flat" as const, color: NES.ROOF_DARK },
 } as const;
 
 export const TO_LABEL: Record<string, string> = {
-  广场: "square", 城池: "square", 中央广场: "square", 任务中心: "task", 知识图书馆: "library", 图书馆: "library",
-  技能工坊: "workshop", 工坊: "workshop", 进化神殿: "temple", 神殿: "temple",
-  决策档案馆: "archive", 档案馆: "archive", 记忆仓库: "memory",
+  广场: "square", 城池: "square", 中央广场: "square", 开放办公区: "square", 办公区: "square",
+  任务中心: "task", 任务看板: "task", 工单台: "task",
+  知识图书馆: "library", 图书馆: "library", 知识库: "library",
+  技能工坊: "workshop", 工坊: "workshop",
+  进化神殿: "temple", 神殿: "temple", 升级中心: "temple",
+  决策档案馆: "archive", 档案馆: "archive", 归档室: "archive",
+  记忆仓库: "memory", 记忆仓: "memory",
 };
 
 export const LABEL_TO_XY: Record<string, { x: number; y: number }> = {
@@ -157,7 +160,7 @@ export function registerSceneTextures(scene: Phaser.Scene): void {
   }
   textures.addCanvas("grass", grassCanvas);
 
-  // 道路 — NES 有序抖动 16×16
+  // 走廊地面 — 16×16
   const roadCanvas = document.createElement("canvas");
   roadCanvas.width = 16;
   roadCanvas.height = 16;
@@ -172,53 +175,89 @@ export function registerSceneTextures(scene: Phaser.Scene): void {
   }
   textures.addCanvas("road", roadCanvas);
 
-  // 山峰 — 单个尖三角 12×16
-  const mtnCanvas = document.createElement("canvas");
-  mtnCanvas.width = 14;
-  mtnCanvas.height = 18;
-  const mCtx = mtnCanvas.getContext("2d")!;
-  drawPixelMountainPeak(mCtx, 7, 17, 16, 6);
-  textures.addCanvas("mountainPeak", mtnCanvas);
+  // 机柜 — 数据中心装饰
+  const rackCanvas = document.createElement("canvas");
+  rackCanvas.width = 12;
+  rackCanvas.height = 16;
+  drawPixelServerRack(rackCanvas.getContext("2d")!, 6, 15);
+  textures.addCanvas("mountainPeak", rackCanvas);
 
-  // 山脚岩石 — 圆顶 8×6
+  // 工位隔板
   const rockCanvas = document.createElement("canvas");
-  rockCanvas.width = 8;
-  rockCanvas.height = 6;
-  const rkCtx = rockCanvas.getContext("2d")!;
-  drawPixelRock(rkCtx, 0, 0);
+  rockCanvas.width = 10;
+  rockCanvas.height = 8;
+  drawPixelCubicleDivider(rockCanvas.getContext("2d")!, 5, 7);
   textures.addCanvas("mountainRock", rockCanvas);
 
-  // 密集森林树 — 窄锥 10×20, 3 层
+  // 盆栽（密集）
   const denseTreeCanvas = document.createElement("canvas");
-  denseTreeCanvas.width = 12;
-  denseTreeCanvas.height = 22;
-  const dtCtx = denseTreeCanvas.getContext("2d")!;
-  drawPixelTree(dtCtx, 6, 20, 20, 5, 3);
+  denseTreeCanvas.width = 10;
+  denseTreeCanvas.height = 14;
+  drawPixelOfficePlant(denseTreeCanvas.getContext("2d")!, 5, 13, 10);
   textures.addCanvas("forestTree", denseTreeCanvas);
 
-  // 稀疏树 — 窄锥 8×14, 2 层
+  // 盆栽（稀疏）
   const sparseTreeCanvas = document.createElement("canvas");
-  sparseTreeCanvas.width = 10;
-  sparseTreeCanvas.height = 16;
-  const stCtx = sparseTreeCanvas.getContext("2d")!;
-  drawPixelTree(stCtx, 5, 14, 14, 4, 2);
+  sparseTreeCanvas.width = 8;
+  sparseTreeCanvas.height = 12;
+  drawPixelOfficePlant(sparseTreeCanvas.getContext("2d")!, 4, 11, 8);
   textures.addCanvas("sparseTree", sparseTreeCanvas);
 
-  // 小石头 — 装饰 6×5
+  // 工位椅 — 小装饰
   const stoneCanvas = document.createElement("canvas");
-  stoneCanvas.width = 6;
-  stoneCanvas.height = 5;
-  const snCtx = stoneCanvas.getContext("2d")!;
-  snCtx.fillStyle = NES_HEX.OUTLINE;
-  snCtx.fillRect(1, 0, 4, 1);
-  snCtx.fillRect(0, 1, 1, 3);
-  snCtx.fillRect(5, 1, 1, 3);
-  snCtx.fillRect(1, 4, 4, 1);
-  snCtx.fillStyle = '#787878';
-  snCtx.fillRect(1, 1, 4, 3);
-  snCtx.fillStyle = '#A0A0A0';
-  snCtx.fillRect(1, 1, 2, 1);
+  stoneCanvas.width = 8;
+  stoneCanvas.height = 8;
+  drawPixelDeskChair(stoneCanvas.getContext("2d")!, 4, 7);
   textures.addCanvas("stone", stoneCanvas);
+}
+
+/** 办公盆栽 */
+function drawPixelOfficePlant(ctx: CanvasRenderingContext2D, cx: number, baseY: number, height: number) {
+  ctx.fillStyle = NES_HEX.TREE_TRUNK;
+  ctx.fillRect(cx - 2, baseY - 3, 4, 3);
+  ctx.fillStyle = NES_HEX.OUTLINE;
+  ctx.fillRect(cx - 3, baseY - 2, 6, 2);
+  const h = Math.max(4, height - 4);
+  for (let r = 0; r < h; r++) {
+    const hw = Math.max(1, Math.floor((r + 1) * 0.45));
+    ctx.fillStyle = r < h * 0.4 ? NES_HEX.TREE_LIGHT : NES_HEX.TREE_DARK;
+    ctx.fillRect(cx - hw, baseY - 3 - r, hw * 2, 1);
+  }
+}
+
+/** 机柜 */
+function drawPixelServerRack(ctx: CanvasRenderingContext2D, cx: number, baseY: number) {
+  ctx.fillStyle = "#485868";
+  ctx.fillRect(cx - 5, baseY - 14, 10, 14);
+  ctx.fillStyle = "#687888";
+  for (let row = 0; row < 4; row++) {
+    ctx.fillRect(cx - 4, baseY - 13 + row * 3, 8, 2);
+    ctx.fillStyle = "#38BDF8";
+    ctx.fillRect(cx - 2, baseY - 12 + row * 3, 2, 1);
+    ctx.fillStyle = "#687888";
+  }
+  ctx.fillStyle = NES_HEX.OUTLINE;
+  ctx.strokeRect(cx - 5, baseY - 14, 10, 14);
+}
+
+/** 工位隔板 */
+function drawPixelCubicleDivider(ctx: CanvasRenderingContext2D, cx: number, baseY: number) {
+  ctx.fillStyle = "#A8B0BC";
+  ctx.fillRect(cx - 4, baseY - 6, 8, 6);
+  ctx.fillStyle = "#8898A8";
+  ctx.fillRect(cx - 3, baseY - 5, 6, 1);
+  ctx.fillStyle = NES_HEX.OUTLINE;
+  ctx.strokeRect(cx - 4, baseY - 6, 8, 6);
+}
+
+/** 工位椅 */
+function drawPixelDeskChair(ctx: CanvasRenderingContext2D, cx: number, baseY: number) {
+  ctx.fillStyle = "#5C6674";
+  ctx.fillRect(cx - 3, baseY - 2, 6, 2);
+  ctx.fillStyle = "#4A90D8";
+  ctx.fillRect(cx - 2, baseY - 5, 4, 3);
+  ctx.fillStyle = NES_HEX.OUTLINE;
+  ctx.fillRect(cx - 2, baseY - 6, 4, 1);
 }
 
 // ── 建筑绘制 ──────────────────────────────────────────────────
@@ -276,16 +315,20 @@ function drawPixelBuilding(g: Phaser.GameObjects.Graphics, w: number, h: number)
     }
   }
 
-  // 窗户
-  const woodDark = NES.ROOF_DARK;
+  // 玻璃窗格
   const drawWindow = (x: number, y: number) => {
-    g.fillStyle(woodDark, 1);
+    g.fillStyle(NES.ROOF_DARK, 1);
     g.fillRect(x - 1, y - 1, s + 2, s + 2);
-    g.fillStyle(0x4070A0, 1);
+    g.fillStyle(NES.WINDOW_GLASS, 1);
     g.fillRect(x, y, s, s);
+    g.fillStyle(NES.WINDOW_GLASS_LIGHT, 1);
+    g.fillRect(x, y, Math.max(1, s - 2), 1);
   };
-  if (w >= 4) drawWindow(s + 1, s + 1);
-  if (w >= 5) drawWindow((w - 2) * s + 1, s + 1);
+  for (let wi = 1; wi < w - 1; wi++) {
+    for (let wj = 1; wj < h - 1; wj++) {
+      if ((wi + wj) % 2 === 0) drawWindow(wi * s + 1, wj * s + 1);
+    }
+  }
 
   // 门 — 深色矩形门洞
   const doorX = (w / 2 - 0.5) * s;
@@ -293,25 +336,16 @@ function drawPixelBuilding(g: Phaser.GameObjects.Graphics, w: number, h: number)
   g.fillStyle(NES.DOOR_DARK, 1);
   g.fillRect(doorX, doorY, s, s);
 
-  // 屋顶 — 棕瓦
-  const roofThick = 5;
-  const eave = 5;
-  const fl = { x: -d - eave, y: 0 };
-  const fr = { x: bw + d + eave, y: 0 };
-  const bl = { x: -d - eave + 10, y: -roofThick };
-  const br = { x: bw + d + eave - 10, y: -roofThick };
+  // 平顶 + 机房凸起
+  const roofThick = 4;
+  const eave = 4;
   g.fillStyle(NES.ROOF_BROWN, 1);
-  g.beginPath();
-  g.moveTo(fl.x, fl.y);
-  g.lineTo(fr.x, fr.y);
-  g.lineTo(br.x, br.y);
-  g.lineTo(bl.x, bl.y);
-  g.closePath();
-  g.fillPath();
-  for (let rx = fl.x + 2; rx < fr.x - 2; rx += 4) {
-    g.fillStyle(NES.ROOF_DARK, 1);
-    g.fillRect(rx, -roofThick, 2, roofThick + 1);
-  }
+  g.fillRect(-d - eave, -roofThick, bw + (d + eave) * 2, roofThick);
+  g.fillStyle(NES.ROOF_DARK, 1);
+  g.fillRect(bw / 2 - 6, -roofThick - 4, 12, 4);
+  g.fillStyle(NES.WALL_EDGE, 1);
+  g.fillRect(bw / 2 - 4, -roofThick - 3, 2, 2);
+  g.fillRect(bw / 2 + 2, -roofThick - 3, 2, 2);
 
   // 1px 黑色轮廓 — 正面边框
   g.lineStyle(1, NES.BLACK, 1);
@@ -367,133 +401,58 @@ export function createBuilding(
   return container;
 }
 
-// ── 城池绘制 ────────────────────────────────────────────────
+// ── 主楼绘制 ────────────────────────────────────────────────
 
-/** NES 风格城池 — FC/NES RPG 中国古城门楼，像素逐行绘制 */
-function drawPixelCastle(g: Phaser.GameObjects.Graphics) {
+/** 主办公楼 — 玻璃幕墙 + 旋转门入口 */
+function drawPixelOfficeHub(g: Phaser.GameObjects.Graphics) {
   const wallW = 82;
-  const wallH = 26;
-  const towerW = 40;
-  const towerH = 14;
-  const roofOverhang = 8;
-  const roofW = towerW + roofOverhang * 2;
-  const roofH = 10;
-  const gateW = 14;
-  const gateH = 18;
-  const crenH = 4;
-
+  const wallH = 30;
   const halfWall = wallW / 2;
-  const halfTower = towerW / 2;
-  const halfRoof = roofW / 2;
+  const gateW = 16;
+  const gateH = 14;
   const halfGate = gateW / 2;
-  const towerBot = -wallH;
-  const towerTop = towerBot - towerH;
-  const roofBot = towerTop;
-  const roofTopY = roofBot - roofH;
 
-  // 城墙主体
   g.fillStyle(NES.CASTLE_WALL, 1);
   g.fillRect(-halfWall, -wallH, wallW, wallH);
 
-  // 砖缝纹理
   g.fillStyle(NES.CASTLE_WALL_LINE, 1);
-  for (let row = 0; row < wallH; row += 5) {
+  for (let row = 0; row < wallH; row += 6) {
     g.fillRect(-halfWall, -wallH + row, wallW, 1);
-    const off = (Math.floor(row / 5) % 2) * 5;
-    for (let col = off; col < wallW; col += 10) {
-      g.fillRect(-halfWall + col, -wallH + row, 1, Math.min(5, wallH - row));
+  }
+
+  // 玻璃幕墙
+  const winW = 8;
+  const winH = 6;
+  for (let col = -halfWall + 6; col < halfWall - 6; col += 10) {
+    for (let row = -wallH + 6; row < -gateH - 2; row += 8) {
+      g.fillStyle(NES.CASTLE_WALL_LINE, 1);
+      g.fillRect(col - 1, row - 1, winW + 2, winH + 2);
+      g.fillStyle(NES.WINDOW_GLASS, 1);
+      g.fillRect(col, row, winW, winH);
+      g.fillStyle(NES.WINDOW_GLASS_LIGHT, 1);
+      g.fillRect(col, row, winW, 1);
     }
   }
 
-  // 垛口 (crenellations)
-  const crenW = 5;
-  const crenGap = 4;
-  g.fillStyle(NES.CASTLE_WALL, 1);
-  for (let cx = -halfWall + 1; cx < halfWall - crenW; cx += crenW + crenGap) {
-    if (cx + crenW > -halfTower && cx < halfTower) continue;
-    g.fillRect(cx, -wallH - crenH, crenW, crenH);
-    g.fillStyle(NES.CASTLE_WALL_LINE, 1);
-    g.fillRect(cx, -wallH - crenH, crenW, 1);
-    g.fillStyle(NES.CASTLE_WALL, 1);
-  }
-
-  // 城门
+  // 旋转门入口
   g.fillStyle(NES.CASTLE_GATE, 1);
   g.fillRect(-halfGate, -gateH, gateW, gateH);
-  g.fillStyle(NES.CASTLE_WOOD, 1);
-  g.fillRect(-halfGate - 1, -gateH - 1, gateW + 2, 2);
-  g.fillRect(-halfGate - 1, -gateH, 2, gateH);
-  g.fillRect(halfGate - 1, -gateH, 2, gateH);
+  g.fillStyle(NES.WINDOW_GLASS_LIGHT, 1);
+  g.fillRect(-2, -gateH + 2, 4, gateH - 4);
 
-  // 城楼
-  g.fillStyle(NES.CASTLE_TOWER, 1);
-  g.fillRect(-halfTower, towerTop, towerW, towerH);
-  g.fillStyle(NES.CASTLE_WALL_LINE, 1);
-  for (let row = 0; row <= towerH; row += 4) {
-    g.fillRect(-halfTower, towerTop + row, towerW, 1);
-  }
-
-  // 城楼窗户
-  const winW = 6;
-  const winH = 6;
-  const winY = towerTop + 4;
-  g.fillStyle(NES.CASTLE_GATE, 1);
-  g.fillRect(-winW - 2, winY, winW, winH);
-  g.fillRect(2, winY, winW, winH);
-  g.fillStyle(NES.CASTLE_WOOD, 1);
-  g.fillRect(-winW - 2, winY + 3, winW, 1);
-  g.fillRect(-winW - 2 + 3, winY, 1, winH);
-  g.fillRect(2, winY + 3, winW, 1);
-  g.fillRect(2 + 3, winY, 1, winH);
-
-  // 屋顶主体 — 深色梯形
+  // 平顶 + Logo 灯牌
+  const roofY = -wallH - 6;
   g.fillStyle(NES.CASTLE_ROOF, 1);
-  g.beginPath();
-  g.moveTo(-halfRoof, roofBot);
-  g.lineTo(halfRoof, roofBot);
-  g.lineTo(halfRoof - 10, roofTopY + 2);
-  g.lineTo(-halfRoof + 10, roofTopY + 2);
-  g.closePath();
-  g.fillPath();
+  g.fillRect(-halfWall - 4, roofY, wallW + 8, 6);
+  g.fillStyle(NES.WINDOW_GLASS, 1);
+  g.fillRect(-14, roofY + 1, 28, 4);
 
-  // 瓦片竖线
-  g.fillStyle(NES.CASTLE_ROOF_LIGHT, 1);
-  for (let col = -halfRoof + 4; col < halfRoof - 4; col += 4) {
-    g.fillRect(col, roofBot - 1, 1, -(roofH - 4));
-  }
-
-  // 飞檐翘角 — 阶梯式上翘，像素风
-  g.fillStyle(NES.CASTLE_ROOF, 1);
-  g.fillRect(-halfRoof - 4, roofBot - 1, 6, 2);
-  g.fillRect(-halfRoof - 8, roofBot - 4, 5, 3);
-  g.fillRect(-halfRoof - 11, roofBot - 7, 4, 3);
-  g.fillRect(halfRoof - 2, roofBot - 1, 6, 2);
-  g.fillRect(halfRoof + 3, roofBot - 4, 5, 3);
-  g.fillRect(halfRoof + 7, roofBot - 7, 4, 3);
-
-  // 屋脊
-  g.fillStyle(NES.CASTLE_ROOF_LIGHT, 1);
-  g.fillRect(-halfRoof + 12, roofTopY + 1, roofW - 24, 2);
-
-  // 宝顶
-  g.fillStyle(NES.CASTLE_ROOF_LIGHT, 1);
-  g.fillRect(-2, roofTopY - 3, 4, 5);
-  g.fillStyle(NES.CASTLE_ROOF, 1);
-  g.fillRect(-1, roofTopY - 2, 2, 3);
-
-  // 鸱吻
-  g.fillStyle(NES.CASTLE_ROOF, 1);
-  g.fillRect(-halfRoof + 10, roofTopY - 1, 3, 3);
-  g.fillRect(halfRoof - 13, roofTopY - 1, 3, 3);
-
-  // 黑色轮廓
   g.lineStyle(1, NES.BLACK, 1);
   g.strokeRect(-halfWall, -wallH, wallW, wallH);
-  g.strokeRect(-halfTower, towerTop, towerW, towerH);
   g.strokeRect(-halfGate, -gateH, gateW, gateH);
 }
 
-/** 创建城池容器 — 替代中心广场 */
+/** 创建主楼容器 — 开放办公区地标 */
 export function createCastle(
   scene: Phaser.Scene,
   x: number,
@@ -506,7 +465,7 @@ export function createCastle(
 
   const offsetY = 27;
   g.setPosition(0, offsetY);
-  drawPixelCastle(g);
+  drawPixelOfficeHub(g);
   container.add(g);
 
   g.setInteractive(
@@ -535,7 +494,7 @@ export function createCastle(
 
 // ── 森林/山脉/道路/河流 ──────────────────────────────────────
 
-/** 绘制密集森林簇 — NES 风格窄锥形，高密度层叠 */
+/** 绘制办公区绿植簇 */
 export function drawForestClusters(
   scene: Phaser.Scene,
   parent: Phaser.GameObjects.Container,
@@ -581,7 +540,7 @@ export function drawForestClusters(
   });
 }
 
-/** 绘制山脉簇 — NES 尖三角峰 + 山脚圆顶岩石 */
+/** 绘制机房/工位装饰簇（机柜 + 隔板） */
 export function drawMountainClusters(
   scene: Phaser.Scene,
   parent: Phaser.GameObjects.Container,
@@ -720,7 +679,7 @@ export function drawPaths(
   drawCurvedPath(500, 338, 508, 348, 500, 358);
 }
 
-/** 绘制河流与水池 — NES 纯色块，无渐变/半透明 */
+/** 绘制员工休息区（原河道区域改为地毯休息角） */
 export function drawRiverAndPond(
   scene: Phaser.Scene,
   parent?: Phaser.GameObjects.Container,
@@ -732,32 +691,8 @@ export function drawRiverAndPond(
   const ox = originX;
   const oy = originY;
 
-  const shoreEdge = [
-    { x: 640, y: 200 }, { x: 632, y: 256 }, { x: 616, y: 320 },
-    { x: 576, y: 376 }, { x: 520, y: 416 }, { x: 480, y: 448 },
-  ];
-  const getShoreX = (py: number): number => {
-    for (let i = 0; i < shoreEdge.length - 1; i++) {
-      const a = shoreEdge[i], b = shoreEdge[i + 1];
-      if (py >= a.y && py <= b.y) {
-        const t = (py - a.y) / (b.y - a.y);
-        return a.x + (b.x - a.x) * t;
-      }
-    }
-    return 640;
-  };
-
-  g.lineStyle(3, NES.BLACK, 1);
-  g.beginPath();
-  g.moveTo(640 - ox, 198 - oy);
-  g.lineTo(630 - ox, 254 - oy);
-  g.lineTo(614 - ox, 318 - oy);
-  g.lineTo(574 - ox, 374 - oy);
-  g.lineTo(518 - ox, 414 - oy);
-  g.lineTo(478 - ox, 448 - oy);
-  g.strokePath();
-
-  g.fillStyle(NES.WATER_DEEP, 1);
+  g.lineStyle(2, NES.BLACK, 1);
+  g.fillStyle(NES.LOUNGE_BASE, 1);
   g.beginPath();
   g.moveTo(640 - ox, 200 - oy);
   g.lineTo(632 - ox, 256 - oy);
@@ -766,61 +701,32 @@ export function drawRiverAndPond(
   g.lineTo(520 - ox, 416 - oy);
   g.lineTo(480 - ox, 448 - oy);
   g.lineTo(640 - ox, 448 - oy);
-  g.lineTo(640 - ox, 200 - oy);
   g.closePath();
   g.fillPath();
+  g.strokePath();
 
-  g.fillStyle(NES.WATER_MID, 1);
-  g.beginPath();
-  g.moveTo(640 - ox, 224 - oy);
-  g.lineTo(628 - ox, 280 - oy);
-  g.lineTo(604 - ox, 344 - oy);
-  g.lineTo(568 - ox, 384 - oy);
-  g.lineTo(536 - ox, 408 - oy);
-  g.lineTo(640 - ox, 408 - oy);
-  g.lineTo(640 - ox, 224 - oy);
-  g.closePath();
-  g.fillPath();
-
-  g.fillStyle(NES.WATER_LIGHT, 1);
-  g.beginPath();
-  g.moveTo(640 - ox, 256 - oy);
-  g.lineTo(624 - ox, 312 - oy);
-  g.lineTo(596 - ox, 364 - oy);
-  g.lineTo(560 - ox, 396 - oy);
-  g.lineTo(640 - ox, 396 - oy);
-  g.lineTo(640 - ox, 256 - oy);
-  g.closePath();
-  g.fillPath();
-
-  const waveGapX = 14;
-  const waveGapY = 8;
-  g.fillStyle(NES.WATER_WAVE, 1);
-  for (let wy = 204; wy < 446; wy += waveGapY) {
-    const sx = getShoreX(wy);
-    const rowOff = (Math.floor(wy / waveGapY) % 2) * (waveGapX / 2);
-    for (let wx = Math.ceil(sx) + 6 + rowOff; wx < 636; wx += waveGapX) {
-      g.fillRect(wx - ox, wy - oy, 3, 1);
-      g.fillRect(wx + 3 - ox, wy + 1 - oy, 3, 1);
+  g.fillStyle(NES.LOUNGE_ACCENT, 1);
+  for (let wy = 210; wy < 440; wy += 12) {
+    for (let wx = 500; wx < 630; wx += 14) {
+      if ((wx + wy) % 24 === 0) g.fillRect(wx - ox, wy - oy, 4, 4);
     }
   }
 
   const pcx = 544 - ox;
   const pcy = 416 - oy;
-  g.fillStyle(NES.WATER_DEEP, 1);
-  g.fillRect(pcx - 48, pcy - 16, 96, 32);
-  g.fillRect(pcx - 40, pcy - 20, 80, 40);
-  g.fillStyle(NES.WATER_MID, 1);
-  g.fillRect(pcx - 36, pcy - 12, 72, 24);
-  g.fillStyle(NES.WATER_LIGHT, 1);
-  g.fillRect(pcx - 16, pcy - 6, 32, 12);
+  g.fillStyle(NES.LOUNGE_ACCENT, 1);
+  g.fillRect(pcx - 44, pcy - 18, 88, 36);
+  g.fillStyle(0x8898B0, 1);
+  g.fillRect(pcx - 20, pcy - 8, 40, 12);
+  g.fillStyle(0x687888, 1);
+  g.fillRect(pcx - 8, pcy - 14, 16, 6);
 
-  g.fillStyle(NES.WATER_WAVE, 1);
-  for (let wy = -16; wy < 16; wy += waveGapY) {
-    const off = (Math.floor((wy + 16) / waveGapY) % 2) * (waveGapX / 2);
-    for (let wx = -36 + off; wx < 36; wx += waveGapX) {
-      g.fillRect(pcx + wx, pcy + wy, 3, 1);
-      g.fillRect(pcx + wx + 3, pcy + wy + 1, 3, 1);
-    }
-  }
+  const label = scene.add.text(pcx, pcy - 28, "休息区", {
+    fontSize: "9px",
+    color: "#E2E8F0",
+    fontStyle: "bold",
+    backgroundColor: "#1E293B",
+    padding: { x: 3, y: 1 },
+  }).setOrigin(0.5).setResolution(2);
+  if (parent) parent.add(label);
 }

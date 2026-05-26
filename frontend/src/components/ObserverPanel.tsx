@@ -211,8 +211,8 @@ export function ObserverPanel() {
       if (res.ok) {
         evotownEvents.emit("sprite_move", {
           agent_id: agentId,
-          from: "广场",
-          to: "进化神殿",
+          from: "开放办公区",
+          to: "升级中心",
           reason: "forced_evolution",
         });
         const msg = data.message || (data.ok ? "进化已触发" : "进化未产生变更");
@@ -450,7 +450,7 @@ export function ObserverPanel() {
               )}
             </div>
 
-            {/* 队伍一览：结阵后按队伍分组展示 */}
+            {/* 队伍一览：组队后按项目组分组展示 */}
             {(() => {
               const teams = agents
                 .filter((a) => a.team_id)

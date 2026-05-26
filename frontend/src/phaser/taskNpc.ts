@@ -33,7 +33,7 @@ const BOUNDS = {
   yMax: 370,
 };
 
-/** 河流左岸线（y 对应 x 边界，x >= 此为水）— 从 sceneAssets 提取 */
+/** 休息区边界（原河道区域，Agent 不可走入） */
 function getRiverShoreX(y: number): number {
   const shoreEdge = [
     { x: 640, y: 200 }, { x: 632, y: 256 }, { x: 616, y: 320 },
@@ -49,7 +49,6 @@ function getRiverShoreX(y: number): number {
   return y < 200 ? 640 : 480;
 }
 
-/** 水池区域（需避开） */
 const POND = { cx: 544, cy: 416, w: 50, h: 25 };
 
 /** 将坐标限制在可走区域内 */
@@ -194,7 +193,7 @@ export class TaskNpcManager {
         color,
         name,
       );
-      // NPC 略小于主角，避免与武将/烘焙图同 scale 时显得比主角大（通用 char 与武将图源尺寸可能不同）
+      // 任务 NPC 略小于 Agent，便于区分工单派发员
       const NPC_SCALE = CHAR_LAYOUT.scale * 0.9;
       container.setScale(NPC_SCALE);
       this.parent.add(container);

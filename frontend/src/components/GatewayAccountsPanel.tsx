@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { adminFetch } from "../hooks/useAdminToken";
-import { EmployeeConfigPanel } from "./market/EmployeeConfigPanel";
+import { EasyInstallWizard } from "./market/EasyInstallWizard";
 import { Link } from "react-router-dom";
 
 export type GatewayAccount = {
@@ -510,7 +510,7 @@ export function GatewayAccountsPanel() {
                 复制 Key
               </button>
             </div>
-            <EmployeeConfigPanel apiKeyOverride={createdSecret} compact />
+            <EasyInstallWizard apiKeyOverride={createdSecret} layout="panel" />
             </div>
           )}
 

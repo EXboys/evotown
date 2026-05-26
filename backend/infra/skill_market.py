@@ -12,6 +12,7 @@ import os
 import base64
 import hashlib
 import sqlite3
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ from domain.models import SkillCandidateCreate, SkillCandidateReview, SkillPacka
 from infra import skill_signing
 
 _backend_dir = Path(__file__).resolve().parent.parent
+_arena_skills_dir = _backend_dir / "arena_skills"
 _evotown_data = _backend_dir.parent / "data"
 
 
@@ -649,9 +651,11 @@ def verify_package_integrity(skill_id: str) -> bool:
     skill = get_skill(skill_id)
     if skill is None:
         return False
+    if _is_builtin_skill(skill):
+        return _builtin_skill_source(skill_id) is not None
     package = get_package_file(skill_id)
     if package is None:
-        return True
+        return False
     path, _ = package
     digest = str(skill.get("package_sha256") or "")
     if not digest:
@@ -699,6 +703,67 @@ def get_package_file(skill_id: str) -> tuple[Path, str] | None:
     if not path.is_file():
         return None
     return path, row["filename"]
+
+
+def _is_builtin_skill(skill: dict[str, Any]) -> bool:
+    return str(skill.get("package_url") or "").startswith("builtin://")
+
+
+def _builtin_skill_source(skill_id: str) -> Path | None:
+    src = _arena_skills_dir / skill_id
+    if src.is_dir() and (src / "SKILL.md").is_file():
+        return src
+    return None
+
+
+def _newest_mtime(path: Path) -> float:
+    latest = 0.0
+    for file in path.rglob("*"):
+        if file.is_file():
+            latest = max(latest, file.stat().st_mtime)
+    return latest
+
+
+def _zip_skill_directory(src: Path, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file in sorted(src.rglob("*")):
+            if not file.is_file():
+                continue
+            if "__pycache__" in file.parts:
+                continue
+            arcname = file.relative_to(src).as_posix()
+            zf.write(file, arcname)
+
+
+def _builtin_package_zip(skill_id: str) -> Path | None:
+    src = _builtin_skill_source(skill_id)
+    if src is None:
+        return None
+    cache_dir = _package_dir() / "_builtin_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = cache_dir / f"{_safe_skill_id(skill_id)}.zip"
+    src_mtime = _newest_mtime(src)
+    if zip_path.is_file() and zip_path.stat().st_mtime >= src_mtime:
+        return zip_path
+    _zip_skill_directory(src, zip_path)
+    return zip_path if zip_path.is_file() else None
+
+
+def resolve_download_package(skill_id: str) -> tuple[Path, str] | None:
+    """Uploaded package file, or on-the-fly zip from arena_skills for builtin:// skills."""
+    uploaded = get_package_file(skill_id)
+    if uploaded is not None:
+        return uploaded
+    skill = get_skill(skill_id)
+    if skill is None:
+        return None
+    if not _is_builtin_skill(skill) and _builtin_skill_source(skill_id) is None:
+        return None
+    zip_path = _builtin_package_zip(skill_id)
+    if zip_path is None:
+        return None
+    return zip_path, f"{skill_id}.skill.zip"
 
 
 def create_candidate(body: SkillCandidateCreate) -> tuple[dict[str, Any], bool]:

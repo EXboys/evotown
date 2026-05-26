@@ -132,6 +132,47 @@ class MarketApiTest(unittest.TestCase):
         body = manifest.json()["manifest"]
         self.assertEqual(body["bundle_id"], "default-agent-skills")
         self.assertGreaterEqual(len(body["skills"]), 1)
+        for entry in body["skills"]:
+            if entry.get("skill_id") == "http-request":
+                self.assertTrue(
+                    str(entry.get("package_url", "")).endswith("/api/v1/market/skills/http-request/download"),
+                )
+                break
+        else:
+            self.fail("expected seeded http-request in manifest")
+
+    def test_market_downloads_builtin_seed_skill(self) -> None:
+        from fastapi.testclient import TestClient
+        import importlib
+        import main
+        import zipfile
+        import io
+
+        importlib.reload(main)
+        client = TestClient(main.app)
+        admin = {"X-Admin-Token": "test-admin-token"}
+        account = client.post(
+            "/api/v1/accounts",
+            json={"name": "Builtin User", "team_id": "default", "owner_email": "builtin@example.com"},
+            headers=admin,
+        )
+        account_id = account.json()["account"]["account_id"]
+        key_resp = client.post(
+            f"/api/v1/accounts/{account_id}/keys",
+            json={"label": "employee", "scopes": ["gateway.chat", "console.read"]},
+            headers=admin,
+        )
+        api_key = key_resp.json()["secret"]
+
+        downloaded = client.get(
+            "/api/v1/market/skills/http-request/download",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        self.assertEqual(downloaded.status_code, 200, downloaded.text)
+        self.assertTrue(downloaded.content.startswith(b"PK"), "expected zip archive")
+        with zipfile.ZipFile(io.BytesIO(downloaded.content)) as zf:
+            names = zf.namelist()
+        self.assertIn("SKILL.md", names)
 
 
 if __name__ == "__main__":

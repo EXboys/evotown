@@ -19,10 +19,13 @@ def _employee_manifest(manifest: dict) -> dict:
     skills = []
     for entry in manifest.get("skills", []):
         item = dict(entry)
-        package_url = item.get("package_url", "")
+        package_url = str(item.get("package_url", "") or "")
+        skill_id = str(item.get("skill_id", "") or "")
         match = _ADMIN_PACKAGE_RE.match(package_url)
         if match:
             skill_id = match.group("skill_id")
+            item["package_url"] = f"/api/v1/market/skills/{skill_id}/download"
+        elif package_url.startswith("builtin://") and skill_id:
             item["package_url"] = f"/api/v1/market/skills/{skill_id}/download"
         skills.append(item)
     return {**manifest, "skills": skills}
@@ -110,9 +113,12 @@ async def download_market_skill(skill_id: str, session: dict | None = Depends(re
     skill = skill_market.get_skill(skill_id)
     if skill is None or skill.get("status") != "approved":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="skill not found")
-    package = skill_market.get_package_file(skill_id)
+    package = skill_market.resolve_download_package(skill_id)
     if package is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="package not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="package not found (upload a zip in /skills or missing builtin skill files)",
+        )
     if not skill_market.verify_package_integrity(skill_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

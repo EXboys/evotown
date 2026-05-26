@@ -60,6 +60,8 @@ evotown-agent-setup.py complete --job-id job_xxx --status succeeded --summary "d
 
 员工机 **不能** 用 `evi_` 冒充其他 `engine_id` 发起 handoff。
 
+生产环境默认 **`EVOTOWN_ALLOW_GLOBAL_INGEST_SCOPE` 未设置** 时，IT bootstrap token **不能** 调用 lease/events 等按引擎鉴权的接口；仅 `register` / 知识库 ingest 等全局路径可用。迁移期可临时设 `=1`。
+
 Hermes：合并 `docs/templates/hermes.evotown.yaml` 中的 webhook 路由，设置 `HERMES_HOOK_URL`。
 
 ### Agent 主动 handoff（CLI）

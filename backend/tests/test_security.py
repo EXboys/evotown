@@ -136,6 +136,9 @@ class IngestReadAuthTest(unittest.TestCase):
             headers=ingest,
         )
         self.assertEqual(res.status_code, 200)
+        evi = res.json().get("ingest_token")
+        self.assertTrue(evi and str(evi).startswith("evi_"))
+        scoped = {"Authorization": f"Bearer {evi}"}
 
         started = {
             "event_type": "run.started",
@@ -151,7 +154,7 @@ class IngestReadAuthTest(unittest.TestCase):
             "ts": "2026-05-25T09:00:00Z",
             "signals": {"source": "test"},
         }
-        res = client.post("/api/v1/events", json=started, headers=ingest)
+        res = client.post("/api/v1/events", json=started, headers=scoped)
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()["run"]["status"], "running")
 
@@ -164,7 +167,7 @@ class IngestReadAuthTest(unittest.TestCase):
             "signals": {"task_completed": True},
             "seq": 1,
         }
-        res = client.post("/api/v1/runs/run-evt-1/events", json=completed, headers=ingest)
+        res = client.post("/api/v1/runs/run-evt-1/events", json=completed, headers=scoped)
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()["run"]["status"], "succeeded")
 

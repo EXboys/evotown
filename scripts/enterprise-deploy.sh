@@ -199,12 +199,13 @@ Skills manifest（Bearer 同上 key）：
   - openclaw.evotown.yaml
   - hermes.evotown.yaml
 
-引擎 ingest（派活 / handoff，仅 IT 持有，写入员工机可选字段）：
-  EVOTOWN_INGEST_TOKEN 见部署 .env 中 EVOTOWN_ENGINE_INGEST_TOKEN
+引擎 ingest：
+  服务器 .env：EVOTOWN_ENGINE_INGEST_TOKEN（IT bootstrap，仅 register/轮换，勿下发员工镜像）
+  员工机：register --save-token 后写入 EVOTOWN_ENGINE_INGEST_TOKEN=evi_…
 
 派活控制台：${base}/dispatch
-员工机 Connector：evotown-agent-setup.py register && evotown-agent-setup.py connector
-文档：docs/zh-CN/AGENT_DISPATCH.md
+员工机：evotown-agent-setup.py register --save-token && evotown-agent-setup.py connector
+文档：docs/zh-CN/AGENT_DISPATCH.md、docs/zh-CN/MDM_AGENT_ROLLOUT.md
 
 请将 evotown.agent.env 通过 MDM / 内网文档分发给员工，勿提交到 git。
 EOF

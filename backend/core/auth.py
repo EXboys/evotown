@@ -39,6 +39,11 @@ def _truthy_env(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def allow_global_ingest_scope() -> bool:
+    """IT bootstrap token may act as any engine_id (legacy). Default off in production."""
+    return _truthy_env("EVOTOWN_ALLOW_GLOBAL_INGEST_SCOPE")
+
+
 def _get_configured_token() -> str:
     return os.environ.get("ADMIN_TOKEN", "").strip()
 
@@ -171,6 +176,14 @@ async def get_engine_ingest_auth(
 
 def assert_engine_ingest_scope(auth: EngineIngestAuth, engine_id: str) -> None:
     if auth.mode == "global":
+        if not allow_global_ingest_scope():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "IT global ingest token cannot call per-engine APIs. "
+                    "Use the machine's evi_ token or set EVOTOWN_ALLOW_GLOBAL_INGEST_SCOPE=1 for legacy mode."
+                ),
+            )
         return
     if auth.engine_id != engine_id:
         raise HTTPException(

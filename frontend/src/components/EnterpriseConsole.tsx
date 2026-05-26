@@ -447,12 +447,18 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
               </button>
             ))}
           </nav>
-          <div className="border-t border-white/10 p-4">
+          <div className="space-y-2 border-t border-white/10 p-4">
             <button
               onClick={() => navigate("/")}
               className="w-full rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
             >
-              打开 Arena
+              返回首页
+            </button>
+            <button
+              onClick={() => navigate("/arena")}
+              className="w-full rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-100 transition hover:bg-sky-500/20"
+            >
+              协作地图
             </button>
           </div>
         </aside>
@@ -469,9 +475,15 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
                 {sessionName && <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">已登录：{sessionName}</span>}
                 <button
                   onClick={() => navigate("/")}
-                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 md:hidden"
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
                 >
-                  Arena
+                  首页
+                </button>
+                <button
+                  onClick={() => navigate("/arena")}
+                  className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-800 transition hover:bg-sky-100"
+                >
+                  协作地图
                 </button>
                 <button
                   onClick={() => {

@@ -147,7 +147,7 @@ export function ChronicleBook() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif' }}>
       <header className="flex items-center justify-between px-8 py-3 border-b border-slate-800 bg-slate-900">
-        <button onClick={() => navigate("/")} className="text-slate-400 hover:text-sky-300 text-sm transition-colors">← 协作地图</button>
+        <button onClick={() => navigate("/arena")} className="text-slate-400 hover:text-sky-300 text-sm transition-colors">← 协作地图</button>
         <div className="text-center">
           <div className="text-xs tracking-[0.2em] text-slate-500 uppercase mb-0.5">Evotown · Operations Log</div>
           <h1 className="text-lg font-semibold tracking-wide text-slate-100">组织运行日志</h1>

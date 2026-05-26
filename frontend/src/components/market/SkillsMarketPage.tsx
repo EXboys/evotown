@@ -73,7 +73,8 @@ function MarketShell({ children }: { children: ReactNode }) {
             </span>
           </Link>
           <nav className="relative flex flex-wrap items-center gap-2 text-sm">
-            <Link to="/" className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">协作地图</Link>
+            <Link to="/" className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">首页</Link>
+            <Link to="/arena" className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">协作地图</Link>
             <Link to="/dashboard" className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">控制台</Link>
             <Link to="/skills" className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">管理后台</Link>
             {signedIn ? (

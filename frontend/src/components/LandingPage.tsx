@@ -5,7 +5,7 @@ const MODULES = [
   {
     title: "协作地图",
     desc: "实时观察 Agent 团队任务、状态与协作关系，保留趣味可视化。",
-    path: "/",
+    path: "/arena",
     cta: "进入地图",
     accent: "from-blue-600 to-cyan-500",
   },
@@ -60,7 +60,7 @@ export function LandingPage() {
     >
       <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-4">
-          <button type="button" onClick={() => navigate("/welcome")} className="flex items-center gap-3 text-left">
+          <button type="button" onClick={() => navigate("/")} className="flex items-center gap-3 text-left">
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-950 text-sm font-semibold text-white">E</span>
             <span>
               <span className="block text-sm font-semibold text-slate-950">Evotown</span>
@@ -68,6 +68,7 @@ export function LandingPage() {
             </span>
           </button>
           <nav className="hidden items-center gap-1 text-sm md:flex">
+            <button type="button" onClick={() => navigate("/arena")} className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">协作地图</button>
             <button type="button" onClick={() => navigate("/market")} className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">Skills 市场</button>
             <button type="button" onClick={() => navigate("/knowledge")} className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">知识库</button>
             <button type="button" onClick={() => navigate("/dashboard")} className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">控制台</button>
@@ -76,7 +77,7 @@ export function LandingPage() {
           </nav>
           <button
             type="button"
-            onClick={() => navigate("/")}
+            onClick={() => navigate("/arena")}
             className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
           >
             协作地图
@@ -114,7 +115,7 @@ export function LandingPage() {
               </button>
               <button
                 type="button"
-                onClick={() => navigate("/")}
+                onClick={() => navigate("/arena")}
                 className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
               >
                 打开协作地图

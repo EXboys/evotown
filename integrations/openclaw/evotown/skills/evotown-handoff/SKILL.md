@@ -41,6 +41,8 @@ Authorization: Bearer {EVOTOWN_INGEST_TOKEN}
 
 The receiving machine's **Connector** will lease the job and trigger local OpenClaw/Hermes Gateway.
 
+Load the **evotown-dispatch-complete** skill when executing Evotown dispatch jobs.
+
 When **this** agent finishes the leased job, report completion (do not rely on hook HTTP alone):
 
 ```bash

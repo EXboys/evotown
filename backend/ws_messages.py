@@ -63,6 +63,12 @@ class TaskExpiredMsg(TypedDict):
     task: str
 
 
+class DispatchJobUpdatedMsg(TypedDict, total=False):
+    type: Literal["dispatch_job_updated"]
+    action: str
+    job: dict[str, Any]
+
+
 class AgentEliminatedMsg(TypedDict):
     type: Literal["agent_eliminated"]
     agent_id: str

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { adminFetch } from "../hooks/useAdminToken";
+import { evotownEvents } from "../phaser/events";
 
 export type FleetEngine = {
   engine_id: string;
@@ -11,7 +12,16 @@ export type FleetEngine = {
   online?: boolean;
   last_seen_at?: string;
   connector_version?: string;
+  ingest_token_prefix?: string;
 };
+
+function mergeJob(list: DispatchJob[], incoming: DispatchJob): DispatchJob[] {
+  const idx = list.findIndex((j) => j.job_id === incoming.job_id);
+  if (idx < 0) return [incoming, ...list].slice(0, 80);
+  const next = [...list];
+  next[idx] = { ...next[idx], ...incoming };
+  return next;
+}
 
 export type DispatchJob = {
   job_id: string;
@@ -72,9 +82,18 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
 
   useEffect(() => {
     loadJobs();
-    const t = setInterval(loadJobs, 15000);
+    const t = setInterval(loadJobs, 60000);
     return () => clearInterval(t);
   }, [loadJobs]);
+
+  useEffect(() => {
+    const onUpdate = (data: { job: DispatchJob }) => {
+      setJobs((prev) => mergeJob(prev, data.job));
+      setSelected((cur) => (cur?.job_id === data.job.job_id ? { ...cur, ...data.job } : cur));
+    };
+    evotownEvents.on("dispatch_job_updated", onUpdate);
+    return () => evotownEvents.off("dispatch_job_updated", onUpdate);
+  }, []);
 
   const submit = async () => {
     setMessage("");

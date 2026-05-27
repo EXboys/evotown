@@ -4,6 +4,7 @@ import { create } from "zustand";
 interface ChronicleNotification {
   date: string;
   preview: string;
+  chapter?: number;
 }
 
 interface ChronicleState {

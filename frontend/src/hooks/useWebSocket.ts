@@ -246,8 +246,9 @@ export function useWebSocket() {
             }
           } else if (type === "chronicle_published") {
             useChronicleStore.getState().setLatestPublished({
-              date: String(msg.date ?? ""),
+              date: String(msg.date ?? msg.virtual_date ?? msg.chapter_label ?? ""),
               preview: String(msg.preview ?? ""),
+              chapter: typeof msg.chapter === "number" ? msg.chapter : undefined,
             });
           } else if (type === "agent_message") {
             const smsg = {

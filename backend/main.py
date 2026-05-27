@@ -202,7 +202,7 @@ async def lifespan(app: FastAPI):
     # 如需停止，调用 await process_mgr.stop_memory_watchdog()
 
     async def _chronicle_loop() -> None:
-        """每 CHRONICLE_INTERVAL_HOURS 小时（默认 5h）自动生成下一回章回战报。"""
+        """每 CHRONICLE_INTERVAL_HOURS 小时（默认 5h）自动生成下一期运行日报。"""
         from services.chronicle import generate_chronicle
         from core.deps import ws as _ws
         interval_hours = float(os.environ.get("CHRONICLE_INTERVAL_HOURS", "5"))

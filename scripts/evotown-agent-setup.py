@@ -41,6 +41,12 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+import policy_client  # noqa: E402
+
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "evotown" / "evotown.agent.env"
 DEFAULT_STATE_PATH = Path.home() / ".config" / "evotown" / "skills-lock.json"
 DEFAULT_SKILLS_DIR = Path.home() / ".evotown" / "skills"
@@ -579,7 +585,30 @@ def _trigger_runtime(cfg: dict[str, str], job: dict[str, Any]) -> tuple[bool, st
     return False, f"connector dispatch not implemented for runtime={runtime}"
 
 
-def _ingest_event(base: str, ingest: str, payload: dict[str, Any]) -> None:
+def _policy_token(cfg: dict[str, str], ingest: str) -> str:
+    """Prefer per-engine evi_ for evaluate; fall back to employee evk_."""
+    if ingest.startswith("evi_"):
+        return ingest
+    return (cfg.get("EVOTOWN_API_KEY") or "").strip()
+
+
+def _ingest_event(base: str, ingest: str, payload: dict[str, Any], *, cfg: dict[str, str] | None = None) -> None:
+    if cfg and payload.get("event_type") == "tool_call":
+        pload = payload.get("payload") or {}
+        tool = str(pload.get("tool") or pload.get("tool_name") or pload.get("name") or "")
+        if tool:
+            token = _policy_token(cfg, ingest)
+            try:
+                policy_client.enforce(
+                    base,
+                    token,
+                    kind="tool",
+                    resource=tool,
+                    run_id=str(payload.get("run_id") or ""),
+                    engine_id=str(payload.get("engine_id") or ""),
+                )
+            except policy_client.PolicyBlockedError as exc:
+                die(f"policy blocked tool '{tool}': {exc}")
     http_json("POST", f"{base}/api/v1/events", api_key=ingest, body=payload)
 
 
@@ -655,6 +684,7 @@ def _post_run_completed(
             "log_excerpt": detail[:2000],
             "signals": merged,
         },
+        cfg=cfg,
     )
 
 
@@ -771,6 +801,7 @@ def _process_job(cfg: dict[str, str], base: str, ingest: str, job: dict[str, Any
             "task_id": job_id,
             "payload": {"job_id": job_id, "kind": job.get("kind"), "title": job.get("title")},
         },
+        cfg=cfg,
     )
 
     hook_box: dict[str, Any] = {"done": False, "ok": False, "detail": ""}
@@ -990,6 +1021,33 @@ def cmd_connector(cfg: dict[str, str], poll_sec: int, once: bool, long_poll: int
         time.sleep(max(3, poll_sec))
 
 
+def cmd_policy_pull(cfg: dict[str, str]) -> int:
+    base, key = require(cfg)
+    ingest = ingest_token(cfg)
+    token = ingest if ingest else key
+    cached = policy_client.pull_policies(base, token)
+    count = len(cached.get("policies") or [])
+    log(f"✓ Cached {count} policies to {policy_client.DEFAULT_POLICY_CACHE}")
+    return 0
+
+
+def cmd_policy_check(cfg: dict[str, str], kind: str, resource: str) -> int:
+    base, key = require(cfg)
+    ingest = ingest_token(cfg)
+    token = _policy_token(cfg, ingest or key)
+    result = policy_client.evaluate(
+        base,
+        token,
+        kind=kind,
+        resource=resource,
+        engine_id=engine_id(cfg),
+    )
+    log(json.dumps(result, ensure_ascii=False, indent=2))
+    if not result.get("allowed", True):
+        return 1
+    return 0
+
+
 def cmd_watch(cfg: dict[str, str], interval_sec: int) -> int:
     log(f"Watching SkillHub every {interval_sec}s (Ctrl+C to stop)")
     while True:
@@ -1036,6 +1094,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_done.add_argument("--exit-code", type=int, default=None, help="Exit code (default 0 if succeeded)")
     p_watch = sub.add_parser("watch", help="Periodically run sync")
     p_watch.add_argument("--interval", type=int, default=3600, help="Seconds between sync runs (min 60)")
+    sub.add_parser("policy-pull", help="Pull enabled policies to local cache")
+    p_pcheck = sub.add_parser("policy-check", help="Evaluate one action against policies")
+    p_pcheck.add_argument("kind", choices=["tool", "file_read", "file_write", "network", "artifact", "text"])
+    p_pcheck.add_argument("resource", help="Tool name, path, URL, or text sample")
     return parser
 
 
@@ -1087,6 +1149,10 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             log("\nStopped.")
         return 0
+    if args.command == "policy-pull":
+        return cmd_policy_pull(cfg)
+    if args.command == "policy-check":
+        return cmd_policy_check(cfg, args.kind, args.resource)
     parser.error(f"unknown command: {args.command}")
     return 1
 

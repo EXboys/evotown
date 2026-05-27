@@ -220,6 +220,18 @@ class PoliciesReplace(BaseModel):
     policies: list[PolicyUpsert] = Field(default_factory=list)
 
 
+PolicyCheckKind = Literal["tool", "file_read", "file_write", "network", "artifact", "text"]
+
+
+class PolicyEvaluateRequest(BaseModel):
+    kind: PolicyCheckKind
+    resource: str = Field(min_length=1, max_length=4096)
+    run_id: str = Field(default="", max_length=128)
+    engine_id: str = Field(default="", max_length=128)
+    workspace_roots: list[str] = Field(default_factory=list)
+    extra: dict[str, Any] = Field(default_factory=dict)
+
+
 AssetType = Literal["skill", "prompt", "workflow", "playbook", "memory_snippet", "tool_config", "evaluation_case"]
 
 

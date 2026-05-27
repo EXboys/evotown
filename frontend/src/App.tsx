@@ -49,6 +49,8 @@ function App() {
         <Route path="/engines" element={<EnterpriseConsole initialTab="engines" />} />
         <Route path="/dispatch" element={<EnterpriseConsole initialTab="dispatch" />} />
         <Route path="/runs" element={<EnterpriseConsole initialTab="runs" />} />
+        <Route path="/assets" element={<EnterpriseConsole initialTab="assets" />} />
+        <Route path="/policies" element={<EnterpriseConsole initialTab="policies" />} />
         <Route path="/skills" element={<EnterpriseConsole initialTab="skills" />} />
         <Route path="/knowledge" element={<EnterpriseConsole initialTab="knowledge" />} />
         <Route path="/costs" element={<EnterpriseConsole initialTab="costs" />} />

@@ -207,6 +207,42 @@ class PolicyViolationIngest(BaseModel):
     context: dict[str, Any] = Field(default_factory=dict)
 
 
+class PolicyUpsert(BaseModel):
+    policy_id: str = Field(min_length=1, max_length=128)
+    category: str = Field(default="custom", max_length=64)
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=2000)
+    enabled: bool = True
+    rules: dict[str, Any] = Field(default_factory=dict)
+
+
+class PoliciesReplace(BaseModel):
+    policies: list[PolicyUpsert] = Field(default_factory=list)
+
+
+AssetType = Literal["skill", "prompt", "workflow", "playbook", "memory_snippet", "tool_config", "evaluation_case"]
+
+
+class AssetPropose(BaseModel):
+    asset_id: str = Field(default="", max_length=128)
+    asset_type: AssetType = "prompt"
+    source_run_id: str = Field(default="", max_length=128)
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=2000)
+    author: str = Field(default="", max_length=128)
+    team_id: str = Field(default="", max_length=128)
+    engine_id: str = Field(default="", max_length=128)
+    version: str = Field(default="0.1.0", max_length=64)
+    tags: list[str] = Field(default_factory=list)
+    content: dict[str, Any] = Field(default_factory=dict)
+
+
+class AssetReview(BaseModel):
+    decision: Literal["approved", "rejected"]
+    reviewer: str = Field(default="admin", min_length=1, max_length=128)
+    reason: str = Field(default="", max_length=2000)
+
+
 class SkillCandidateCreate(BaseModel):
     candidate_id: str = Field(min_length=1, max_length=128)
     source_run_id: str = Field(min_length=1, max_length=128)

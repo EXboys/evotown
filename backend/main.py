@@ -51,6 +51,7 @@ from api.routers import (
     replay,
 )
 from api.routers import skill_market, skill_catalog, console_auth, market, knowledge
+from api.routers import policies, assets
 from api.routers import teams
 from api.routers import chronicle as chronicle_router
 from api.routers import snapshot as snapshot_router
@@ -271,7 +272,11 @@ logger.info("  Dev GW+admin     : %s", _sec["dev_admin_as_gateway"])
 logger.info("  Dev ingest fall. : %s", _sec["dev_ingest_fallback"])
 if _sec["warnings"] != "none":
     logger.warning("  Security notes   : %s", _sec["warnings"])
-logger.info("  CORS origins     : %s", _cors_origins)
+_cors_warn = "*" in _cors_origins or (len(_cors_origins) == 1 and _cors_origins[0] == "*")
+if _cors_warn:
+    logger.warning("  CORS origins     : %s (set CORS_ORIGINS to explicit domains in production)", _cors_origins)
+else:
+    logger.info("  CORS origins     : %s", _cors_origins)
 logger.info("─────────────────────────────────────────────────────")
 
 app = FastAPI(
@@ -292,6 +297,8 @@ app.include_router(tasks.router)
 app.include_router(config.router)
 app.include_router(dispatcher.router)
 app.include_router(engine_ingest.router)
+app.include_router(policies.router)
+app.include_router(assets.router)
 app.include_router(agent_dispatch.router)
 app.include_router(accounts.router)
 app.include_router(console_auth.router)

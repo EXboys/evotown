@@ -62,8 +62,8 @@ async def complete_run(
 
 
 @router.get("/runs", dependencies=[Depends(require_admin)])
-async def list_runs(engine_id: str | None = None, limit: int = 100):
-    return {"runs": engine_ingest.list_runs(engine_id=engine_id, limit=limit)}
+async def list_runs(engine_id: str | None = None, team_id: str | None = None, limit: int = 100):
+    return {"runs": engine_ingest.list_runs(engine_id=engine_id, team_id=team_id, limit=limit)}
 
 
 @router.get("/runs/{run_id}/status")

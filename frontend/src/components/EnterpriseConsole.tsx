@@ -13,11 +13,13 @@ import {
 import { GatewayAccountsPanel } from "./GatewayAccountsPanel";
 import { GatewayConsole } from "./GatewayConsole";
 import { SkillsConsole } from "./SkillsConsole";
+import { PoliciesPanel } from "./PoliciesPanel";
+import { AssetsPanel } from "./AssetsPanel";
 import { KnowledgePanel } from "./KnowledgePanel";
 import { DispatchPanel } from "./DispatchPanel";
 import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hooks/useAdminToken";
 
-type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "runs" | "skills" | "knowledge" | "costs" | "risk";
+type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "costs" | "risk";
 
 type EngineRecord = {
   engine_id: string;
@@ -49,6 +51,7 @@ type ExternalRun = {
   finished_at: string;
   log_excerpt?: string;
   artifact_manifest?: Array<{ path: string; sha256: string; bytes: number }>;
+  artifact_bundle_url?: string;
   signals?: Record<string, unknown>;
   accepted_at?: string;
 };
@@ -85,6 +88,13 @@ type CostSummary = {
   output_tokens: number;
   by_engine: Array<{
     engine_id: string;
+    runs: number;
+    cost_usd: number;
+    input_tokens: number;
+    output_tokens: number;
+  }>;
+  by_team?: Array<{
+    team_id: string;
     runs: number;
     cost_usd: number;
     input_tokens: number;
@@ -140,7 +150,9 @@ const NAV_ITEMS: Array<{ id: ConsoleTab; label: string; desc: string }> = [
   { id: "engines", label: "引擎", desc: "Engines" },
   { id: "dispatch", label: "派活", desc: "Dispatch" },
   { id: "runs", label: "运行", desc: "Runs" },
+  { id: "assets", label: "资产", desc: "Assets" },
   { id: "skills", label: "技能", desc: "Skills" },
+  { id: "policies", label: "策略", desc: "Policies" },
   { id: "knowledge", label: "知识库", desc: "Knowledge" },
   { id: "costs", label: "成本", desc: "Costs" },
   { id: "risk", label: "风控", desc: "Risk" },
@@ -478,8 +490,10 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
             {tab === "accounts" && <GatewayAccountsPanel />}
             {tab === "engines" && <Engines engines={data.engines} runs={data.runs} violations={data.violations} />}
             {tab === "dispatch" && <DispatchPanel engines={data.engines} onRefresh={load} />}
-            {tab === "runs" && <Runs runs={data.runs} selectedRun={selectedRun} events={events} loading={eventsLoading} onRun={openRun} />}
+            {tab === "runs" && <Runs runs={data.runs} selectedRun={selectedRun} events={events} loading={eventsLoading} onRun={openRun} onAssetSubmitted={() => setRoute("assets")} />}
             {tab === "skills" && <SkillsConsole />}
+            {tab === "assets" && <AssetsPanel />}
+            {tab === "policies" && <PoliciesPanel />}
             {tab === "knowledge" && <KnowledgePanel />}
             {tab === "costs" && <Costs cost={data.cost} />}
             {tab === "risk" && (
@@ -661,14 +675,28 @@ function RunTable({
   );
 }
 
-function Runs({ runs, selectedRun, events, loading, onRun }: { runs: ExternalRun[]; selectedRun: ExternalRun | null; events: RunEvent[]; loading: boolean; onRun: (run: ExternalRun) => void }) {
+function Runs({
+  runs,
+  selectedRun,
+  events,
+  loading,
+  onRun,
+  onAssetSubmitted,
+}: {
+  runs: ExternalRun[];
+  selectedRun: ExternalRun | null;
+  events: RunEvent[];
+  loading: boolean;
+  onRun: (run: ExternalRun) => void;
+  onAssetSubmitted: () => void;
+}) {
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_440px]">
       <Card className="p-5">
         <SectionHeader title="运行记录" subtitle="外部引擎上报的 run 流" />
         <RunTable runs={runs} selectedRunId={selectedRun?.run_id} onRun={onRun} />
       </Card>
-      <RunDetail run={selectedRun} events={events} loading={loading} />
+      <RunDetail run={selectedRun} events={events} loading={loading} onAssetSubmitted={onAssetSubmitted} />
     </div>
   );
 }
@@ -683,9 +711,54 @@ function DetailMetric({ label, value, note }: { label: string; value: string | n
   );
 }
 
-function RunDetail({ run, events, loading }: { run: ExternalRun | null; events: RunEvent[]; loading: boolean }) {
+function RunDetail({
+  run,
+  events,
+  loading,
+  onAssetSubmitted,
+}: {
+  run: ExternalRun | null;
+  events: RunEvent[];
+  loading: boolean;
+  onAssetSubmitted: () => void;
+}) {
+  const [proposeBusy, setProposeBusy] = useState(false);
+  const [proposeMsg, setProposeMsg] = useState("");
+
   if (!run) return <EmptyState>选择一条运行记录查看明细。</EmptyState>;
   const signals = run.signals || {};
+
+  const proposeAsset = async (assetType: "prompt" | "skill" | "workflow") => {
+    setProposeBusy(true);
+    setProposeMsg("");
+    try {
+      const res = await adminFetch("/api/v1/assets/propose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          asset_type: assetType,
+          source_run_id: run.run_id,
+          name: `${assetType} from ${run.run_id}`,
+          description: `Submitted from run ${run.run_id}`,
+          team_id: run.team_id || "",
+          engine_id: run.engine_id,
+          content: {
+            log_excerpt: run.log_excerpt || "",
+            signals,
+            status: run.status,
+          },
+        }),
+      });
+      if (!res.ok) throw new Error(`提交失败 (${res.status})`);
+      setProposeMsg("已提交至资产审核队列");
+      onAssetSubmitted();
+    } catch (err) {
+      setProposeMsg(err instanceof Error ? err.message : "提交失败");
+    } finally {
+      setProposeBusy(false);
+    }
+  };
+
   return (
     <Card className="overflow-hidden">
       <div className="border-b border-slate-200 bg-slate-50 px-5 py-5">
@@ -693,7 +766,12 @@ function RunDetail({ run, events, loading }: { run: ExternalRun | null; events: 
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wide text-blue-600">Run detail</div>
             <h2 className="mt-2 truncate font-mono text-lg font-semibold text-slate-950">{run.run_id}</h2>
-            <p className="mt-1 text-sm text-slate-500">{run.engine_id} · exit {run.exit_code} · {formatDate(run.finished_at)}</p>
+            <p className="mt-1 text-sm text-slate-500">
+              {run.engine_id}
+              {run.team_id ? ` · team ${run.team_id}` : ""}
+              {run.agent_id ? ` · agent ${run.agent_id}` : ""}
+              {" · exit "}{run.exit_code} · {formatDate(run.finished_at)}
+            </p>
           </div>
           <Badge className={RUN_META[run.status].className}>{RUN_META[run.status].label}</Badge>
         </div>
@@ -706,6 +784,55 @@ function RunDetail({ run, events, loading }: { run: ExternalRun | null; events: 
           <DetailMetric label="Latency" value={asNumber(signals.latency_ms) ? `${asNumber(signals.latency_ms)}ms` : "-"} note="latency_ms" />
           <DetailMetric label="Artifacts" value={run.artifact_manifest?.length ?? 0} note="manifest items" />
         </div>
+
+        <div>
+          <SectionHeader
+            title="提交为资产"
+            subtitle="进入资产审核队列（prompt / skill / workflow）"
+            action={
+              <div className="flex flex-wrap gap-2">
+                {(["prompt", "skill", "workflow"] as const).map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    disabled={proposeBusy}
+                    onClick={() => proposeAsset(type)}
+                    className="rounded-lg border border-violet-200 px-2.5 py-1 text-xs font-medium text-violet-700 disabled:opacity-50"
+                  >
+                    {type}
+                  </button>
+                ))}
+              </div>
+            }
+          />
+          {proposeMsg && <p className="text-xs text-slate-500">{proposeMsg}</p>}
+        </div>
+
+        {run.log_excerpt ? (
+          <div>
+            <SectionHeader title="Log excerpt" subtitle="已脱敏的日志摘要" />
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed text-slate-700">{run.log_excerpt}</pre>
+          </div>
+        ) : null}
+
+        {run.artifact_manifest && run.artifact_manifest.length > 0 ? (
+          <div>
+            <SectionHeader title="Artifacts" subtitle="产物清单" />
+            <ul className="space-y-2">
+              {run.artifact_manifest.map((item) => (
+                <li key={item.path} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
+                  <div className="font-mono font-medium text-slate-900">{item.path}</div>
+                  <div className="mt-1 text-slate-500">{item.bytes} bytes · sha256 {item.sha256.slice(0, 12)}…</div>
+                  {run.artifact_bundle_url && (
+                    <a href={run.artifact_bundle_url} target="_blank" rel="noreferrer" className="mt-1 inline-block text-violet-600 hover:underline">
+                      下载 bundle
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         <div>
           <SectionHeader title="Timeline" subtitle="对话、工具调用与风控事件" />
@@ -742,7 +869,8 @@ function Timeline({ events }: { events: RunEvent[] }) {
 }
 
 function Costs({ cost }: { cost: CostSummary | null }) {
-  const chartData = cost?.by_engine || [];
+  const engineChart = cost?.by_engine || [];
+  const teamChart = cost?.by_team || [];
   return (
     <div className="space-y-6">
       <section className="grid gap-4 md:grid-cols-4">
@@ -751,20 +879,40 @@ function Costs({ cost }: { cost: CostSummary | null }) {
         <StatCard label="输入 Token" value={cost?.input_tokens || 0} note="input" />
         <StatCard label="输出 Token" value={cost?.output_tokens || 0} note="output" />
       </section>
-      <Card className="p-5">
-        <SectionHeader title="按引擎聚合" subtitle="cost_usd by engine" />
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="engine_id" stroke="#64748b" tick={{ fontSize: 11 }} />
-              <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
-              <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 12, color: "#0f172a" }} />
-              <Bar dataKey="cost_usd" fill="#2563eb" radius={[8, 8, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Card className="p-5">
+          <SectionHeader title="按引擎聚合" subtitle="cost_usd by engine" />
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={engineChart}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="engine_id" stroke="#64748b" tick={{ fontSize: 11 }} />
+                <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
+                <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 12, color: "#0f172a" }} />
+                <Bar dataKey="cost_usd" fill="#2563eb" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+        <Card className="p-5">
+          <SectionHeader title="按团队聚合" subtitle="cost_usd by team_id" />
+          <div className="h-72">
+            {teamChart.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={teamChart}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="team_id" stroke="#64748b" tick={{ fontSize: 11 }} />
+                  <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
+                  <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 12, color: "#0f172a" }} />
+                  <Bar dataKey="cost_usd" fill="#7c3aed" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyState>暂无 team_id 维度数据。</EmptyState>
+            )}
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }

@@ -11,9 +11,8 @@ import {
 } from "recharts";
 
 import { GatewayAccountsPanel } from "./GatewayAccountsPanel";
-import { GatewayModelRoutesPanel } from "./GatewayModelRoutesPanel";
+import { GatewayConsole } from "./GatewayConsole";
 import { KnowledgePanel } from "./KnowledgePanel";
-import { EmployeeConfigPanel } from "./market/EmployeeConfigPanel";
 import { DispatchPanel } from "./DispatchPanel";
 import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hooks/useAdminToken";
 
@@ -522,7 +521,7 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
             {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">加载失败：{error}</div>}
 
             {tab === "dashboard" && <Dashboard data={data} summary={summary} onTab={setRoute} onRun={openRun} />}
-            {tab === "gateway" && <Gateway data={data} />}
+            {tab === "gateway" && <GatewayConsole data={data} />}
             {tab === "accounts" && <GatewayAccountsPanel />}
             {tab === "engines" && <Engines engines={data.engines} runs={data.runs} violations={data.violations} />}
             {tab === "dispatch" && <DispatchPanel engines={data.engines} onRefresh={load} />}
@@ -602,134 +601,6 @@ function Dashboard({
           }}
         />
       </Card>
-    </div>
-  );
-}
-
-function Gateway({ data }: { data: ConsoleData }) {
-  const total = data.gateway?.total || {};
-  const byModel = data.gateway?.by_model || [];
-  const byAgent = data.gateway?.by_agent || [];
-  const byAccount = data.gateway?.by_account || [];
-  return (
-    <div className="space-y-6">
-      <section className="grid gap-4 md:grid-cols-4">
-        <StatCard label="网关请求" value={total.total_requests || 0} note="OpenAI-compatible calls" />
-        <StatCard label="网关成本" value={`$${asNumber(total.total_cost_usd).toFixed(4)}`} note="proxied via LiteLLM" />
-        <StatCard label="总 Token" value={total.total_tokens || 0} note={`${total.prompt_tokens || 0} prompt / ${total.completion_tokens || 0} completion`} />
-        <StatCard label="平均延迟" value={total.avg_latency_ms ? `${Math.round(total.avg_latency_ms)}ms` : "-"} note="gateway observed latency" />
-      </section>
-
-      <Card className="p-5">
-        <SectionHeader
-          title="接入方式"
-          subtitle="子 agent 只需要把 OpenAI-compatible endpoint 指到 Evotown"
-        />
-        <EmployeeConfigPanel compact className="border-slate-200 bg-slate-50/50" />
-        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-          <div className="font-semibold text-slate-950">LiteLLM backend</div>
-            <p className="mt-2">
-              Evotown 负责企业身份、对话审计、成本归属和风控；LiteLLM 负责模型供应商适配、fallback、路由和基础成本统计。
-            </p>
-            <div className="mt-4 text-xs text-slate-500">Configured gateway keys: {data.gatewayKeys.length}</div>
-        </div>
-      </Card>
-
-      <Card className="p-5">
-        <SectionHeader
-          title="模型路由"
-          subtitle="按 alias 将客户端 model 映射到 LiteLLM target；支持团队 / 账号 scope"
-        />
-        <GatewayModelRoutesPanel />
-      </Card>
-
-      <section className="grid gap-6 xl:grid-cols-3">
-        <Card className="p-5">
-          <SectionHeader title="模型用量" subtitle="按 model 聚合请求、成本和 token" />
-          <SimpleUsageTable rows={byModel} nameKey="model" empty="暂无模型调用。" />
-        </Card>
-        <Card className="p-5">
-          <SectionHeader title="Agent 用量" subtitle="按 agent_id 聚合网关流量" />
-          <SimpleUsageTable rows={byAgent} nameKey="agent_id" empty="暂无 agent 归属数据。" />
-        </Card>
-        <Card className="p-5">
-          <SectionHeader title="账号用量" subtitle="按 account_id 聚合网关流量" />
-          <SimpleUsageTable rows={byAccount} nameKey="account_id" empty="暂无账号归属数据。" />
-        </Card>
-      </section>
-
-      <Card className="p-5">
-        <SectionHeader title="Conversations" subtitle="中心化沉淀的会话流，后续可进入全文审计和资产提取" />
-        <ConversationTable conversations={data.conversations} />
-      </Card>
-    </div>
-  );
-}
-
-function SimpleUsageTable({
-  rows,
-  nameKey,
-  empty,
-}: {
-  rows: Array<Record<string, string | number>>;
-  nameKey: string;
-  empty: string;
-}) {
-  if (!rows.length) return <EmptyState>{empty}</EmptyState>;
-  return (
-    <div className="overflow-hidden rounded-xl border border-slate-200">
-      <table className="w-full table-fixed text-left text-sm">
-        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-          <tr>
-            <th className="px-4 py-3 font-semibold">Name</th>
-            <th className="w-28 px-4 py-3 font-semibold">Requests</th>
-            <th className="w-28 px-4 py-3 font-semibold">Cost</th>
-            <th className="w-28 px-4 py-3 font-semibold">Tokens</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {rows.map((row) => (
-            <tr key={String(row[nameKey])}>
-              <td className="truncate px-4 py-3 font-mono text-xs font-semibold text-slate-950">{row[nameKey] || "-"}</td>
-              <td className="px-4 py-3 text-slate-600">{row.requests || 0}</td>
-              <td className="px-4 py-3 font-mono text-xs text-slate-600">${asNumber(row.cost_usd).toFixed(4)}</td>
-              <td className="px-4 py-3 text-slate-600">{row.total_tokens || 0}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function ConversationTable({ conversations }: { conversations: GatewayConversation[] }) {
-  if (!conversations.length) return <EmptyState>暂无 gateway conversations。</EmptyState>;
-  return (
-    <div className="overflow-hidden rounded-xl border border-slate-200">
-      <table className="w-full table-fixed text-left text-sm">
-        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-          <tr>
-            <th className="px-4 py-3 font-semibold">Conversation</th>
-            <th className="w-36 px-4 py-3 font-semibold">Agent</th>
-            <th className="w-32 px-4 py-3 font-semibold">Model</th>
-            <th className="w-24 px-4 py-3 font-semibold">Calls</th>
-            <th className="w-28 px-4 py-3 font-semibold">Cost</th>
-            <th className="w-32 px-4 py-3 font-semibold">Last seen</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {conversations.map((item) => (
-            <tr key={item.conversation_id}>
-              <td className="truncate px-4 py-3 font-mono text-xs font-semibold text-slate-950">{item.conversation_id}</td>
-              <td className="truncate px-4 py-3 font-mono text-xs text-slate-600">{item.agent_id || "-"}</td>
-              <td className="truncate px-4 py-3 text-slate-600">{item.model || "-"}</td>
-              <td className="px-4 py-3 text-slate-600">{item.requests}</td>
-              <td className="px-4 py-3 font-mono text-xs text-slate-600">${asNumber(item.cost_usd).toFixed(4)}</td>
-              <td className="px-4 py-3 text-xs text-slate-500">{formatDate(item.last_seen_at)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }

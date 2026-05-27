@@ -399,6 +399,26 @@ class GatewayModelRouteUpdate(BaseModel):
     enabled: bool | None = None
 
 
+class GatewayUpstreamModelCreate(BaseModel):
+    model_name: str = Field(min_length=1, max_length=128)
+    api_base: str = Field(min_length=1, max_length=512)
+    api_key: str = Field(min_length=1, max_length=512)
+    litellm_model: str = Field(default="", max_length=256)
+    provider_label: str = Field(default="", max_length=128)
+    description: str = Field(default="", max_length=512)
+    enabled: bool = True
+
+
+class GatewayUpstreamModelUpdate(BaseModel):
+    model_name: str | None = Field(default=None, min_length=1, max_length=128)
+    api_base: str | None = Field(default=None, min_length=1, max_length=512)
+    api_key: str | None = Field(default=None, min_length=1, max_length=512)
+    litellm_model: str | None = Field(default=None, max_length=256)
+    provider_label: str | None = Field(default=None, max_length=128)
+    description: str | None = Field(default=None, max_length=512)
+    enabled: bool | None = None
+
+
 class OidcExchange(BaseModel):
     code: str = Field(min_length=8, max_length=256)
 

@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "updated_at": "2026-05-27",
+  "skills": [
+    {
+      "catalog_id": "http-request",
+      "skill_id": "http-request",
+      "name": "HTTP Request",
+      "description": "发起 HTTP 网络请求，支持 REST API 调用、网页抓取与 JSON 请求体。",
+      "version": "1.0.0",
+      "source": {
+        "type": "builtin",
+        "repo": "evotown/arena_skills"
+      },
+      "runtime_targets": ["openclaw", "hermes", "skilllite", "custom"],
+      "risk_level": "low",
+      "tags": ["network", "integration", "bootstrap"]
+    },
+    {
+      "catalog_id": "calculator",
+      "skill_id": "calculator",
+      "name": "Calculator",
+      "description": "确定性四则运算，适合 Agent 工作流中的数值计算。",
+      "version": "1.0.0",
+      "source": {
+        "type": "builtin",
+        "repo": "evotown/arena_skills"
+      },
+      "runtime_targets": ["openclaw", "hermes", "skilllite", "custom"],
+      "risk_level": "low",
+      "tags": ["utility", "bootstrap"]
+    },
+    {
+      "catalog_id": "find-skills",
+      "skill_id": "find-skills",
+      "name": "Find Skills",
+      "description": "帮助 Agent 从开放生态（skills.sh）发现与安装新技能。",
+      "version": "1.0.0",
+      "source": {
+        "type": "builtin",
+        "repo": "evotown/arena_skills"
+      },
+      "runtime_targets": ["openclaw", "hermes", "skilllite", "custom"],
+      "risk_level": "low",
+      "tags": ["market", "bootstrap", "discovery"]
+    },
+    {
+      "catalog_id": "agent-browser",
+      "skill_id": "agent-browser",
+      "name": "Agent Browser",
+      "description": "浏览器自动化：导航、填表、点击、截图与网页数据提取。",
+      "version": "1.0.0",
+      "source": {
+        "type": "builtin",
+        "repo": "evotown/arena_skills"
+      },
+      "runtime_targets": ["openclaw", "hermes", "skilllite", "custom"],
+      "risk_level": "medium",
+      "tags": ["browser", "automation", "bootstrap"]
+    },
+    {
+      "catalog_id": "skill-creator",
+      "skill_id": "skill-creator",
+      "name": "Skill Creator",
+      "description": "创建、结构化并打包 Agent Skill（脚本、参考文档与资源）。",
+      "version": "1.0.0",
+      "source": {
+        "type": "builtin",
+        "repo": "evotown/arena_skills"
+      },
+      "runtime_targets": ["openclaw", "hermes", "skilllite", "custom"],
+      "risk_level": "low",
+      "tags": ["authoring", "bootstrap"]
+    }
+  ]
+}

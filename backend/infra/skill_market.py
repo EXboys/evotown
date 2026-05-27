@@ -134,6 +134,10 @@ def _ensure_conn() -> sqlite3.Connection:
     )
     _migrate_skills_schema(conn)
     _seed_defaults(conn)
+    from infra import skill_catalog
+
+    skill_catalog.seed_starter_skills_from_catalog(conn)
+    skill_catalog.ensure_default_bundle_includes_starters(conn)
     _conn = conn
     return conn
 
@@ -169,59 +173,19 @@ def _seed_defaults(conn: sqlite3.Connection) -> None:
     existing = conn.execute("SELECT 1 FROM skill_bundles WHERE bundle_id='default-agent-skills' AND channel='stable'").fetchone()
     if existing:
         return
+    from infra import skill_catalog
+
+    catalog = skill_catalog.load_starter_catalog()
     targets = ["openclaw", "hermes", "skilllite", "custom"]
-    seed_skills = [
-        {
-            "skill_id": "http-request",
-            "name": "HTTP Request",
-            "description": "Make simple HTTP requests from agent workflows.",
-            "version": "0.1.0",
-            "package_url": "builtin://skills/http-request",
-            "tags": ["network", "integration"],
-        },
-        {
-            "skill_id": "calculator",
-            "name": "Calculator",
-            "description": "Perform deterministic arithmetic operations.",
-            "version": "0.1.0",
-            "package_url": "builtin://skills/calculator",
-            "tags": ["utility"],
-        },
-        {
-            "skill_id": "find-skills",
-            "name": "Find Skills",
-            "description": "Discover available skills from the configured market.",
-            "version": "0.1.0",
-            "package_url": "builtin://skills/find-skills",
-            "tags": ["market", "bootstrap"],
-        },
-    ]
-    for skill in seed_skills:
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO skills (
-                skill_id, name, description, version, runtime_targets, package_url, tags
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                skill["skill_id"],
-                skill["name"],
-                skill["description"],
-                skill["version"],
-                _json_dumps(targets),
-                skill["package_url"],
-                _json_dumps(skill["tags"]),
-            ),
-        )
     manifest_skills = [
         {
-            "skill_id": skill["skill_id"],
-            "name": skill["name"],
-            "version": skill["version"],
-            "package_url": skill["package_url"],
+            "skill_id": str(entry.get("skill_id") or entry.get("catalog_id") or ""),
+            "name": entry.get("name", ""),
+            "version": entry.get("version", "0.1.0"),
+            "package_url": f"builtin://skills/{entry.get('skill_id')}",
         }
-        for skill in seed_skills
+        for entry in catalog.get("skills", [])
+        if isinstance(entry, dict) and entry.get("skill_id")
     ]
     conn.execute(
         """
@@ -862,9 +826,12 @@ def review_candidate(candidate_id: str, body: SkillCandidateReview) -> dict[str,
 
 
 def _promote_candidate(conn: sqlite3.Connection, candidate: dict[str, Any]) -> None:
-    skill_id = f"skill_{candidate['candidate_id']}"
+    inline = candidate.get("inline_manifest") or {}
+    if isinstance(inline, str):
+        inline = _json_loads(inline, {})
+    skill_id = str(inline.get("skill_id") or f"skill_{candidate['candidate_id']}")
     runtime_targets = [candidate["runtime_target"]]
-    package_url = candidate.get("package_url") or candidate.get("inline_manifest", {}).get("package_url", "")
+    package_url = candidate.get("package_url") or inline.get("package_url", "")
     conn.execute(
         """
         INSERT INTO skills (
@@ -890,7 +857,10 @@ def _promote_candidate(conn: sqlite3.Connection, candidate: dict[str, Any]) -> N
             package_url,
             candidate.get("visibility", "team"),
             candidate.get("team_id", ""),
-            _json_dumps(["candidate", candidate["runtime_target"]]),
+            _json_dumps(
+                ["candidate", candidate["runtime_target"]]
+                + (["ecosystem"] if inline.get("import_origin") == "ecosystem" else [])
+            ),
             candidate.get("source_run_id", ""),
         ),
     )

@@ -263,6 +263,17 @@ class SkillBundlePublish(BaseModel):
     runtime_target: RuntimeTarget | None = None
 
 
+class SkillCatalogStarterImport(BaseModel):
+    catalog_id: str = Field(default="", max_length=128)
+    import_all: bool = False
+    auto_approve: bool = True
+
+
+class SkillCatalogEcosystemImport(BaseModel):
+    catalog_id: str = Field(min_length=1, max_length=128)
+    runtime_target: RuntimeTarget = "skilllite"
+
+
 AccountStatus = Literal["active", "disabled"]
 ApiKeyStatus = Literal["active", "revoked"]
 

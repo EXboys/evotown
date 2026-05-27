@@ -1,0 +1,199 @@
+{
+  "version": 1,
+  "source": "bundled",
+  "fetched_at": "2026-05-27T00:00:00Z",
+  "skills": [
+    {
+      "catalog_id": "vercel-react-best-practices",
+      "name": "Vercel React Best Practices",
+      "description": "React 与 Next.js 性能优化指南与最佳实践。",
+      "source": {
+        "owner": "vercel-labs",
+        "repo": "agent-skills",
+        "skill": "vercel-react-best-practices"
+      },
+      "skills_sh_url": "https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices",
+      "install_ref": "vercel-labs/agent-skills@vercel-react-best-practices",
+      "install_count": 4800,
+      "runtime_targets": ["skilllite", "openclaw", "custom"],
+      "risk_level": "medium",
+      "tags": ["react", "nextjs", "performance"]
+    },
+    {
+      "catalog_id": "vercel-composition-patterns",
+      "name": "Vercel Composition Patterns",
+      "description": "React 组件组合模式与可维护 UI 架构建议。",
+      "source": {
+        "owner": "vercel-labs",
+        "repo": "agent-skills",
+        "skill": "vercel-composition-patterns"
+      },
+      "skills_sh_url": "https://skills.sh/vercel-labs/agent-skills/vercel-composition-patterns",
+      "install_ref": "vercel-labs/agent-skills@vercel-composition-patterns",
+      "install_count": 2100,
+      "runtime_targets": ["skilllite", "openclaw", "custom"],
+      "risk_level": "medium",
+      "tags": ["react", "architecture"]
+    },
+    {
+      "catalog_id": "web-design-guidelines",
+      "name": "Web Design Guidelines",
+      "description": "Web 界面设计规范、可访问性与视觉一致性检查清单。",
+      "source": {
+        "owner": "vercel-labs",
+        "repo": "agent-skills",
+        "skill": "web-design-guidelines"
+      },
+      "skills_sh_url": "https://skills.sh/vercel-labs/agent-skills/web-design-guidelines",
+      "install_ref": "vercel-labs/agent-skills@web-design-guidelines",
+      "install_count": 1900,
+      "runtime_targets": ["skilllite", "openclaw", "custom"],
+      "risk_level": "low",
+      "tags": ["design", "ui", "accessibility"]
+    },
+    {
+      "catalog_id": "frontend-design",
+      "name": "Frontend Design",
+      "description": "前端页面与组件设计工作流，含布局与交互建议。",
+      "source": {
+        "owner": "anthropics",
+        "repo": "skills",
+        "skill": "frontend-design"
+      },
+      "skills_sh_url": "https://skills.sh/anthropics/skills/frontend-design",
+      "install_ref": "anthropics/skills@frontend-design",
+      "install_count": 3200,
+      "runtime_targets": ["skilllite", "openclaw", "custom"],
+      "risk_level": "medium",
+      "tags": ["frontend", "design"]
+    },
+    {
+      "catalog_id": "pdf",
+      "name": "PDF Processing",
+      "description": "PDF 读取、合并、拆分与文本提取工作流。",
+      "source": {
+        "owner": "anthropics",
+        "repo": "skills",
+        "skill": "pdf"
+      },
+      "skills_sh_url": "https://skills.sh/anthropics/skills/pdf",
+      "install_ref": "anthropics/skills@pdf",
+      "install_count": 2800,
+      "runtime_targets": ["skilllite", "openclaw", "custom"],
+      "risk_level": "medium",
+      "tags": ["documents", "pdf"]
+    },
+    {
+      "catalog_id": "docx",
+      "name": "DOCX Processing",
+      "description": "Word 文档创建、编辑与结构化内容处理。",
+      "source": {
+        "owner": "anthropics",
+        "repo": "skills",
+        "skill": "docx"
+      },
+      "skills_sh_url": "https://skills.sh/anthropics/skills/docx",
+      "install_ref": "anthropics/skills@docx",
+      "install_count": 2400,
+      "runtime_targets": ["skilllite", "openclaw", "custom"],
+      "risk_level": "medium",
+      "tags": ["documents", "office"]
+    },
+    {
+      "catalog_id": "xlsx",
+      "name": "XLSX Processing",
+      "description": "Excel 表格读写、公式与数据分析辅助。",
+      "source": {
+        "owner": "anthropics",
+        "repo": "skills",
+        "skill": "xlsx"
+      },
+      "skills_sh_url": "https://skills.sh/anthropics/skills/xlsx",
+      "install_ref": "anthropics/skills@xlsx",
+      "install_count": 2600,
+      "runtime_targets": ["skilllite", "openclaw", "custom"],
+      "risk_level": "medium",
+      "tags": ["documents", "spreadsheet"]
+    },
+    {
+      "catalog_id": "mcp-builder",
+      "name": "MCP Builder",
+      "description": "构建 Model Context Protocol 服务器与工具集成。",
+      "source": {
+        "owner": "anthropics",
+        "repo": "skills",
+        "skill": "mcp-builder"
+      },
+      "skills_sh_url": "https://skills.sh/anthropics/skills/mcp-builder",
+      "install_ref": "anthropics/skills@mcp-builder",
+      "install_count": 1700,
+      "runtime_targets": ["skilllite", "openclaw", "custom"],
+      "risk_level": "high",
+      "tags": ["mcp", "integration", "tools"]
+    },
+    {
+      "catalog_id": "skill-creator-vercel",
+      "name": "Skill Creator (Vercel)",
+      "description": "Vercel 官方 Skill 创建与打包指南。",
+      "source": {
+        "owner": "vercel-labs",
+        "repo": "skills",
+        "skill": "skill-creator"
+      },
+      "skills_sh_url": "https://skills.sh/vercel-labs/skills/skill-creator",
+      "install_ref": "vercel-labs/skills@skill-creator",
+      "install_count": 1500,
+      "runtime_targets": ["skilllite", "openclaw", "custom"],
+      "risk_level": "low",
+      "tags": ["authoring"]
+    },
+    {
+      "catalog_id": "changelog",
+      "name": "Changelog Generator",
+      "description": "根据 commit 与 PR 生成结构化 changelog。",
+      "source": {
+        "owner": "ComposioHQ",
+        "repo": "awesome-claude-skills",
+        "skill": "changelog"
+      },
+      "skills_sh_url": "https://skills.sh/ComposioHQ/awesome-claude-skills/changelog",
+      "install_ref": "ComposioHQ/awesome-claude-skills@changelog",
+      "install_count": 980,
+      "runtime_targets": ["skilllite", "openclaw", "custom"],
+      "risk_level": "low",
+      "tags": ["git", "release"]
+    },
+    {
+      "catalog_id": "code-review",
+      "name": "Code Review",
+      "description": "系统化代码审查清单与反馈模板。",
+      "source": {
+        "owner": "ComposioHQ",
+        "repo": "awesome-claude-skills",
+        "skill": "code-review"
+      },
+      "skills_sh_url": "https://skills.sh/ComposioHQ/awesome-claude-skills/code-review",
+      "install_ref": "ComposioHQ/awesome-claude-skills@code-review",
+      "install_count": 1200,
+      "runtime_targets": ["skilllite", "openclaw", "custom"],
+      "risk_level": "low",
+      "tags": ["review", "quality"]
+    },
+    {
+      "catalog_id": "test-driven-development",
+      "name": "Test Driven Development",
+      "description": "TDD 工作流：先写测试、再实现、再重构。",
+      "source": {
+        "owner": "obra",
+        "repo": "superpowers",
+        "skill": "test-driven-development"
+      },
+      "skills_sh_url": "https://skills.sh/obra/superpowers/test-driven-development",
+      "install_ref": "obra/superpowers@test-driven-development",
+      "install_count": 890,
+      "runtime_targets": ["skilllite", "openclaw", "custom"],
+      "risk_level": "low",
+      "tags": ["testing", "tdd"]
+    }
+  ]
+}

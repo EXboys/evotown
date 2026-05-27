@@ -39,7 +39,38 @@ type BundleManifest = {
   published_at: string;
 };
 
-type SkillsTab = "catalog" | "review" | "publish";
+type SkillsTab = "catalog" | "review" | "publish" | "discover";
+
+type StarterCatalogEntry = {
+  catalog_id: string;
+  skill_id: string;
+  name: string;
+  description?: string;
+  version: string;
+  runtime_targets: string[];
+  risk_level: "low" | "medium" | "high";
+  tags?: string[];
+  source?: { type?: string; repo?: string };
+  imported?: boolean;
+  enterprise_status?: string;
+};
+
+type EcosystemCatalogEntry = {
+  catalog_id: string;
+  name: string;
+  description?: string;
+  install_ref?: string;
+  skills_sh_url?: string;
+  install_count?: number;
+  runtime_targets: string[];
+  risk_level: "low" | "medium" | "high";
+  tags?: string[];
+  source?: { owner?: string; repo?: string; skill?: string };
+  imported?: boolean;
+  pending_review?: boolean;
+};
+
+type DiscoverSection = "starter" | "ecosystem";
 
 type UploadForm = {
   skill_id: string;
@@ -64,10 +95,17 @@ const EMPTY_UPLOAD: UploadForm = {
 };
 
 const TABS: { id: SkillsTab; label: string; desc: string }[] = [
+  { id: "discover", label: "发现", desc: "精选 / 生态" },
   { id: "catalog", label: "技能库", desc: "已发布" },
   { id: "review", label: "审核", desc: "候选" },
   { id: "publish", label: "发布", desc: "Bundle" },
 ];
+
+const RISK_META: Record<string, { label: string; className: string }> = {
+  low: { label: "低风险", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  medium: { label: "中风险", className: "border-amber-200 bg-amber-50 text-amber-700" },
+  high: { label: "高风险", className: "border-red-200 bg-red-50 text-red-700" },
+};
 
 function formatDate(value?: string) {
   if (!value) return "—";
@@ -107,7 +145,7 @@ function Badge({ children, className = "" }: { children: ReactNode; className?: 
 }
 
 export function SkillsConsole() {
-  const [tab, setTab] = useState<SkillsTab>("catalog");
+  const [tab, setTab] = useState<SkillsTab>("discover");
   const [skills, setSkills] = useState<SkillRecord[]>([]);
   const [candidates, setCandidates] = useState<SkillCandidate[]>([]);
   const [manifest, setManifest] = useState<BundleManifest | null>(null);
@@ -118,6 +156,13 @@ export function SkillsConsole() {
   const [uploadForm, setUploadForm] = useState<UploadForm>(EMPTY_UPLOAD);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const [discoverSection, setDiscoverSection] = useState<DiscoverSection>("starter");
+  const [starterSkills, setStarterSkills] = useState<StarterCatalogEntry[]>([]);
+  const [ecosystemSkills, setEcosystemSkills] = useState<EcosystemCatalogEntry[]>([]);
+  const [ecosystemMeta, setEcosystemMeta] = useState<{ source?: string; fetched_at?: string }>({});
+  const [ecosystemQuery, setEcosystemQuery] = useState("");
+  const [discoverLoading, setDiscoverLoading] = useState(false);
 
   const [filters, setFilters] = useState({ query: "", tag: "", runtime_target: "", status_filter: "" });
   const [bundlePublish, setBundlePublish] = useState({ bundle_id: "default-agent-skills", channel: "stable", version: "" });
@@ -159,6 +204,30 @@ export function SkillsConsole() {
     loadMarket();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const loadDiscover = (section = discoverSection, query = ecosystemQuery) => {
+    setDiscoverLoading(true);
+    setError("");
+    const starterReq = adminFetch("/api/v1/skill-catalog/starter").then((r) => r.json() as Promise<{ skills?: StarterCatalogEntry[] }>);
+    const ecoParams = new URLSearchParams({ limit: "100" });
+    if (query.trim()) ecoParams.set("query", query.trim());
+    const ecosystemReq = adminFetch(`/api/v1/skill-catalog/ecosystem?${ecoParams}`).then(
+      (r) => r.json() as Promise<{ skills?: EcosystemCatalogEntry[]; catalog?: { source?: string; fetched_at?: string } }>,
+    );
+    Promise.all([starterReq, ecosystemReq])
+      .then(([starterData, ecosystemData]) => {
+        setStarterSkills(Array.isArray(starterData.skills) ? starterData.skills : []);
+        setEcosystemSkills(Array.isArray(ecosystemData.skills) ? ecosystemData.skills : []);
+        setEcosystemMeta(ecosystemData.catalog ?? {});
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "加载发现目录失败"))
+      .finally(() => setDiscoverLoading(false));
+  };
+
+  useEffect(() => {
+    if (tab === "discover") loadDiscover();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   const pending = candidates.filter((item) => item.status === "pending");
   const approvedSkills = skills.filter((item) => item.status === "approved");
@@ -304,6 +373,89 @@ export function SkillsConsole() {
     });
   };
 
+  const importStarter = async (catalogId: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await adminFetch("/api/v1/skill-catalog/starter/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ catalog_id: catalogId, auto_approve: true }),
+      });
+      const data = await res.json() as { detail?: string; skill?: SkillRecord };
+      if (!res.ok) throw new Error(data.detail || `导入失败 (${res.status})`);
+      setMessage(`已导入精选技能 ${data.skill?.name ?? catalogId}`);
+      loadMarket();
+      loadDiscover();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "导入失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const importAllStarters = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await adminFetch("/api/v1/skill-catalog/starter/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ import_all: true, auto_approve: true }),
+      });
+      const data = await res.json() as { detail?: string; count?: number };
+      if (!res.ok) throw new Error(data.detail || `导入失败 (${res.status})`);
+      setMessage(`已导入 ${data.count ?? 0} 个 Evotown 精选技能，可在「发布」Tab 写入 Bundle。`);
+      setTab("publish");
+      loadMarket();
+      loadDiscover();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "批量导入失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const syncEcosystem = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await adminFetch("/api/v1/skill-catalog/ecosystem/sync", { method: "POST" });
+      const data = await res.json() as { detail?: string; count?: number; source?: string };
+      if (!res.ok) throw new Error(data.detail || `同步失败 (${res.status})`);
+      setMessage(`生态索引已同步（${data.count ?? 0} 条，来源 ${data.source ?? "bundled"}）`);
+      loadDiscover("ecosystem");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "同步失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const importEcosystem = async (catalogId: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await adminFetch("/api/v1/skill-catalog/ecosystem/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ catalog_id: catalogId, runtime_target: "skilllite" }),
+      });
+      const data = await res.json() as { detail?: string; candidate?: SkillCandidate };
+      if (!res.ok) throw new Error(data.detail || `导入失败 (${res.status})`);
+      setMessage(`「${data.candidate?.name ?? catalogId}」已提交审核，请至「审核」Tab 处理。`);
+      setTab("review");
+      loadMarket();
+      loadDiscover("ecosystem");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "导入失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const starterPendingCount = starterSkills.filter((s) => !s.imported).length;
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -346,9 +498,171 @@ export function SkillsConsole() {
             {item.id === "review" && pending.length > 0 && (
               <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800">{pending.length}</span>
             )}
+            {item.id === "discover" && starterPendingCount > 0 && (
+              <span className="ml-1.5 rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] text-violet-800">{starterPendingCount}</span>
+            )}
           </button>
         ))}
       </div>
+
+      {tab === "discover" && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setDiscoverSection("starter")}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium ${discoverSection === "starter" ? "bg-violet-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+              >
+                Evotown 精选
+              </button>
+              <button
+                type="button"
+                onClick={() => setDiscoverSection("ecosystem")}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium ${discoverSection === "ecosystem" ? "bg-violet-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+              >
+                开放生态
+              </button>
+            </div>
+            {discoverSection === "starter" ? (
+              <button type="button" disabled={busy} onClick={importAllStarters} className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
+                一键导入全部精选
+              </button>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <input
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
+                  placeholder="搜索生态技能…"
+                  value={ecosystemQuery}
+                  onChange={(e) => setEcosystemQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && loadDiscover("ecosystem", ecosystemQuery)}
+                />
+                <button type="button" onClick={() => loadDiscover("ecosystem", ecosystemQuery)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700">
+                  搜索
+                </button>
+                <button type="button" disabled={busy} onClick={syncEcosystem} className="rounded-lg border border-violet-200 px-3 py-1.5 text-sm font-medium text-violet-700 disabled:opacity-50">
+                  同步索引
+                </button>
+              </div>
+            )}
+          </div>
+
+          {discoverSection === "starter" && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="mb-4 text-sm text-slate-500">
+                Evotown 内置 arena_skills 精选包，可直接导入企业技能库（approved），无需审核。
+              </p>
+              {discoverLoading ? (
+                <p className="py-12 text-center text-sm text-slate-500">加载中…</p>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {starterSkills.map((entry) => {
+                    const risk = RISK_META[entry.risk_level] ?? RISK_META.medium;
+                    return (
+                      <article key={entry.catalog_id} className="flex flex-col rounded-xl border border-slate-200 p-4">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <h3 className="font-semibold text-slate-950">{entry.name}</h3>
+                            <p className="mt-1 font-mono text-xs text-slate-400">{entry.skill_id}</p>
+                          </div>
+                          <Badge className={risk.className}>{risk.label}</Badge>
+                        </div>
+                        <p className="mt-2 flex-1 text-sm text-slate-600 line-clamp-3">{entry.description}</p>
+                        <div className="mt-3 flex flex-wrap gap-1">
+                          {entry.runtime_targets.slice(0, 3).map((rt) => (
+                            <Badge key={rt} className="border-slate-200 bg-slate-50 text-slate-600">{rt}</Badge>
+                          ))}
+                        </div>
+                        <div className="mt-4 flex items-center justify-between gap-2">
+                          {entry.imported ? (
+                            <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">已导入</Badge>
+                          ) : (
+                            <span className="text-xs text-slate-400">未导入</span>
+                          )}
+                          <button
+                            type="button"
+                            disabled={busy || entry.imported}
+                            onClick={() => importStarter(entry.catalog_id)}
+                            className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                          >
+                            {entry.imported ? "已在库中" : "导入到企业库"}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {discoverSection === "ecosystem" && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="mb-1 text-sm text-slate-500">
+                开放 Agent Skills 生态（skills.sh 策展索引）。导入后进入「审核」Tab，批准后方可发布 Bundle。
+              </p>
+              {ecosystemMeta.fetched_at && (
+                <p className="mb-4 text-xs text-slate-400">
+                  索引来源 {ecosystemMeta.source ?? "bundled"} · 更新于 {formatDate(ecosystemMeta.fetched_at)}
+                </p>
+              )}
+              {discoverLoading ? (
+                <p className="py-12 text-center text-sm text-slate-500">加载中…</p>
+              ) : !ecosystemSkills.length ? (
+                <p className="py-12 text-center text-sm text-slate-500">没有匹配的生态技能</p>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {ecosystemSkills.map((entry) => {
+                    const risk = RISK_META[entry.risk_level] ?? RISK_META.medium;
+                    const sourceLabel = entry.source?.owner && entry.source?.repo
+                      ? `${entry.source.owner}/${entry.source.repo}`
+                      : entry.install_ref ?? "—";
+                    return (
+                      <article key={entry.catalog_id} className="flex flex-col rounded-xl border border-slate-200 p-4">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <h3 className="font-semibold text-slate-950">{entry.name}</h3>
+                            <p className="mt-1 truncate text-xs text-slate-400">{sourceLabel}</p>
+                          </div>
+                          <Badge className={risk.className}>{risk.label}</Badge>
+                        </div>
+                        <p className="mt-2 flex-1 text-sm text-slate-600 line-clamp-3">{entry.description}</p>
+                        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                          {typeof entry.install_count === "number" && entry.install_count > 0 && (
+                            <span>≈ {entry.install_count.toLocaleString()} 安装</span>
+                          )}
+                          {entry.skills_sh_url && (
+                            <a href={entry.skills_sh_url} target="_blank" rel="noreferrer" className="font-medium text-violet-600 hover:underline">
+                              skills.sh
+                            </a>
+                          )}
+                        </div>
+                        <div className="mt-4 flex items-center justify-between gap-2">
+                          {entry.imported ? (
+                            <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">已入库</Badge>
+                          ) : entry.pending_review ? (
+                            <Badge className="border-amber-200 bg-amber-50 text-amber-700">待审核</Badge>
+                          ) : (
+                            <span className="text-xs text-slate-400">未导入</span>
+                          )}
+                          <button
+                            type="button"
+                            disabled={busy || entry.imported || entry.pending_review}
+                            onClick={() => importEcosystem(entry.catalog_id)}
+                            className="rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-medium text-violet-700 disabled:opacity-50"
+                          >
+                            {entry.pending_review ? "审核中" : "导入待审核"}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {tab === "catalog" && (
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

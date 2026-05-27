@@ -207,7 +207,7 @@ async def require_engine_ingest_global(
 async def require_admin_or_ingest(
     key: str | None = Security(_HEADER_SCHEME),
     credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
-) -> Literal["admin", "ingest"]:
+) -> Literal["admin", "ingest", "console"]:
     admin_token = _get_configured_token()
     if admin_token and key and key == admin_token:
         return "admin"
@@ -218,9 +218,11 @@ async def require_admin_or_ingest(
             return "ingest"
         if engine_ingest_store.lookup_engine_id_for_ingest_token(raw):
             return "ingest"
+        if session_from_api_key(raw) is not None:
+            return "console"
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
-        detail="Requires X-Admin-Token or engine ingest bearer.",
+        detail="Requires X-Admin-Token, console API key, or engine ingest bearer.",
     )
 
 

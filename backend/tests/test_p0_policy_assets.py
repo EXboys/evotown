@@ -168,3 +168,22 @@ class P0ApiTest(unittest.TestCase):
         costs = client.get("/api/v1/costs/summary", headers=admin)
         self.assertEqual(costs.status_code, 200)
         self.assertIn("by_team", costs.json())
+
+    def test_policies_readable_with_console_api_key(self) -> None:
+        from fastapi.testclient import TestClient
+        import importlib
+        import main
+
+        importlib.reload(main)
+        client = TestClient(main.app)
+
+        registered = client.post(
+            "/api/v1/auth/register",
+            json={"name": "Policy Reader", "owner_email": "reader@example.com"},
+        )
+        self.assertEqual(registered.status_code, 200)
+        api_key = registered.json()["api_key"]
+
+        pol = client.get("/api/v1/policies", headers={"Authorization": f"Bearer {api_key}"})
+        self.assertEqual(pol.status_code, 200)
+        self.assertGreaterEqual(len(pol.json()["policies"]), 3)

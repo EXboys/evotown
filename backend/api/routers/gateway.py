@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 from core.auth import key_record_for_checks, require_admin, require_gateway_chat
 from infra import accounts as accounts_store
 from infra import gateway
+from infra import gateway_models as gateway_models_store
 from infra import gateway_routes as gateway_routes_store
 
 router = APIRouter(prefix="/api/gateway/v1", tags=["gateway"])
@@ -202,13 +203,6 @@ def _prepare_chat_request(
         body=body,
     )
 
-    litellm_base = _litellm_base_url()
-    if not litellm_base:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="LITELLM_BASE_URL is not configured.",
-        )
-
     metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
     body["metadata"] = {
         **metadata,
@@ -222,6 +216,36 @@ def _prepare_chat_request(
         "evotown_route_id": (matched_route or {}).get("route_id", ""),
     }
 
+    effective_model = str(body.get("model") or target_model or client_model or "").strip()
+    managed = gateway_models_store.get_by_model_name(effective_model)
+    if managed:
+        api_base = managed.get("_api_base") or ""
+        if not api_base.startswith("http"):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Upstream model '{effective_model}' has invalid api_base.",
+            )
+        body["model"] = managed.get("_litellm_model") or effective_model
+        body["metadata"]["evotown_upstream_model_id"] = managed.get("model_id", "")
+        body["metadata"]["evotown_upstream_mode"] = "managed"
+        target = f"{api_base.rstrip('/')}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {managed.get('_api_key', '')}",
+        }
+        return request_id, conversation_id, model, body, target, headers
+
+    litellm_base = _litellm_base_url()
+    if not litellm_base:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                f"Model '{effective_model}' is not registered in Evotown and LITELLM_BASE_URL is not configured. "
+                "Add the model under Gateway → 上游模型 in the console."
+            ),
+        )
+
+    body["metadata"]["evotown_upstream_mode"] = "litellm"
     target = f"{litellm_base}/chat/completions"
     headers = {"Content-Type": "application/json", **_litellm_auth_header()}
     return request_id, conversation_id, model, body, target, headers
@@ -355,6 +379,7 @@ async def gateway_health():
         "status": "ok",
         "litellm_configured": bool(_litellm_base_url()),
         "litellm_base_url": _litellm_base_url() or None,
+        "managed_upstream_models": len(gateway_models_store.list_models(enabled_only=True)),
     }
 
 
@@ -429,7 +454,7 @@ async def chat_completions(
                 "error": str(exc),
             }
         )
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"LiteLLM upstream error: {exc}") from exc
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Upstream error: {exc}") from exc
 
     latency_ms = int((time.perf_counter() - started) * 1000)
     try:

@@ -184,7 +184,7 @@ export function LandingPage() {
             </div>
             <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-600">{latestChronicle.preview || "暂无预览"}</p>
             <button type="button" onClick={() => navigate("/chronicle")} className="mt-4 text-sm font-medium text-blue-600 hover:text-blue-500">
-              查看 Chronicle →
+              查看运行日报 →
             </button>
           </section>
         )}

@@ -73,7 +73,10 @@ export function TownLayout() {
             <div className="text-slate-400 text-[11px] truncate">{latest.preview.slice(0, 40)}…</div>
           </div>
           <button
-            onClick={() => { navigate(`/chronicle?date=${latest.date}`); clear(); }}
+            onClick={() => {
+              navigate(latest.chapter != null ? `/chronicle?chapter=${latest.chapter}` : "/chronicle");
+              clear();
+            }}
             className="text-[11px] px-2 py-1 rounded bg-sky-700/30 text-sky-300 hover:bg-sky-700/50 shrink-0 transition-colors"
           >
             查看

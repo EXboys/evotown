@@ -1,10 +1,10 @@
-"""章回战报路由
+"""组织运行日报路由
 
-POST /chronicle/generate          手动触发，生成下一回
-POST /chronicle/{chapter}/regenerate  重新生成指定章回正文与回目标题
-GET  /chronicle/                  列出所有已生成章回（回数倒序）
-GET  /chronicle/current           当前最新回数信息
-GET  /chronicle/{chapter}         按回数（整数）获取完整战报
+POST /chronicle/generate          手动触发，生成下一期
+POST /chronicle/{chapter}/regenerate  重新生成指定期次正文与标题
+GET  /chronicle/                  列出所有已生成期次（倒序）
+GET  /chronicle/current           当前最新期次信息
+GET  /chronicle/{chapter}         按期次（整数）获取完整日报
 """
 import os
 
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/chronicle", tags=["chronicle"], redirect_slashes=Fal
 
 @router.post("/generate", dependencies=[Depends(require_admin)])
 async def api_generate_chronicle():
-    """手动触发章回战报生成，自动取下一回序号，无需传日期。"""
+    """手动触发运行日报生成，自动取下一期序号。"""
     interval_hours = float(os.environ.get("CHRONICLE_INTERVAL_HOURS", "5"))
     agent_name_map = {aid: (rec.display_name or aid) for aid, rec in arena.agents.items()}
 
@@ -50,17 +50,16 @@ async def api_generate_chronicle():
 
 @router.get("")
 async def api_list_chronicles():
-    """列出所有已生成章回（回数倒序），含章回号、虚拟纪年、回目、生成时间、任务数、预览前100字。"""
+    """列出所有已生成期次（倒序）。"""
     return list_chronicles()
 
 
 @router.post("/{chapter}/regenerate", dependencies=[Depends(require_admin)])
 async def api_regenerate_chronicle(chapter: int):
-    """重新生成指定章回的战报正文与回目标题，从 task_history 实时拉取数据。"""
+    """重新生成指定期次的日报正文与标题，从 task_history 实时拉取数据。"""
     async def _broadcast(data: dict) -> None:
         await ws.broadcast(data)
 
-    # 重新生成与手动生成一致，只取最近一个周期（默认 5 小时）的数据
     period_hours = float(os.environ.get("CHRONICLE_INTERVAL_HOURS", "5"))
     agent_name_map = {aid: (rec.display_name or aid) for aid, rec in arena.agents.items()}
 
@@ -85,15 +84,14 @@ async def api_regenerate_chronicle(chapter: int):
 
 @router.get("/current")
 async def api_current_chapter():
-    """返回当前最新章回号（0 表示尚未生成任何章回）。"""
+    """返回当前最新期次（0 表示尚未生成任何日报）。"""
     return {"current_chapter": current_chapter()}
 
 
 @router.get("/{chapter}")
 async def api_get_chronicle(chapter: int):
-    """获取指定回数的完整战报，不存在返回 404。"""
+    """获取指定期次的完整日报，不存在返回 404。"""
     data = load_chronicle(chapter)
     if data is None:
         raise HTTPException(status_code=404, detail=f"Chronicle chapter {chapter} not found")
     return data
-

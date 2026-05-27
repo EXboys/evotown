@@ -40,6 +40,25 @@ _DEFAULT_POLICIES: list[dict[str, Any]] = [
         },
     },
     {
+        "policy_id": "workspace-paths",
+        "category": "workspace",
+        "name": "工作区路径",
+        "description": "限制文件读写仅在工作区内；拦截敏感系统路径。",
+        "enabled": True,
+        "rules": {
+            "workspace_roots": ["~/.evotown/workspace", "~/.openclaw/workspace"],
+            "deny_path_patterns": [
+                "**/.ssh/**",
+                "**/.aws/**",
+                "**/.gnupg/**",
+                "/etc/**",
+                "/System/**",
+                "/private/**",
+            ],
+            "require_approval_write_patterns": [],
+        },
+    },
+    {
         "policy_id": "network-domains",
         "category": "network",
         "name": "外网域名规则",

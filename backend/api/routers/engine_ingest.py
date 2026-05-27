@@ -11,6 +11,7 @@ from core.auth import (
 )
 from domain.models import EngineRegister, PolicyViolationIngest, RunComplete, RunEventIngest
 from infra import engine_ingest
+from infra.policy_engine import PolicyEnforcementError, evaluate_run_complete, evaluate_run_event
 
 router = APIRouter(prefix="/api/v1", tags=["engine-ingest"])
 
@@ -55,6 +56,16 @@ async def complete_run(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"engine_id '{body.engine_id}' is not registered",
         )
+    try:
+        evaluate_run_complete(body, run_id=run_id)
+    except PolicyEnforcementError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "message": str(exc),
+                "policy": exc.evaluation.to_dict(),
+            },
+        ) from exc
     run, created = engine_ingest.complete_run(run_id, body)
     if not created:
         return {"accepted": True, "idempotent": True, "run_id": run_id, "run": run}
@@ -113,8 +124,21 @@ async def append_event(
         run = engine_ingest.upsert_run_from_event(body, engine)
     elif engine_ingest.get_run(body.run_id) is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="run not found")
+    try:
+        evaluation = evaluate_run_event(body)
+    except PolicyEnforcementError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "message": str(exc),
+                "policy": exc.evaluation.to_dict(),
+            },
+        ) from exc
     event = engine_ingest.append_event(body)
-    return {"accepted": True, "event": event, "run": run}
+    out: dict = {"accepted": True, "event": event, "run": run}
+    if evaluation is not None and evaluation.hits:
+        out["policy"] = evaluation.to_dict()
+    return out
 
 
 @router.post("/runs/{run_id}/events")

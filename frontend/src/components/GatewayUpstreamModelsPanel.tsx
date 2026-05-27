@@ -20,7 +20,7 @@ export type GatewayUpstreamModel = {
 type FormState = {
   model_name: string;
   provider_label: string;
-  litellm_model: string;
+  upstream_model_param: string;
   api_base: string;
   api_key: string;
   description: string;
@@ -30,7 +30,7 @@ type FormState = {
 const emptyForm: FormState = {
   model_name: "",
   provider_label: "",
-  litellm_model: "",
+  upstream_model_param: "",
   api_base: "",
   api_key: "",
   description: "",
@@ -41,7 +41,7 @@ function rowToForm(row: GatewayUpstreamModel): FormState {
   return {
     model_name: row.model_name,
     provider_label: row.provider_label || "",
-    litellm_model: row.litellm_model || "",
+    upstream_model_param: row.litellm_model || "",
     api_base: row.api_base,
     api_key: "",
     description: row.description || "",
@@ -51,7 +51,6 @@ function rowToForm(row: GatewayUpstreamModel): FormState {
 
 export function GatewayUpstreamModelsPanel() {
   const [models, setModels] = useState<GatewayUpstreamModel[]>([]);
-  const [litellmConfigured, setLitellmConfigured] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingKeyHint, setEditingKeyHint] = useState("");
@@ -64,9 +63,8 @@ export function GatewayUpstreamModelsPanel() {
     if (!res.ok) {
       throw new Error(`加载上游模型失败 (${res.status})`);
     }
-    const data = await res.json() as { models?: GatewayUpstreamModel[]; litellm_configured?: boolean };
+    const data = await res.json() as { models?: GatewayUpstreamModel[] };
     setModels(Array.isArray(data.models) ? data.models : []);
-    setLitellmConfigured(Boolean(data.litellm_configured));
   }, []);
 
   useEffect(() => {
@@ -102,11 +100,12 @@ export function GatewayUpstreamModelsPanel() {
     setBusy(true);
     setError("");
     try {
+      const litellm_model = form.upstream_model_param;
       if (editingId) {
         const payload: Record<string, unknown> = {
           model_name: form.model_name,
           provider_label: form.provider_label,
-          litellm_model: form.litellm_model,
+          litellm_model,
           api_base: form.api_base,
           description: form.description,
           enabled: form.enabled,
@@ -134,7 +133,15 @@ export function GatewayUpstreamModelsPanel() {
       const res = await adminFetch("/api/gateway/v1/upstream-models", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          model_name: form.model_name,
+          provider_label: form.provider_label,
+          litellm_model,
+          api_base: form.api_base,
+          api_key: form.api_key,
+          description: form.description,
+          enabled: form.enabled,
+        }),
       });
       const data = await res.json() as { detail?: string };
       if (!res.ok) {
@@ -144,37 +151,6 @@ export function GatewayUpstreamModelsPanel() {
       await loadModels();
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggleModel = async (model: GatewayUpstreamModel) => {
-    setBusy(true);
-    setError("");
-    try {
-      const res = await adminFetch(`/api/gateway/v1/upstream-models/${model.model_id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: !model.enabled }),
-      });
-      if (!res.ok) throw new Error(`更新失败 (${res.status})`);
-      await loadModels();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "更新失败");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const resync = async (modelId: string) => {
-    setBusy(true);
-    try {
-      const res = await adminFetch(`/api/gateway/v1/upstream-models/${modelId}/sync-litellm`, { method: "POST" });
-      if (!res.ok) throw new Error(`同步失败 (${res.status})`);
-      await loadModels();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "同步失败");
     } finally {
       setBusy(false);
     }
@@ -199,8 +175,7 @@ export function GatewayUpstreamModelsPanel() {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-slate-500">
-          注册厂商 endpoint；别名路由的 target 填下方 model_name。
-          {litellmConfigured ? " 保存后同步 LiteLLM。" : ""}
+          在 Evotown 注册厂商 endpoint；别名路由的 target 填下方 model_name。
         </p>
         <button
           type="button"
@@ -222,7 +197,7 @@ export function GatewayUpstreamModelsPanel() {
               <th className="px-3 py-2.5">Model</th>
               <th className="hidden px-3 py-2.5 sm:table-cell">Base URL</th>
               <th className="px-3 py-2.5">状态</th>
-              <th className="w-36 px-3 py-2.5 text-right">操作</th>
+              <th className="w-28 px-3 py-2.5 text-right">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -242,6 +217,7 @@ export function GatewayUpstreamModelsPanel() {
                     className={`rounded-full px-2 py-0.5 text-xs ${
                       row.enabled ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
                     }`}
+                    title={row.sync_error || undefined}
                   >
                     {row.enabled ? "启用" : "禁用"}
                   </span>
@@ -251,11 +227,6 @@ export function GatewayUpstreamModelsPanel() {
                     <button type="button" disabled={busy} onClick={() => openEdit(row)} className="text-xs font-medium text-blue-600 hover:text-blue-800">
                       编辑
                     </button>
-                    {litellmConfigured && (
-                      <button type="button" disabled={busy} onClick={() => resync(row.model_id)} className="text-xs text-slate-600 hover:text-slate-900">
-                        同步
-                      </button>
-                    )}
                     <button type="button" disabled={busy} onClick={() => deleteModel(row.model_id)} className="text-xs text-red-600 hover:text-red-800">
                       删除
                     </button>
@@ -325,12 +296,12 @@ export function GatewayUpstreamModelsPanel() {
             />
           </label>
           <label className="block text-sm">
-            <span className="font-medium text-slate-700">上游 model 参数</span>
+            <span className="font-medium text-slate-700">厂商 model 参数</span>
             <input
-              value={form.litellm_model}
-              onChange={(e) => setForm({ ...form, litellm_model: e.target.value })}
+              value={form.upstream_model_param}
+              onChange={(e) => setForm({ ...form, upstream_model_param: e.target.value })}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-              placeholder="默认与 model name 相同"
+              placeholder="发给厂商 API 的 model 字段，默认与 model name 相同"
             />
           </label>
           <label className="block text-sm">

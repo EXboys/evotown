@@ -17,6 +17,7 @@ from typing import Any
 INGEST_TOKEN_PREFIX = "evi_"
 
 from domain.models import EngineRegister, PolicyViolationIngest, RunComplete, RunEventIngest
+from infra.redaction import redact_text
 
 _backend_dir = Path(__file__).resolve().parent.parent
 _evotown_data = _backend_dir.parent / "data"
@@ -276,7 +277,7 @@ def complete_run(run_id: str, body: RunComplete) -> tuple[dict[str, Any], bool]:
                 body.exit_code,
                 body.finished_at,
                 body.finished_at,
-                body.log_excerpt,
+                redact_text(body.log_excerpt),
                 _json_dumps(manifest),
                 body.artifact_bundle_url,
                 _json_dumps(body.signals),
@@ -295,7 +296,7 @@ def complete_run(run_id: str, body: RunComplete) -> tuple[dict[str, Any], bool]:
                 body.status,
                 body.exit_code,
                 body.finished_at,
-                body.log_excerpt,
+                redact_text(body.log_excerpt),
                 _json_dumps(manifest),
                 body.artifact_bundle_url,
                 _json_dumps(body.signals),
@@ -429,19 +430,27 @@ def get_run(run_id: str) -> dict[str, Any] | None:
     return _run_from_row(row) if row else None
 
 
-def list_runs(engine_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+def list_runs(
+    engine_id: str | None = None,
+    team_id: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
     capped = max(1, min(limit, 500))
     conn = _ensure_conn()
+    clauses: list[str] = []
+    params: list[Any] = []
     if engine_id:
-        rows = conn.execute(
-            "SELECT * FROM external_runs WHERE engine_id=? ORDER BY accepted_at DESC LIMIT ?",
-            (engine_id, capped),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM external_runs ORDER BY accepted_at DESC LIMIT ?",
-            (capped,),
-        ).fetchall()
+        clauses.append("engine_id=?")
+        params.append(engine_id)
+    if team_id:
+        clauses.append("team_id=?")
+        params.append(team_id)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    params.append(capped)
+    rows = conn.execute(
+        f"SELECT * FROM external_runs {where} ORDER BY accepted_at DESC LIMIT ?",
+        params,
+    ).fetchall()
     return [_run_from_row(row) for row in rows]
 
 
@@ -481,6 +490,7 @@ def list_events(run_id: str, limit: int = 500) -> list[dict[str, Any]]:
 
 def append_policy_violation(body: PolicyViolationIngest) -> dict[str, Any]:
     conn = _ensure_conn()
+    context = body.context
     conn.execute(
         """
         INSERT INTO policy_violations (
@@ -497,9 +507,9 @@ def append_policy_violation(body: PolicyViolationIngest) -> dict[str, Any]:
             body.action,
             body.resource_type,
             body.resource,
-            body.message,
+            redact_text(body.message, max_len=2000),
             body.ts,
-            _json_dumps(body.context),
+            _json_dumps({k: redact_text(str(v), max_len=2000) if isinstance(v, str) else v for k, v in context.items()}),
         ),
     )
     row = conn.execute("SELECT * FROM policy_violations WHERE violation_id=last_insert_rowid()").fetchone()
@@ -544,6 +554,7 @@ def cost_summary() -> dict[str, Any]:
     input_tokens = 0
     output_tokens = 0
     by_engine: dict[str, dict[str, Any]] = {}
+    by_team: dict[str, dict[str, Any]] = {}
     for run in runs:
         signals = run.get("signals") or {}
         cost = float(signals.get("cost_usd") or 0)
@@ -553,6 +564,7 @@ def cost_summary() -> dict[str, Any]:
         input_tokens += in_tok
         output_tokens += out_tok
         engine_id = run.get("engine_id") or "unknown"
+        team_key = str(run.get("team_id") or "").strip() or "(未分配)"
         bucket = by_engine.setdefault(
             engine_id,
             {"engine_id": engine_id, "runs": 0, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0},
@@ -561,11 +573,20 @@ def cost_summary() -> dict[str, Any]:
         bucket["cost_usd"] += cost
         bucket["input_tokens"] += in_tok
         bucket["output_tokens"] += out_tok
+        team_bucket = by_team.setdefault(
+            team_key,
+            {"team_id": team_key, "runs": 0, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0},
+        )
+        team_bucket["runs"] += 1
+        team_bucket["cost_usd"] += cost
+        team_bucket["input_tokens"] += in_tok
+        team_bucket["output_tokens"] += out_tok
     return {
         "total_runs": len(runs),
         "total_cost_usd": round(total_cost, 6),
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "by_engine": list(by_engine.values()),
+        "by_team": list(by_team.values()),
     }
 

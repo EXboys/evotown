@@ -204,6 +204,26 @@ async def require_engine_ingest_global(
     return auth
 
 
+async def require_admin_or_ingest(
+    key: str | None = Security(_HEADER_SCHEME),
+    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
+) -> Literal["admin", "ingest"]:
+    admin_token = _get_configured_token()
+    if admin_token and key and key == admin_token:
+        return "admin"
+    if credentials is not None and credentials.scheme.lower() == "bearer":
+        raw = credentials.credentials
+        global_token = _get_engine_ingest_token()
+        if global_token and raw == global_token:
+            return "ingest"
+        if engine_ingest_store.lookup_engine_id_for_ingest_token(raw):
+            return "ingest"
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Requires X-Admin-Token or engine ingest bearer.",
+    )
+
+
 async def require_engine_ingest(
     credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
 ) -> EngineIngestAuth:
@@ -399,6 +419,9 @@ def security_status() -> dict[str, str]:
         warnings.append("ADMIN_TOKEN equals EVOTOWN_ENGINE_INGEST_TOKEN")
     if admin and admin in os.environ.get("EVOTOWN_GATEWAY_API_KEYS", "").split(","):
         warnings.append("ADMIN_TOKEN also listed in EVOTOWN_GATEWAY_API_KEYS")
+    cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
+    if not cors_raw or cors_raw == "*":
+        warnings.append("CORS_ORIGINS is * or unset — restrict in production")
 
     return {
         "admin_token": admin_token_status(),

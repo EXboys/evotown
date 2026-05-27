@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 
+import { GatewayAdvancedPanel } from "./gateway/GatewayAdvancedPanel";
 import { EmployeeConfigPanel } from "./market/EmployeeConfigPanel";
 import { GatewayModelRoutesPanel } from "./GatewayModelRoutesPanel";
 import { GatewayUpstreamModelsPanel } from "./GatewayUpstreamModelsPanel";
@@ -165,15 +166,18 @@ export function GatewayConsole({ data }: { data: GatewayConsoleData }) {
       </div>
 
       {tab === "config" && (
-        <div className="grid gap-5 xl:grid-cols-2">
-          <Card className="p-4">
-            <SectionHeader title="上游模型" subtitle="厂商 endpoint 与 API Key" />
-            <GatewayUpstreamModelsPanel />
-          </Card>
-          <Card className="p-4">
-            <SectionHeader title="别名路由" subtitle="客户端 model 名 → 上游 model_name" />
-            <GatewayModelRoutesPanel />
-          </Card>
+        <div className="space-y-5">
+          <div className="grid gap-5 xl:grid-cols-2">
+            <Card className="p-4">
+              <SectionHeader title="上游模型" subtitle="企业网关直连的厂商 endpoint 与 API Key" />
+              <GatewayUpstreamModelsPanel />
+            </Card>
+            <Card className="p-4">
+              <SectionHeader title="别名路由" subtitle="员工 Agent 使用的 model 名 → 上游 model_name" />
+              <GatewayModelRoutesPanel />
+            </Card>
+          </div>
+          <GatewayAdvancedPanel />
         </div>
       )}
 
@@ -181,11 +185,11 @@ export function GatewayConsole({ data }: { data: GatewayConsoleData }) {
         <Card className="p-5">
           <SectionHeader
             title="员工接入"
-            subtitle={`将 OpenAI 兼容 endpoint 指向 Evotown；已配置 Key：${data.gatewayKeys.length} 个`}
+            subtitle={`模型请求统一走 Evotown 企业网关；已签发 Key：${data.gatewayKeys.length} 个`}
           />
           <EmployeeConfigPanel compact className="border-slate-200 bg-slate-50/50" />
           <p className="mt-4 text-xs text-slate-500">
-            Evotown 负责身份、审计与配额；可选 LiteLLM 负责多厂商 fallback。账号与 Key 管理见「账号」页。
+            员工只需配置 Evotown 地址与 evk_ Key；身份、审计、配额与模型路由由企业控制台统一管理。Key 签发见「账号」页。
           </p>
         </Card>
       )}

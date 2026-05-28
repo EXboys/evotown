@@ -17,6 +17,28 @@ type SessionInfo = {
   scopes?: string[];
 };
 
+function formatApiDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object" && "msg" in item) {
+          const row = item as { loc?: unknown[]; msg?: string };
+          const loc = Array.isArray(row.loc) ? row.loc.join(".") : "";
+          return loc ? `${loc}: ${row.msg ?? ""}` : String(row.msg ?? "");
+        }
+        return "";
+      })
+      .filter(Boolean);
+    if (parts.length) return parts.join("; ");
+  }
+  if (detail && typeof detail === "object" && "message" in detail) {
+    return String((detail as { message?: string }).message ?? fallback);
+  }
+  return fallback;
+}
+
 export function ConsoleLoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -59,7 +81,7 @@ export function ConsoleLoginPage() {
       .then(async (res) => {
         const data = await res.json() as { api_key?: string; session?: SessionInfo; detail?: string };
         if (!res.ok) {
-          throw new Error(data.detail || `SSO 登录失败 (${res.status})`);
+          throw new Error(formatApiDetail(data.detail, `SSO 登录失败 (${res.status})`));
         }
         if (!data.api_key) {
           throw new Error("SSO 未返回 API Key");
@@ -99,9 +121,9 @@ export function ConsoleLoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ api_key: apiKey.trim() }),
       });
-      const data = await res.json() as { session?: SessionInfo; detail?: string };
+      const data = await res.json() as { session?: SessionInfo; detail?: unknown };
       if (!res.ok) {
-        throw new Error(data.detail || `登录失败 (${res.status})`);
+        throw new Error(formatApiDetail(data.detail, `登录失败 (${res.status})`));
       }
       finishLogin(apiKey.trim(), data.session);
     } catch (err) {
@@ -132,7 +154,7 @@ export function ConsoleLoginPage() {
         detail?: string;
       };
       if (!res.ok) {
-        throw new Error(data.detail || `注册失败 (${res.status})`);
+        throw new Error(formatApiDetail(data.detail, `注册失败 (${res.status})`));
       }
       if (!data.api_key) {
         throw new Error("注册成功但未返回 API Key。");

@@ -104,7 +104,8 @@ export async function adminFetch(
 
   const res = await fetch(url, { ...init, headers });
 
-  if (res.status === 401 || res.status === 403) {
+  // 403 = 已认证但权限不足（如仅有 console.read）；勿清 session，避免登录后闪回 /login
+  if (res.status === 401) {
     clearConsoleSession();
     redirectToLogin();
   }

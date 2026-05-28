@@ -9,6 +9,8 @@ import { ConsoleLoginPage } from "./components/ConsoleLoginPage";
 import { SkillsMarketPage } from "./components/market/SkillsMarketPage";
 import { EnterpriseConsole } from "./components/EnterpriseConsole";
 import { useEvotownStore } from "./store/evotownStore";
+import { initDisplayTimezoneFromServer } from "./lib/datetime";
+import { useDisplayTimezone } from "./hooks/useDisplayTimezone";
 
 /** 定期清理间隔（毫秒） */
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 小时
@@ -25,7 +27,12 @@ function ArenaApp() {
 }
 
 function App() {
-  // 定期清理过期事件数据，防止内存泄漏
+  useDisplayTimezone();
+
+  useEffect(() => {
+    void initDisplayTimezoneFromServer();
+  }, []);
+
   useEffect(() => {
     const cleanup = useEvotownStore.getState().cleanupExpiredEvents;
     // 立即执行一次清理

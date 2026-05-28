@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { GatewayDrawer } from "./gateway/GatewayDrawer";
 import { adminFetch } from "../hooks/useAdminToken";
+import { formatDateTimeShort } from "../lib/datetime";
 
 type SkillRecord = {
   skill_id: string;
@@ -106,13 +107,6 @@ const RISK_META: Record<string, { label: string; className: string }> = {
   medium: { label: "中风险", className: "border-amber-200 bg-amber-50 text-amber-700" },
   high: { label: "高风险", className: "border-red-200 bg-red-50 text-red-700" },
 };
-
-function formatDate(value?: string) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-}
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -603,7 +597,7 @@ export function SkillsConsole() {
               </p>
               {ecosystemMeta.fetched_at && (
                 <p className="mb-4 text-xs text-slate-400">
-                  索引来源 {ecosystemMeta.source ?? "bundled"} · 更新于 {formatDate(ecosystemMeta.fetched_at)}
+                  索引来源 {ecosystemMeta.source ?? "bundled"} · 更新于 {formatDateTimeShort(ecosystemMeta.fetched_at)}
                 </p>
               )}
               {discoverLoading ? (
@@ -813,7 +807,7 @@ export function SkillsConsole() {
               <div className="mt-4 space-y-2">
                 <div className="rounded-lg bg-slate-50 p-3 text-sm">
                   <div className="font-mono font-semibold text-slate-900">{manifest.bundle_id}@{manifest.version}</div>
-                  <div className="mt-1 text-xs text-slate-500">{manifest.channel} · {formatDate(manifest.published_at)}</div>
+                  <div className="mt-1 text-xs text-slate-500">{manifest.channel} · {formatDateTimeShort(manifest.published_at)}</div>
                 </div>
                 <ul className="max-h-72 space-y-2 overflow-y-auto">
                   {manifest.skills.map((skill) => (

@@ -1,5 +1,6 @@
 /** 进化时间线 — 横向多角色对比，进化事件旗帜 */
 import { useEffect, useState } from "react";
+import { formatDateTimeShort, formatTimeOnly } from "../lib/datetime";
 import { useEvotownStore, type EvolutionEventItem } from "../store/evotownStore";
 
 /** 与 ObserverPanel / TownScene 一致的 agent 颜色（按 agentId 哈希） */
@@ -26,15 +27,6 @@ function eventLabel(type: string): string {
     evolution_judgement: "判断",
   };
   return map[type] ?? type;
-}
-
-function formatTime(ts: string): string {
-  try {
-    const d = new Date(ts);
-    return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  } catch {
-    return ts;
-  }
 }
 
 export function EvolutionTimeline({
@@ -121,9 +113,9 @@ export function EvolutionTimeline({
           <div className="flex items-center gap-1 text-[10px] text-slate-500 mb-2">
             {hasAnyEvents && (
               <>
-                <span>{formatTime(merged[0].ts)}</span>
+                <span>{formatTimeOnly(merged[0].ts)}</span>
                 <span className="flex-1 border-t border-dashed border-slate-600" />
-                <span>{formatTime(merged[merged.length - 1].ts)}</span>
+                <span>{formatTimeOnly(merged[merged.length - 1].ts)}</span>
               </>
             )}
           </div>
@@ -158,7 +150,7 @@ export function EvolutionTimeline({
                         {eventLabel(e.type).slice(0, 1)}
                       </span>
                       <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 rounded bg-slate-800 border border-slate-600 text-[10px] text-slate-300 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                        {eventLabel(e.type)} · {formatTime(e.ts)}
+                        {eventLabel(e.type)} · {formatTimeOnly(e.ts)}
                         {e.reason && ` · ${e.reason}`}
                       </div>
                     </div>
@@ -200,7 +192,7 @@ export function EvolutionTimeline({
             </dd>
             <dt className="text-slate-500">时间</dt>
             <dd className="text-slate-300">
-              {selectedEvent.ts ? new Date(selectedEvent.ts).toLocaleString("zh-CN") : "-"}
+              {selectedEvent.ts ? formatDateTimeShort(selectedEvent.ts) : "-"}
             </dd>
             <dt className="text-slate-500">类型</dt>
             <dd className="text-slate-300">{eventLabel(selectedEvent.type)}</dd>

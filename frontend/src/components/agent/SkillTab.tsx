@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { adminFetch } from "../../hooks/useAdminToken";
+import { formatDateTimeShort } from "../../lib/datetime";
 import { useEvotownStore } from "../../store/evotownStore";
 
 export interface Skill {
@@ -303,7 +304,7 @@ export function SkillTab({ agentId, skills, onSkillsChange }: SkillTabProps) {
                 )}
                 <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">
                   {s.created_at && (
-                    <span>创建: {new Date(s.created_at).toLocaleString("zh-CN")}</span>
+                    <span>创建: {formatDateTimeShort(s.created_at)}</span>
                   )}
                   {s.call_count != null && s.status === "confirmed" && (
                     <span>调用 {s.call_count} 次</span>

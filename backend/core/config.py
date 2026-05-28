@@ -129,6 +129,40 @@ def save_dispatch_team_pairs(team_pairs: str) -> dict[str, Any]:
     return load_dispatch_config()
 
 
+def load_display_config() -> dict[str, Any]:
+    """界面显示时区（IANA）。env EVOTOWN_DISPLAY_TIMEZONE 覆盖 evotown_config.json。"""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    data = _load_json()
+    display = data.get("display", {})
+    tz = str(display.get("timezone", "Asia/Shanghai")).strip() or "Asia/Shanghai"
+    env_tz = os.environ.get("EVOTOWN_DISPLAY_TIMEZONE")
+    if env_tz is not None:
+        tz = env_tz.strip() or tz
+    try:
+        ZoneInfo(tz)
+    except ZoneInfoNotFoundError:
+        tz = "UTC"
+    return {"timezone": tz}
+
+
+def save_display_timezone(timezone: str) -> dict[str, Any]:
+    """持久化显示时区到 evotown_config.json（env 仍在运行时覆盖）。"""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    raw = (timezone or "").strip()
+    if not raw:
+        raise ValueError("timezone is required")
+    try:
+        ZoneInfo(raw)
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError(f"invalid timezone: {raw}") from exc
+    data = _load_json()
+    data.setdefault("display", {})["timezone"] = raw
+    _CONFIG_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return load_display_config()
+
+
 def load_timeout_config() -> dict[str, Any]:
     """超时配置：任务执行超时、Judge LLM 调用超时、单任务最大工具调用步数"""
     data = _load_json()

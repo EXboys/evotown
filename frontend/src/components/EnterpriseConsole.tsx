@@ -19,7 +19,9 @@ import { PoliciesPanel } from "./PoliciesPanel";
 import { AssetsPanel } from "./AssetsPanel";
 import { KnowledgePanel } from "./KnowledgePanel";
 import { DispatchPanel } from "./DispatchPanel";
+import { DisplayTimezoneSelect } from "./DisplayTimezoneSelect";
 import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hooks/useAdminToken";
+import { formatDateTimeShort } from "../lib/datetime";
 
 type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "costs" | "risk";
 
@@ -198,19 +200,6 @@ const RISK_META: Record<PolicyViolation["severity"], { label: string; className:
 
 function asNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function formatDate(value?: string) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("zh-CN", {
-    hour12: false,
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 function enabledCapabilities(capabilities?: Record<string, unknown>) {
@@ -411,8 +400,8 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
       style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}
     >
       <div className="flex min-h-screen">
-        <aside className="hidden w-64 shrink-0 bg-slate-950 text-white md:flex md:flex-col">
-          <div className="border-b border-white/10 px-5 py-5">
+        <aside className="hidden w-64 shrink-0 bg-slate-950 text-white md:flex md:h-screen md:sticky md:top-0 md:flex-col">
+          <div className="shrink-0 border-b border-white/10 px-5 py-5">
             <button onClick={() => navigate("/")} className="flex items-center gap-3 text-left">
               <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500 text-sm font-semibold text-white">E</span>
               <span>
@@ -421,7 +410,7 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
               </span>
             </button>
           </div>
-          <nav className="flex-1 space-y-1 px-3 py-4">
+          <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-3 py-4 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.2)_transparent]">
             {NAV_ITEMS.map((item) => (
               <button
                 key={item.id}
@@ -435,7 +424,8 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
               </button>
             ))}
           </nav>
-          <div className="space-y-2 border-t border-white/10 p-4">
+          <div className="shrink-0 space-y-2 border-t border-white/10 p-4">
+            <DisplayTimezoneSelect layout="card" tone="dark" />
             <button
               onClick={() => navigate("/")}
               className="w-full rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
@@ -735,7 +725,7 @@ function RunTable({
             >
               <td className="px-4 py-3">
                 <div className="truncate font-mono text-sm font-semibold text-slate-950">{run.run_id}</div>
-                <div className="mt-1 text-xs text-slate-500">{formatDate(run.finished_at)}</div>
+                <div className="mt-1 text-xs text-slate-500">{formatDateTimeShort(run.finished_at)}</div>
               </td>
               <td className="px-4 py-3">
                 <Badge className={RUN_META[run.status].className}>
@@ -849,7 +839,7 @@ function RunDetail({
               {run.engine_id}
               {run.team_id ? ` · team ${run.team_id}` : ""}
               {run.agent_id ? ` · agent ${run.agent_id}` : ""}
-              {" · exit "}{run.exit_code} · {formatDate(run.finished_at)}
+              {" · exit "}{run.exit_code} · {formatDateTimeShort(run.finished_at)}
             </p>
           </div>
           <Badge className={RUN_META[run.status].className}>{RUN_META[run.status].label}</Badge>
@@ -938,7 +928,7 @@ function Timeline({ events }: { events: RunEvent[] }) {
               <div className="truncate font-mono text-sm font-semibold text-slate-950">{event.event_type}</div>
               <div className="mt-1 text-xs text-slate-500">#{event.seq}</div>
             </div>
-            <span className="shrink-0 text-xs text-slate-500">{formatDate(event.ts)}</span>
+            <span className="shrink-0 text-xs text-slate-500">{formatDateTimeShort(event.ts)}</span>
           </div>
           <pre className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">{JSON.stringify(event.payload || {}, null, 2)}</pre>
         </div>
@@ -1004,7 +994,7 @@ function RiskFeed({ violations, onRun }: { violations: PolicyViolation[]; onRun:
         <button key={item.violation_id} onClick={() => onRun(item.run_id)} className="rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-blue-200 hover:bg-blue-50/40">
           <div className="mb-3 flex items-center justify-between gap-3">
             <Badge className={RISK_META[item.severity].className}>{RISK_META[item.severity].label}</Badge>
-            <span className="text-xs text-slate-500">{formatDate(item.ts)}</span>
+            <span className="text-xs text-slate-500">{formatDateTimeShort(item.ts)}</span>
           </div>
           <div className="truncate font-mono text-sm font-semibold text-slate-950">{item.policy_id}</div>
           <p className="mt-2 line-clamp-2 text-sm text-slate-600">{item.message || "No message"}</p>

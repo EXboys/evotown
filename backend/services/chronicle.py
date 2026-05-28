@@ -12,7 +12,8 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +35,10 @@ _CHRONICLE_DIR = Path(__file__).parent.parent / "data" / "chronicle"
 _CHAPTER_META_PATH = Path(__file__).parent.parent / "data" / "chronicle_chapter.json"
 _TASK_HISTORY_PATH = _DATA_DIR / "task_history.jsonl"
 _EXEC_LOG_PATH = _DATA_DIR / "execution_log.jsonl"
-_CST = timezone(timedelta(hours=8))
+def _display_tz() -> ZoneInfo:
+    from core.config import load_display_config
+
+    return ZoneInfo(load_display_config()["timezone"])
 
 
 def _load_chapter_counter() -> int:
@@ -68,8 +72,9 @@ def _chapter_label(chapter_n: int) -> str:
 
 
 def _report_period_label(start_ts: float, end_ts: float) -> str:
-    start = datetime.fromtimestamp(start_ts, tz=_CST)
-    end = datetime.fromtimestamp(end_ts, tz=_CST)
+    tz = _display_tz()
+    start = datetime.fromtimestamp(start_ts, tz=tz)
+    end = datetime.fromtimestamp(end_ts, tz=tz)
     if start.date() == end.date():
         return f"{start.strftime('%Y年%m月%d日')} {start.strftime('%H:%M')}–{end.strftime('%H:%M')}"
     return f"{start.strftime('%Y-%m-%d %H:%M')} – {end.strftime('%Y-%m-%d %H:%M')}"

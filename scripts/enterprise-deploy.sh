@@ -164,7 +164,7 @@ create_employee_key() {
   key_resp="$(curl -fsS -X POST "$base/api/v1/accounts/${account_id}/keys" \
     -H "X-Admin-Token: $admin" \
     -H "Content-Type: application/json" \
-    -d '{"label":"employee-default","scopes":["gateway.chat","console.read"]}')"
+    -d '{"label":"employee-default","scopes":["gateway.chat","console.read","console.write"]}')"
 
   python3 -c 'import json,sys; print(json.load(sys.stdin)["secret"])' <<<"$key_resp"
 }

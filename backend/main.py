@@ -316,9 +316,10 @@ app.include_router(replay.router)
 app.include_router(teams.router)
 app.include_router(chronicle_router.router)
 app.include_router(snapshot_router.router)
-# 兼容前端可能使用的 /api 前缀（解决 /config/experiment、/monitor/task_history 404）
+# 兼容前端可能使用的 /api 前缀（解决 /config/experiment、/monitor/task_history、/chronicle 404）
 app.include_router(config.router, prefix="/api")
 app.include_router(monitor.router, prefix="/api")
+app.include_router(chronicle_router.router, prefix="/api")
 
 
 @app.get("/health")

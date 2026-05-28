@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+
+type DashboardActivityTab = "gateway" | "runs";
 import { useNavigate } from "react-router-dom";
 import {
   Bar,
@@ -11,7 +13,7 @@ import {
 } from "recharts";
 
 import { GatewayAccountsPanel } from "./GatewayAccountsPanel";
-import { GatewayConsole } from "./GatewayConsole";
+import { GatewayConsole, RecentRequestsTable } from "./GatewayConsole";
 import { SkillsConsole } from "./SkillsConsole";
 import { PoliciesPanel } from "./PoliciesPanel";
 import { AssetsPanel } from "./AssetsPanel";
@@ -133,6 +135,20 @@ type GatewayKeyInfo = {
   scope: string;
 };
 
+type GatewayRequest = {
+  request_id: string;
+  conversation_id?: string;
+  agent_id?: string;
+  model?: string;
+  status_code?: number;
+  cost_usd?: number;
+  total_tokens?: number;
+  latency_ms?: number;
+  risk_status?: string;
+  created_at?: string;
+  error?: string;
+};
+
 type ConsoleData = {
   engines: EngineRecord[];
   runs: ExternalRun[];
@@ -141,6 +157,7 @@ type ConsoleData = {
   gateway: GatewaySummary | null;
   conversations: GatewayConversation[];
   gatewayKeys: GatewayKeyInfo[];
+  gatewayRequests: GatewayRequest[];
 };
 
 const NAV_ITEMS: Array<{ id: ConsoleTab; label: string; desc: string }> = [
@@ -249,7 +266,16 @@ function StatCard({ label, value, note }: { label: string; value: string | numbe
 export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: ConsoleTab }) {
   const navigate = useNavigate();
   const [tab, setTab] = useState<ConsoleTab>(initialTab);
-  const [data, setData] = useState<ConsoleData>({ engines: [], runs: [], violations: [], cost: null, gateway: null, conversations: [], gatewayKeys: [] });
+  const [data, setData] = useState<ConsoleData>({
+    engines: [],
+    runs: [],
+    violations: [],
+    cost: null,
+    gateway: null,
+    conversations: [],
+    gatewayKeys: [],
+    gatewayRequests: [],
+  });
   const [selectedRun, setSelectedRun] = useState<ExternalRun | null>(null);
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -271,52 +297,50 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
   const load = () => {
     setLoading(true);
     setError("");
+    const fetchJson = async <T,>(url: string, label: string): Promise<{ data: T | null; error?: string }> => {
+      try {
+        const res = await adminFetch(url);
+        if (!res.ok) return { data: null, error: `${label} ${res.status}` };
+        return { data: (await res.json()) as T };
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "network error";
+        return { data: null, error: `${label}: ${msg}` };
+      }
+    };
+
     Promise.all([
-      adminFetch("/api/v1/engines/fleet").then((r) => {
-        if (!r.ok) throw new Error(`engines ${r.status}`);
-        return r.json() as Promise<{ engines?: EngineRecord[] }>;
-      }),
-      adminFetch("/api/v1/runs?limit=200").then((r) => {
-        if (!r.ok) throw new Error(`runs ${r.status}`);
-        return r.json() as Promise<{ runs?: ExternalRun[] }>;
-      }),
-      adminFetch("/api/v1/policy/violations?limit=200").then((r) => {
-        if (!r.ok) throw new Error(`violations ${r.status}`);
-        return r.json() as Promise<{ violations?: PolicyViolation[] }>;
-      }),
-      adminFetch("/api/v1/costs/summary").then((r) => {
-        if (!r.ok) throw new Error(`costs ${r.status}`);
-        return r.json() as Promise<CostSummary>;
-      }),
-      adminFetch("/api/gateway/v1/usage/summary").then((r) => {
-        if (!r.ok) throw new Error(`gateway ${r.status}`);
-        return r.json() as Promise<GatewaySummary>;
-      }),
-      adminFetch("/api/gateway/v1/conversations?limit=100").then((r) => {
-        if (!r.ok) throw new Error(`conversations ${r.status}`);
-        return r.json() as Promise<{ conversations?: GatewayConversation[] }>;
-      }),
-      adminFetch("/api/gateway/v1/api-keys").then((r) => {
-        if (!r.ok) throw new Error(`gateway keys ${r.status}`);
-        return r.json() as Promise<{ keys?: GatewayKeyInfo[] }>;
-      }),
+      fetchJson<{ engines?: EngineRecord[] }>("/api/v1/engines/fleet", "engines"),
+      fetchJson<{ runs?: ExternalRun[] }>("/api/v1/runs?limit=200", "runs"),
+      fetchJson<{ violations?: PolicyViolation[] }>("/api/v1/policy/violations?limit=200", "violations"),
+      fetchJson<CostSummary>("/api/v1/costs/summary", "costs"),
+      fetchJson<GatewaySummary>("/api/gateway/v1/usage/summary", "gateway"),
+      fetchJson<{ conversations?: GatewayConversation[] }>("/api/gateway/v1/conversations?limit=100", "conversations"),
+      fetchJson<{ requests?: GatewayRequest[] }>("/api/gateway/v1/requests?limit=100", "requests"),
+      fetchJson<{ keys?: GatewayKeyInfo[] }>("/api/gateway/v1/api-keys", "gateway keys"),
     ])
-      .then(([engines, runs, violations, cost, gateway, conversations, keys]) => {
-        const nextRuns = Array.isArray(runs.runs) ? runs.runs : [];
+      .then(([engines, runs, violations, cost, gateway, conversations, requests, keys]) => {
+        const failures = [engines, runs, violations, cost, gateway, conversations, requests, keys]
+          .map((item) => item.error)
+          .filter(Boolean) as string[];
+        if (failures.length) {
+          const msg = failures.join("；");
+          setError(msg.includes("403") || msg.includes("401") ? `${msg} — 请使用带 console.write 的 API Key 重新登录` : msg);
+        } else {
+          setError("");
+        }
+
+        const nextRuns = Array.isArray(runs.data?.runs) ? runs.data.runs : [];
         setData({
-          engines: Array.isArray(engines.engines) ? engines.engines : [],
+          engines: Array.isArray(engines.data?.engines) ? engines.data.engines : [],
           runs: nextRuns,
-          violations: Array.isArray(violations.violations) ? violations.violations : [],
-          cost,
-          gateway,
-          conversations: Array.isArray(conversations.conversations) ? conversations.conversations : [],
-          gatewayKeys: Array.isArray(keys.keys) ? keys.keys : [],
+          violations: Array.isArray(violations.data?.violations) ? violations.data.violations : [],
+          cost: cost.data,
+          gateway: gateway.data,
+          conversations: Array.isArray(conversations.data?.conversations) ? conversations.data.conversations : [],
+          gatewayKeys: Array.isArray(keys.data?.keys) ? keys.data.keys : [],
+          gatewayRequests: Array.isArray(requests.data?.requests) ? requests.data.requests : [],
         });
         setSelectedRun((current) => current ?? nextRuns[0] ?? null);
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : "load failed";
-        setError(msg.includes("403") || msg.includes("401") ? `${msg} — 请重新登录` : msg);
       })
       .finally(() => setLoading(false));
   };
@@ -523,12 +547,33 @@ function Dashboard({
   onTab: (tab: ConsoleTab) => void;
   onRun: (run: ExternalRun) => void;
 }) {
+  const gatewayTotal = data.gateway?.total?.total_requests ?? 0;
+  const gatewayCost = data.gateway?.total?.total_cost_usd ?? 0;
+  const engineCost = data.cost?.total_cost_usd ?? 0;
+  const totalCost = gatewayCost + engineCost;
+
+  const defaultActivityTab: DashboardActivityTab =
+    gatewayTotal > 0 || data.gatewayRequests.length > 0
+      ? "gateway"
+      : summary.total > 0
+        ? "runs"
+        : "gateway";
+  const [activityTab, setActivityTab] = useState<DashboardActivityTab | null>(null);
+  const activeActivityTab = activityTab ?? defaultActivityTab;
+
+  const activityDetailTab: ConsoleTab = activeActivityTab === "gateway" ? "gateway" : "runs";
+
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 md:grid-cols-4">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="已接入引擎" value={data.engines.length} note="OpenClaw / Hermes / Custom" />
-        <StatCard label="运行总数" value={summary.total} note={`成功率 ${summary.successRate}%`} />
-        <StatCard label="累计成本" value={`$${(data.cost?.total_cost_usd || 0).toFixed(4)}`} note={`${data.cost?.input_tokens || 0} input tokens`} />
+        <StatCard label="网关请求" value={gatewayTotal} note="chat/completions 调用" />
+        <StatCard label="外部运行" value={summary.total} note={`成功率 ${summary.successRate}%`} />
+        <StatCard
+          label="累计成本"
+          value={`$${totalCost.toFixed(4)}`}
+          note={`网关 $${gatewayCost.toFixed(4)} · 引擎 $${engineCost.toFixed(4)}`}
+        />
         <StatCard label="待处理风险" value={summary.risk} note={`${summary.critical} critical`} />
       </section>
 
@@ -546,11 +591,45 @@ function Dashboard({
 
         <Card className="p-5">
           <SectionHeader
-            title="最近运行"
-            subtitle="点击查看对话、工具调用和结构化信号"
-            action={<button onClick={() => onTab("runs")} className="text-sm font-medium text-blue-600 hover:text-blue-700">查看全部</button>}
+            title="最近动态"
+            subtitle={activeActivityTab === "gateway" ? "企业网关 chat/completions" : "外部引擎运行与 tool_call 事件"}
+            action={
+              <button onClick={() => onTab(activityDetailTab)} className="text-sm font-medium text-blue-600 hover:text-blue-700">
+                查看全部
+              </button>
+            }
           />
-          <RunTable runs={data.runs.slice(0, 8)} selectedRunId={null} onRun={onRun} compact />
+          <div className="mb-4 flex gap-2 border-b border-slate-200">
+            <button
+              type="button"
+              onClick={() => setActivityTab("gateway")}
+              className={`border-b-2 px-3 py-2 text-sm font-medium transition ${
+                activeActivityTab === "gateway"
+                  ? "border-slate-950 text-slate-950"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              请求调用
+              <span className="ml-1.5 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-600">{gatewayTotal}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActivityTab("runs")}
+              className={`border-b-2 px-3 py-2 text-sm font-medium transition ${
+                activeActivityTab === "runs"
+                  ? "border-slate-950 text-slate-950"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              外部运行
+              <span className="ml-1.5 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-600">{summary.total}</span>
+            </button>
+          </div>
+          {activeActivityTab === "gateway" ? (
+            <RecentRequestsTable requests={data.gatewayRequests} compact />
+          ) : (
+            <RunTable runs={data.runs.slice(0, 8)} selectedRunId={null} onRun={onRun} compact />
+          )}
         </Card>
       </section>
 

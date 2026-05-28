@@ -14,6 +14,23 @@ type GatewayConversation = {
   model?: string;
 };
 
+export type GatewayRequest = {
+  request_id: string;
+  conversation_id?: string;
+  api_key_label?: string;
+  agent_id?: string;
+  team_id?: string;
+  engine_id?: string;
+  model?: string;
+  status_code?: number;
+  cost_usd?: number;
+  total_tokens?: number;
+  latency_ms?: number;
+  risk_status?: string;
+  created_at?: string;
+  error?: string;
+};
+
 export type GatewayConsoleData = {
   gateway: {
     total?: Record<string, number>;
@@ -23,6 +40,7 @@ export type GatewayConsoleData = {
   } | null;
   conversations: GatewayConversation[];
   gatewayKeys: unknown[];
+  gatewayRequests: GatewayRequest[];
 };
 
 type GatewayTab = "config" | "connect" | "observe";
@@ -87,6 +105,58 @@ function SimpleUsageTable({
               <td className="px-3 py-2 text-slate-600">{row.requests || 0}</td>
               <td className="px-3 py-2 font-mono text-xs text-slate-600">${asNumber(row.cost_usd).toFixed(4)}</td>
               <td className="px-3 py-2 text-slate-600">{row.total_tokens || 0}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function formatWhen(value?: string) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+export function RecentRequestsTable({
+  requests,
+  compact = false,
+}: {
+  requests: GatewayRequest[];
+  compact?: boolean;
+}) {
+  if (!requests.length) {
+    return (
+      <EmptyState>
+        暂无网关请求记录。请确认 Agent 已配置 evk_ Key，且请求发往 /api/gateway/v1/chat/completions。
+      </EmptyState>
+    );
+  }
+  const rows = compact ? requests.slice(0, 8) : requests;
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200">
+      <table className="w-full table-fixed text-left text-sm">
+        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+          <tr>
+            <th className="px-3 py-2 font-semibold">时间</th>
+            <th className="w-28 px-3 py-2 font-semibold">模型</th>
+            <th className="w-24 px-3 py-2 font-semibold">Agent</th>
+            <th className="w-14 px-3 py-2 font-semibold">状态</th>
+            <th className="w-16 px-3 py-2 font-semibold">Tok</th>
+            <th className="w-20 px-3 py-2 font-semibold">成本</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {rows.map((req) => (
+            <tr key={req.request_id}>
+              <td className="truncate px-3 py-2 text-xs text-slate-600">{formatWhen(req.created_at)}</td>
+              <td className="truncate px-3 py-2 font-mono text-xs text-slate-950">{req.model || "—"}</td>
+              <td className="truncate px-3 py-2 font-mono text-xs text-slate-600">{req.agent_id || "—"}</td>
+              <td className="px-3 py-2 text-xs text-slate-600">{req.status_code ?? "—"}</td>
+              <td className="px-3 py-2 text-xs text-slate-600">{req.total_tokens ?? 0}</td>
+              <td className="px-3 py-2 font-mono text-xs text-slate-600">${asNumber(req.cost_usd).toFixed(4)}</td>
             </tr>
           ))}
         </tbody>
@@ -211,7 +281,11 @@ export function GatewayConsole({ data }: { data: GatewayConsoleData }) {
             </Card>
           </div>
           <Card className="p-4">
-            <SectionHeader title="会话" subtitle="最近对话流" />
+            <SectionHeader title="请求调用" subtitle="最近 chat/completions 审计记录" />
+            <RecentRequestsTable requests={data.gatewayRequests} />
+          </Card>
+          <Card className="p-4">
+            <SectionHeader title="会话" subtitle="按 conversation_id 聚合" />
             <ConversationTable conversations={data.conversations} />
           </Card>
         </div>

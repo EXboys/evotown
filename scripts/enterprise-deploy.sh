@@ -30,55 +30,90 @@ gen_secret() {
   python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
 }
 
+is_env_placeholder() {
+  local key="$1"
+  local val="$2"
+  [[ -z "$val" ]] && return 0
+  case "$key" in
+    API_KEY)
+      [[ "$val" == "your-upstream-llm-api-key" || "$val" == "your-api-key-here" ]]
+      ;;
+    EVOTOWN_PUBLIC_URL)
+      [[ "$val" == "http://127.0.0.1:8080" ]]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 ensure_env() {
+  # Capture shell overrides before sourcing .env (template values must not clobber exports).
+  local deploy_public_url="${EVOTOWN_PUBLIC_URL:-}"
+  local deploy_base_url="${UPSTREAM_BASE_URL:-${BASE_URL:-}}"
+  local deploy_api_key="${UPSTREAM_API_KEY:-${API_KEY:-}}"
+  local deploy_model="${UPSTREAM_MODEL:-${MODEL:-}}"
+  local had_public_url=0 had_base_url=0 had_api_key=0 had_model=0
+  [[ -n "${EVOTOWN_PUBLIC_URL+x}" ]] && had_public_url=1
+  [[ -n "${UPSTREAM_BASE_URL+x}" || -n "${BASE_URL+x}" ]] && had_base_url=1
+  [[ -n "${UPSTREAM_API_KEY+x}" || -n "${API_KEY+x}" ]] && had_api_key=1
+  [[ -n "${UPSTREAM_MODEL+x}" || -n "${MODEL+x}" ]] && had_model=1
+
   if [[ ! -f "$ENV_FILE" ]]; then
     [[ -f "$TEMPLATE" ]] || die "缺少模板 $TEMPLATE"
     cp "$TEMPLATE" "$ENV_FILE"
     log "已创建 $ENV_FILE"
   fi
 
-  # shellcheck disable=SC1090
-  set -a
-  # shellcheck source=/dev/null
-  source "$ENV_FILE"
-  set +a
-
   local changed=0
-  set_env_if_empty() {
+  set_env_value() {
     local key="$1"
     local val="$2"
-    if ! grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-      printf '\n%s=%s\n' "$key" "$val" >>"$ENV_FILE"
-      changed=1
-      return
+    local force="${3:-0}"
+    [[ -n "$val" ]] || return 0
+
+    local current=""
+    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+      current="$(grep "^${key}=" "$ENV_FILE" | head -1 | cut -d= -f2-)"
     fi
-    local current
-    current="$(grep "^${key}=" "$ENV_FILE" | head -1 | cut -d= -f2-)"
-    if [[ -z "$current" ]]; then
-      if [[ "$(uname)" == "Darwin" ]]; then
-        sed -i '' "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
+
+    if [[ "$force" -eq 1 ]] || [[ -z "$current" ]] || is_env_placeholder "$key" "$current"; then
+      if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+        if [[ "$(uname)" == "Darwin" ]]; then
+          sed -i '' "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
+        else
+          sed -i "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
+        fi
       else
-        sed -i "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
+        printf '\n%s=%s\n' "$key" "$val" >>"$ENV_FILE"
       fi
       changed=1
     fi
   }
 
-  set_env_if_empty "ADMIN_TOKEN" "$(gen_secret)"
-  set_env_if_empty "EVOTOWN_ENGINE_INGEST_TOKEN" "$(gen_secret)"
-  set_env_if_empty "LITELLM_MASTER_KEY" "$(gen_secret)"
+  set_env_value "ADMIN_TOKEN" "$(gen_secret)"
+  set_env_value "EVOTOWN_ENGINE_INGEST_TOKEN" "$(gen_secret)"
+  set_env_value "LITELLM_MASTER_KEY" "$(gen_secret)"
 
-  if [[ -n "$UPSTREAM_BASE_URL" ]]; then
-    set_env_if_empty "BASE_URL" "$UPSTREAM_BASE_URL"
+  if [[ "$had_base_url" -eq 1 ]]; then
+    set_env_value "BASE_URL" "$deploy_base_url" 1
   fi
-  if [[ -n "$UPSTREAM_API_KEY" ]]; then
-    set_env_if_empty "API_KEY" "$UPSTREAM_API_KEY"
+  if [[ "$had_api_key" -eq 1 ]]; then
+    set_env_value "API_KEY" "$deploy_api_key" 1
   fi
-  set_env_if_empty "MODEL" "$UPSTREAM_MODEL"
-  set_env_if_empty "EVOTOWN_PUBLIC_URL" "$PUBLIC_URL"
-  set_env_if_empty "PORT" "8080"
-  set_env_if_empty "LITELLM_BASE_URL" "http://litellm:4000/v1"
-  set_env_if_empty "EVOTOWN_ALLOW_PUBLIC_REGISTER" "0"
+  if [[ "$had_model" -eq 1 ]]; then
+    set_env_value "MODEL" "$deploy_model" 1
+  else
+    set_env_value "MODEL" "$UPSTREAM_MODEL"
+  fi
+  if [[ "$had_public_url" -eq 1 ]]; then
+    set_env_value "EVOTOWN_PUBLIC_URL" "$deploy_public_url" 1
+  else
+    set_env_value "EVOTOWN_PUBLIC_URL" "$PUBLIC_URL"
+  fi
+  set_env_value "PORT" "8080"
+  set_env_value "LITELLM_BASE_URL" "http://litellm:4000/v1"
+  set_env_value "EVOTOWN_ALLOW_PUBLIC_REGISTER" "0"
 
   if [[ "$changed" -eq 1 ]]; then
     log "已写入/补全 .env 密钥与默认值"

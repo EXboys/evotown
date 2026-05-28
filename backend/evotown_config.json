@@ -26,5 +26,8 @@
   },
   "dispatch": {
     "team_pairs": "*"
+  },
+  "display": {
+    "timezone": "Asia/Shanghai"
   }
 }

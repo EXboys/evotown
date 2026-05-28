@@ -35,6 +35,7 @@ import { ArenaControl } from "./ArenaControl";
 import { AgentGraveyard } from "./AgentGraveyard";
 import { Leaderboard } from "./Leaderboard";
 import { SocialGraph } from "./SocialGraph";
+import { DisplayTimezoneSelect } from "./DisplayTimezoneSelect";
 
 type TabId = "metrics" | "agents" | "arena" | "graveyard" | "leaderboard" | "social";
 
@@ -260,38 +261,39 @@ export function ObserverPanel() {
             </h2>
             <p className="text-[10px] sm:text-xs text-slate-500 mt-0.5">运行概览 · 技能沉淀 · 风险韧性</p>
           </div>
-          <div className="flex flex-col items-end gap-1">
-            {/* 实验 ID 选择器 */}
-            <div className="flex items-center gap-1 min-w-0">
-              <span className="text-[10px] text-slate-500 shrink-0">实验:</span>
-              {replay.sessions.length > 1 ? (
-                <select
-                  value={selectedExpId}
-                  onChange={(e) => setSelectedExpId(e.target.value)}
-                  title="选择录制存放的实验 ID"
-                  className="text-[10px] text-slate-400 font-mono bg-slate-800/80 border border-slate-600/40 rounded px-1 py-0.5 max-w-[160px] focus:outline-none focus:ring-1 focus:ring-evo-accent/50 truncate"
-                >
-                  {/* 当前实验 ID（若不在 sessions 中也保留） */}
-                  {experimentInfo.experiment_id &&
-                    !replay.sessions.some((s) => s.session_id === experimentInfo.experiment_id) && (
-                      <option value={experimentInfo.experiment_id}>
-                        {experimentInfo.experiment_id}
+          <div className="flex w-full sm:w-auto sm:max-w-[220px] flex-col gap-2">
+            <div className="rounded-lg border border-slate-600/35 bg-slate-900/45 px-2.5 py-2 space-y-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[10px] text-slate-500 shrink-0 font-medium">实验</span>
+                {replay.sessions.length > 1 ? (
+                  <select
+                    value={selectedExpId}
+                    onChange={(e) => setSelectedExpId(e.target.value)}
+                    title="选择录制存放的实验 ID"
+                    className="min-w-0 flex-1 text-[10px] text-slate-300 font-mono bg-slate-950/60 border border-slate-600/40 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-sky-500/40 truncate"
+                  >
+                    {experimentInfo.experiment_id &&
+                      !replay.sessions.some((s) => s.session_id === experimentInfo.experiment_id) && (
+                        <option value={experimentInfo.experiment_id}>
+                          {experimentInfo.experiment_id}
+                        </option>
+                      )}
+                    {replay.sessions.map((s) => (
+                      <option key={s.session_id} value={s.session_id}>
+                        {s.session_id}
                       </option>
-                    )}
-                  {replay.sessions.map((s) => (
-                    <option key={s.session_id} value={s.session_id}>
-                      {s.session_id}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <span
-                  className="text-[10px] text-slate-600 font-mono truncate max-w-[160px]"
-                  title={experimentInfo.experiment_id ?? ""}
-                >
-                  {experimentInfo.experiment_id ?? "—"}
-                </span>
-              )}
+                    ))}
+                  </select>
+                ) : (
+                  <span
+                    className="min-w-0 flex-1 text-[10px] text-slate-500 font-mono truncate"
+                    title={experimentInfo.experiment_id ?? ""}
+                  >
+                    {experimentInfo.experiment_id ?? "—"}
+                  </span>
+                )}
+              </div>
+              <DisplayTimezoneSelect tone="slate" className="w-full" />
             </div>
             {tokenUsage && tokenUsage.total_tokens > 0 && (
               <p className="text-[10px] text-slate-500" title={`输入 ${tokenUsage.prompt_tokens.toLocaleString()} / 输出 ${tokenUsage.completion_tokens.toLocaleString()}`}>

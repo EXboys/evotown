@@ -1,3 +1,5 @@
+import { formatDateTimeShort } from "../../lib/datetime";
+
 export interface Decision {
   id?: number;
   ts?: string;
@@ -60,7 +62,7 @@ export function DecisionList({ decisions }: { decisions: Decision[] }) {
                 )}
               </div>
               <span className="text-slate-500 text-[10px] shrink-0">
-                {d.ts ? new Date(d.ts).toLocaleString("zh-CN") : ""}
+                {d.ts ? formatDateTimeShort(d.ts) : ""}
               </span>
             </div>
             <p className="text-slate-200 font-medium break-words leading-relaxed pl-0.5">

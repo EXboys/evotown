@@ -1,3 +1,5 @@
+import { formatDateTimeShort } from "../../lib/datetime";
+
 export interface EvolutionLogItem {
   ts: string;
   type: string;
@@ -132,7 +134,7 @@ export function EvolutionTab({ evolutionLog, metrics }: EvolutionTabProps) {
                 return (
                   <tr key={i} className="border-t border-slate-700/30 hover:bg-slate-800/30">
                     <td className="py-1 px-2 text-slate-500 whitespace-nowrap" style={{ width: "7.5em" }}>
-                      {e.ts ? new Date(e.ts).toLocaleString("zh-CN") : "-"}
+                      {e.ts ? formatDateTimeShort(e.ts) : "-"}
                     </td>
                     <td className="py-1 px-2" style={{ width: "5.5em" }}>
                       <span className="px-1 py-0.5 rounded bg-slate-700/50 text-slate-300 text-[10px]">

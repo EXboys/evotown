@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { DisplayTimezoneSelect } from "./DisplayTimezoneSelect";
+import { formatDateTimeShort } from "../lib/datetime";
 import { useEvotownStore } from "../store/evotownStore";
 import type { JudgeScore } from "../store/evotownStore";
 
@@ -93,9 +95,12 @@ export function TaskHistoryPage() {
           <h1 className="text-base font-bold text-slate-200">📋 任务历史</h1>
           <span className="text-xs text-slate-500">({history.length})</span>
         </div>
-        <button onClick={loadHistory} disabled={loading} className="text-xs text-slate-500 hover:text-slate-300 disabled:opacity-50">
-          {loading ? "加载中..." : "刷新"}
-        </button>
+        <div className="flex items-center gap-3">
+          <DisplayTimezoneSelect tone="slate" className="min-w-[180px]" />
+          <button onClick={loadHistory} disabled={loading} className="text-xs text-slate-500 hover:text-slate-300 disabled:opacity-50">
+            {loading ? "加载中..." : "刷新"}
+          </button>
+        </div>
       </nav>
 
       <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -124,7 +129,7 @@ export function TaskHistoryPage() {
                     {claimant && <span className="font-mono">{agentNameMap[claimant] || claimant}</span>}
                     <span className="px-1 py-0.5 rounded bg-slate-700/50">{DIFFICULTY_LABELS[h.difficulty] ?? h.difficulty}</span>
                     {h.refusal_count != null && h.refusal_count > 0 && <span>拒{h.refusal_count}</span>}
-                    {h.ts && <span>{new Date(h.ts * 1000).toLocaleString("zh-CN")}</span>}
+                    {h.ts && <span>{formatDateTimeShort(h.ts * 1000)}</span>}
                   </div>
                 </div>
               </div>

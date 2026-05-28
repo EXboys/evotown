@@ -1,5 +1,6 @@
 /** 韧性记录 — 暂停 / 退出的 Agent 列表与生命周期查看 */
 import { useEffect, useState } from "react";
+import { formatDateOnly, formatDateTimeShort } from "../lib/datetime";
 
 const AGENT_COLORS = [
   "#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#3b82f6",
@@ -115,7 +116,7 @@ export function AgentGraveyard() {
                   {r.reason === "balance_zero" ? "贡献值耗尽，已暂停" : r.reason === "inferred" ? "历史" : "已退出（调遣撤离）"}
                 </span>
                 <span className="shrink-0 text-slate-600 text-[10px]">
-                  {r.ts ? new Date(r.ts * 1000).toLocaleDateString("zh-CN") : ""}
+                  {r.ts ? formatDateOnly(r.ts * 1000) : ""}
                 </span>
               </button>
             ))}
@@ -209,7 +210,7 @@ function LifecycleDetail({
                 <li key={i} className="flex flex-wrap gap-2 py-1 px-2 rounded hover:bg-slate-800/40 items-baseline">
                   <span className="text-slate-500 shrink-0 whitespace-nowrap">
                     {e.ts
-                      ? new Date(typeof e.ts === "number" ? e.ts * 1000 : String(e.ts)).toLocaleString("zh-CN")
+                      ? formatDateTimeShort(typeof e.ts === "number" ? e.ts * 1000 : String(e.ts))
                       : "-"}
                   </span>
                   <span className="truncate text-slate-300 min-w-0" title={String(e.task ?? "")}>
@@ -244,7 +245,7 @@ function LifecycleDetail({
               evolutionLog.map((e, i) => (
                 <div key={i} className="flex gap-2 py-1 px-2 rounded hover:bg-slate-800/40 text-[10px]">
                   <span className="text-slate-500 shrink-0">
-                    {e.ts ? new Date(String(e.ts)).toLocaleString("zh-CN") : "-"}
+                    {e.ts ? formatDateTimeShort(String(e.ts)) : "-"}
                   </span>
                   <span className="px-1.5 py-0.5 rounded bg-slate-700/50 text-slate-300">
                     {EVO_TYPE_LABELS[String(e.type ?? "")] ?? String(e.type ?? "-")}

@@ -4,6 +4,7 @@ import { GatewayAdvancedPanel } from "./gateway/GatewayAdvancedPanel";
 import { EmployeeConfigPanel } from "./market/EmployeeConfigPanel";
 import { GatewayModelRoutesPanel } from "./GatewayModelRoutesPanel";
 import { GatewayUpstreamModelsPanel } from "./GatewayUpstreamModelsPanel";
+import { formatDateTimeShort } from "../lib/datetime";
 
 type GatewayConversation = {
   conversation_id: string;
@@ -113,13 +114,6 @@ function SimpleUsageTable({
   );
 }
 
-function formatWhen(value?: string) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-}
-
 export function RecentRequestsTable({
   requests,
   compact = false,
@@ -151,7 +145,7 @@ export function RecentRequestsTable({
         <tbody className="divide-y divide-slate-100">
           {rows.map((req) => (
             <tr key={req.request_id}>
-              <td className="truncate px-3 py-2 text-xs text-slate-600">{formatWhen(req.created_at)}</td>
+              <td className="truncate px-3 py-2 text-xs text-slate-600">{formatDateTimeShort(req.created_at)}</td>
               <td className="truncate px-3 py-2 font-mono text-xs text-slate-950">{req.model || "—"}</td>
               <td className="truncate px-3 py-2 font-mono text-xs text-slate-600">{req.agent_id || "—"}</td>
               <td className="px-3 py-2 text-xs text-slate-600">{req.status_code ?? "—"}</td>

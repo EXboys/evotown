@@ -4,6 +4,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { adminFetch } from "../hooks/useAdminToken";
+import { formatDateTimeShort } from "../lib/datetime";
+import { DisplayTimezoneSelect } from "./DisplayTimezoneSelect";
 
 interface ChronicleListItem {
   chapter: number;
@@ -37,13 +39,6 @@ interface ChronicleDetail {
 function formatPeriodTitle(item: ChronicleListItem): string {
   const label = item.chapter_label || `第 ${item.chapter} 期`;
   return item.virtual_date ? `${label} · ${item.virtual_date}` : label;
-}
-
-function formatGeneratedAt(value?: string) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
 function MetricBadge({ label, value }: { label: string; value: number }) {
@@ -170,13 +165,16 @@ export function ChronicleBook() {
             <div className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-600">Evotown Operations</div>
             <h1 className="text-lg font-semibold text-slate-950">企业运行日报</h1>
           </div>
-          <button
-            onClick={handleGenerate}
-            disabled={generating}
-            className="rounded-lg bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-40"
-          >
-            {generating ? "生成中…" : "生成日报"}
-          </button>
+          <div className="flex items-center gap-3">
+            <DisplayTimezoneSelect tone="light" className="min-w-[200px]" />
+            <button
+              onClick={handleGenerate}
+              disabled={generating}
+              className="rounded-lg bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-40"
+            >
+              {generating ? "生成中…" : "生成日报"}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -227,7 +225,7 @@ export function ChronicleBook() {
                       {formatPeriodTitle(item)}
                     </div>
                     <div className="line-clamp-2 text-[11px] leading-relaxed text-slate-500">{item.preview || "（无预览）"}</div>
-                    <div className="mt-1 text-[10px] text-slate-400">任务 {item.total_tasks} 条 · {formatGeneratedAt(item.generated_at)}</div>
+                    <div className="mt-1 text-[10px] text-slate-400">任务 {item.total_tasks} 条 · {formatDateTimeShort(item.generated_at)}</div>
                   </div>
                 </button>
               );
@@ -300,7 +298,7 @@ function ChapterContent({
         </div>
 
         {detail.generated_at && (
-          <p className="mt-6 text-xs text-slate-400">生成于 {formatGeneratedAt(detail.generated_at)}</p>
+          <p className="mt-6 text-xs text-slate-400">生成于 {formatDateTimeShort(detail.generated_at)}</p>
         )}
       </div>
 

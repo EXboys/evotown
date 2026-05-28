@@ -1,3 +1,5 @@
+import { formatDateTimeShort } from "../../lib/datetime";
+
 export interface ExecutionLogItem {
   ts: string | number;
   task: string;
@@ -24,9 +26,9 @@ export function ExecutionList({ logs }: { logs: ExecutionLogItem[] }) {
         <li key={i} className="flex flex-wrap gap-2 py-1.5 px-2 rounded hover:bg-slate-800/40 items-baseline">
           <span className="text-slate-500 shrink-0 whitespace-nowrap">
             {typeof e.ts === "number"
-              ? new Date(e.ts * 1000).toLocaleString("zh-CN")
+              ? formatDateTimeShort(e.ts * 1000)
               : e.ts
-                ? new Date(e.ts).toLocaleString("zh-CN")
+                ? formatDateTimeShort(e.ts)
                 : "-"}
           </span>
           <span className="truncate text-slate-300 min-w-0" title={e.task}>

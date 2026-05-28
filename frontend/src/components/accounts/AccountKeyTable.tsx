@@ -1,17 +1,5 @@
 import type { GatewayApiKey } from "../GatewayAccountsPanel";
-
-function formatDate(value?: string | null) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("zh-CN", {
-    hour12: false,
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+import { formatDateTime } from "../../lib/datetime";
 
 type AccountKeyTableProps = {
   keys: GatewayApiKey[];
@@ -65,7 +53,13 @@ export function AccountKeyTable({ keys, busy, onEdit, onRevoke }: AccountKeyTabl
                   >
                     {key.status === "active" ? "有效" : "已吊销"}
                   </span>
-                  <div className="mt-1 text-xs text-slate-400">{formatDate(key.last_used_at)}</div>
+                  <div className="mt-1 text-xs text-slate-400">{formatDateTime(key.last_used_at, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  })}</div>
                 </td>
                 <td className="px-3 py-2.5 text-right">
                   <div className="flex justify-end gap-2">

@@ -3,6 +3,7 @@
  * 节点 = Agent，边 = 消息往来权重，队伍颜色区分项目组
  */
 import { useEffect, useRef, useState, useCallback } from "react";
+import { formatDateTimeShort } from "../lib/datetime";
 
 interface GraphNode {
   id: string;
@@ -364,7 +365,7 @@ export function SocialGraph() {
                       {msg.content}
                     </p>
                     <p className="text-[10px] text-slate-600 mt-1">
-                      {new Date(msg.ts * 1000).toLocaleString("zh-CN")}
+                      {formatDateTimeShort(msg.ts * 1000)}
                     </p>
                   </div>
                 );

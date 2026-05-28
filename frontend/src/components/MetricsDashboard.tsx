@@ -10,6 +10,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import { formatChartDay } from "../lib/datetime";
 import { useEvotownStore, type MetricsPoint } from "../store/evotownStore";
 
 const AGENT_COLORS: Record<string, string> = {
@@ -24,15 +25,6 @@ const METRICS_CACHE_TTL_MS = 60_000;
 
 function agentColor(id: string) {
   return AGENT_COLORS[id] ?? "#94a3b8";
-}
-
-function formatDate(d: string): string {
-  try {
-    const date = new Date(d);
-    return date.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
-  } catch {
-    return d;
-  }
 }
 
 async function fetchMetrics(agentId: string): Promise<MetricsPoint[]> {
@@ -109,7 +101,7 @@ export function MetricsDashboard({ agents }: { agents: { id: string; display_nam
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
             <XAxis
               dataKey="date"
-              tickFormatter={formatDate}
+              tickFormatter={formatChartDay}
               stroke="#64748b"
               tick={{ fontSize: 10 }}
             />
@@ -121,7 +113,7 @@ export function MetricsDashboard({ agents }: { agents: { id: string; display_nam
             />
             <Tooltip
               contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155" }}
-              labelFormatter={formatDate}
+              labelFormatter={formatChartDay}
               formatter={(v: number) => [(v ?? 0).toFixed(2), ""]}
             />
             <Legend wrapperStyle={{ fontSize: 10 }} />

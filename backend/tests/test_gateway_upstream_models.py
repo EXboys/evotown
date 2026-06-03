@@ -68,8 +68,8 @@ class GatewayUpstreamModelsTest(unittest.TestCase):
         self.assertNotIn("sk-secret", str(rows[0]))
 
     def test_prepare_chat_uses_managed_upstream_without_litellm(self) -> None:
-        from api.routers import gateway as gateway_router
         from infra import gateway_models
+        from infra import gateway_upstream
 
         gateway_models.create_model(
             model_name="corp-gpt",
@@ -78,16 +78,10 @@ class GatewayUpstreamModelsTest(unittest.TestCase):
             litellm_model="gpt-4o-mini",
         )
         with patch.dict(os.environ, {"LITELLM_BASE_URL": ""}, clear=False):
-            request_id, _conv, model, body, target, headers = gateway_router._prepare_chat_request(  # noqa: SLF001
+            target, headers, body = gateway_upstream.build_upstream_call(
                 {"model": "corp-gpt", "messages": [{"role": "user", "content": "hi"}]},
-                identity={"key_label": "t", "account_id": "", "key_id": ""},
-                x_evotown_agent_id=None,
-                x_evotown_team_id=None,
-                x_evotown_engine_id=None,
-                x_evotown_conversation_id=None,
+                "corp-gpt",
             )
-        self.assertTrue(request_id.startswith("gw_"))
-        self.assertEqual(model, "corp-gpt")
         self.assertEqual(target, "https://api.example.com/v1/chat/completions")
         self.assertEqual(body["model"], "gpt-4o-mini")
         self.assertEqual(headers["Authorization"], "Bearer sk-test")

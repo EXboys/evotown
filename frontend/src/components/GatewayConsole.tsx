@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 
 import { GatewayAdvancedPanel } from "./gateway/GatewayAdvancedPanel";
+import { GatewayPlaygroundPanel } from "./gateway/GatewayPlaygroundPanel";
 import { EmployeeConfigPanel } from "./market/EmployeeConfigPanel";
 import { GatewayModelRoutesPanel } from "./GatewayModelRoutesPanel";
 import { GatewayUpstreamModelsPanel } from "./GatewayUpstreamModelsPanel";
@@ -231,6 +232,13 @@ export function GatewayConsole({ data }: { data: GatewayConsoleData }) {
 
       {tab === "config" && (
         <div className="space-y-5">
+          <Card className="p-4">
+            <SectionHeader
+              title="在线试调"
+              subtitle="在浏览器里直接调用网关，查看最终模型、尝试次数与重试/降级审计"
+            />
+            <GatewayPlaygroundPanel />
+          </Card>
           <div className="grid gap-5 xl:grid-cols-2">
             <Card className="p-4">
               <SectionHeader title="上游模型" subtitle="企业网关直连的厂商 endpoint 与 API Key" />

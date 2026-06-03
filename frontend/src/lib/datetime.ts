@@ -60,7 +60,12 @@ export function parseEvotownTimestamp(value: string | number | null | undefined)
     const d = new Date(ms);
     return Number.isNaN(d.getTime()) ? null : d;
   }
-  const s = String(value).trim();
+  let s = String(value).trim();
+  // 后端 SQLite datetime('now') 产生的字符串不带时区标记，
+  // 浏览器会当作本地时间解析导致偏移。统一补 Z 当作 UTC。
+  if (s && !/[Zz]|[+-]\d{2}:?\d{2}$/.test(s)) {
+    s = s + "Z";
+  }
   if (/^\d+(\.\d+)?$/.test(s)) {
     const n = Number(s);
     const ms = n < 1e12 ? n * 1000 : n;

@@ -25,6 +25,11 @@ async def create_model_route(body: GatewayModelRouteCreate):
         description=body.description,
         priority=body.priority,
         enabled=body.enabled,
+        route_type=body.route_type,
+        fallback_models=body.fallback_models,
+        retry_policy=body.retry_policy,
+        auto_policy=body.auto_policy,
+        enable_fallback=body.enable_fallback,
     )
     return {"route": route}
 

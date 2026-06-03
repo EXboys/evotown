@@ -12,6 +12,9 @@ export type GatewayModelRoute = {
   description?: string;
   priority?: number;
   enabled?: boolean;
+  route_type?: string;
+  fallback_models?: string[];
+  enable_fallback?: boolean;
 };
 
 type FormState = {
@@ -22,6 +25,9 @@ type FormState = {
   description: string;
   priority: number;
   enabled: boolean;
+  route_type: string;
+  fallback_models_text: string;
+  enable_fallback: boolean;
 };
 
 const emptyForm: FormState = {
@@ -32,6 +38,9 @@ const emptyForm: FormState = {
   description: "",
   priority: 100,
   enabled: true,
+  route_type: "static",
+  fallback_models_text: "",
+  enable_fallback: true,
 };
 
 function rowToForm(row: GatewayModelRoute): FormState {
@@ -43,6 +52,28 @@ function rowToForm(row: GatewayModelRoute): FormState {
     description: row.description || "",
     priority: row.priority ?? 100,
     enabled: row.enabled !== false,
+    route_type: row.route_type || "static",
+    fallback_models_text: (row.fallback_models || []).join(", "),
+    enable_fallback: row.enable_fallback !== false,
+  };
+}
+
+function formToPayload(form: FormState) {
+  const fallback_models = form.fallback_models_text
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return {
+    alias: form.alias,
+    target_model: form.target_model,
+    team_id: form.team_id,
+    account_id: form.account_id,
+    description: form.description,
+    priority: form.priority,
+    enabled: form.enabled,
+    route_type: form.route_type,
+    fallback_models,
+    enable_fallback: form.enable_fallback,
   };
 }
 
@@ -95,7 +126,7 @@ export function GatewayModelRoutesPanel() {
         const res = await adminFetch(`/api/gateway/v1/model-routes/${editingId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(form),
+          body: JSON.stringify(formToPayload(form)),
         });
         const data = await res.json() as { detail?: string };
         if (!res.ok) throw new Error(data.detail || `保存失败 (${res.status})`);
@@ -103,7 +134,7 @@ export function GatewayModelRoutesPanel() {
         const res = await adminFetch("/api/gateway/v1/model-routes", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(form),
+          body: JSON.stringify(formToPayload(form)),
         });
         const data = await res.json() as { detail?: string };
         if (!res.ok) throw new Error(data.detail || `创建失败 (${res.status})`);
@@ -183,7 +214,10 @@ export function GatewayModelRoutesPanel() {
               <tr key={route.route_id}>
                 <td className="px-3 py-2.5">
                   <div className="font-mono text-xs font-semibold text-slate-950">{route.alias}</div>
-                  <div className="font-mono text-xs text-slate-500">→ {route.target_model}</div>
+                  <div className="font-mono text-xs text-slate-500">
+                    → {route.target_model}
+                    {route.fallback_models?.length ? ` (+${route.fallback_models.join(", ")})` : ""}
+                  </div>
                 </td>
                 <td className="hidden px-3 py-2.5 font-mono text-xs text-slate-600 md:table-cell">
                   {route.account_id ? `acc:${route.account_id}` : route.team_id ? `team:${route.team_id}` : "global"}
@@ -267,6 +301,34 @@ export function GatewayModelRoutesPanel() {
               />
             </label>
           </div>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">路由类型</span>
+            <select
+              value={form.route_type}
+              onChange={(e) => setForm({ ...form, route_type: e.target.value })}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="static">static（固定目标）</option>
+              <option value="auto">auto（按复杂度选 tier，需在 auto_policy 配置 tiers）</option>
+            </select>
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">降级链（逗号分隔）</span>
+            <input
+              value={form.fallback_models_text}
+              onChange={(e) => setForm({ ...form, fallback_models_text: e.target.value })}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-mono"
+              placeholder="backup-model, qwen-plus"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              checked={form.enable_fallback}
+              onChange={(e) => setForm({ ...form, enable_fallback: e.target.checked })}
+            />
+            启用跨模型降级
+          </label>
           <label className="block text-sm">
             <span className="font-medium text-slate-700">Priority</span>
             <input

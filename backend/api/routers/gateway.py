@@ -1,11 +1,13 @@
 """LiteLLM-backed centralized OpenAI-compatible gateway."""
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -16,18 +18,24 @@ from core.auth import key_record_for_checks, require_admin, require_gateway_chat
 from infra import accounts as accounts_store
 from infra import gateway
 from infra import gateway_models as gateway_models_store
+from infra import gateway_retry
 from infra import gateway_routes as gateway_routes_store
+from infra import gateway_upstream
+from infra.gateway_retry import RetryPolicy
 
 router = APIRouter(prefix="/api/gateway/v1", tags=["gateway"])
 
 
-def _litellm_base_url() -> str:
-    return os.environ.get("LITELLM_BASE_URL", "").rstrip("/")
-
-
-def _litellm_auth_header() -> dict[str, str]:
-    token = os.environ.get("LITELLM_MASTER_KEY", "").strip() or os.environ.get("LITELLM_API_KEY", "").strip()
-    return {"Authorization": f"Bearer {token}"} if token else {}
+@dataclass
+class GatewayChatContext:
+    request_id: str
+    conversation_id: str
+    client_model: str
+    body: dict[str, Any]
+    model_chain: list[str]
+    policy: RetryPolicy
+    matched_route: dict[str, Any] | None
+    via_alias: bool
 
 
 def _usage_from_response(data: dict[str, Any]) -> dict[str, int]:
@@ -145,7 +153,6 @@ def _check_quota_or_raise(identity: dict[str, Any], *, request_id: str, conversa
 
 
 def _post_check_quota(identity: dict[str, Any], request_id: str) -> str | None:
-    """After a successful upstream call, flag audit row if monthly quota is now exceeded."""
     key_id = identity.get("key_id") or ""
     if not key_id:
         return None
@@ -165,7 +172,7 @@ def _gateway_timeout_sec() -> float:
     return float(os.environ.get("EVOTOWN_GATEWAY_TIMEOUT_SEC", "120"))
 
 
-def _prepare_chat_request(
+def _prepare_chat_context(
     body: dict[str, Any],
     *,
     identity: dict[str, Any],
@@ -173,33 +180,35 @@ def _prepare_chat_request(
     x_evotown_team_id: str | None,
     x_evotown_engine_id: str | None,
     x_evotown_conversation_id: str | None,
-) -> tuple[str, str, str, dict[str, Any], str, dict[str, str]]:
+) -> GatewayChatContext:
     request_id = f"gw_{uuid.uuid4().hex}"
     conversation_id = x_evotown_conversation_id or str(body.get("conversation_id") or body.get("thread_id") or request_id)
     client_model = str(body.get("model") or "")
     team_scope = (x_evotown_team_id or identity.get("team_id") or "").strip()
     account_scope = (identity.get("account_id") or "").strip()
-    target_model, matched_route = gateway_routes_store.resolve_target_model(
+
+    model_chain, matched_route, policy, via_alias = gateway_routes_store.resolve_model_chain(
         client_model,
         account_id=account_scope,
         team_id=team_scope,
+        body=body,
     )
-    if target_model and target_model != client_model:
-        body["model"] = target_model
-    model = client_model or target_model
+    primary = model_chain[0] if model_chain else client_model
+    if via_alias and primary:
+        body["model"] = primary
 
     _check_burst_or_raise(
         identity,
         request_id=request_id,
         conversation_id=conversation_id,
-        model=model,
+        model=client_model or primary,
         body=body,
     )
     _check_quota_or_raise(
         identity,
         request_id=request_id,
         conversation_id=conversation_id,
-        model=model,
+        model=client_model or primary,
         body=body,
     )
 
@@ -212,43 +221,27 @@ def _prepare_chat_request(
         "evotown_team_id": x_evotown_team_id or "",
         "evotown_engine_id": x_evotown_engine_id or "",
         "evotown_client_model": client_model,
-        "evotown_routed_model": target_model,
+        "evotown_routed_model": primary,
         "evotown_route_id": (matched_route or {}).get("route_id", ""),
+        "evotown_model_chain": model_chain,
+        "evotown_via_alias": via_alias,
     }
+    if matched_route:
+        if matched_route.get("evotown_auto_tier"):
+            body["metadata"]["evotown_auto_tier"] = matched_route["evotown_auto_tier"]
+        if matched_route.get("evotown_auto_reason"):
+            body["metadata"]["evotown_auto_reason"] = matched_route["evotown_auto_reason"]
 
-    effective_model = str(body.get("model") or target_model or client_model or "").strip()
-    managed = gateway_models_store.get_by_model_name(effective_model)
-    if managed:
-        api_base = managed.get("_api_base") or ""
-        if not api_base.startswith("http"):
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Upstream model '{effective_model}' has invalid api_base.",
-            )
-        body["model"] = managed.get("_litellm_model") or effective_model
-        body["metadata"]["evotown_upstream_model_id"] = managed.get("model_id", "")
-        body["metadata"]["evotown_upstream_mode"] = "managed"
-        target = f"{api_base.rstrip('/')}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {managed.get('_api_key', '')}",
-        }
-        return request_id, conversation_id, model, body, target, headers
-
-    litellm_base = _litellm_base_url()
-    if not litellm_base:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                f"Model '{effective_model}' is not registered in Evotown and LITELLM_BASE_URL is not configured. "
-                "Add the model under Gateway → 上游模型 in the console."
-            ),
-        )
-
-    body["metadata"]["evotown_upstream_mode"] = "litellm"
-    target = f"{litellm_base}/chat/completions"
-    headers = {"Content-Type": "application/json", **_litellm_auth_header()}
-    return request_id, conversation_id, model, body, target, headers
+    return GatewayChatContext(
+        request_id=request_id,
+        conversation_id=conversation_id,
+        client_model=client_model or primary,
+        body=body,
+        model_chain=model_chain,
+        policy=policy,
+        matched_route=matched_route,
+        via_alias=via_alias,
+    )
 
 
 def _audit_identity_fields(
@@ -283,6 +276,12 @@ def _finalize_success_audit(
         response.headers["X-Evotown-Quota-Exceeded"] = post_reason
 
 
+def _record_attempts_metadata(body: dict[str, Any], attempts: list[gateway_retry.AttemptRecord]) -> None:
+    meta = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+    meta["evotown_attempts"] = [a.to_dict() for a in attempts]
+    body["metadata"] = meta
+
+
 def _parse_sse_usage(line: str, usage: dict[str, int], cost: float) -> tuple[dict[str, int], float]:
     if not line.startswith("data:"):
         return usage, cost
@@ -304,14 +303,30 @@ def _parse_sse_usage(line: str, usage: dict[str, int], cost: float) -> tuple[dic
     return usage, cost
 
 
+def _sse_has_content_chunk(line: str) -> bool:
+    if not line.startswith("data:"):
+        return False
+    payload_text = line[5:].strip()
+    if not payload_text or payload_text == "[DONE]":
+        return False
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return False
+    delta = choices[0].get("delta") if isinstance(choices[0], dict) else {}
+    if isinstance(delta, dict) and delta.get("content"):
+        return True
+    return False
+
+
 async def _stream_upstream_chat(
     *,
-    target: str,
-    headers: dict[str, str],
-    body: dict[str, Any],
-    request_id: str,
-    conversation_id: str,
-    model: str,
+    ctx: GatewayChatContext,
     identity: dict[str, Any],
     x_evotown_agent_id: str | None,
     x_evotown_team_id: str | None,
@@ -323,62 +338,182 @@ async def _stream_upstream_chat(
     cost = 0.0
     status_code = 200
     error = ""
+    attempts: list[gateway_retry.AttemptRecord] = []
     audit = _audit_identity_fields(
         identity,
         x_evotown_agent_id=x_evotown_agent_id,
         x_evotown_team_id=x_evotown_team_id,
         x_evotown_engine_id=x_evotown_engine_id,
     )
+    policy = ctx.policy
+    total_attempts = 0
+    deadline = time.perf_counter() + _gateway_timeout_sec()
+
+    def build_call(model_name: str) -> tuple[str, dict[str, str], dict[str, Any]]:
+        return gateway_upstream.build_upstream_call(ctx.body, model_name)
 
     try:
         async with httpx.AsyncClient(timeout=_gateway_timeout_sec()) as client:
-            async with client.stream("POST", target, json=body, headers=headers) as upstream:
-                status_code = upstream.status_code
-                if upstream.status_code >= 400:
-                    err_body = await upstream.aread()
-                    error = err_body.decode("utf-8", errors="replace")
-                    yield err_body
-                    return
+            for hop_index, model_name in enumerate(ctx.model_chain):
+                retries_on_hop = 0
+                while True:
+                    if total_attempts >= policy.max_total_attempts or time.perf_counter() >= deadline:
+                        status_code = 502
+                        error = "gateway retry budget exceeded"
+                        payload = json.dumps({"error": {"message": error, "type": "gateway_upstream_error"}})
+                        yield f"data: {payload}\n\n".encode("utf-8")
+                        return
 
-                async for line in upstream.aiter_lines():
-                    if line:
-                        usage, cost = _parse_sse_usage(line, usage, cost)
-                        yield (line + "\n").encode("utf-8")
-                    else:
-                        yield b"\n"
-    except httpx.HTTPError as exc:
-        status_code = 502
-        error = str(exc)
-        payload = json.dumps({"error": {"message": error, "type": "gateway_upstream_error"}})
-        yield f"data: {payload}\n\n".encode("utf-8")
+                    total_attempts += 1
+                    target, headers, req_body = build_call(model_name)
+                    chunks_sent = False
+                    try:
+                        async with client.stream("POST", target, json=req_body, headers=headers) as upstream:
+                            status_code = upstream.status_code
+                            if upstream.status_code >= 400:
+                                err_body = await upstream.aread()
+                                error = err_body.decode("utf-8", errors="replace")
+                                attempts.append(
+                                    gateway_retry.AttemptRecord(
+                                        model=model_name,
+                                        attempt_index=total_attempts,
+                                        hop_index=hop_index,
+                                        action="upstream_error",
+                                        status_code=upstream.status_code,
+                                        detail=error[:200],
+                                    )
+                                )
+                                if gateway_retry.should_retry_same_model(
+                                    policy=policy,
+                                    status_code=upstream.status_code,
+                                    error_kind="",
+                                    retries_used=retries_on_hop,
+                                ):
+                                    delay_ms = gateway_retry.backoff_ms(policy, retries_on_hop, upstream)
+                                    retries_on_hop += 1
+                                    await asyncio.sleep(delay_ms / 1000.0)
+                                    continue
+                                if gateway_retry.should_fallback(
+                                    policy=policy,
+                                    status_code=upstream.status_code,
+                                    error_kind="",
+                                    hop_index=hop_index,
+                                    chain_len=len(ctx.model_chain),
+                                ):
+                                    attempts.append(
+                                        gateway_retry.AttemptRecord(
+                                            model=model_name,
+                                            attempt_index=total_attempts,
+                                            hop_index=hop_index,
+                                            action="fallback",
+                                            status_code=upstream.status_code,
+                                        )
+                                    )
+                                    break
+                                yield err_body
+                                return
+
+                            attempts.append(
+                                gateway_retry.AttemptRecord(
+                                    model=model_name,
+                                    attempt_index=total_attempts,
+                                    hop_index=hop_index,
+                                    action="stream_start",
+                                    status_code=200,
+                                )
+                            )
+                            async for line in upstream.aiter_lines():
+                                if line:
+                                    if _sse_has_content_chunk(line):
+                                        chunks_sent = True
+                                    usage, cost = _parse_sse_usage(line, usage, cost)
+                                    yield (line + "\n").encode("utf-8")
+                                else:
+                                    yield b"\n"
+                            attempts.append(
+                                gateway_retry.AttemptRecord(
+                                    model=model_name,
+                                    attempt_index=total_attempts,
+                                    hop_index=hop_index,
+                                    action="success",
+                                    status_code=200,
+                                )
+                            )
+                            return
+                    except httpx.HTTPError as exc:
+                        kind = gateway_retry.error_kind(exc)
+                        error = str(exc)
+                        attempts.append(
+                            gateway_retry.AttemptRecord(
+                                model=model_name,
+                                attempt_index=total_attempts,
+                                hop_index=hop_index,
+                                action="error",
+                                error_kind=kind,
+                                detail=error,
+                            )
+                        )
+                        if chunks_sent:
+                            status_code = 502
+                            payload = json.dumps({"error": {"message": error, "type": "gateway_upstream_error"}})
+                            yield f"data: {payload}\n\n".encode("utf-8")
+                            return
+                        if gateway_retry.should_retry_same_model(
+                            policy=policy,
+                            status_code=None,
+                            error_kind=kind,
+                            retries_used=retries_on_hop,
+                        ):
+                            delay_ms = gateway_retry.backoff_ms(policy, retries_on_hop, None)
+                            retries_on_hop += 1
+                            await asyncio.sleep(delay_ms / 1000.0)
+                            continue
+                        if gateway_retry.should_fallback(
+                            policy=policy,
+                            status_code=None,
+                            error_kind=kind,
+                            hop_index=hop_index,
+                            chain_len=len(ctx.model_chain),
+                        ):
+                            break
+                        status_code = 502
+                        payload = json.dumps({"error": {"message": error, "type": "gateway_upstream_error"}})
+                        yield f"data: {payload}\n\n".encode("utf-8")
+                        return
+
+            status_code = 502
+            error = error or "all models in chain failed"
+            payload = json.dumps({"error": {"message": error, "type": "gateway_upstream_error"}})
+            yield f"data: {payload}\n\n".encode("utf-8")
     finally:
+        _record_attempts_metadata(ctx.body, attempts)
         latency_ms = int((time.perf_counter() - started) * 1000)
         _record_gateway_request(
             {
-                "request_id": request_id,
-                "conversation_id": conversation_id,
+                "request_id": ctx.request_id,
+                "conversation_id": ctx.conversation_id,
                 **audit,
-                "model": model,
+                "model": ctx.client_model,
                 "status_code": status_code,
                 **usage,
                 "cost_usd": cost,
                 "latency_ms": latency_ms,
                 "risk_status": "allowed" if status_code < 400 else "upstream_error",
-                "request_excerpt": _first_message_excerpt(body),
-                "response_excerpt": {"stream": True, **usage},
+                "request_excerpt": _first_message_excerpt(ctx.body),
+                "response_excerpt": {"stream": True, **usage, "attempts": [a.to_dict() for a in attempts]},
                 "error": error,
             }
         )
         if status_code < 400:
-            _finalize_success_audit(identity, response, request_id=request_id)
+            _finalize_success_audit(identity, response, request_id=ctx.request_id)
 
 
 @router.get("/health")
 async def gateway_health():
     return {
         "status": "ok",
-        "litellm_configured": bool(_litellm_base_url()),
-        "litellm_base_url": _litellm_base_url() or None,
+        "litellm_configured": bool(gateway_upstream.litellm_base_url()),
+        "litellm_base_url": gateway_upstream.litellm_base_url() or None,
         "managed_upstream_models": len(gateway_models_store.list_models(enabled_only=True)),
     }
 
@@ -397,7 +532,7 @@ async def chat_completions(
     if not isinstance(body, dict):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="JSON object body required.")
 
-    request_id, conversation_id, model, body, target, headers = _prepare_chat_request(
+    ctx = _prepare_chat_context(
         body,
         identity=identity,
         x_evotown_agent_id=x_evotown_agent_id,
@@ -409,12 +544,7 @@ async def chat_completions(
     if body.get("stream") is True:
         return StreamingResponse(
             _stream_upstream_chat(
-                target=target,
-                headers=headers,
-                body=body,
-                request_id=request_id,
-                conversation_id=conversation_id,
-                model=model,
+                ctx=ctx,
                 identity=identity,
                 x_evotown_agent_id=x_evotown_agent_id,
                 x_evotown_team_id=x_evotown_team_id,
@@ -424,8 +554,8 @@ async def chat_completions(
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
-                "X-Evotown-Request-Id": request_id,
-                "X-Evotown-Conversation-Id": conversation_id,
+                "X-Evotown-Request-Id": ctx.request_id,
+                "X-Evotown-Conversation-Id": ctx.conversation_id,
             },
         )
 
@@ -437,55 +567,73 @@ async def chat_completions(
         x_evotown_engine_id=x_evotown_engine_id,
     )
 
+    build_call: Callable[[str], tuple[str, dict[str, str], dict[str, Any]]] = (
+        lambda model_name: gateway_upstream.build_upstream_call(ctx.body, model_name)
+    )
+
     try:
         async with httpx.AsyncClient(timeout=_gateway_timeout_sec()) as client:
-            upstream = await client.post(target, json=body, headers=headers)
+            upstream_result = await gateway_retry.post_chat_with_resilience(
+                client=client,
+                build_call=build_call,
+                model_chain=ctx.model_chain,
+                policy=ctx.policy,
+                timeout_sec=_gateway_timeout_sec(),
+            )
+    except HTTPException:
+        raise
     except httpx.HTTPError as exc:
         latency_ms = int((time.perf_counter() - started) * 1000)
         _record_gateway_request(
             {
-                "request_id": request_id,
-                "conversation_id": conversation_id,
+                "request_id": ctx.request_id,
+                "conversation_id": ctx.conversation_id,
                 **audit,
-                "model": model,
+                "model": ctx.client_model,
                 "status_code": 502,
                 "latency_ms": latency_ms,
-                "request_excerpt": _first_message_excerpt(body),
+                "request_excerpt": _first_message_excerpt(ctx.body),
                 "error": str(exc),
             }
         )
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Upstream error: {exc}") from exc
 
+    _record_attempts_metadata(ctx.body, upstream_result.attempts)
     latency_ms = int((time.perf_counter() - started) * 1000)
-    try:
-        data = upstream.json()
-    except ValueError:
-        data = {"raw": upstream.text}
-
+    data = upstream_result.data if upstream_result.data is not None else {"error": upstream_result.error}
     usage = _usage_from_response(data if isinstance(data, dict) else {})
+
     _record_gateway_request(
         {
-            "request_id": request_id,
-            "conversation_id": conversation_id,
+            "request_id": ctx.request_id,
+            "conversation_id": ctx.conversation_id,
             **audit,
-            "model": model,
-            "status_code": upstream.status_code,
+            "model": ctx.client_model,
+            "status_code": upstream_result.status_code,
             **usage,
             "cost_usd": _cost_from_response(data if isinstance(data, dict) else {}),
             "latency_ms": latency_ms,
-            "risk_status": "allowed",
-            "request_excerpt": _first_message_excerpt(body),
-            "response_excerpt": data,
-            "error": "" if upstream.is_success else str(data),
+            "risk_status": "allowed" if upstream_result.success else "upstream_error",
+            "request_excerpt": _first_message_excerpt(ctx.body),
+            "response_excerpt": {
+                **(data if isinstance(data, dict) else {"raw": data}),
+                "evotown_final_model": upstream_result.final_model,
+                "evotown_attempts": [a.to_dict() for a in upstream_result.attempts],
+            },
+            "error": "" if upstream_result.success else str(upstream_result.error or data),
         }
     )
 
-    if upstream.is_success:
-        _finalize_success_audit(identity, response, request_id=request_id)
+    if upstream_result.success:
+        _finalize_success_audit(identity, response, request_id=ctx.request_id)
+        response.headers["X-Evotown-Request-Id"] = ctx.request_id
+        response.headers["X-Evotown-Conversation-Id"] = ctx.conversation_id
+        if upstream_result.final_model:
+            response.headers["X-Evotown-Final-Model"] = upstream_result.final_model
+        response.headers["X-Evotown-Upstream-Attempts"] = str(len(upstream_result.attempts))
+        return data
 
-    if not upstream.is_success:
-        raise HTTPException(status_code=upstream.status_code, detail=data)
-    return data
+    raise HTTPException(status_code=upstream_result.status_code, detail=data)
 
 
 @router.get("/usage/summary", dependencies=[Depends(require_admin)])
@@ -505,7 +653,6 @@ async def list_requests(limit: int = 100):
 
 @router.get("/api-keys", dependencies=[Depends(require_admin)])
 async def list_api_keys():
-    """Legacy env keys plus managed keys (metadata only)."""
     configured = [item.strip() for item in os.environ.get("EVOTOWN_GATEWAY_API_KEYS", "").split(",") if item.strip()]
     legacy = [
         {

@@ -446,6 +446,11 @@ class GatewayModelRouteCreate(BaseModel):
     description: str = Field(default="", max_length=512)
     priority: int = Field(default=100, ge=0, le=10000)
     enabled: bool = True
+    route_type: str = Field(default="static", max_length=32)
+    fallback_models: list[str] = Field(default_factory=list)
+    retry_policy: dict[str, Any] = Field(default_factory=dict)
+    auto_policy: dict[str, Any] = Field(default_factory=dict)
+    enable_fallback: bool = True
 
 
 class GatewayModelRouteUpdate(BaseModel):
@@ -456,6 +461,11 @@ class GatewayModelRouteUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=512)
     priority: int | None = Field(default=None, ge=0, le=10000)
     enabled: bool | None = None
+    route_type: str | None = Field(default=None, max_length=32)
+    fallback_models: list[str] | None = None
+    retry_policy: dict[str, Any] | None = None
+    auto_policy: dict[str, Any] | None = None
+    enable_fallback: bool | None = None
 
 
 class GatewayUpstreamModelCreate(BaseModel):

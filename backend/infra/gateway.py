@@ -178,11 +178,25 @@ def usage_summary(limit: int = 10) -> dict[str, Any]:
         """,
         (max(1, min(limit, 100)),),
     ).fetchall()
+    
+    # Fetch account names for by_account results
+    by_account_list = [dict(row) for row in by_account]
+    account_ids = {row["account_id"] for row in by_account_list}
+    account_names = {}
+    if account_ids:
+        from infra import accounts as accounts_store
+        for acc_id in account_ids:
+            acc = accounts_store.get_account(acc_id)
+            if acc and acc.get("name"):
+                account_names[acc_id] = acc["name"]
+    for row in by_account_list:
+        row["account_name"] = account_names.get(row["account_id"], row["account_id"])
+    
     return {
         "total": dict(total) if total else {},
         "by_model": [dict(row) for row in by_model],
         "by_agent": [dict(row) for row in by_agent],
-        "by_account": [dict(row) for row in by_account],
+        "by_account": by_account_list,
     }
 
 
@@ -277,4 +291,21 @@ def recent_requests(limit: int = 100) -> list[dict[str, Any]]:
         "SELECT * FROM gateway_requests ORDER BY created_at DESC LIMIT ?",
         (max(1, min(limit, 500)),),
     ).fetchall()
-    return [_request_from_row(row) for row in rows]
+    
+    # Extract unique account_ids and fetch account names from accounts.db
+    account_ids = {row["account_id"] for row in rows if row["account_id"]}
+    account_names = {}
+    if account_ids:
+        from infra import accounts as accounts_store
+        for acc_id in account_ids:
+            acc = accounts_store.get_account(acc_id)
+            if acc and acc.get("name"):
+                account_names[acc_id] = acc["name"]
+    
+    # Merge account names into request data
+    result = []
+    for row in rows:
+        req = _request_from_row(row)
+        req["account_name"] = account_names.get(row["account_id"], "")
+        result.append(req)
+    return result

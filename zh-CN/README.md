@@ -10,9 +10,7 @@
 
 ## 产品预览
 
-<p align="center">
-  <img src="../docs/screenshots/evotown-home.png" alt="Evotown 企业首页" width="100%" />
-</p>
+![Evotown 企业首页](/docs/screenshots/evotown-home.png)
 
 *企业 Agent 协作与治理平台首页。*
 

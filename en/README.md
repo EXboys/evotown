@@ -10,9 +10,7 @@ Runners stay where they are (laptops, CI, servers, containers). Evotown is the *
 
 ## Product preview
 
-<p align="center">
-  <img src="../docs/screenshots/evotown-home.png" alt="Evotown enterprise landing page" width="100%" />
-</p>
+![Evotown enterprise landing page](/docs/screenshots/evotown-home.png)
 
 *Homepage — enterprise Agent collaboration & governance platform.*
 

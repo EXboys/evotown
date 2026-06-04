@@ -27,6 +27,10 @@ npm-debug.log*
 *.swp
 *.swo
 
+# Project - local dev docs (don't track)
+CODE_INDEX.md
+CODE_GUIDE.md
+
 # OS
 .DS_Store
 Thumbs.db

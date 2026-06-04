@@ -12,6 +12,7 @@ import {
   testEmployeeConnection,
   type EmployeeRuntime,
 } from "../../lib/employeeConfig";
+import type { Locale } from "../../lib/i18n";
 
 const RUNTIMES: Array<{ id: EmployeeRuntime; label: string }> = [
   { id: "openclaw", label: "OpenClaw" },
@@ -26,9 +27,56 @@ type Props = {
   className?: string;
   /** sidebar：市场页右侧紧凑条；panel：账号页等全宽块 */
   layout?: Layout;
+  locale?: Locale;
 };
 
-export function EasyInstallWizard({ apiKeyOverride, className = "", layout = "sidebar" }: Props) {
+const COPY = {
+  zh: {
+    title: { sidebar: "快速接入", panel: "傻瓜式接入" },
+    subtitle: { sidebar: "选 Runtime · 填 Key · 一键安装", panel: "下载配置或复制终端命令，自动 sync 技能包" },
+    collapse: "收起",
+    expand: "展开",
+    signedIn: "已登录",
+    login: "登录",
+    requestKey: "申请 Key",
+    copied: "已复制",
+    copy: "复制",
+    copyInstall: "复制一键安装命令",
+    downloaded: "已下载",
+    downloadEnv: "下载 .env",
+    testing: "…",
+    test: "测试连接",
+    needKey: "请先登录或粘贴 evk_ Key",
+    hideCommand: "隐藏命令",
+    showCommand: "查看终端命令",
+    previewAfterKey: "# 填写 Key 后预览",
+    firstUse: "首次使用？展开一键接入",
+  },
+  en: {
+    title: { sidebar: "Quick Setup", panel: "One-click Setup" },
+    subtitle: { sidebar: "Pick runtime · add key · install", panel: "Download config or copy a terminal command to sync skills automatically" },
+    collapse: "Collapse",
+    expand: "Expand",
+    signedIn: "Signed in",
+    login: "Log in",
+    requestKey: "Request Key",
+    copied: "Copied",
+    copy: "Copy",
+    copyInstall: "Copy Install Command",
+    downloaded: "Downloaded",
+    downloadEnv: "Download .env",
+    testing: "…",
+    test: "Test Connection",
+    needKey: "Log in or paste an evk_ key first",
+    hideCommand: "Hide command",
+    showCommand: "Show terminal command",
+    previewAfterKey: "# Add a key to preview",
+    firstUse: "First time? Expand one-click setup",
+  },
+} as const;
+
+export function EasyInstallWizard({ apiKeyOverride, className = "", layout = "sidebar", locale = "zh" }: Props) {
+  const copy = COPY[locale];
   const navigate = useNavigate();
   const isSidebar = layout === "sidebar";
   const [runtime, setRuntime] = useState<EmployeeRuntime>("openclaw");
@@ -87,10 +135,10 @@ export function EasyInstallWizard({ apiKeyOverride, className = "", layout = "si
     >
       <div className="min-w-0">
         <h2 className={`font-semibold text-slate-950 ${isSidebar ? "text-sm" : "text-base"}`}>
-          {isSidebar ? "快速接入" : "傻瓜式接入"}
+          {isSidebar ? copy.title.sidebar : copy.title.panel}
         </h2>
         <p className="mt-0.5 text-xs leading-5 text-slate-500">
-          {isSidebar ? "选 Runtime · 填 Key · 一键安装" : "下载配置或复制终端命令，自动 sync 技能包"}
+          {isSidebar ? copy.subtitle.sidebar : copy.subtitle.panel}
         </p>
       </div>
       {isSidebar && (
@@ -100,7 +148,7 @@ export function EasyInstallWizard({ apiKeyOverride, className = "", layout = "si
           className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-50"
           aria-expanded={expanded}
         >
-          {expanded ? "收起" : "展开"}
+          {expanded ? copy.collapse : copy.expand}
         </button>
       )}
     </div>
@@ -132,7 +180,7 @@ export function EasyInstallWizard({ apiKeyOverride, className = "", layout = "si
         <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">API Key</p>
         {sessionKey.startsWith("evk_") && !apiKeyOverride ? (
           <p className="mt-1.5 rounded-lg bg-emerald-50 px-2.5 py-2 text-xs text-emerald-800">
-            已登录 <span className="font-mono">{maskApiKey(sessionKey)}</span>
+            {copy.signedIn} <span className="font-mono">{maskApiKey(sessionKey)}</span>
           </p>
         ) : (
           <div className="mt-1.5 space-y-1">
@@ -152,11 +200,11 @@ export function EasyInstallWizard({ apiKeyOverride, className = "", layout = "si
                 onClick={() => navigate("/login?return=%2Fmarket")}
                 className="font-medium text-violet-700 hover:underline"
               >
-                登录
+                {copy.login}
               </button>
               {" · "}
               <Link to="/accounts" className="font-medium text-violet-700 hover:underline">
-                申请 Key
+                {copy.requestKey}
               </Link>
             </p>
           </div>
@@ -170,7 +218,7 @@ export function EasyInstallWizard({ apiKeyOverride, className = "", layout = "si
           onClick={handleCopyScript}
           className="w-full rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
         >
-          {copied === "script" ? "已复制" : "复制一键安装命令"}
+          {copied === "script" ? copy.copied : copy.copyInstall}
         </button>
         <div className="grid grid-cols-2 gap-2">
           <button
@@ -179,7 +227,7 @@ export function EasyInstallWizard({ apiKeyOverride, className = "", layout = "si
             onClick={handleDownload}
             className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
           >
-            {copied === "download" ? "已下载" : "下载 .env"}
+            {copied === "download" ? copy.downloaded : copy.downloadEnv}
           </button>
           <button
             type="button"
@@ -187,12 +235,12 @@ export function EasyInstallWizard({ apiKeyOverride, className = "", layout = "si
             onClick={handleTest}
             className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
           >
-            {testing ? "…" : "测试连接"}
+            {testing ? copy.testing : copy.test}
           </button>
         </div>
       </div>
 
-      {!hasValidKey && <p className="text-[11px] text-amber-800">请先登录或粘贴 evk_ Key</p>}
+      {!hasValidKey && <p className="text-[11px] text-amber-800">{copy.needKey}</p>}
 
       {testResult && (
         <p
@@ -210,11 +258,11 @@ export function EasyInstallWizard({ apiKeyOverride, className = "", layout = "si
         onClick={() => setShowCommand((v) => !v)}
         className="text-[10px] font-medium text-violet-700 hover:text-violet-900"
       >
-        {showCommand ? "隐藏命令" : "查看终端命令"}
+        {showCommand ? copy.hideCommand : copy.showCommand}
       </button>
       {showCommand && (
         <pre className="max-h-36 overflow-auto rounded-lg bg-slate-950 p-2.5 text-[10px] leading-5 text-emerald-100">
-          {hasValidKey ? installScript : "# 填写 Key 后预览"}
+          {hasValidKey ? installScript : copy.previewAfterKey}
         </pre>
       )}
     </div>
@@ -230,7 +278,7 @@ export function EasyInstallWizard({ apiKeyOverride, className = "", layout = "si
             onClick={() => setExpanded(true)}
             className="w-full rounded-lg border border-dashed border-violet-200 bg-violet-50/50 py-2 text-xs font-medium text-violet-800 hover:bg-violet-50"
           >
-            首次使用？展开一键接入
+            {copy.firstUse}
           </button>
         </div>
       </section>

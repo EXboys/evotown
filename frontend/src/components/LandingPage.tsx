@@ -1,47 +1,119 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-const MODULES = [
-  {
-    title: "协作地图",
-    desc: "实时观察 Agent 团队任务、状态与协作关系，保留趣味可视化。",
-    path: "/arena",
-    cta: "进入地图",
-    accent: "from-blue-600 to-cyan-500",
-  },
-  {
-    title: "Skills 市场",
-    desc: "浏览、安装和复用企业内部 Agent 技能包，支持 OpenClaw / Hermes / SkillLite。",
-    path: "/market",
-    cta: "浏览市场",
-    accent: "from-violet-600 to-indigo-500",
-  },
-  {
-    title: "企业知识库",
-    desc: "对接飞书、语雀等文档源，统一索引与检索，供 Agent 运行时引用。",
-    path: "/knowledge",
-    cta: "管理知识库",
-    accent: "from-teal-600 to-emerald-500",
-  },
-  {
-    title: "企业控制台",
-    desc: "引擎接入、运行记录、成本归因、风控事件与账号治理统一入口。",
-    path: "/dashboard",
-    cta: "打开控制台",
-    accent: "from-slate-700 to-slate-900",
-  },
+import { PublicSiteHeader } from "./PublicSiteHeader";
+import { useLocale } from "../lib/i18n";
+
+const MODULE_META = [
+  { path: "/arena", accent: "from-blue-600 to-cyan-500" },
+  { path: "/market", accent: "from-violet-600 to-indigo-500" },
+  { path: "/knowledge", accent: "from-teal-600 to-emerald-500" },
+  { path: "/dashboard", accent: "from-slate-700 to-slate-900" },
 ];
 
-const CAPABILITIES = [
-  { label: "运行可观测", detail: "run 生命周期、事件流、产物与策略违规一屏掌握" },
-  { label: "技能资产化", detail: "候选技能审核、版本沉淀、私有市场分发" },
-  { label: "企业知识库", detail: "飞书 / 语雀 connector、统一检索与文档引用" },
-  { label: "多引擎接入", detail: "OpenClaw、Hermes、SkillLite 与自定义 runtime 统一 ingest" },
-  { label: "企业治理", detail: "账号体系、API Key、成本与风控闭环" },
-];
+const COPY = {
+  zh: {
+    hero: {
+      eyebrow: "Enterprise AI Control Plane",
+      title: (
+        <>
+          企业 Agent
+          <br />
+          协作与治理平台
+        </>
+      ),
+      body: "Evotown 将 Agent 运行监控、技能资产市场与企业控制台整合在一起。团队可以看清「谁在做什么」，沉淀可复用技能，并统一管理引擎、成本与风险。",
+      primary: "进入控制台",
+      market: "浏览 Skills 市场",
+      arena: "打开协作地图",
+    },
+    overview: {
+      title: "Platform Overview",
+      items: [
+        { label: "协作地图", value: "Live", note: "Agent 活动可视化" },
+        { label: "Skills 市场", value: "Private", note: "企业内部技能分发" },
+        { label: "引擎接入", value: "Multi", note: "OpenClaw / Hermes / SkillLite" },
+        { label: "治理层", value: "Unified", note: "账号 · 成本 · 风控" },
+      ],
+    },
+    modules: [
+      { title: "协作地图", desc: "实时观察 Agent 团队任务、状态与协作关系，保留趣味可视化。", cta: "进入地图" },
+      { title: "Skills 市场", desc: "浏览、安装和复用企业内部 Agent 技能包，支持 OpenClaw / Hermes / SkillLite。", cta: "浏览市场" },
+      { title: "企业知识库", desc: "对接飞书、语雀等文档源，统一索引与检索，供 Agent 运行时引用。", cta: "浏览知识库" },
+      { title: "企业控制台", desc: "引擎接入、运行记录、成本归因、风控事件与账号治理统一入口。", cta: "打开控制台" },
+    ],
+    capabilities: {
+      title: "平台能力",
+      desc: "从运行观测到技能沉淀，覆盖企业 Agent 落地常见环节。",
+      items: [
+        { label: "运行可观测", detail: "run 生命周期、事件流、产物与策略违规一屏掌握" },
+        { label: "技能资产化", detail: "候选技能审核、版本沉淀、私有市场分发" },
+        { label: "企业知识库", detail: "飞书 / 语雀 connector、统一检索与文档引用" },
+        { label: "多引擎接入", detail: "OpenClaw、Hermes、SkillLite 与自定义 runtime 统一 ingest" },
+        { label: "企业治理", detail: "账号体系、API Key、成本与风控闭环" },
+      ],
+    },
+    chronicle: {
+      title: "组织学习日志",
+      empty: "暂无预览",
+      cta: "查看运行日报",
+    },
+    footer: "监控 · 技能市场 · 治理控制台",
+  },
+  en: {
+    hero: {
+      eyebrow: "Enterprise AI Control Plane",
+      title: (
+        <>
+          Enterprise Agent
+          <br />
+          Collaboration & Governance
+        </>
+      ),
+      body: "Evotown brings Agent run observability, a private Skills market, and an enterprise console into one control plane. Teams can see who is doing what, promote reusable capabilities, and govern engines, cost, and risk.",
+      primary: "Open Console",
+      market: "Browse Skills Market",
+      arena: "Open Collaboration Map",
+    },
+    overview: {
+      title: "Platform Overview",
+      items: [
+        { label: "Collaboration Map", value: "Live", note: "Agent activity visualization" },
+        { label: "Skills Market", value: "Private", note: "Internal skill distribution" },
+        { label: "Engine Ingest", value: "Multi", note: "OpenClaw / Hermes / SkillLite" },
+        { label: "Governance", value: "Unified", note: "Accounts · Cost · Risk" },
+      ],
+    },
+    modules: [
+      { title: "Collaboration Map", desc: "Observe Agent team tasks, status, and collaboration relationships in real time with a visual workspace.", cta: "Enter Map" },
+      { title: "Skills Market", desc: "Browse, install, and reuse private Agent skill packages for OpenClaw, Hermes, and SkillLite.", cta: "Browse Market" },
+      { title: "Knowledge Base", desc: "Connect Feishu, Yuque, and native docs into unified search and citations for Agent runtime use.", cta: "Browse Knowledge" },
+      { title: "Enterprise Console", desc: "One place for engine ingest, run history, cost attribution, risk events, and account governance.", cta: "Open Console" },
+    ],
+    capabilities: {
+      title: "Platform Capabilities",
+      desc: "From run observability to skill promotion, Evotown covers the core steps for landing enterprise Agents.",
+      items: [
+        { label: "Run Observability", detail: "Track run lifecycle, event streams, artifacts, and policy violations in one view" },
+        { label: "Skill Assetization", detail: "Review candidate skills, preserve versions, and distribute through a private market" },
+        { label: "Enterprise Knowledge", detail: "Feishu / Yuque connectors, unified retrieval, and document citations" },
+        { label: "Multi-engine Ingest", detail: "Unified ingest for OpenClaw, Hermes, SkillLite, and custom runtimes" },
+        { label: "Enterprise Governance", detail: "Accounts, API keys, cost attribution, and risk workflows" },
+      ],
+    },
+    chronicle: {
+      title: "Organization Learning Log",
+      empty: "No preview yet",
+      cta: "View daily run report",
+    },
+    footer: "Observability · Skills Market · Governance Console",
+  },
+} as const;
 
 export function LandingPage() {
   const navigate = useNavigate();
+  const { locale, setLocale } = useLocale();
+  const copy = COPY[locale];
   const [latestChronicle, setLatestChronicle] = useState<{ preview: string; chapter_label: string; virtual_date: string } | null>(null);
 
   useEffect(() => {
@@ -58,45 +130,17 @@ export function LandingPage() {
       className="min-h-screen bg-slate-50 text-slate-900"
       style={{ fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}
     >
-      <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-4">
-          <button type="button" onClick={() => navigate("/")} className="flex items-center gap-3 text-left">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-950 text-sm font-semibold text-white">E</span>
-            <span>
-              <span className="block text-sm font-semibold text-slate-950">Evotown</span>
-              <span className="block text-xs text-slate-500">Enterprise Agent Platform</span>
-            </span>
-          </button>
-          <nav className="hidden items-center gap-1 text-sm md:flex">
-            <button type="button" onClick={() => navigate("/arena")} className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">协作地图</button>
-            <button type="button" onClick={() => navigate("/market")} className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">Skills 市场</button>
-            <button type="button" onClick={() => navigate("/knowledge")} className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">知识库</button>
-            <button type="button" onClick={() => navigate("/dashboard")} className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">控制台</button>
-            <button type="button" onClick={() => navigate("/runs")} className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">Runs</button>
-            <button type="button" onClick={() => navigate("/login")} className="rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">登录</button>
-          </nav>
-          <button
-            type="button"
-            onClick={() => navigate("/arena")}
-            className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-          >
-            协作地图
-          </button>
-        </div>
-      </header>
+      <PublicSiteHeader locale={locale} onLocaleChange={setLocale} maxWidthClass="max-w-6xl mx-auto w-full" />
 
       <main className="mx-auto max-w-6xl px-5 pb-16 pt-12 md:pt-16">
         <section className="grid items-center gap-10 lg:grid-cols-[1.1fr_0.9fr]">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-600">Enterprise AI Control Plane</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-600">{copy.hero.eyebrow}</p>
             <h1 className="mt-4 text-4xl font-semibold tracking-tight text-slate-950 md:text-5xl">
-              企业 Agent
-              <br />
-              协作与治理平台
+              {copy.hero.title}
             </h1>
             <p className="mt-5 max-w-xl text-base leading-7 text-slate-600">
-              Evotown 将 Agent 运行监控、技能资产市场与企业控制台整合在一起。
-              团队可以看清「谁在做什么」，沉淀可复用技能，并统一管理引擎、成本与风险。
+              {copy.hero.body}
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <button
@@ -104,34 +148,29 @@ export function LandingPage() {
                 onClick={() => navigate("/dashboard")}
                 className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-medium text-white shadow-sm hover:bg-blue-500"
               >
-                进入控制台
+                {copy.hero.primary}
               </button>
               <button
                 type="button"
                 onClick={() => navigate("/market")}
                 className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
               >
-                浏览 Skills 市场
+                {copy.hero.market}
               </button>
               <button
                 type="button"
                 onClick={() => navigate("/arena")}
                 className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
               >
-                打开协作地图
+                {copy.hero.arena}
               </button>
             </div>
           </div>
 
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Platform Overview</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{copy.overview.title}</p>
             <div className="mt-5 grid grid-cols-2 gap-3">
-              {[
-                { label: "协作地图", value: "Live", note: "Agent 活动可视化" },
-                { label: "Skills 市场", value: "Private", note: "企业内部技能分发" },
-                { label: "引擎接入", value: "Multi", note: "OpenClaw / Hermes / SkillLite" },
-                { label: "治理层", value: "Unified", note: "账号 · 成本 · 风控" },
-              ].map((item) => (
+              {copy.overview.items.map((item) => (
                 <div key={item.label} className="rounded-2xl bg-slate-50 p-4">
                   <p className="text-xs text-slate-500">{item.label}</p>
                   <p className="mt-1 text-xl font-semibold text-slate-950">{item.value}</p>
@@ -143,14 +182,14 @@ export function LandingPage() {
         </section>
 
         <section className="mt-16 grid gap-4 md:grid-cols-3">
-          {MODULES.map((mod) => (
+          {copy.modules.map((mod, index) => (
             <button
-              key={mod.path}
+              key={MODULE_META[index].path}
               type="button"
-              onClick={() => navigate(mod.path)}
+              onClick={() => navigate(MODULE_META[index].path)}
               className="group rounded-2xl border border-slate-200 bg-white p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
             >
-              <div className={`inline-flex rounded-xl bg-gradient-to-br ${mod.accent} px-3 py-1.5 text-xs font-medium text-white`}>
+              <div className={`inline-flex rounded-xl bg-gradient-to-br ${MODULE_META[index].accent} px-3 py-1.5 text-xs font-medium text-white`}>
                 {mod.title}
               </div>
               <p className="mt-4 text-sm leading-6 text-slate-600">{mod.desc}</p>
@@ -162,10 +201,10 @@ export function LandingPage() {
         </section>
 
         <section className="mt-16 rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-950">平台能力</h2>
-          <p className="mt-2 text-sm text-slate-500">从运行观测到技能沉淀，覆盖企业 Agent 落地常见环节。</p>
+          <h2 className="text-lg font-semibold text-slate-950">{copy.capabilities.title}</h2>
+          <p className="mt-2 text-sm text-slate-500">{copy.capabilities.desc}</p>
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            {CAPABILITIES.map((item) => (
+            {copy.capabilities.items.map((item) => (
               <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50/80 p-5">
                 <p className="font-medium text-slate-950">{item.label}</p>
                 <p className="mt-2 text-sm leading-6 text-slate-600">{item.detail}</p>
@@ -177,14 +216,14 @@ export function LandingPage() {
         {latestChronicle && (
           <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold text-slate-950">组织学习日志</h2>
+              <h2 className="text-sm font-semibold text-slate-950">{copy.chronicle.title}</h2>
               <span className="text-xs text-slate-500">
                 {latestChronicle.chapter_label} · {latestChronicle.virtual_date}
               </span>
             </div>
-            <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-600">{latestChronicle.preview || "暂无预览"}</p>
+            <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-600">{latestChronicle.preview || copy.chronicle.empty}</p>
             <button type="button" onClick={() => navigate("/chronicle")} className="mt-4 text-sm font-medium text-blue-600 hover:text-blue-500">
-              查看运行日报 →
+              {copy.chronicle.cta} →
             </button>
           </section>
         )}
@@ -193,7 +232,7 @@ export function LandingPage() {
       <footer className="border-t border-slate-200 bg-white py-6">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-5 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
           <span>© 2025 Evotown · Enterprise Agent Platform</span>
-          <span>监控 · 技能市场 · 治理控制台</span>
+          <span>{copy.footer}</span>
         </div>
       </footer>
     </div>

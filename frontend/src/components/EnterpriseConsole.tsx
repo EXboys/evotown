@@ -13,15 +13,17 @@ import {
 } from "recharts";
 
 import { GatewayAccountsPanel } from "./GatewayAccountsPanel";
-import { GatewayConsole, RecentRequestsTable } from "./GatewayConsole";
+import { GATEWAY_COPY, GatewayConsole, RecentRequestsTable } from "./GatewayConsole";
 import { SkillsConsole } from "./SkillsConsole";
 import { PoliciesPanel } from "./PoliciesPanel";
 import { AssetsPanel } from "./AssetsPanel";
 import { KnowledgePanel } from "./KnowledgePanel";
 import { DispatchPanel } from "./DispatchPanel";
 import { DisplayTimezoneSelect } from "./DisplayTimezoneSelect";
+import { LanguageToggle } from "./LanguageToggle";
 import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import { formatDateTimeShort } from "../lib/datetime";
+import { useLocale, type Locale } from "../lib/i18n";
 
 type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "costs" | "risk";
 
@@ -164,20 +166,148 @@ type ConsoleData = {
   gatewayRequests: GatewayRequest[];
 };
 
-const NAV_ITEMS: Array<{ id: ConsoleTab; label: string; desc: string }> = [
-  { id: "dashboard", label: "总览", desc: "Overview" },
-  { id: "gateway", label: "网关", desc: "Gateway" },
-  { id: "accounts", label: "账号", desc: "Accounts" },
-  { id: "engines", label: "引擎", desc: "Engines" },
-  { id: "dispatch", label: "派活", desc: "Dispatch" },
-  { id: "runs", label: "运行", desc: "Runs" },
-  { id: "assets", label: "资产", desc: "Assets" },
-  { id: "skills", label: "技能", desc: "Skills" },
-  { id: "policies", label: "策略", desc: "Policies" },
-  { id: "knowledge", label: "知识库", desc: "Knowledge" },
-  { id: "costs", label: "成本", desc: "Costs" },
-  { id: "risk", label: "风控", desc: "Risk" },
+const TAB_ROUTE: Record<ConsoleTab, string> = {
+  dashboard: "/dashboard",
+  gateway: "/gateway",
+  accounts: "/accounts",
+  engines: "/engines",
+  dispatch: "/dispatch",
+  runs: "/runs",
+  assets: "/assets",
+  skills: "/skills",
+  policies: "/policies",
+  knowledge: "/console/knowledge",
+  costs: "/costs",
+  risk: "/risk",
+};
+
+const NAV_ITEMS: ConsoleTab[] = [
+  "dashboard",
+  "gateway",
+  "accounts",
+  "engines",
+  "dispatch",
+  "runs",
+  "assets",
+  "skills",
+  "policies",
+  "knowledge",
+  "costs",
+  "risk",
 ];
+
+const CONSOLE_COPY = {
+  zh: {
+    nav: {
+      dashboard: { label: "总览", desc: "Overview" },
+      gateway: { label: "网关", desc: "Gateway" },
+      accounts: { label: "账号", desc: "Accounts" },
+      engines: { label: "引擎", desc: "Engines" },
+      dispatch: { label: "派活", desc: "Dispatch" },
+      runs: { label: "运行", desc: "Runs" },
+      assets: { label: "资产", desc: "Assets" },
+      skills: { label: "技能", desc: "Skills" },
+      policies: { label: "策略", desc: "Policies" },
+      knowledge: { label: "知识库", desc: "Knowledge" },
+      costs: { label: "成本", desc: "Costs" },
+      risk: { label: "风控", desc: "Risk" },
+    },
+    shell: {
+      eyebrow: "Management Console",
+      title: "企业管理后台",
+      subtitle: "外部引擎接入、运行记录、成本和风控事件统一观测。",
+      signedIn: "已登录",
+      home: "首页",
+      arena: "协作地图",
+      logout: "退出登录",
+      refreshing: "刷新中...",
+      refresh: "刷新数据",
+      backHome: "返回首页",
+      loadFailed: "加载失败",
+    },
+    dashboard: {
+      stats: {
+        engines: "已接入引擎",
+        gatewayRequests: "网关请求",
+        gatewayNote: "chat/completions 调用",
+        externalRuns: "外部运行",
+        successRate: "成功率",
+        totalCost: "累计成本",
+        gatewayCost: "网关",
+        engineCost: "引擎",
+        pendingRisk: "待处理风险",
+      },
+      enginesTitle: "引擎概览",
+      enginesSubtitle: "当前已注册的外部运行时",
+      recentTitle: "最近动态",
+      gatewaySubtitle: "企业网关 chat/completions",
+      runsSubtitle: "外部引擎运行与 tool_call 事件",
+      viewAll: "查看全部",
+      requestCalls: "请求调用",
+      externalRuns: "外部运行",
+      riskTitle: "风控事件",
+      riskSubtitle: "最新策略命中和阻断动作",
+      handle: "处理",
+      noEngines: "暂无引擎接入。",
+    },
+  },
+  en: {
+    nav: {
+      dashboard: { label: "Overview", desc: "Dashboard" },
+      gateway: { label: "Gateway", desc: "Models" },
+      accounts: { label: "Accounts", desc: "Keys" },
+      engines: { label: "Engines", desc: "Runtimes" },
+      dispatch: { label: "Dispatch", desc: "Tasks" },
+      runs: { label: "Runs", desc: "History" },
+      assets: { label: "Assets", desc: "Promote" },
+      skills: { label: "Skills", desc: "Review" },
+      policies: { label: "Policies", desc: "Rules" },
+      knowledge: { label: "Knowledge", desc: "Sources" },
+      costs: { label: "Costs", desc: "Usage" },
+      risk: { label: "Risk", desc: "Events" },
+    },
+    shell: {
+      eyebrow: "Management Console",
+      title: "Enterprise Admin Console",
+      subtitle: "Unified observability for engine ingest, run history, cost, and risk events.",
+      signedIn: "Signed in",
+      home: "Home",
+      arena: "Collaboration Map",
+      logout: "Log out",
+      refreshing: "Refreshing...",
+      refresh: "Refresh data",
+      backHome: "Back home",
+      loadFailed: "Load failed",
+    },
+    dashboard: {
+      stats: {
+        engines: "Connected Engines",
+        gatewayRequests: "Gateway Requests",
+        gatewayNote: "chat/completions calls",
+        externalRuns: "External Runs",
+        successRate: "Success rate",
+        totalCost: "Total Cost",
+        gatewayCost: "Gateway",
+        engineCost: "Engine",
+        pendingRisk: "Open Risks",
+      },
+      enginesTitle: "Engine Overview",
+      enginesSubtitle: "Currently registered external runtimes",
+      recentTitle: "Recent Activity",
+      gatewaySubtitle: "Enterprise gateway chat/completions",
+      runsSubtitle: "External engine runs and tool_call events",
+      viewAll: "View all",
+      requestCalls: "Requests",
+      externalRuns: "External Runs",
+      riskTitle: "Risk Events",
+      riskSubtitle: "Latest policy hits and blocking actions",
+      handle: "Review",
+      noEngines: "No engines connected yet.",
+    },
+  },
+} as const;
+
+type DashboardCopy = (typeof CONSOLE_COPY)[keyof typeof CONSOLE_COPY]["dashboard"];
 
 const ENGINE_META: Record<EngineRecord["engine_type"], { label: string; className: string }> = {
   openclaw: { label: "OpenClaw", className: "border-sky-200 bg-sky-50 text-sky-700" },
@@ -256,6 +386,8 @@ function StatCard({ label, value, note }: { label: string; value: string | numbe
 
 export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: ConsoleTab }) {
   const navigate = useNavigate();
+  const { locale, setLocale } = useLocale();
+  const copy = CONSOLE_COPY[locale];
   const [tab, setTab] = useState<ConsoleTab>(initialTab);
   const [data, setData] = useState<ConsoleData>({
     engines: [],
@@ -361,7 +493,7 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
 
   const setRoute = (next: ConsoleTab) => {
     setTab(next);
-    navigate(next === "dashboard" ? "/dashboard" : `/${next}`);
+    navigate(TAB_ROUTE[next]);
   };
 
   const openRun = (run: ExternalRun) => {
@@ -415,14 +547,14 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
           <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-3 py-4 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.2)_transparent]">
             {NAV_ITEMS.map((item) => (
               <button
-                key={item.id}
-                onClick={() => setRoute(item.id)}
+                key={item}
+                onClick={() => setRoute(item)}
                 className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm transition ${
-                  tab === item.id ? "bg-white text-slate-950" : "text-slate-300 hover:bg-white/10 hover:text-white"
+                  tab === item ? "bg-white text-slate-950" : "text-slate-300 hover:bg-white/10 hover:text-white"
                 }`}
               >
-                <span className="font-medium">{item.label}</span>
-                <span className={`text-xs ${tab === item.id ? "text-slate-500" : "text-slate-500"}`}>{item.desc}</span>
+                <span className="font-medium">{copy.nav[item].label}</span>
+                <span className={`text-xs ${tab === item ? "text-slate-500" : "text-slate-500"}`}>{copy.nav[item].desc}</span>
               </button>
             ))}
           </nav>
@@ -432,85 +564,94 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
               onClick={() => navigate("/")}
               className="w-full rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
             >
-              返回首页
+              {copy.shell.backHome}
             </button>
             <button
               onClick={() => navigate("/arena")}
               className="w-full rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-100 transition hover:bg-sky-500/20"
             >
-              协作地图
+              {copy.shell.arena}
             </button>
           </div>
         </aside>
 
         <main className="min-w-0 flex-1">
           <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
-            <div className="flex flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between lg:px-8">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">Management Console</div>
-                <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">企业管理后台</h1>
-                <p className="mt-1 text-sm text-slate-500">外部引擎接入、运行记录、成本和风控事件统一观测。</p>
+            <div className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start lg:px-8">
+              <div className="min-w-0 pr-0 md:pr-6">
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">{copy.shell.eyebrow}</div>
+                <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{copy.shell.title}</h1>
+                <p className="mt-1 text-sm text-slate-500">{copy.shell.subtitle}</p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {sessionName && <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">已登录：{sessionName}</span>}
-                <button
-                  onClick={() => navigate("/")}
-                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                >
-                  首页
-                </button>
-                <button
-                  onClick={() => navigate("/arena")}
-                  className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-800 transition hover:bg-sky-100"
-                >
-                  协作地图
-                </button>
-                <button
-                  onClick={() => {
-                    clearConsoleSession();
-                    navigate("/login");
-                  }}
-                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                >
-                  退出登录
-                </button>
-                <button
-                  onClick={load}
-                  disabled={loading}
-                  className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50"
-                >
-                  {loading ? "刷新中..." : "刷新数据"}
-                </button>
+              <div className="flex shrink-0 flex-col items-start gap-2 md:items-end">
+                <div className="flex items-center justify-start gap-2 md:justify-end">
+                  {sessionName && (
+                    <span className="max-w-[180px] truncate rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
+                      {copy.shell.signedIn}: {sessionName}
+                    </span>
+                  )}
+                  <LanguageToggle locale={locale} onChange={setLocale} />
+                </div>
+                <div className="flex flex-nowrap items-center justify-start gap-1.5 md:justify-end">
+                  <button
+                    onClick={() => navigate("/")}
+                    className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                  >
+                    {copy.shell.home}
+                  </button>
+                  <button
+                    onClick={() => navigate("/arena")}
+                    className="whitespace-nowrap rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-800 transition hover:bg-sky-100"
+                  >
+                    {copy.shell.arena}
+                  </button>
+                  <button
+                    onClick={() => {
+                      clearConsoleSession();
+                      navigate("/login");
+                    }}
+                    className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                  >
+                    {copy.shell.logout}
+                  </button>
+                  <button
+                    onClick={load}
+                    disabled={loading}
+                    className="whitespace-nowrap rounded-md bg-slate-950 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {loading ? copy.shell.refreshing : copy.shell.refresh}
+                  </button>
+                </div>
               </div>
             </div>
             <nav className="flex gap-2 overflow-x-auto px-5 pb-4 md:hidden">
               {NAV_ITEMS.map((item) => (
                 <button
-                  key={item.id}
-                  onClick={() => setRoute(item.id)}
+                  key={item}
+                  onClick={() => setRoute(item)}
                   className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium ${
-                    tab === item.id ? "bg-slate-950 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"
+                    tab === item ? "bg-slate-950 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"
                   }`}
                 >
-                  {item.label}
+                  {copy.nav[item].label}
                 </button>
               ))}
             </nav>
           </header>
 
           <div className="px-5 py-6 lg:px-8">
-            {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">加载失败：{error}</div>}
+            {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{copy.shell.loadFailed}: {error}</div>}
 
-            {tab === "dashboard" && <Dashboard data={data} summary={summary} onTab={setRoute} onRun={openRun} />}
-            {tab === "gateway" && <GatewayConsole data={data} />}
-            {tab === "accounts" && <GatewayAccountsPanel />}
+            {tab === "dashboard" && <Dashboard data={data} summary={summary} copy={copy.dashboard} locale={locale} onTab={setRoute} onRun={openRun} />}
+            {tab === "gateway" && <GatewayConsole data={data} locale={locale} />}
+            {tab === "accounts" && <GatewayAccountsPanel locale={locale} />}
             {tab === "engines" && <Engines engines={data.engines} runs={data.runs} violations={data.violations} />}
             {tab === "dispatch" && <DispatchPanel engines={data.engines} onRefresh={load} />}
             {tab === "runs" && <Runs runs={data.runs} selectedRun={selectedRun} events={events} loading={eventsLoading} onRun={openRun} onAssetSubmitted={() => setRoute("assets")} />}
-            {tab === "skills" && <SkillsConsole />}
+            {tab === "skills" && <SkillsConsole locale={locale} />}
             {tab === "assets" && <AssetsPanel />}
-            {tab === "policies" && <PoliciesPanel />}
-            {tab === "knowledge" && <KnowledgePanel />}
+            {tab === "policies" && <PoliciesPanel locale={locale} />}
+            {tab === "knowledge" && <KnowledgePanel locale={locale} />}
             {tab === "costs" && <Costs cost={data.cost} />}
             {tab === "risk" && (
               <Risks
@@ -531,11 +672,15 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
 function Dashboard({
   data,
   summary,
+  copy,
+  locale,
   onTab,
   onRun,
 }: {
   data: ConsoleData;
   summary: { total: number; ok: number; failed: number; risk: number; critical: number; successRate: number };
+  copy: DashboardCopy;
+  locale: Locale;
   onTab: (tab: ConsoleTab) => void;
   onRun: (run: ExternalRun) => void;
 }) {
@@ -558,36 +703,36 @@ function Dashboard({
   return (
     <div className="space-y-6">
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="已接入引擎" value={data.engines.length} note="OpenClaw / Hermes / Custom" />
-        <StatCard label="网关请求" value={gatewayTotal} note="chat/completions 调用" />
-        <StatCard label="外部运行" value={summary.total} note={`成功率 ${summary.successRate}%`} />
+        <StatCard label={copy.stats.engines} value={data.engines.length} note="OpenClaw / Hermes / Custom" />
+        <StatCard label={copy.stats.gatewayRequests} value={gatewayTotal} note={copy.stats.gatewayNote} />
+        <StatCard label={copy.stats.externalRuns} value={summary.total} note={`${copy.stats.successRate} ${summary.successRate}%`} />
         <StatCard
-          label="累计成本"
+          label={copy.stats.totalCost}
           value={`$${totalCost.toFixed(4)}`}
-          note={`网关 $${gatewayCost.toFixed(4)} · 引擎 $${engineCost.toFixed(4)}`}
+          note={`${copy.stats.gatewayCost} $${gatewayCost.toFixed(4)} · ${copy.stats.engineCost} $${engineCost.toFixed(4)}`}
         />
-        <StatCard label="待处理风险" value={summary.risk} note={`${summary.critical} critical`} />
+        <StatCard label={copy.stats.pendingRisk} value={summary.risk} note={`${summary.critical} critical`} />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1fr_1.15fr]">
         <Card className="p-5">
           <SectionHeader
-            title="引擎概览"
-            subtitle="当前已注册的外部运行时"
-            action={<button onClick={() => onTab("engines")} className="text-sm font-medium text-blue-600 hover:text-blue-700">查看全部</button>}
+            title={copy.enginesTitle}
+            subtitle={copy.enginesSubtitle}
+            action={<button onClick={() => onTab("engines")} className="text-sm font-medium text-blue-600 hover:text-blue-700">{copy.viewAll}</button>}
           />
           <div className="grid gap-3 md:grid-cols-2">
-            {data.engines.length ? data.engines.slice(0, 4).map((engine) => <EngineCard key={engine.engine_id} engine={engine} runs={data.runs} violations={data.violations} />) : <EmptyState>暂无引擎接入。</EmptyState>}
+            {data.engines.length ? data.engines.slice(0, 4).map((engine) => <EngineCard key={engine.engine_id} engine={engine} runs={data.runs} violations={data.violations} />) : <EmptyState>{copy.noEngines}</EmptyState>}
           </div>
         </Card>
 
         <Card className="p-5">
           <SectionHeader
-            title="最近动态"
-            subtitle={activeActivityTab === "gateway" ? "企业网关 chat/completions" : "外部引擎运行与 tool_call 事件"}
+            title={copy.recentTitle}
+            subtitle={activeActivityTab === "gateway" ? copy.gatewaySubtitle : copy.runsSubtitle}
             action={
               <button onClick={() => onTab(activityDetailTab)} className="text-sm font-medium text-blue-600 hover:text-blue-700">
-                查看全部
+                {copy.viewAll}
               </button>
             }
           />
@@ -601,7 +746,7 @@ function Dashboard({
                   : "border-transparent text-slate-500 hover:text-slate-800"
               }`}
             >
-              请求调用
+              {copy.requestCalls}
               <span className="ml-1.5 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-600">{gatewayTotal}</span>
             </button>
             <button
@@ -613,12 +758,12 @@ function Dashboard({
                   : "border-transparent text-slate-500 hover:text-slate-800"
               }`}
             >
-              外部运行
+              {copy.externalRuns}
               <span className="ml-1.5 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-600">{summary.total}</span>
             </button>
           </div>
           {activeActivityTab === "gateway" ? (
-            <RecentRequestsTable requests={data.gatewayRequests} compact />
+            <RecentRequestsTable requests={data.gatewayRequests} compact copy={GATEWAY_COPY[locale]} />
           ) : (
             <RunTable runs={data.runs.slice(0, 8)} selectedRunId={null} onRun={onRun} compact />
           )}
@@ -627,9 +772,9 @@ function Dashboard({
 
       <Card className="p-5">
         <SectionHeader
-          title="风控事件"
-          subtitle="最新策略命中和阻断动作"
-          action={<button onClick={() => onTab("risk")} className="text-sm font-medium text-blue-600 hover:text-blue-700">处理</button>}
+          title={copy.riskTitle}
+          subtitle={copy.riskSubtitle}
+          action={<button onClick={() => onTab("risk")} className="text-sm font-medium text-blue-600 hover:text-blue-700">{copy.handle}</button>}
         />
         <RiskFeed
           violations={data.violations.slice(0, 5)}

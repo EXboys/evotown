@@ -343,7 +343,7 @@ async def generate_chronicle(
         "chapter": chapter_n,
         "chapter_label": chapter_label,
         "virtual_date": period_label,
-        "generated_at": datetime.now(_CST).isoformat(),
+        "generated_at": datetime.now(_display_tz()).isoformat(),
         "title": chapter_title,
         "text": text,
         "summary": {
@@ -430,7 +430,7 @@ async def regenerate_chronicle(
     record = {
         **data,
         "virtual_date": period_label,
-        "generated_at": datetime.now(_CST).isoformat(),
+        "generated_at": datetime.now(_display_tz()).isoformat(),
         "title": chapter_title,
         "text": text,
         "summary": {

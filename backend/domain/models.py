@@ -362,7 +362,7 @@ class GatewayApiKeyUpdate(BaseModel):
 class ConsoleRegister(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     owner_email: str = Field(default="", max_length=256)
-    team_id: str = Field(default="", max_length=128)
+    org_id: str = Field(default="", max_length=128)
 
 
 class ConsoleLogin(BaseModel):

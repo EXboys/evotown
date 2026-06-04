@@ -29,7 +29,7 @@ def _session_payload(identity: dict) -> dict:
     return {
         "account_id": identity.get("account_id", ""),
         "account_name": identity.get("account_name", ""),
-        "team_id": identity.get("team_id", ""),
+        "org_id": identity.get("org_id", ""),
         "key_id": identity.get("key_id", ""),
         "key_label": identity.get("key_label", ""),
         "scopes": identity.get("scopes", []),
@@ -53,7 +53,7 @@ async def register_console_account(body: ConsoleRegister):
         )
     account = accounts_store.create_account(
         name=body.name,
-        team_id=body.team_id,
+        org_id=body.org_id or accounts_store.ROOT_ORG_ID,
         owner_email=body.owner_email,
         notes="self-service registration",
     )

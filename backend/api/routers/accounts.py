@@ -27,13 +27,12 @@ def _enrich_key(key: dict) -> dict:
 
 @router.post("/accounts", dependencies=[Depends(require_admin)])
 async def create_account(body: GatewayAccountCreate):
-    if not body.org_id:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="org_id is required")
-    if accounts_store.get_gateway_org(body.org_id) is None:
+    org_id = body.org_id or accounts_store.ROOT_ORG_ID
+    if accounts_store.get_gateway_org(org_id) is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="org not found")
     account = accounts_store.create_account(
         name=body.name,
-        org_id=body.org_id,
+        org_id=org_id,
         owner_email=body.owner_email,
         notes=body.notes,
     )

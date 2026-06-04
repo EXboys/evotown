@@ -12,7 +12,7 @@ type RegistrationStatus = {
 type SessionInfo = {
   account_id: string;
   account_name: string;
-  team_id?: string;
+  org_id?: string;
   key_label?: string;
   scopes?: string[];
 };
@@ -45,7 +45,7 @@ export function ConsoleLoginPage() {
   const returnTo = searchParams.get("return") || "/dashboard";
   const [mode, setMode] = useState<"login" | "register">("login");
   const [apiKey, setApiKey] = useState("");
-  const [registerForm, setRegisterForm] = useState({ name: "", owner_email: "", team_id: "" });
+  const [registerForm, setRegisterForm] = useState({ name: "", owner_email: "", org_id: "" });
   const [registrationAllowed, setRegistrationAllowed] = useState(true);
   const [oidcEnabled, setOidcEnabled] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
@@ -254,9 +254,9 @@ export function ConsoleLoginPage() {
                 className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
               />
               <input
-                value={registerForm.team_id}
-                onChange={(e) => setRegisterForm({ ...registerForm, team_id: e.target.value })}
-                placeholder="团队 ID（可选）"
+                value={registerForm.org_id}
+                onChange={(e) => setRegisterForm({ ...registerForm, org_id: e.target.value })}
+                placeholder="组织 ID（可选）"
                 className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
               />
               <button

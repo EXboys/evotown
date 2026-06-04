@@ -92,7 +92,8 @@ def _check_burst_or_raise(identity: dict[str, Any], *, request_id: str, conversa
             "agent_id": "",
             "team_id": identity.get("team_id", "") or "",
             "engine_id": "",
-            "model": model,
+            "model": "",
+            "model_alias": body.get("metadata", {}).get("evotown_client_model", "") if body.get("metadata", {}).get("evotown_via_alias") else "",
             "status_code": 429,
             "latency_ms": 0,
             "risk_status": reason,
@@ -131,7 +132,8 @@ def _check_quota_or_raise(identity: dict[str, Any], *, request_id: str, conversa
             "agent_id": "",
             "team_id": identity.get("team_id", "") or "",
             "engine_id": "",
-            "model": model,
+            "model": "",
+            "model_alias": body.get("metadata", {}).get("evotown_client_model", "") if body.get("metadata", {}).get("evotown_via_alias") else "",
             "status_code": 429,
             "latency_ms": 0,
             "risk_status": reason,
@@ -488,12 +490,15 @@ async def _stream_upstream_chat(
     finally:
         _record_attempts_metadata(ctx.body, attempts)
         latency_ms = int((time.perf_counter() - started) * 1000)
+        _success_models = [a.model for a in attempts if a.action == "success"]
+        _stream_final_model = _success_models[-1] if _success_models else ""
         _record_gateway_request(
             {
                 "request_id": ctx.request_id,
                 "conversation_id": ctx.conversation_id,
                 **audit,
-                "model": ctx.client_model,
+                "model": _stream_final_model or ctx.client_model,
+                "model_alias": ctx.client_model if ctx.via_alias else "",
                 "status_code": status_code,
                 **usage,
                 "cost_usd": cost,
@@ -589,7 +594,8 @@ async def chat_completions(
                 "request_id": ctx.request_id,
                 "conversation_id": ctx.conversation_id,
                 **audit,
-                "model": ctx.client_model,
+                "model": "",
+                "model_alias": ctx.client_model if ctx.via_alias else "",
                 "status_code": 502,
                 "latency_ms": latency_ms,
                 "request_excerpt": _first_message_excerpt(ctx.body),
@@ -608,7 +614,8 @@ async def chat_completions(
             "request_id": ctx.request_id,
             "conversation_id": ctx.conversation_id,
             **audit,
-            "model": ctx.client_model,
+            "model": upstream_result.final_model or ctx.client_model,
+            "model_alias": ctx.client_model if ctx.via_alias else "",
             "status_code": upstream_result.status_code,
             **usage,
             "cost_usd": _cost_from_response(data if isinstance(data, dict) else {}),

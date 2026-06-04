@@ -43,7 +43,7 @@ class ConsoleAuthApiTest(unittest.TestCase):
 
         registered = client.post(
             "/api/v1/auth/register",
-            json={"name": "Platform Owner", "owner_email": "owner@example.com", "team_id": "platform"},
+            json={"name": "Platform Owner", "owner_email": "owner@example.com", "org_id": "org_root"},
         )
         self.assertEqual(registered.status_code, 200)
         api_key = registered.json()["api_key"]
@@ -61,7 +61,7 @@ class ConsoleAuthApiTest(unittest.TestCase):
 
         gateway_only_account = client.post(
             "/api/v1/accounts",
-            json={"name": "Gateway Only", "team_id": "ops"},
+            json={"name": "Gateway Only", "org_id": "org_root"},
             headers={"X-Admin-Token": "test-admin-token"},
         )
         self.assertEqual(gateway_only_account.status_code, 200)
@@ -89,7 +89,7 @@ class ConsoleAuthApiTest(unittest.TestCase):
 
         account = client.post(
             "/api/v1/accounts",
-            json={"name": "Read Only", "team_id": "ops"},
+            json={"name": "Read Only", "org_id": "org_root"},
             headers={"X-Admin-Token": "test-admin-token"},
         )
         self.assertEqual(account.status_code, 200)

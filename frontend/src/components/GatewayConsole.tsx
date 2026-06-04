@@ -14,6 +14,7 @@ type GatewayConversation = {
   cost_usd?: number;
   agent_id?: string;
   model?: string;
+  model_alias?: string;
 };
 
 export type GatewayRequest = {
@@ -26,6 +27,7 @@ export type GatewayRequest = {
   team_id?: string;
   engine_id?: string;
   model?: string;
+  model_alias?: string;
   status_code?: number;
   cost_usd?: number;
   total_tokens?: number;
@@ -240,7 +242,7 @@ export function RecentRequestsTable({
         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
           <tr>
             <th className="px-3 py-2 font-semibold">时间</th>
-            <th className="w-28 px-3 py-2 font-semibold">模型</th>
+            <th className="w-40 px-3 py-2 font-semibold">模型</th>
             <th className="w-24 px-3 py-2 font-semibold">账号</th>
             <th className="w-14 px-3 py-2 font-semibold">状态</th>
             <th className="w-16 px-3 py-2 font-semibold">Tok</th>
@@ -251,7 +253,12 @@ export function RecentRequestsTable({
           {rows.map((req) => (
             <tr key={req.request_id}>
               <td className="truncate px-3 py-2 text-xs text-slate-600">{formatDateTimeShort(req.created_at)}</td>
-              <td className="truncate px-3 py-2 font-mono text-xs text-slate-950">{req.model || "—"}</td>
+              <td className="px-3 py-2">
+                <div className="truncate font-mono text-xs text-slate-950">{req.model || "—"}</div>
+                {req.model_alias && req.model_alias !== req.model && (
+                  <div className="truncate font-mono text-[10px] text-slate-400">via: {req.model_alias}</div>
+                )}
+              </td>
               <td className="truncate px-3 py-2 font-mono text-xs text-slate-600">{req.account_name || req.agent_id || "—"}</td>
               <td className="px-3 py-2 text-xs text-slate-600">{req.status_code ?? "—"}</td>
               <td className="px-3 py-2 text-xs text-slate-600">{req.total_tokens ?? 0}</td>
@@ -283,7 +290,7 @@ function ConversationTable({ conversations }: { conversations: GatewayConversati
           <tr>
             <th className="px-3 py-2 font-semibold">Conversation</th>
             <th className="w-28 px-3 py-2 font-semibold">Agent</th>
-            <th className="w-24 px-3 py-2 font-semibold">Model</th>
+            <th className="w-40 px-3 py-2 font-semibold">Model</th>
             <th className="w-16 px-3 py-2 font-semibold">Req</th>
             <th className="w-20 px-3 py-2 font-semibold">Cost</th>
           </tr>
@@ -293,7 +300,12 @@ function ConversationTable({ conversations }: { conversations: GatewayConversati
             <tr key={c.conversation_id}>
               <td className="truncate px-3 py-2 font-mono text-xs text-slate-950">{c.conversation_id}</td>
               <td className="truncate px-3 py-2 font-mono text-xs text-slate-600">{c.agent_id || "—"}</td>
-              <td className="truncate px-3 py-2 font-mono text-xs text-slate-600">{c.model || "—"}</td>
+              <td className="px-3 py-2">
+                <div className="truncate font-mono text-xs text-slate-600">{c.model || "—"}</div>
+                {c.model_alias && c.model_alias !== c.model && (
+                  <div className="truncate font-mono text-[10px] text-slate-400">via: {c.model_alias}</div>
+                )}
+              </td>
               <td className="px-3 py-2 text-slate-600">{c.requests ?? 0}</td>
               <td className="px-3 py-2 font-mono text-xs text-slate-600">${asNumber(c.cost_usd).toFixed(4)}</td>
             </tr>

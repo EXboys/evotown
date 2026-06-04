@@ -328,14 +328,14 @@ ApiKeyStatus = Literal["active", "revoked"]
 
 class GatewayAccountCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
-    team_id: str = Field(default="", max_length=128)
+    org_id: str = Field(default="", max_length=128)
     owner_email: str = Field(default="", max_length=256)
     notes: str = Field(default="", max_length=2000)
 
 
 class GatewayAccountUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
-    team_id: str | None = Field(default=None, max_length=128)
+    org_id: str | None = Field(default=None, max_length=128)
     owner_email: str | None = Field(default=None, max_length=256)
     status: AccountStatus | None = None
     notes: str | None = Field(default=None, max_length=2000)
@@ -362,7 +362,7 @@ class GatewayApiKeyUpdate(BaseModel):
 class ConsoleRegister(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     owner_email: str = Field(default="", max_length=256)
-    team_id: str = Field(default="", max_length=128)
+    org_id: str = Field(default="", max_length=128)
 
 
 class ConsoleLogin(BaseModel):
@@ -490,4 +490,17 @@ class GatewayUpstreamModelUpdate(BaseModel):
 
 class OidcExchange(BaseModel):
     code: str = Field(min_length=8, max_length=256)
+
+
+class GatewayOrgCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=2000)
+    owner_email: str = Field(default="", max_length=256)
+
+
+class GatewayOrgUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=2000)
+    owner_email: str | None = Field(default=None, max_length=256)
+    status: AccountStatus | None = None
 

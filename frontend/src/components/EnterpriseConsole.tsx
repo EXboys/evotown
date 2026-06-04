@@ -130,6 +130,7 @@ type GatewayConversation = {
   team_id?: string;
   engine_id?: string;
   model?: string;
+  model_alias?: string;
 };
 
 type GatewayKeyInfo = {
@@ -142,6 +143,7 @@ type GatewayRequest = {
   conversation_id?: string;
   agent_id?: string;
   model?: string;
+  model_alias?: string;
   status_code?: number;
   cost_usd?: number;
   total_tokens?: number;

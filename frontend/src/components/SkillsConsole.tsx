@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { GatewayDrawer } from "./gateway/GatewayDrawer";
 import { adminFetch } from "../hooks/useAdminToken";
 import { formatDateTimeShort } from "../lib/datetime";
+import type { Locale } from "../lib/i18n";
 
 type SkillRecord = {
   skill_id: string;
@@ -95,17 +96,169 @@ const EMPTY_UPLOAD: UploadForm = {
   description: "",
 };
 
-const TABS: { id: SkillsTab; label: string; desc: string }[] = [
-  { id: "discover", label: "发现", desc: "精选 / 生态" },
-  { id: "catalog", label: "技能库", desc: "已发布" },
-  { id: "review", label: "审核", desc: "候选" },
-  { id: "publish", label: "发布", desc: "Bundle" },
-];
+const TABS: SkillsTab[] = ["discover", "catalog", "review", "publish"];
 
-const RISK_META: Record<string, { label: string; className: string }> = {
-  low: { label: "低风险", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-  medium: { label: "中风险", className: "border-amber-200 bg-amber-50 text-amber-700" },
-  high: { label: "高风险", className: "border-red-200 bg-red-50 text-red-700" },
+const SKILLS_COPY = {
+  zh: {
+    tabs: {
+      discover: { label: "发现", desc: "精选 / 生态" },
+      catalog: { label: "技能库", desc: "已发布" },
+      review: { label: "审核", desc: "候选" },
+      publish: { label: "发布", desc: "Bundle" },
+    },
+    risk: { low: "低风险", medium: "中风险", high: "高风险" },
+    intro: "私有 SkillHub：上传 → 审核 → 发布 Bundle → 员工通过 manifest 拉取。",
+    openMarket: "打开市场前台",
+    refresh: "刷新",
+    refreshing: "刷新中…",
+    uploadSkill: "上传 Skill 包",
+    stats: { available: "可用", deprecated: "已下线", pending: "待审核", candidates: "候选", unpublished: "未发布" },
+    discover: {
+      starter: "Evotown 精选",
+      ecosystem: "开放生态",
+      importAll: "一键导入全部精选",
+      searchPlaceholder: "搜索生态技能…",
+      search: "搜索",
+      sync: "同步索引",
+      starterDesc: "Evotown 内置 arena_skills 精选包，可直接导入企业技能库（approved），无需审核。",
+      ecosystemDesc: "开放 Agent Skills 生态（skills.sh 策展索引）。导入后进入「审核」Tab，批准后方可发布 Bundle。",
+      sourceUpdated: (source: string, time: string) => `索引来源 ${source} · 更新于 ${time}`,
+      loading: "加载中…",
+      noMatch: "没有匹配的生态技能",
+      imported: "已导入",
+      notImported: "未导入",
+      inLibrary: "已在库中",
+      importToLibrary: "导入到企业库",
+      installs: "安装",
+      inRepo: "已入库",
+      pendingReview: "待审核",
+      reviewing: "审核中",
+      importForReview: "导入待审核",
+    },
+    catalog: {
+      searchPlaceholder: "搜索名称或描述",
+      allRuntime: "全部 runtime",
+      allStatus: "全部状态",
+      filter: "筛选",
+      noSkills: "没有匹配的技能",
+      status: "状态",
+      action: "操作",
+      download: "下载",
+      deprecate: "下线",
+    },
+    review: {
+      empty: "暂无候选技能",
+      noDescription: "无描述",
+      noTeam: "无团队",
+      approve: "批准",
+      reject: "拒绝",
+    },
+    publish: {
+      title: "发布 Bundle",
+      subtitle: "员工 evotown-agent-setup sync 拉取的是本步骤结果。",
+      versionPlaceholder: "version（可选）",
+      selectApproved: "全选已批准",
+      publishSelected: (count: number) => `发布选中 (${count})`,
+      publishAll: "发布全部已批准",
+      noApproved: "暂无已批准 skill",
+      manifestTitle: "当前 Manifest",
+      manifestSubtitle: "运行端 bootstrap 初始化包。",
+      noManifest: "尚未发布 manifest",
+    },
+    upload: {
+      title: "上传 Skill 包",
+      subtitle: "上传后请在「发布」Tab 写入 Bundle manifest",
+      name: "名称 *",
+      version: "版本",
+      description: "描述",
+      file: "包文件 *",
+      cancel: "取消",
+      submit: "上传",
+    },
+  },
+  en: {
+    tabs: {
+      discover: { label: "Discover", desc: "Starter / ecosystem" },
+      catalog: { label: "Catalog", desc: "Published" },
+      review: { label: "Review", desc: "Candidates" },
+      publish: { label: "Publish", desc: "Bundle" },
+    },
+    risk: { low: "Low Risk", medium: "Medium Risk", high: "High Risk" },
+    intro: "Private SkillHub: upload -> review -> publish Bundle -> employees pull from the manifest.",
+    openMarket: "Open Market",
+    refresh: "Refresh",
+    refreshing: "Refreshing...",
+    uploadSkill: "Upload Skill Package",
+    stats: { available: "Available", deprecated: "Deprecated", pending: "Pending Review", candidates: "Candidates", unpublished: "Unpublished" },
+    discover: {
+      starter: "Evotown Starter",
+      ecosystem: "Open Ecosystem",
+      importAll: "Import All Starter Skills",
+      searchPlaceholder: "Search ecosystem skills...",
+      search: "Search",
+      sync: "Sync Index",
+      starterDesc: "Built-in Evotown arena_skills starter packages can be imported directly into the enterprise catalog as approved skills.",
+      ecosystemDesc: "Open Agent Skills ecosystem curated by skills.sh. Imported skills enter Review before they can be published to a Bundle.",
+      sourceUpdated: (source: string, time: string) => `Index source ${source} · updated ${time}`,
+      loading: "Loading...",
+      noMatch: "No matching ecosystem skills",
+      imported: "Imported",
+      notImported: "Not imported",
+      inLibrary: "Already in catalog",
+      importToLibrary: "Import to Catalog",
+      installs: "installs",
+      inRepo: "In catalog",
+      pendingReview: "Pending review",
+      reviewing: "In review",
+      importForReview: "Import for Review",
+    },
+    catalog: {
+      searchPlaceholder: "Search name or description",
+      allRuntime: "All runtimes",
+      allStatus: "All statuses",
+      filter: "Filter",
+      noSkills: "No matching skills",
+      status: "Status",
+      action: "Actions",
+      download: "Download",
+      deprecate: "Deprecate",
+    },
+    review: {
+      empty: "No candidate skills",
+      noDescription: "No description",
+      noTeam: "No team",
+      approve: "Approve",
+      reject: "Reject",
+    },
+    publish: {
+      title: "Publish Bundle",
+      subtitle: "Employees pull this result via evotown-agent-setup sync.",
+      versionPlaceholder: "version (optional)",
+      selectApproved: "Select Approved",
+      publishSelected: (count: number) => `Publish Selected (${count})`,
+      publishAll: "Publish All Approved",
+      noApproved: "No approved skills",
+      manifestTitle: "Current Manifest",
+      manifestSubtitle: "Bootstrap package for runtimes.",
+      noManifest: "No manifest published yet",
+    },
+    upload: {
+      title: "Upload Skill Package",
+      subtitle: "After upload, publish it into a Bundle manifest from the Publish tab",
+      name: "Name *",
+      version: "Version",
+      description: "Description",
+      file: "Package File *",
+      cancel: "Cancel",
+      submit: "Upload",
+    },
+  },
+} as const;
+
+const RISK_META: Record<string, { className: string }> = {
+  low: { className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  medium: { className: "border-amber-200 bg-amber-50 text-amber-700" },
+  high: { className: "border-red-200 bg-red-50 text-red-700" },
 };
 
 function fileToBase64(file: File): Promise<string> {
@@ -138,7 +291,8 @@ function Badge({ children, className = "" }: { children: ReactNode; className?: 
   );
 }
 
-export function SkillsConsole() {
+export function SkillsConsole({ locale = "zh" }: { locale?: Locale }) {
+  const copy = SKILLS_COPY[locale];
   const [tab, setTab] = useState<SkillsTab>("discover");
   const [skills, setSkills] = useState<SkillRecord[]>([]);
   const [candidates, setCandidates] = useState<SkillCandidate[]>([]);
@@ -454,24 +608,24 @@ export function SkillsConsole() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="text-sm text-slate-500">
-          私有 SkillHub：上传 → 审核 → 发布 Bundle → 员工通过 manifest 拉取。
-          <Link to="/market" className="ml-2 font-medium text-violet-600 hover:text-violet-700">打开市场前台 →</Link>
+          {copy.intro}
+          <Link to="/market" className="ml-2 font-medium text-violet-600 hover:text-violet-700">{copy.openMarket} →</Link>
         </p>
         <div className="flex gap-2">
           <button type="button" onClick={() => loadMarket()} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
-            {loading ? "刷新中…" : "刷新"}
+            {loading ? copy.refreshing : copy.refresh}
           </button>
           <button type="button" onClick={() => { setUploadOpen(true); setError(""); }} className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800">
-            上传 Skill 包
+            {copy.uploadSkill}
           </button>
         </div>
       </div>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="可用" value={approvedCount} note="approved" />
-        <StatCard label="已下线" value={deprecatedCount} note="deprecated" />
-        <StatCard label="待审核" value={pending.length} note="候选" />
-        <StatCard label="Bundle" value={manifest?.skills.length ?? "—"} note={manifest ? `${manifest.bundle_id}@${manifest.version}` : "未发布"} />
+        <StatCard label={copy.stats.available} value={approvedCount} note="approved" />
+        <StatCard label={copy.stats.deprecated} value={deprecatedCount} note="deprecated" />
+        <StatCard label={copy.stats.pending} value={pending.length} note={copy.stats.candidates} />
+        <StatCard label="Bundle" value={manifest?.skills.length ?? "—"} note={manifest ? `${manifest.bundle_id}@${manifest.version}` : copy.stats.unpublished} />
       </section>
 
       {message && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{message}</div>}
@@ -480,19 +634,19 @@ export function SkillsConsole() {
       <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-1">
         {TABS.map((item) => (
           <button
-            key={item.id}
+            key={item}
             type="button"
-            onClick={() => setTab(item.id)}
+            onClick={() => setTab(item)}
             className={`rounded-t-lg px-4 py-2 text-sm font-medium transition-colors ${
-              tab === item.id ? "border border-b-white border-slate-200 bg-white text-slate-950 -mb-px" : "text-slate-500 hover:text-slate-800"
+              tab === item ? "border border-b-white border-slate-200 bg-white text-slate-950 -mb-px" : "text-slate-500 hover:text-slate-800"
             }`}
           >
-            {item.label}
-            <span className="ml-2 hidden text-xs font-normal text-slate-400 sm:inline">{item.desc}</span>
-            {item.id === "review" && pending.length > 0 && (
+            {copy.tabs[item].label}
+            <span className="ml-2 hidden text-xs font-normal text-slate-400 sm:inline">{copy.tabs[item].desc}</span>
+            {item === "review" && pending.length > 0 && (
               <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800">{pending.length}</span>
             )}
-            {item.id === "discover" && starterPendingCount > 0 && (
+            {item === "discover" && starterPendingCount > 0 && (
               <span className="ml-1.5 rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] text-violet-800">{starterPendingCount}</span>
             )}
           </button>
@@ -508,34 +662,34 @@ export function SkillsConsole() {
                 onClick={() => setDiscoverSection("starter")}
                 className={`rounded-lg px-3 py-1.5 text-sm font-medium ${discoverSection === "starter" ? "bg-violet-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}
               >
-                Evotown 精选
+                {copy.discover.starter}
               </button>
               <button
                 type="button"
                 onClick={() => setDiscoverSection("ecosystem")}
                 className={`rounded-lg px-3 py-1.5 text-sm font-medium ${discoverSection === "ecosystem" ? "bg-violet-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}
               >
-                开放生态
+                {copy.discover.ecosystem}
               </button>
             </div>
             {discoverSection === "starter" ? (
               <button type="button" disabled={busy} onClick={importAllStarters} className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
-                一键导入全部精选
+                {copy.discover.importAll}
               </button>
             ) : (
               <div className="flex flex-wrap gap-2">
                 <input
                   className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
-                  placeholder="搜索生态技能…"
+                  placeholder={copy.discover.searchPlaceholder}
                   value={ecosystemQuery}
                   onChange={(e) => setEcosystemQuery(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && loadDiscover("ecosystem", ecosystemQuery)}
                 />
                 <button type="button" onClick={() => loadDiscover("ecosystem", ecosystemQuery)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700">
-                  搜索
+                  {copy.discover.search}
                 </button>
                 <button type="button" disabled={busy} onClick={syncEcosystem} className="rounded-lg border border-violet-200 px-3 py-1.5 text-sm font-medium text-violet-700 disabled:opacity-50">
-                  同步索引
+                  {copy.discover.sync}
                 </button>
               </div>
             )}
@@ -544,10 +698,10 @@ export function SkillsConsole() {
           {discoverSection === "starter" && (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <p className="mb-4 text-sm text-slate-500">
-                Evotown 内置 arena_skills 精选包，可直接导入企业技能库（approved），无需审核。
+                {copy.discover.starterDesc}
               </p>
               {discoverLoading ? (
-                <p className="py-12 text-center text-sm text-slate-500">加载中…</p>
+                <p className="py-12 text-center text-sm text-slate-500">{copy.discover.loading}</p>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {starterSkills.map((entry) => {
@@ -559,7 +713,7 @@ export function SkillsConsole() {
                             <h3 className="font-semibold text-slate-950">{entry.name}</h3>
                             <p className="mt-1 font-mono text-xs text-slate-400">{entry.skill_id}</p>
                           </div>
-                          <Badge className={risk.className}>{risk.label}</Badge>
+                          <Badge className={risk.className}>{copy.risk[entry.risk_level]}</Badge>
                         </div>
                         <p className="mt-2 flex-1 text-sm text-slate-600 line-clamp-3">{entry.description}</p>
                         <div className="mt-3 flex flex-wrap gap-1">
@@ -569,9 +723,9 @@ export function SkillsConsole() {
                         </div>
                         <div className="mt-4 flex items-center justify-between gap-2">
                           {entry.imported ? (
-                            <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">已导入</Badge>
+                            <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">{copy.discover.imported}</Badge>
                           ) : (
-                            <span className="text-xs text-slate-400">未导入</span>
+                            <span className="text-xs text-slate-400">{copy.discover.notImported}</span>
                           )}
                           <button
                             type="button"
@@ -579,7 +733,7 @@ export function SkillsConsole() {
                             onClick={() => importStarter(entry.catalog_id)}
                             className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
                           >
-                            {entry.imported ? "已在库中" : "导入到企业库"}
+                            {entry.imported ? copy.discover.inLibrary : copy.discover.importToLibrary}
                           </button>
                         </div>
                       </article>
@@ -593,17 +747,17 @@ export function SkillsConsole() {
           {discoverSection === "ecosystem" && (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <p className="mb-1 text-sm text-slate-500">
-                开放 Agent Skills 生态（skills.sh 策展索引）。导入后进入「审核」Tab，批准后方可发布 Bundle。
+                {copy.discover.ecosystemDesc}
               </p>
               {ecosystemMeta.fetched_at && (
                 <p className="mb-4 text-xs text-slate-400">
-                  索引来源 {ecosystemMeta.source ?? "bundled"} · 更新于 {formatDateTimeShort(ecosystemMeta.fetched_at)}
+                  {copy.discover.sourceUpdated(ecosystemMeta.source ?? "bundled", formatDateTimeShort(ecosystemMeta.fetched_at))}
                 </p>
               )}
               {discoverLoading ? (
-                <p className="py-12 text-center text-sm text-slate-500">加载中…</p>
+                <p className="py-12 text-center text-sm text-slate-500">{copy.discover.loading}</p>
               ) : !ecosystemSkills.length ? (
-                <p className="py-12 text-center text-sm text-slate-500">没有匹配的生态技能</p>
+                <p className="py-12 text-center text-sm text-slate-500">{copy.discover.noMatch}</p>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {ecosystemSkills.map((entry) => {
@@ -618,12 +772,12 @@ export function SkillsConsole() {
                             <h3 className="font-semibold text-slate-950">{entry.name}</h3>
                             <p className="mt-1 truncate text-xs text-slate-400">{sourceLabel}</p>
                           </div>
-                          <Badge className={risk.className}>{risk.label}</Badge>
+                          <Badge className={risk.className}>{copy.risk[entry.risk_level]}</Badge>
                         </div>
                         <p className="mt-2 flex-1 text-sm text-slate-600 line-clamp-3">{entry.description}</p>
                         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                           {typeof entry.install_count === "number" && entry.install_count > 0 && (
-                            <span>≈ {entry.install_count.toLocaleString()} 安装</span>
+                            <span>≈ {entry.install_count.toLocaleString()} {copy.discover.installs}</span>
                           )}
                           {entry.skills_sh_url && (
                             <a href={entry.skills_sh_url} target="_blank" rel="noreferrer" className="font-medium text-violet-600 hover:underline">
@@ -633,11 +787,11 @@ export function SkillsConsole() {
                         </div>
                         <div className="mt-4 flex items-center justify-between gap-2">
                           {entry.imported ? (
-                            <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">已入库</Badge>
+                            <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">{copy.discover.inRepo}</Badge>
                           ) : entry.pending_review ? (
-                            <Badge className="border-amber-200 bg-amber-50 text-amber-700">待审核</Badge>
+                            <Badge className="border-amber-200 bg-amber-50 text-amber-700">{copy.discover.pendingReview}</Badge>
                           ) : (
-                            <span className="text-xs text-slate-400">未导入</span>
+                            <span className="text-xs text-slate-400">{copy.discover.notImported}</span>
                           )}
                           <button
                             type="button"
@@ -645,7 +799,7 @@ export function SkillsConsole() {
                             onClick={() => importEcosystem(entry.catalog_id)}
                             className="rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-medium text-violet-700 disabled:opacity-50"
                           >
-                            {entry.pending_review ? "审核中" : "导入待审核"}
+                            {entry.pending_review ? copy.discover.reviewing : copy.discover.importForReview}
                           </button>
                         </div>
                       </article>
@@ -663,7 +817,7 @@ export function SkillsConsole() {
           <div className="mb-4 flex flex-wrap gap-2">
             <input
               className="min-w-[180px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm"
-              placeholder="搜索名称或描述"
+              placeholder={copy.catalog.searchPlaceholder}
               value={filters.query}
               onChange={(e) => setFilters({ ...filters, query: e.target.value })}
               onKeyDown={(e) => e.key === "Enter" && loadMarket(filters)}
@@ -675,22 +829,22 @@ export function SkillsConsole() {
               onChange={(e) => setFilters({ ...filters, tag: e.target.value })}
             />
             <select className="rounded-lg border border-slate-200 px-3 py-2 text-sm" value={filters.runtime_target} onChange={(e) => setFilters({ ...filters, runtime_target: e.target.value })}>
-              <option value="">全部 runtime</option>
+              <option value="">{copy.catalog.allRuntime}</option>
               <option value="openclaw">openclaw</option>
               <option value="hermes">hermes</option>
               <option value="skilllite">skilllite</option>
               <option value="custom">custom</option>
             </select>
             <select className="rounded-lg border border-slate-200 px-3 py-2 text-sm" value={filters.status_filter} onChange={(e) => setFilters({ ...filters, status_filter: e.target.value })}>
-              <option value="">全部状态</option>
+              <option value="">{copy.catalog.allStatus}</option>
               <option value="approved">approved</option>
               <option value="deprecated">deprecated</option>
             </select>
-            <button type="button" onClick={() => loadMarket(filters)} className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-medium text-white">筛选</button>
+            <button type="button" onClick={() => loadMarket(filters)} className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-medium text-white">{copy.catalog.filter}</button>
           </div>
 
           {!skills.length ? (
-            <p className="py-12 text-center text-sm text-slate-500">没有匹配的技能</p>
+            <p className="py-12 text-center text-sm text-slate-500">{copy.catalog.noSkills}</p>
           ) : (
             <div className="overflow-hidden rounded-xl border border-slate-200">
               <table className="w-full text-left text-sm">
@@ -698,8 +852,8 @@ export function SkillsConsole() {
                   <tr>
                     <th className="px-3 py-2.5">Skill</th>
                     <th className="hidden px-3 py-2.5 md:table-cell">Runtime</th>
-                    <th className="px-3 py-2.5">状态</th>
-                    <th className="w-24 px-3 py-2.5 text-right">操作</th>
+                    <th className="px-3 py-2.5">{copy.catalog.status}</th>
+                    <th className="w-24 px-3 py-2.5 text-right">{copy.catalog.action}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -719,10 +873,10 @@ export function SkillsConsole() {
                       <td className="px-3 py-2.5 text-right">
                         <div className="flex justify-end gap-2">
                           {skill.package_url && (
-                            <button type="button" onClick={() => downloadSkillPackage(skill)} className="text-xs text-blue-600 hover:text-blue-800">下载</button>
+                            <button type="button" onClick={() => downloadSkillPackage(skill)} className="text-xs text-blue-600 hover:text-blue-800">{copy.catalog.download}</button>
                           )}
                           {skill.status !== "deprecated" && (
-                            <button type="button" disabled={busy} onClick={() => deprecateSkill(skill)} className="text-xs text-red-600 hover:text-red-800">下线</button>
+                            <button type="button" disabled={busy} onClick={() => deprecateSkill(skill)} className="text-xs text-red-600 hover:text-red-800">{copy.catalog.deprecate}</button>
                           )}
                         </div>
                       </td>
@@ -738,7 +892,7 @@ export function SkillsConsole() {
       {tab === "review" && (
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           {!candidates.length ? (
-            <p className="py-12 text-center text-sm text-slate-500">暂无候选技能</p>
+            <p className="py-12 text-center text-sm text-slate-500">{copy.review.empty}</p>
           ) : (
             <ul className="space-y-3">
               {candidates.map((candidate) => (
@@ -746,8 +900,8 @@ export function SkillsConsole() {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="font-semibold text-slate-950">{candidate.name}</div>
-                      <p className="mt-1 text-sm text-slate-500">{candidate.description || "无描述"}</p>
-                      <p className="mt-2 text-xs text-slate-400">{candidate.runtime_target} · {candidate.engine_id} · {candidate.team_id || "无团队"}</p>
+                      <p className="mt-1 text-sm text-slate-500">{candidate.description || copy.review.noDescription}</p>
+                      <p className="mt-2 text-xs text-slate-400">{candidate.runtime_target} · {candidate.engine_id} · {candidate.team_id || copy.review.noTeam}</p>
                     </div>
                     <Badge
                       className={
@@ -763,8 +917,8 @@ export function SkillsConsole() {
                   </div>
                   {candidate.status === "pending" && (
                     <div className="mt-3 flex gap-2">
-                      <button type="button" disabled={busy} onClick={() => reviewCandidate(candidate, "approved")} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white">批准</button>
-                      <button type="button" disabled={busy} onClick={() => reviewCandidate(candidate, "rejected")} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600">拒绝</button>
+                      <button type="button" disabled={busy} onClick={() => reviewCandidate(candidate, "approved")} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white">{copy.review.approve}</button>
+                      <button type="button" disabled={busy} onClick={() => reviewCandidate(candidate, "rejected")} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600">{copy.review.reject}</button>
                     </div>
                   )}
                 </li>
@@ -777,17 +931,17 @@ export function SkillsConsole() {
       {tab === "publish" && (
         <div className="grid gap-5 xl:grid-cols-2">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-base font-semibold text-slate-950">发布 Bundle</h3>
-            <p className="mt-1 text-sm text-slate-500">员工 evotown-agent-setup sync 拉取的是本步骤结果。</p>
+            <h3 className="text-base font-semibold text-slate-950">{copy.publish.title}</h3>
+            <p className="mt-1 text-sm text-slate-500">{copy.publish.subtitle}</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder="bundle_id" value={bundlePublish.bundle_id} onChange={(e) => setBundlePublish({ ...bundlePublish, bundle_id: e.target.value })} />
               <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder="channel" value={bundlePublish.channel} onChange={(e) => setBundlePublish({ ...bundlePublish, channel: e.target.value })} />
-              <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder="version（可选）" value={bundlePublish.version} onChange={(e) => setBundlePublish({ ...bundlePublish, version: e.target.value })} />
+              <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder={copy.publish.versionPlaceholder} value={bundlePublish.version} onChange={(e) => setBundlePublish({ ...bundlePublish, version: e.target.value })} />
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" onClick={() => setSelectedSkillIds(new Set(approvedSkills.map((s) => s.skill_id)))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700">全选已批准</button>
-              <button type="button" disabled={busy} onClick={() => publishBundle(false)} className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white">发布选中 ({selectedSkillIds.size})</button>
-              <button type="button" disabled={busy} onClick={() => publishBundle(true)} className="rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-medium text-violet-700">发布全部已批准</button>
+              <button type="button" onClick={() => setSelectedSkillIds(new Set(approvedSkills.map((s) => s.skill_id)))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700">{copy.publish.selectApproved}</button>
+              <button type="button" disabled={busy} onClick={() => publishBundle(false)} className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white">{copy.publish.publishSelected(selectedSkillIds.size)}</button>
+              <button type="button" disabled={busy} onClick={() => publishBundle(true)} className="rounded-lg border border-violet-200 px-3 py-1.5 text-xs font-medium text-violet-700">{copy.publish.publishAll}</button>
             </div>
             <div className="mt-4 max-h-64 space-y-1 overflow-y-auto rounded-xl border border-slate-200 p-3">
               {approvedSkills.length ? approvedSkills.map((skill) => (
@@ -796,13 +950,13 @@ export function SkillsConsole() {
                   <span className="font-medium text-slate-900">{skill.name}</span>
                   <span className="font-mono text-xs text-slate-400">{skill.skill_id}</span>
                 </label>
-              )) : <p className="text-sm text-slate-500">暂无已批准 skill</p>}
+              )) : <p className="text-sm text-slate-500">{copy.publish.noApproved}</p>}
             </div>
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-base font-semibold text-slate-950">当前 Manifest</h3>
-            <p className="mt-1 text-sm text-slate-500">运行端 bootstrap 初始化包。</p>
+            <h3 className="text-base font-semibold text-slate-950">{copy.publish.manifestTitle}</h3>
+            <p className="mt-1 text-sm text-slate-500">{copy.publish.manifestSubtitle}</p>
             {manifest ? (
               <div className="mt-4 space-y-2">
                 <div className="rounded-lg bg-slate-50 p-3 text-sm">
@@ -822,13 +976,13 @@ export function SkillsConsole() {
                 </ul>
               </div>
             ) : (
-              <p className="mt-8 text-center text-sm text-slate-500">尚未发布 manifest</p>
+              <p className="mt-8 text-center text-sm text-slate-500">{copy.publish.noManifest}</p>
             )}
           </div>
         </div>
       )}
 
-      <GatewayDrawer open={uploadOpen} title="上传 Skill 包" subtitle="上传后请在「发布」Tab 写入 Bundle manifest" onClose={closeUpload}>
+      <GatewayDrawer open={uploadOpen} title={copy.upload.title} subtitle={copy.upload.subtitle} onClose={closeUpload}>
         {error && uploadOpen && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
         <form onSubmit={submitUpload} className="space-y-4">
           <label className="block text-sm">
@@ -836,12 +990,12 @@ export function SkillsConsole() {
             <input value={uploadForm.skill_id} onChange={(e) => setUploadForm({ ...uploadForm, skill_id: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-mono" required />
           </label>
           <label className="block text-sm">
-            <span className="font-medium text-slate-700">名称 *</span>
+            <span className="font-medium text-slate-700">{copy.upload.name}</span>
             <input value={uploadForm.name} onChange={(e) => setUploadForm({ ...uploadForm, name: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" required />
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="block text-sm">
-              <span className="font-medium text-slate-700">版本</span>
+              <span className="font-medium text-slate-700">{copy.upload.version}</span>
               <input value={uploadForm.version} onChange={(e) => setUploadForm({ ...uploadForm, version: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             </label>
             <label className="block text-sm">
@@ -858,16 +1012,16 @@ export function SkillsConsole() {
             <input value={uploadForm.tags} onChange={(e) => setUploadForm({ ...uploadForm, tags: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder="crm,private" />
           </label>
           <label className="block text-sm">
-            <span className="font-medium text-slate-700">描述</span>
+            <span className="font-medium text-slate-700">{copy.upload.description}</span>
             <textarea value={uploadForm.description} onChange={(e) => setUploadForm({ ...uploadForm, description: e.target.value })} rows={2} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
           </label>
           <label className="block text-sm">
-            <span className="font-medium text-slate-700">包文件 *</span>
+            <span className="font-medium text-slate-700">{copy.upload.file}</span>
             <input type="file" accept=".zip,.skill.zip" onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)} className="mt-1 w-full text-sm" required />
           </label>
           <div className="flex gap-2 border-t border-slate-100 pt-4">
-            <button type="button" onClick={closeUpload} className="flex-1 rounded-lg border border-slate-200 py-2 text-sm font-medium text-slate-700">取消</button>
-            <button type="submit" disabled={busy} className="flex-1 rounded-lg bg-slate-950 py-2 text-sm font-semibold text-white disabled:opacity-50">上传</button>
+            <button type="button" onClick={closeUpload} className="flex-1 rounded-lg border border-slate-200 py-2 text-sm font-medium text-slate-700">{copy.upload.cancel}</button>
+            <button type="submit" disabled={busy} className="flex-1 rounded-lg bg-slate-950 py-2 text-sm font-semibold text-white disabled:opacity-50">{copy.upload.submit}</button>
           </div>
         </form>
       </GatewayDrawer>

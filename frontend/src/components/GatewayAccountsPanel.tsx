@@ -10,6 +10,7 @@ import {
   fetchGatewayOrgs,
   type GatewayOrg,
 } from "../lib/gatewayOrgs";
+import type { Locale } from "../lib/i18n";
 
 export type GatewayAccount = {
   account_id: string;
@@ -71,10 +72,153 @@ const DEFAULT_KEY: KeyForm = {
 };
 
 const SCOPE_OPTIONS = [
-  { id: "gateway.chat", label: "模型网关", hint: "gateway.chat" },
-  { id: "console.read", label: "控制台只读", hint: "console.read" },
-  { id: "console.write", label: "控制台管理", hint: "console.write" },
+  { id: "gateway.chat", label: { zh: "模型网关", en: "Model Gateway" }, hint: "gateway.chat" },
+  { id: "console.read", label: { zh: "控制台只读", en: "Console Read" }, hint: "console.read" },
+  { id: "console.write", label: { zh: "控制台管理", en: "Console Admin" }, hint: "console.write" },
 ] as const;
+
+const ACCOUNTS_COPY = {
+  zh: {
+    introBefore: "管理企业组织、员工账号与",
+    introAfterLogin: "。员工自助登录见",
+    introAfterGateway: "；模型与路由见",
+    gateway: "网关",
+    createOrg: "新建组织",
+    createAccount: "创建账号",
+    stats: { orgs: "组织", accounts: "账号", activeKeys: "有效 Key", currentAccount: "当前账号" },
+    viewOrg: "组织视图",
+    viewAll: "全部账号",
+    refresh: "刷新",
+    emptyOrgs: "暂无组织",
+    emptyAccounts: "暂无账号",
+    enabled: "启用",
+    disabled: "停用",
+    accountsCount: (count: number) => `${count} 个账号`,
+    noOrgAccounts: "该组织暂无账号",
+    chooseAccount: "请选择左侧账号，或创建新账号。",
+    orgPrefix: "组织",
+    missingOwnerOrg: "未填写负责人 / 组织",
+    editAccount: "编辑账号",
+    issueKey: "签发 Key",
+    keyNote: "员工配置使用 evk_ 前缀密钥，配合网关与 SkillHub。",
+    accountDrawerTitle: (edit: boolean) => edit ? "编辑账号" : "创建账号",
+    accountDrawerSubtitle: "每个账号可绑定组织并签发多个 evk_ Key",
+    accountName: "账号名称 *",
+    accountOrg: "所属组织 *",
+    selectOrg: "请选择组织",
+    ownerEmail: "负责人邮箱",
+    notes: "备注",
+    cancel: "取消",
+    save: "保存",
+    keyDrawerTitle: (edit: boolean) => edit ? "编辑 Key" : "签发 Key",
+    copyNow: "请立即复制 — 密钥仅显示一次",
+    copyKey: "复制 Key",
+    label: "标签",
+    labelPlaceholder: "如 prod-laptop-01",
+    scopes: "权限范围",
+    monthlyTokenLimit: "月 Token 上限",
+    monthlyCostLimit: "月成本上限 (USD)",
+    noLimit: "0 = 不限",
+    globalDefault: "0 = 全局默认",
+    expiresAt: "过期时间",
+    close: "关闭",
+    issue: "签发",
+    edit: "编辑",
+    delete: "删除",
+    messages: {
+      adminRequired: "需要管理员权限，请使用 X-Admin-Token 或 console.write 的 evk_ 登录",
+      loadFailed: "加载失败",
+      deleteOrgConfirm: (name: string) => `确定删除组织「${name}」？其下账号将移入默认组织。`,
+      orgDeleted: (name: string) => `组织「${name}」已删除`,
+      deleteFailed: "删除失败",
+      orgEnabled: "组织已启用",
+      orgDisabled: "组织已停用",
+      updateFailed: "更新失败",
+      saveFailed: "保存失败",
+      accountUpdated: "账号已更新",
+      accountCreated: "账号已创建",
+      accountEnabled: "账号已启用",
+      accountDisabled: "账号已停用",
+      keyUpdated: "Key 已更新",
+      keyIssueFailed: "签发失败",
+      keyIssued: "Key 已签发",
+      operationFailed: "操作失败",
+      revokeConfirm: "确定吊销该 Key？吊销后无法恢复。",
+      revokeFailed: "吊销失败",
+      revoked: "Key 已吊销",
+    },
+  },
+  en: {
+    introBefore: "Manage enterprise organizations, employee accounts, and",
+    introAfterLogin: ". Employee self-service login:",
+    introAfterGateway: "; models and routing:",
+    gateway: "Gateway",
+    createOrg: "New Org",
+    createAccount: "Create Account",
+    stats: { orgs: "Orgs", accounts: "Accounts", activeKeys: "Active Keys", currentAccount: "Current Account" },
+    viewOrg: "Org View",
+    viewAll: "All Accounts",
+    refresh: "Refresh",
+    emptyOrgs: "No organizations",
+    emptyAccounts: "No accounts",
+    enabled: "Enabled",
+    disabled: "Disabled",
+    accountsCount: (count: number) => `${count} accounts`,
+    noOrgAccounts: "No accounts in this org",
+    chooseAccount: "Select an account on the left, or create a new one.",
+    orgPrefix: "Org",
+    missingOwnerOrg: "No owner / org set",
+    editAccount: "Edit Account",
+    issueKey: "Issue Key",
+    keyNote: "Employee config uses evk_ keys with the gateway and SkillHub.",
+    accountDrawerTitle: (edit: boolean) => edit ? "Edit Account" : "Create Account",
+    accountDrawerSubtitle: "Each account can bind to an org and issue multiple evk_ keys",
+    accountName: "Account Name *",
+    accountOrg: "Organization *",
+    selectOrg: "Select organization",
+    ownerEmail: "Owner Email",
+    notes: "Notes",
+    cancel: "Cancel",
+    save: "Save",
+    keyDrawerTitle: (edit: boolean) => edit ? "Edit Key" : "Issue Key",
+    copyNow: "Copy now — the secret is shown only once",
+    copyKey: "Copy Key",
+    label: "Label",
+    labelPlaceholder: "e.g. prod-laptop-01",
+    scopes: "Scopes",
+    monthlyTokenLimit: "Monthly Token Limit",
+    monthlyCostLimit: "Monthly Cost Limit (USD)",
+    noLimit: "0 = unlimited",
+    globalDefault: "0 = global default",
+    expiresAt: "Expires At",
+    close: "Close",
+    issue: "Issue",
+    edit: "Edit",
+    delete: "Delete",
+    messages: {
+      adminRequired: "Admin permission required. Use X-Admin-Token or an evk_ key with console.write.",
+      loadFailed: "Load failed",
+      deleteOrgConfirm: (name: string) => `Delete organization "${name}"? Its accounts will move to the default org.`,
+      orgDeleted: (name: string) => `Deleted organization "${name}"`,
+      deleteFailed: "Delete failed",
+      orgEnabled: "Organization enabled",
+      orgDisabled: "Organization disabled",
+      updateFailed: "Update failed",
+      saveFailed: "Save failed",
+      accountUpdated: "Account updated",
+      accountCreated: "Account created",
+      accountEnabled: "Account enabled",
+      accountDisabled: "Account disabled",
+      keyUpdated: "Key updated",
+      keyIssueFailed: "Issue failed",
+      keyIssued: "Key issued",
+      operationFailed: "Operation failed",
+      revokeConfirm: "Revoke this key? This cannot be undone.",
+      revokeFailed: "Revoke failed",
+      revoked: "Key revoked",
+    },
+  },
+} as const;
 
 function keyToForm(key: GatewayApiKey): KeyForm {
   return {
@@ -87,7 +231,8 @@ function keyToForm(key: GatewayApiKey): KeyForm {
   };
 }
 
-export function GatewayAccountsPanel() {
+export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
+  const copy = ACCOUNTS_COPY[locale];
   const [accounts, setAccounts] = useState<GatewayAccount[]>([]);
   const [orgs, setOrgs] = useState<GatewayOrg[]>([]);
   const [viewMode, setViewMode] = useState<"org" | "all">("org");
@@ -149,8 +294,8 @@ export function GatewayAccountsPanel() {
     try {
       const res = await adminFetch("/api/v1/accounts");
       if (!res.ok) {
-        if (res.status === 403) throw new Error("需要管理员权限，请使用 X-Admin-Token 或 console.write 的 evk_ 登录");
-        throw new Error(`加载失败 (${res.status})`);
+        if (res.status === 403) throw new Error(copy.messages.adminRequired);
+        throw new Error(`${copy.messages.loadFailed} (${res.status})`);
       }
       const data = (await res.json()) as { accounts?: GatewayAccount[] };
       const list = data.accounts || [];
@@ -161,7 +306,7 @@ export function GatewayAccountsPanel() {
       setSelectedAccountId(keepId);
       await loadKeys(keepId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "加载失败");
+      setError(err instanceof Error ? err.message : copy.messages.loadFailed);
     } finally {
       setLoading(false);
     }
@@ -217,15 +362,15 @@ export function GatewayAccountsPanel() {
 
   const handleDeleteOrg = async (org: GatewayOrg) => {
     if (org.org_id === ROOT_ORG_ID) return;
-    if (!window.confirm(`确定删除组织「${org.name}」？其下账号将移入默认组织。`)) return;
+    if (!window.confirm(copy.messages.deleteOrgConfirm(org.name))) return;
     try {
       const { deleteGatewayOrg } = await import("../lib/gatewayOrgs");
       await deleteGatewayOrg(org.org_id);
-      setMessage(`组织「${org.name}」已删除`);
+      setMessage(copy.messages.orgDeleted(org.name));
       loadOrgs();
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "删除失败");
+      setError(err instanceof Error ? err.message : copy.messages.deleteFailed);
     }
   };
 
@@ -234,10 +379,10 @@ export function GatewayAccountsPanel() {
     try {
       const { updateGatewayOrg } = await import("../lib/gatewayOrgs");
       await updateGatewayOrg(org.org_id, { status: next });
-      setMessage(next === "active" ? "组织已启用" : "组织已停用");
+      setMessage(next === "active" ? copy.messages.orgEnabled : copy.messages.orgDisabled);
       loadOrgs();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "更新失败");
+      setError(err instanceof Error ? err.message : copy.messages.updateFailed);
     }
   };
 
@@ -293,13 +438,13 @@ export function GatewayAccountsPanel() {
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error((body as { detail?: string }).detail || `保存失败 (${res.status})`);
+        throw new Error((body as { detail?: string }).detail || `${copy.messages.saveFailed} (${res.status})`);
       }
       closeDrawer();
-      setMessage(isEdit ? "账号已更新" : "账号已创建");
+      setMessage(isEdit ? copy.messages.accountUpdated : copy.messages.accountCreated);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存失败");
+      setError(err instanceof Error ? err.message : copy.messages.saveFailed);
     } finally {
       setBusy(false);
     }
@@ -316,11 +461,11 @@ export function GatewayAccountsPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: next }),
       });
-      if (!res.ok) throw new Error(`更新失败 (${res.status})`);
-      setMessage(next === "active" ? "账号已启用" : "账号已停用");
+      if (!res.ok) throw new Error(`${copy.messages.updateFailed} (${res.status})`);
+      setMessage(next === "active" ? copy.messages.accountEnabled : copy.messages.accountDisabled);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "更新失败");
+      setError(err instanceof Error ? err.message : copy.messages.updateFailed);
     } finally {
       setBusy(false);
     }
@@ -347,9 +492,9 @@ export function GatewayAccountsPanel() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        if (!res.ok) throw new Error(`更新失败 (${res.status})`);
+        if (!res.ok) throw new Error(`${copy.messages.updateFailed} (${res.status})`);
         closeDrawer();
-        setMessage("Key 已更新");
+        setMessage(copy.messages.keyUpdated);
         await loadKeys(selectedAccountId);
         return;
       }
@@ -361,31 +506,31 @@ export function GatewayAccountsPanel() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error((body as { detail?: string }).detail || `签发失败 (${res.status})`);
+        throw new Error((body as { detail?: string }).detail || `${copy.messages.keyIssueFailed} (${res.status})`);
       }
       const data = (await res.json()) as { secret?: string };
       setCreatedSecret(data.secret || null);
-      setMessage("Key 已签发");
+      setMessage(copy.messages.keyIssued);
       await loadKeys(selectedAccountId);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "操作失败");
+      setError(err instanceof Error ? err.message : copy.messages.operationFailed);
     } finally {
       setBusy(false);
     }
   };
 
   const revokeKey = async (keyId: string) => {
-    if (!window.confirm("确定吊销该 Key？吊销后无法恢复。")) return;
+    if (!window.confirm(copy.messages.revokeConfirm)) return;
     setBusy(true);
     try {
       const res = await adminFetch(`/api/v1/keys/${encodeURIComponent(keyId)}/revoke`, { method: "POST" });
-      if (!res.ok) throw new Error(`吊销失败 (${res.status})`);
-      setMessage("Key 已吊销");
+      if (!res.ok) throw new Error(`${copy.messages.revokeFailed} (${res.status})`);
+      setMessage(copy.messages.revoked);
       if (selectedAccountId) await loadKeys(selectedAccountId);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "吊销失败");
+      setError(err instanceof Error ? err.message : copy.messages.revokeFailed);
     } finally {
       setBusy(false);
     }
@@ -397,7 +542,7 @@ export function GatewayAccountsPanel() {
         <label key={scope.id} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
           <input type="checkbox" checked={keyForm.scopes.includes(scope.id)} onChange={() => toggleScope(scope.id)} />
           <span>
-            {scope.label}
+            {scope.label[locale]}
             <span className="ml-1 text-xs text-slate-400">{scope.hint}</span>
           </span>
         </label>
@@ -408,25 +553,25 @@ export function GatewayAccountsPanel() {
   const keyLimitFields = (
     <div className="grid gap-3 sm:grid-cols-2">
       <label className="block text-sm">
-        <span className="font-medium text-slate-700">月 Token 上限</span>
+        <span className="font-medium text-slate-700">{copy.monthlyTokenLimit}</span>
         <input
           type="number"
           min={0}
           value={keyForm.monthly_token_limit}
           onChange={(e) => setKeyForm({ ...keyForm, monthly_token_limit: e.target.value })}
-          placeholder="0 = 不限"
+          placeholder={copy.noLimit}
           className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
         />
       </label>
       <label className="block text-sm">
-        <span className="font-medium text-slate-700">月成本上限 (USD)</span>
+        <span className="font-medium text-slate-700">{copy.monthlyCostLimit}</span>
         <input
           type="number"
           min={0}
           step={0.01}
           value={keyForm.monthly_cost_limit_usd}
           onChange={(e) => setKeyForm({ ...keyForm, monthly_cost_limit_usd: e.target.value })}
-          placeholder="0 = 不限"
+          placeholder={copy.noLimit}
           className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
         />
       </label>
@@ -437,12 +582,12 @@ export function GatewayAccountsPanel() {
           min={0}
           value={keyForm.burst_rpm_limit}
           onChange={(e) => setKeyForm({ ...keyForm, burst_rpm_limit: e.target.value })}
-          placeholder="0 = 全局默认"
+          placeholder={copy.globalDefault}
           className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
         />
       </label>
       <label className="block text-sm">
-        <span className="font-medium text-slate-700">过期时间</span>
+        <span className="font-medium text-slate-700">{copy.expiresAt}</span>
         <input
           type="datetime-local"
           value={keyForm.expires_at}
@@ -458,9 +603,9 @@ export function GatewayAccountsPanel() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm text-slate-500">
-            管理企业组织、员工账号与 <code className="text-xs">evk_</code> API Key。员工自助登录见{" "}
+            {copy.introBefore} <code className="text-xs">evk_</code> API Key{copy.introAfterLogin}{" "}
             <Link to="/login" className="font-medium text-blue-600 hover:text-blue-700">/login</Link>
-            ；模型与路由见 <Link to="/gateway" className="font-medium text-blue-600 hover:text-blue-700">网关</Link>。
+            {copy.introAfterGateway} <Link to="/gateway" className="font-medium text-blue-600 hover:text-blue-700">{copy.gateway}</Link>.
           </p>
         </div>
         <div className="flex gap-2">
@@ -469,33 +614,33 @@ export function GatewayAccountsPanel() {
             onClick={openOrgCreate}
             className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
-            新建组织
+            {copy.createOrg}
           </button>
           <button
             type="button"
             onClick={openAccountCreate}
             className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800"
           >
-            创建账号
+            {copy.createAccount}
           </button>
         </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-          <div className="text-xs font-medium uppercase text-slate-500">组织</div>
+          <div className="text-xs font-medium uppercase text-slate-500">{copy.stats.orgs}</div>
           <div className="mt-1 text-2xl font-semibold text-slate-950">{loading ? "…" : orgs.length}</div>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-          <div className="text-xs font-medium uppercase text-slate-500">账号</div>
+          <div className="text-xs font-medium uppercase text-slate-500">{copy.stats.accounts}</div>
           <div className="mt-1 text-2xl font-semibold text-slate-950">{loading ? "…" : accounts.length}</div>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-          <div className="text-xs font-medium uppercase text-slate-500">有效 Key</div>
+          <div className="text-xs font-medium uppercase text-slate-500">{copy.stats.activeKeys}</div>
           <div className="mt-1 text-2xl font-semibold text-slate-950">{loading ? "…" : totalActiveKeys}</div>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-          <div className="text-xs font-medium uppercase text-slate-500">当前账号</div>
+          <div className="text-xs font-medium uppercase text-slate-500">{copy.stats.currentAccount}</div>
           <div className="mt-1 truncate text-sm font-semibold text-slate-950">{selectedAccount?.name || "—"}</div>
         </div>
       </div>
@@ -519,7 +664,7 @@ export function GatewayAccountsPanel() {
                   viewMode === "org" ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100"
                 }`}
               >
-                组织视图
+                {copy.viewOrg}
               </button>
               <button
                 type="button"
@@ -528,18 +673,18 @@ export function GatewayAccountsPanel() {
                   viewMode === "all" ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100"
                 }`}
               >
-                全部账号
+                {copy.viewAll}
               </button>
             </div>
             <button type="button" onClick={() => { load(); loadOrgs(); }} className="text-xs font-medium text-blue-600 hover:text-blue-800">
-              刷新
+              {copy.refresh}
             </button>
           </div>
 
           {viewMode === "org" ? (
             <div className="max-h-[520px] space-y-2 overflow-y-auto">
               {!orgs.length ? (
-                <p className="px-2 py-8 text-center text-sm text-slate-500">暂无组织</p>
+                <p className="px-2 py-8 text-center text-sm text-slate-500">{copy.emptyOrgs}</p>
               ) : (
                 orgs.map((org) => {
                   const orgAccounts = accounts.filter((a) => a.org_id === org.org_id);
@@ -571,20 +716,20 @@ export function GatewayAccountsPanel() {
                                 org.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"
                               }`}
                             >
-                              {org.status === "active" ? "启用" : "停用"}
+                              {org.status === "active" ? copy.enabled : copy.disabled}
                             </span>
                           </div>
                           <div className="mt-0.5 pl-4 text-xs text-slate-500">
-                            {org.account_count} 个账号 · {org.active_keys}/{org.total_keys} keys
+                            {copy.accountsCount(org.account_count)} · {org.active_keys}/{org.total_keys} keys
                           </div>
                         </button>
                         <div className="flex shrink-0 gap-0.5">
-                          <button type="button" onClick={(e) => { e.stopPropagation(); openOrgEdit(org); }} className="rounded p-1 text-xs text-blue-500 hover:bg-blue-50 hover:text-blue-700" title="编辑">✏️</button>
-                          <button type="button" onClick={(e) => { e.stopPropagation(); toggleOrgStatus(org); }} className="rounded p-1 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600" title={org.status === "active" ? "停用" : "启用"}>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); openOrgEdit(org); }} className="rounded p-1 text-xs text-blue-500 hover:bg-blue-50 hover:text-blue-700" title={copy.edit}>✏️</button>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); toggleOrgStatus(org); }} className="rounded p-1 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600" title={org.status === "active" ? copy.disabled : copy.enabled}>
                             {org.status === "active" ? "⏸" : "▶️"}
                           </button>
                           {!isRoot && (
-                            <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteOrg(org); }} className="rounded p-1 text-xs text-red-400 hover:bg-red-50 hover:text-red-600" title="删除">🗑️</button>
+                            <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteOrg(org); }} className="rounded p-1 text-xs text-red-400 hover:bg-red-50 hover:text-red-600" title={copy.delete}>🗑️</button>
                           )}
                         </div>
                       </div>
@@ -609,7 +754,7 @@ export function GatewayAccountsPanel() {
                                       account.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"
                                     }`}
                                   >
-                                    {account.status === "active" ? "启用" : "停用"}
+                                    {account.status === "active" ? copy.enabled : copy.disabled}
                                   </span>
                                 </div>
                                 <div className="mt-0.5 text-xs text-slate-400">
@@ -622,7 +767,7 @@ export function GatewayAccountsPanel() {
                       )}
                       {isSelected && orgAccounts.length === 0 && (
                         <p className="border-t border-slate-100 px-3 py-3 text-center text-xs text-slate-400">
-                          该组织暂无账号
+                          {copy.noOrgAccounts}
                         </p>
                       )}
                     </div>
@@ -633,7 +778,7 @@ export function GatewayAccountsPanel() {
           ) : (
             /* Flat account list */
             !accounts.length ? (
-              <p className="px-2 py-8 text-center text-sm text-slate-500">暂无账号</p>
+              <p className="px-2 py-8 text-center text-sm text-slate-500">{copy.emptyAccounts}</p>
             ) : (
               <ul className="max-h-[520px] space-y-1 overflow-y-auto">
                 {accounts.map((account) => {
@@ -656,7 +801,7 @@ export function GatewayAccountsPanel() {
                               account.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"
                             }`}
                           >
-                            {account.status === "active" ? "启用" : "停用"}
+                            {account.status === "active" ? copy.enabled : copy.disabled}
                           </span>
                         </div>
                         <div className="mt-0.5 truncate font-mono text-[11px] text-slate-400">{account.account_id}</div>
@@ -676,7 +821,7 @@ export function GatewayAccountsPanel() {
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           {!selectedAccount ? (
             <p className="flex h-full min-h-[360px] items-center justify-center text-sm text-slate-500">
-              请选择左侧账号，或创建新账号。
+              {copy.chooseAccount}
             </p>
           ) : (
             <div className="space-y-4">
@@ -687,10 +832,10 @@ export function GatewayAccountsPanel() {
                   <p className="mt-1 text-sm text-slate-500">
                     {[
                       selectedAccount.owner_email,
-                      selectedOrg && `组织 ${selectedOrg.name}`,
+                      selectedOrg && `${copy.orgPrefix} ${selectedOrg.name}`,
                     ]
                       .filter(Boolean)
-                      .join(" · ") || "未填写负责人 / 组织"}
+                      .join(" · ") || copy.missingOwnerOrg}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -700,7 +845,7 @@ export function GatewayAccountsPanel() {
                     onClick={openAccountEdit}
                     className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
                   >
-                    编辑账号
+                    {copy.editAccount}
                   </button>
                   <button
                     type="button"
@@ -708,7 +853,7 @@ export function GatewayAccountsPanel() {
                     onClick={toggleAccountStatus}
                     className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
                   >
-                    {selectedAccount.status === "active" ? "停用" : "启用"}
+                    {selectedAccount.status === "active" ? copy.disabled : copy.enabled}
                   </button>
                   <button
                     type="button"
@@ -716,14 +861,14 @@ export function GatewayAccountsPanel() {
                     onClick={openKeyCreate}
                     className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                   >
-                    签发 Key
+                    {copy.issueKey}
                   </button>
                 </div>
               </div>
 
               <div>
                 <h3 className="text-sm font-semibold text-slate-900">API Keys</h3>
-                <p className="mt-0.5 text-xs text-slate-500">员工配置使用 evk_ 前缀密钥，配合网关与 SkillHub。</p>
+                <p className="mt-0.5 text-xs text-slate-500">{copy.keyNote}</p>
                 <div className="mt-3">
                   <AccountKeyTable keys={keys} busy={busy} onEdit={openKeyEdit} onRevoke={revokeKey} />
                 </div>
@@ -735,8 +880,8 @@ export function GatewayAccountsPanel() {
 
       <GatewayDrawer
         open={drawer === "account-create" || drawer === "account-edit"}
-        title={drawer === "account-edit" ? "编辑账号" : "创建账号"}
-        subtitle="每个账号可绑定组织并签发多个 evk_ Key"
+        title={copy.accountDrawerTitle(drawer === "account-edit")}
+        subtitle={copy.accountDrawerSubtitle}
         onClose={closeDrawer}
       >
         {error && (drawer === "account-create" || drawer === "account-edit") && (
@@ -744,7 +889,7 @@ export function GatewayAccountsPanel() {
         )}
         <form onSubmit={submitAccount} className="space-y-4">
           <label className="block text-sm">
-            <span className="font-medium text-slate-700">账号名称 *</span>
+            <span className="font-medium text-slate-700">{copy.accountName}</span>
             <input
               value={accountForm.name}
               onChange={(e) => setAccountForm({ ...accountForm, name: e.target.value })}
@@ -753,14 +898,14 @@ export function GatewayAccountsPanel() {
             />
           </label>
           <label className="block text-sm">
-            <span className="font-medium text-slate-700">所属组织 *</span>
+            <span className="font-medium text-slate-700">{copy.accountOrg}</span>
             <select
               value={accountForm.org_id}
               onChange={(e) => setAccountForm({ ...accountForm, org_id: e.target.value })}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               required
             >
-              <option value="">请选择组织</option>
+              <option value="">{copy.selectOrg}</option>
               {orgs.map((org) => (
                 <option key={org.org_id} value={org.org_id}>
                   {org.name}
@@ -769,7 +914,7 @@ export function GatewayAccountsPanel() {
             </select>
           </label>
           <label className="block text-sm">
-            <span className="font-medium text-slate-700">负责人邮箱</span>
+            <span className="font-medium text-slate-700">{copy.ownerEmail}</span>
             <input
               type="email"
               value={accountForm.owner_email}
@@ -778,7 +923,7 @@ export function GatewayAccountsPanel() {
             />
           </label>
           <label className="block text-sm">
-            <span className="font-medium text-slate-700">备注</span>
+            <span className="font-medium text-slate-700">{copy.notes}</span>
             <textarea
               value={accountForm.notes}
               onChange={(e) => setAccountForm({ ...accountForm, notes: e.target.value })}
@@ -788,10 +933,10 @@ export function GatewayAccountsPanel() {
           </label>
           <div className="flex gap-2 border-t border-slate-100 pt-4">
             <button type="button" onClick={closeDrawer} className="flex-1 rounded-lg border border-slate-200 py-2 text-sm font-medium text-slate-700">
-              取消
+              {copy.cancel}
             </button>
             <button type="submit" disabled={busy} className="flex-1 rounded-lg bg-slate-950 py-2 text-sm font-semibold text-white disabled:opacity-50">
-              保存
+              {copy.save}
             </button>
           </div>
         </form>
@@ -799,7 +944,7 @@ export function GatewayAccountsPanel() {
 
       <GatewayDrawer
         open={drawer === "key-create" || drawer === "key-edit"}
-        title={drawer === "key-edit" ? "编辑 Key" : "签发 Key"}
+        title={copy.keyDrawerTitle(drawer === "key-edit")}
         subtitle={selectedAccount ? selectedAccount.name : undefined}
         onClose={closeDrawer}
       >
@@ -808,40 +953,40 @@ export function GatewayAccountsPanel() {
         )}
         {createdSecret && drawer === "key-create" && (
           <div className="mb-4 space-y-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <div className="text-sm font-semibold text-amber-900">请立即复制 — 密钥仅显示一次</div>
+            <div className="text-sm font-semibold text-amber-900">{copy.copyNow}</div>
             <pre className="overflow-auto rounded-lg bg-slate-950 p-3 font-mono text-xs text-emerald-300">{createdSecret}</pre>
             <button
               type="button"
               onClick={() => navigator.clipboard.writeText(createdSecret)}
               className="text-sm font-medium text-amber-900 underline"
             >
-              复制 Key
+              {copy.copyKey}
             </button>
             <EasyInstallWizard apiKeyOverride={createdSecret} layout="panel" />
           </div>
         )}
         <form onSubmit={submitKey} className="space-y-4">
           <label className="block text-sm">
-            <span className="font-medium text-slate-700">标签</span>
+            <span className="font-medium text-slate-700">{copy.label}</span>
             <input
               value={keyForm.label}
               onChange={(e) => setKeyForm({ ...keyForm, label: e.target.value })}
-              placeholder="如 prod-laptop-01"
+              placeholder={copy.labelPlaceholder}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
             />
           </label>
           <div>
-            <div className="text-sm font-medium text-slate-700">权限范围</div>
+            <div className="text-sm font-medium text-slate-700">{copy.scopes}</div>
             <div className="mt-2">{scopeCheckboxes}</div>
           </div>
           {keyLimitFields}
           <div className="flex gap-2 border-t border-slate-100 pt-4">
             <button type="button" onClick={closeDrawer} className="flex-1 rounded-lg border border-slate-200 py-2 text-sm font-medium text-slate-700">
-              {createdSecret ? "关闭" : "取消"}
+              {createdSecret ? copy.close : copy.cancel}
             </button>
             {!createdSecret && (
               <button type="submit" disabled={busy} className="flex-1 rounded-lg bg-slate-950 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                {drawer === "key-edit" ? "保存" : "签发"}
+                {drawer === "key-edit" ? copy.save : copy.issue}
               </button>
             )}
           </div>

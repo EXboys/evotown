@@ -7,6 +7,7 @@ import { TaskHistoryPage } from "./components/TaskHistoryPage";
 import { ChronicleBook } from "./components/ChronicleBook";
 import { ConsoleLoginPage } from "./components/ConsoleLoginPage";
 import { SkillsMarketPage } from "./components/market/SkillsMarketPage";
+import { PublicKnowledgePage } from "./components/PublicKnowledgePage";
 import { EnterpriseConsole } from "./components/EnterpriseConsole";
 import { useEvotownStore } from "./store/evotownStore";
 import { initDisplayTimezoneFromServer } from "./lib/datetime";
@@ -59,7 +60,8 @@ function App() {
         <Route path="/assets" element={<EnterpriseConsole initialTab="assets" />} />
         <Route path="/policies" element={<EnterpriseConsole initialTab="policies" />} />
         <Route path="/skills" element={<EnterpriseConsole initialTab="skills" />} />
-        <Route path="/knowledge" element={<EnterpriseConsole initialTab="knowledge" />} />
+        <Route path="/knowledge" element={<PublicKnowledgePage />} />
+        <Route path="/console/knowledge" element={<EnterpriseConsole initialTab="knowledge" />} />
         <Route path="/costs" element={<EnterpriseConsole initialTab="costs" />} />
         <Route path="/risk" element={<EnterpriseConsole initialTab="risk" />} />
         <Route path="/arena" element={<ArenaApp />} />

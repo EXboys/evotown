@@ -6,6 +6,7 @@ import { EmployeeConfigPanel } from "./market/EmployeeConfigPanel";
 import { GatewayModelRoutesPanel } from "./GatewayModelRoutesPanel";
 import { GatewayUpstreamModelsPanel } from "./GatewayUpstreamModelsPanel";
 import { formatDateTimeShort } from "../lib/datetime";
+import type { Locale } from "../lib/i18n";
 
 type GatewayConversation = {
   conversation_id: string;
@@ -51,6 +52,105 @@ export type GatewayConsoleData = {
 
 type GatewayTab = "config" | "connect" | "observe";
 
+export const GATEWAY_COPY = {
+  zh: {
+    pagination: {
+      range: (start: number, end: number, total: number) => `第 ${start}-${end} 条，共 ${total} 条`,
+      prev: "上一页",
+      next: "下一页",
+    },
+    empty: {
+      requests: "暂无网关请求记录。请确认 Agent 已配置 evk_ Key，且请求发往 /api/gateway/v1/chat/completions。",
+      conversations: "暂无会话记录。",
+      data: "暂无数据",
+    },
+    requestTable: { time: "时间", model: "模型", account: "账号", status: "状态", cost: "成本" },
+    tabs: {
+      config: { label: "模型配置", desc: "上游模型与别名" },
+      connect: { label: "员工接入", desc: "两行配置" },
+      observe: { label: "用量审计", desc: "统计与会话" },
+    },
+    stats: {
+      requests: ["请求", "网关调用"],
+      cost: ["成本", "累计"],
+      token: ["Token", "prompt + completion"],
+      latency: ["延迟", "平均"],
+    },
+    config: {
+      playgroundTitle: "在线试调",
+      playgroundSubtitle: "在浏览器里直接调用网关，查看最终模型、尝试次数与重试/降级审计",
+      upstreamTitle: "上游模型",
+      upstreamSubtitle: "企业网关直连的厂商 endpoint 与 API Key",
+      routesTitle: "别名路由",
+      routesSubtitle: "员工 Agent 使用的 model 名 → 上游 model_name",
+    },
+    connect: {
+      title: "员工接入",
+      issuedKeys: (count: number) => `模型请求统一走 Evotown 企业网关；已签发 Key：${count} 个`,
+      note: "员工只需配置 Evotown 地址与 evk_ Key；身份、审计、配额与模型路由由企业控制台统一管理。Key 签发见「账号」页。",
+    },
+    observe: {
+      byModel: "按模型",
+      byAgent: "按 Agent",
+      byAccount: "按账号",
+      top: "用量 Top",
+      requests: "请求调用",
+      requestsSubtitle: "最近 chat/completions 审计记录",
+      conversations: "会话",
+      conversationsSubtitle: "按 conversation_id 聚合",
+    },
+  },
+  en: {
+    pagination: {
+      range: (start: number, end: number, total: number) => `${start}-${end} of ${total}`,
+      prev: "Prev",
+      next: "Next",
+    },
+    empty: {
+      requests: "No gateway requests yet. Make sure the Agent uses an evk_ key and calls /api/gateway/v1/chat/completions.",
+      conversations: "No conversations yet.",
+      data: "No data",
+    },
+    requestTable: { time: "Time", model: "Model", account: "Account", status: "Status", cost: "Cost" },
+    tabs: {
+      config: { label: "Model Config", desc: "Upstream models & aliases" },
+      connect: { label: "Employee Access", desc: "Two-line config" },
+      observe: { label: "Usage Audit", desc: "Stats & conversations" },
+    },
+    stats: {
+      requests: ["Requests", "Gateway calls"],
+      cost: ["Cost", "Total"],
+      token: ["Token", "prompt + completion"],
+      latency: ["Latency", "Average"],
+    },
+    config: {
+      playgroundTitle: "Gateway Playground",
+      playgroundSubtitle: "Call the gateway from the browser and inspect final model, attempts, retries, and fallback audit.",
+      upstreamTitle: "Upstream Models",
+      upstreamSubtitle: "Provider endpoints and API keys connected to the enterprise gateway",
+      routesTitle: "Alias Routes",
+      routesSubtitle: "Model names used by employee Agents -> upstream model_name",
+    },
+    connect: {
+      title: "Employee Access",
+      issuedKeys: (count: number) => `Model requests go through the Evotown enterprise gateway; issued keys: ${count}`,
+      note: "Employees only configure the Evotown URL and evk_ key. Identity, audit, quotas, and model routing are managed by the enterprise console. Issue keys from Accounts.",
+    },
+    observe: {
+      byModel: "By Model",
+      byAgent: "By Agent",
+      byAccount: "By Account",
+      top: "Top usage",
+      requests: "Requests",
+      requestsSubtitle: "Recent chat/completions audit records",
+      conversations: "Conversations",
+      conversationsSubtitle: "Grouped by conversation_id",
+    },
+  },
+} as const;
+
+type GatewayCopy = (typeof GATEWAY_COPY)[Locale];
+
 function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <div className={`rounded-2xl border border-slate-200 bg-white shadow-sm ${className}`}>{children}</div>;
 }
@@ -92,12 +192,14 @@ function Pagination({
   total,
   pageSize,
   onPageChange,
+  copy = GATEWAY_COPY.zh,
 }: {
   page: number;
   totalPages: number;
   total: number;
   pageSize: number;
   onPageChange: (p: number) => void;
+  copy?: GatewayCopy;
 }) {
   if (totalPages <= 1) return null;
 
@@ -124,7 +226,7 @@ function Pagination({
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/50 px-3 py-2">
       <span className="text-xs text-slate-500">
-        第 {start}-{end} 条，共 {total} 条
+        {copy.pagination.range(start, end, total)}
       </span>
       <div className="flex items-center gap-1">
         <button
@@ -133,7 +235,7 @@ function Pagination({
           disabled={page === 1}
           onClick={() => onPageChange(page - 1)}
         >
-          ‹ 上一页
+          ‹ {copy.pagination.prev}
         </button>
         {pages.map((p, idx) =>
           p === "ellipsis" ? (
@@ -161,7 +263,7 @@ function Pagination({
           disabled={page === totalPages}
           onClick={() => onPageChange(page + 1)}
         >
-          下一页 ›
+          {copy.pagination.next} ›
         </button>
       </div>
     </div>
@@ -222,16 +324,18 @@ function SimpleUsageTable({
 export function RecentRequestsTable({
   requests,
   compact = false,
+  copy = GATEWAY_COPY.zh,
 }: {
   requests: GatewayRequest[];
   compact?: boolean;
+  copy?: GatewayCopy;
 }) {
   const { page, setPage, totalPages, pageSize, slice } = usePagination(requests, 10);
 
   if (!requests.length) {
     return (
       <EmptyState>
-        暂无网关请求记录。请确认 Agent 已配置 evk_ Key，且请求发往 /api/gateway/v1/chat/completions。
+        {copy.empty.requests}
       </EmptyState>
     );
   }
@@ -241,12 +345,12 @@ export function RecentRequestsTable({
       <table className="w-full table-fixed text-left text-sm">
         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
           <tr>
-            <th className="px-3 py-2 font-semibold">时间</th>
-            <th className="w-40 px-3 py-2 font-semibold">模型</th>
-            <th className="w-24 px-3 py-2 font-semibold">账号</th>
-            <th className="w-14 px-3 py-2 font-semibold">状态</th>
+            <th className="px-3 py-2 font-semibold">{copy.requestTable.time}</th>
+            <th className="w-40 px-3 py-2 font-semibold">{copy.requestTable.model}</th>
+            <th className="w-24 px-3 py-2 font-semibold">{copy.requestTable.account}</th>
+            <th className="w-14 px-3 py-2 font-semibold">{copy.requestTable.status}</th>
             <th className="w-16 px-3 py-2 font-semibold">Tok</th>
-            <th className="w-20 px-3 py-2 font-semibold">成本</th>
+            <th className="w-20 px-3 py-2 font-semibold">{copy.requestTable.cost}</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -274,15 +378,16 @@ export function RecentRequestsTable({
           total={requests.length}
           pageSize={pageSize}
           onPageChange={setPage}
+          copy={copy}
         />
       )}
     </div>
   );
 }
 
-function ConversationTable({ conversations }: { conversations: GatewayConversation[] }) {
+function ConversationTable({ conversations, copy }: { conversations: GatewayConversation[]; copy: GatewayCopy }) {
   const { page, setPage, totalPages, pageSize, slice } = usePagination(conversations, 10);
-  if (!conversations.length) return <EmptyState>暂无会话记录。</EmptyState>;
+  if (!conversations.length) return <EmptyState>{copy.empty.conversations}</EmptyState>;
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200">
       <table className="w-full table-fixed text-left text-sm">
@@ -318,18 +423,16 @@ function ConversationTable({ conversations }: { conversations: GatewayConversati
         total={conversations.length}
         pageSize={pageSize}
         onPageChange={setPage}
+        copy={copy}
       />
     </div>
   );
 }
 
-const TABS: { id: GatewayTab; label: string; desc: string }[] = [
-  { id: "config", label: "模型配置", desc: "上游模型与别名" },
-  { id: "connect", label: "员工接入", desc: "两行配置" },
-  { id: "observe", label: "用量审计", desc: "统计与会话" },
-];
+const TABS: GatewayTab[] = ["config", "connect", "observe"];
 
-export function GatewayConsole({ data }: { data: GatewayConsoleData }) {
+export function GatewayConsole({ data, locale = "zh" }: { data: GatewayConsoleData; locale?: Locale }) {
+  const copy = GATEWAY_COPY[locale];
   const [tab, setTab] = useState<GatewayTab>("config");
   const total = data.gateway?.total || {};
   const byModel = data.gateway?.by_model || [];
@@ -339,26 +442,26 @@ export function GatewayConsole({ data }: { data: GatewayConsoleData }) {
   return (
     <div className="space-y-5">
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="请求" value={total.total_requests || 0} note="网关调用" />
-        <StatCard label="成本" value={`$${asNumber(total.total_cost_usd).toFixed(4)}`} note="累计" />
-        <StatCard label="Token" value={total.total_tokens || 0} note="prompt + completion" />
-        <StatCard label="延迟" value={total.avg_latency_ms ? `${Math.round(total.avg_latency_ms)}ms` : "—"} note="平均" />
+        <StatCard label={copy.stats.requests[0]} value={total.total_requests || 0} note={copy.stats.requests[1]} />
+        <StatCard label={copy.stats.cost[0]} value={`$${asNumber(total.total_cost_usd).toFixed(4)}`} note={copy.stats.cost[1]} />
+        <StatCard label={copy.stats.token[0]} value={total.total_tokens || 0} note={copy.stats.token[1]} />
+        <StatCard label={copy.stats.latency[0]} value={total.avg_latency_ms ? `${Math.round(total.avg_latency_ms)}ms` : "—"} note={copy.stats.latency[1]} />
       </section>
 
       <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-1">
         {TABS.map((item) => (
           <button
-            key={item.id}
+            key={item}
             type="button"
-            onClick={() => setTab(item.id)}
+            onClick={() => setTab(item)}
             className={`rounded-t-lg px-4 py-2 text-sm font-medium transition-colors ${
-              tab === item.id
+              tab === item
                 ? "border border-b-white border-slate-200 bg-white text-slate-950 -mb-px"
                 : "text-slate-500 hover:text-slate-800"
             }`}
           >
-            {item.label}
-            <span className="ml-2 hidden text-xs font-normal text-slate-400 sm:inline">{item.desc}</span>
+            {copy.tabs[item].label}
+            <span className="ml-2 hidden text-xs font-normal text-slate-400 sm:inline">{copy.tabs[item].desc}</span>
           </button>
         ))}
       </div>
@@ -367,18 +470,18 @@ export function GatewayConsole({ data }: { data: GatewayConsoleData }) {
         <div className="space-y-5">
           <Card className="p-4">
             <SectionHeader
-              title="在线试调"
-              subtitle="在浏览器里直接调用网关，查看最终模型、尝试次数与重试/降级审计"
+              title={copy.config.playgroundTitle}
+              subtitle={copy.config.playgroundSubtitle}
             />
             <GatewayPlaygroundPanel />
           </Card>
           <div className="grid gap-5 xl:grid-cols-2">
             <Card className="p-4">
-              <SectionHeader title="上游模型" subtitle="企业网关直连的厂商 endpoint 与 API Key" />
+              <SectionHeader title={copy.config.upstreamTitle} subtitle={copy.config.upstreamSubtitle} />
               <GatewayUpstreamModelsPanel />
             </Card>
             <Card className="p-4">
-              <SectionHeader title="别名路由" subtitle="员工 Agent 使用的 model 名 → 上游 model_name" />
+              <SectionHeader title={copy.config.routesTitle} subtitle={copy.config.routesSubtitle} />
               <GatewayModelRoutesPanel />
             </Card>
           </div>
@@ -389,12 +492,12 @@ export function GatewayConsole({ data }: { data: GatewayConsoleData }) {
       {tab === "connect" && (
         <Card className="p-5">
           <SectionHeader
-            title="员工接入"
-            subtitle={`模型请求统一走 Evotown 企业网关；已签发 Key：${data.gatewayKeys.length} 个`}
+            title={copy.connect.title}
+            subtitle={copy.connect.issuedKeys(data.gatewayKeys.length)}
           />
           <EmployeeConfigPanel compact className="border-slate-200 bg-slate-50/50" />
           <p className="mt-4 text-xs text-slate-500">
-            员工只需配置 Evotown 地址与 evk_ Key；身份、审计、配额与模型路由由企业控制台统一管理。Key 签发见「账号」页。
+            {copy.connect.note}
           </p>
         </Card>
       )}
@@ -403,25 +506,25 @@ export function GatewayConsole({ data }: { data: GatewayConsoleData }) {
         <div className="space-y-5">
           <div className="grid gap-5 lg:grid-cols-3">
             <Card className="p-4">
-              <SectionHeader title="按模型" subtitle="用量 Top" />
-              <SimpleUsageTable rows={byModel} nameKey="model" empty="暂无数据" />
+              <SectionHeader title={copy.observe.byModel} subtitle={copy.observe.top} />
+              <SimpleUsageTable rows={byModel} nameKey="model" empty={copy.empty.data} />
             </Card>
             <Card className="p-4">
-              <SectionHeader title="按 Agent" subtitle="用量 Top" />
-              <SimpleUsageTable rows={byAgent} nameKey="agent_id" empty="暂无数据" />
+              <SectionHeader title={copy.observe.byAgent} subtitle={copy.observe.top} />
+              <SimpleUsageTable rows={byAgent} nameKey="agent_id" empty={copy.empty.data} />
             </Card>
             <Card className="p-4">
-              <SectionHeader title="按账号" subtitle="用量 Top" />
-              <SimpleUsageTable rows={byAccount} nameKey="account_name" empty="暂无数据" />
+              <SectionHeader title={copy.observe.byAccount} subtitle={copy.observe.top} />
+              <SimpleUsageTable rows={byAccount} nameKey="account_name" empty={copy.empty.data} />
             </Card>
           </div>
           <Card className="p-4">
-            <SectionHeader title="请求调用" subtitle="最近 chat/completions 审计记录" />
-            <RecentRequestsTable requests={data.gatewayRequests} />
+            <SectionHeader title={copy.observe.requests} subtitle={copy.observe.requestsSubtitle} />
+            <RecentRequestsTable requests={data.gatewayRequests} copy={copy} />
           </Card>
           <Card className="p-4">
-            <SectionHeader title="会话" subtitle="按 conversation_id 聚合" />
-            <ConversationTable conversations={data.conversations} />
+            <SectionHeader title={copy.observe.conversations} subtitle={copy.observe.conversationsSubtitle} />
+            <ConversationTable conversations={data.conversations} copy={copy} />
           </Card>
         </div>
       )}

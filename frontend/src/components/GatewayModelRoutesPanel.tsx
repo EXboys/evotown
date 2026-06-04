@@ -3,6 +3,24 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { adminFetch } from "../hooks/useAdminToken";
 import { GatewayDrawer } from "./gateway/GatewayDrawer";
 
+type AutoTierName = "fast" | "balanced" | "strong";
+
+type AutoTierModel = {
+  model: string;
+  weight: number;
+  quota_tokens: number;
+  quota_remaining_tokens: number;
+  enabled: boolean;
+};
+
+type GatewayAutoPolicy = {
+  tiers?: Partial<Record<AutoTierName, Array<string | Partial<AutoTierModel>> | string>>;
+  threshold_tokens_fast?: number;
+  threshold_tokens_strong?: number;
+  tools_use_strong?: boolean;
+  tier_fallback_order?: AutoTierName[];
+};
+
 export type GatewayModelRoute = {
   route_id: string;
   alias: string;
@@ -15,6 +33,7 @@ export type GatewayModelRoute = {
   route_type?: string;
   fallback_models?: string[];
   enable_fallback?: boolean;
+  auto_policy?: GatewayAutoPolicy;
 };
 
 type FormState = {
@@ -28,7 +47,30 @@ type FormState = {
   route_type: string;
   fallback_models_text: string;
   enable_fallback: boolean;
+  threshold_tokens_fast: number;
+  threshold_tokens_strong: number;
+  tools_use_strong: boolean;
+  auto_tiers: Record<AutoTierName, AutoTierModel[]>;
 };
+
+const tierNames: AutoTierName[] = ["fast", "balanced", "strong"];
+const tierLabels: Record<AutoTierName, string> = {
+  fast: "Fast",
+  balanced: "Balanced",
+  strong: "Strong",
+};
+
+function emptyTierModel(): AutoTierModel {
+  return { model: "", weight: 100, quota_tokens: 0, quota_remaining_tokens: 0, enabled: true };
+}
+
+function emptyAutoTiers(): Record<AutoTierName, AutoTierModel[]> {
+  return {
+    fast: [emptyTierModel()],
+    balanced: [emptyTierModel()],
+    strong: [emptyTierModel()],
+  };
+}
 
 const emptyForm: FormState = {
   alias: "",
@@ -41,7 +83,72 @@ const emptyForm: FormState = {
   route_type: "static",
   fallback_models_text: "",
   enable_fallback: true,
+  threshold_tokens_fast: 2000,
+  threshold_tokens_strong: 8000,
+  tools_use_strong: true,
+  auto_tiers: emptyAutoTiers(),
 };
+
+function normalizeTierModels(raw: unknown): AutoTierModel[] {
+  const items = typeof raw === "string" || (raw && !Array.isArray(raw) && typeof raw === "object") ? [raw] : Array.isArray(raw) ? raw : [];
+  const models = items.map((item) => {
+    if (typeof item === "string") return { ...emptyTierModel(), model: item };
+    const obj = item && typeof item === "object" ? item as Partial<AutoTierModel> & { model_name?: string; name?: string } : {};
+    return {
+      model: String(obj.model || obj.model_name || obj.name || ""),
+      weight: Number(obj.weight ?? 100),
+      quota_tokens: Number(obj.quota_tokens ?? 0),
+      quota_remaining_tokens: Number(obj.quota_remaining_tokens ?? 0),
+      enabled: obj.enabled !== false,
+    };
+  });
+  return models.length ? models : [emptyTierModel()];
+}
+
+function policyToAutoTiers(policy?: GatewayAutoPolicy): Record<AutoTierName, AutoTierModel[]> {
+  const tiers = policy?.tiers || {};
+  return {
+    fast: normalizeTierModels(tiers.fast),
+    balanced: normalizeTierModels(tiers.balanced),
+    strong: normalizeTierModels(tiers.strong),
+  };
+}
+
+function buildAutoPolicy(form: FormState): GatewayAutoPolicy {
+  const tiers = Object.fromEntries(
+    tierNames.map((tier) => [
+      tier,
+      form.auto_tiers[tier]
+        .map((item) => ({
+          model: item.model.trim(),
+          weight: Number(item.weight) || 0,
+          quota_tokens: Number(item.quota_tokens) || 0,
+          quota_remaining_tokens: Number(item.quota_remaining_tokens) || 0,
+          enabled: item.enabled,
+        }))
+        .filter((item) => item.model),
+    ]),
+  ) as Record<AutoTierName, AutoTierModel[]>;
+
+  return {
+    tiers,
+    threshold_tokens_fast: Number(form.threshold_tokens_fast) || 2000,
+    threshold_tokens_strong: Number(form.threshold_tokens_strong) || 8000,
+    tools_use_strong: form.tools_use_strong,
+    tier_fallback_order: ["fast", "balanced", "strong"],
+  };
+}
+
+function summarizeAutoPolicy(policy?: GatewayAutoPolicy): string {
+  const tiers = policyToAutoTiers(policy);
+  return tierNames
+    .map((tier) => {
+      const names = tiers[tier].map((item) => item.model.trim()).filter(Boolean);
+      return names.length ? `${tier}: ${names.join(" → ")}` : "";
+    })
+    .filter(Boolean)
+    .join(" | ");
+}
 
 function rowToForm(row: GatewayModelRoute): FormState {
   return {
@@ -55,6 +162,10 @@ function rowToForm(row: GatewayModelRoute): FormState {
     route_type: row.route_type || "static",
     fallback_models_text: (row.fallback_models || []).join(", "),
     enable_fallback: row.enable_fallback !== false,
+    threshold_tokens_fast: Number(row.auto_policy?.threshold_tokens_fast ?? 2000),
+    threshold_tokens_strong: Number(row.auto_policy?.threshold_tokens_strong ?? 8000),
+    tools_use_strong: row.auto_policy?.tools_use_strong !== false,
+    auto_tiers: policyToAutoTiers(row.auto_policy),
   };
 }
 
@@ -74,6 +185,7 @@ function formToPayload(form: FormState) {
     route_type: form.route_type,
     fallback_models,
     enable_fallback: form.enable_fallback,
+    auto_policy: buildAutoPolicy(form),
   };
 }
 
@@ -180,6 +292,39 @@ export function GatewayModelRoutesPanel() {
     }
   };
 
+  const updateTierModel = (tier: AutoTierName, index: number, patch: Partial<AutoTierModel>) => {
+    setForm((prev) => ({
+      ...prev,
+      auto_tiers: {
+        ...prev.auto_tiers,
+        [tier]: prev.auto_tiers[tier].map((item, idx) => idx === index ? { ...item, ...patch } : item),
+      },
+    }));
+  };
+
+  const addTierModel = (tier: AutoTierName) => {
+    setForm((prev) => ({
+      ...prev,
+      auto_tiers: {
+        ...prev.auto_tiers,
+        [tier]: [...prev.auto_tiers[tier], emptyTierModel()],
+      },
+    }));
+  };
+
+  const removeTierModel = (tier: AutoTierName, index: number) => {
+    setForm((prev) => {
+      const next = prev.auto_tiers[tier].filter((_, idx) => idx !== index);
+      return {
+        ...prev,
+        auto_tiers: {
+          ...prev.auto_tiers,
+          [tier]: next.length ? next : [emptyTierModel()],
+        },
+      };
+    });
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -218,6 +363,11 @@ export function GatewayModelRoutesPanel() {
                     → {route.target_model}
                     {route.fallback_models?.length ? ` (+${route.fallback_models.join(", ")})` : ""}
                   </div>
+                  {route.route_type === "auto" && (
+                    <div className="mt-1 text-xs text-slate-500">
+                      auto: {summarizeAutoPolicy(route.auto_policy) || "未配置模型组"}
+                    </div>
+                  )}
                 </td>
                 <td className="hidden px-3 py-2.5 font-mono text-xs text-slate-600 md:table-cell">
                   {route.account_id ? `acc:${route.account_id}` : route.team_id ? `team:${route.team_id}` : "global"}
@@ -312,6 +462,126 @@ export function GatewayModelRoutesPanel() {
               <option value="auto">auto（按复杂度选 tier，需在 auto_policy 配置 tiers）</option>
             </select>
           </label>
+          {form.route_type === "auto" && (
+            <div className="space-y-3 rounded-xl border border-blue-100 bg-blue-50/40 p-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-800">自动路由策略</div>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  命中某档后会按有效权重排序依次尝试；同档全部不可用后，按 Fast → Balanced → Strong 继续降级。
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block text-sm">
+                  <span className="font-medium text-slate-700">Fast token 阈值</span>
+                  <input
+                    type="number"
+                    value={form.threshold_tokens_fast}
+                    onChange={(e) => setForm({ ...form, threshold_tokens_fast: Number(e.target.value) })}
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    min={1}
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="font-medium text-slate-700">Strong token 阈值</span>
+                  <input
+                    type="number"
+                    value={form.threshold_tokens_strong}
+                    onChange={(e) => setForm({ ...form, threshold_tokens_strong: Number(e.target.value) })}
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    min={1}
+                  />
+                </label>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={form.tools_use_strong}
+                  onChange={(e) => setForm({ ...form, tools_use_strong: e.target.checked })}
+                />
+                请求包含 tools / function calling 时强制使用 Strong
+              </label>
+
+              {tierNames.map((tier) => (
+                <div key={tier} className="rounded-lg border border-slate-200 bg-white p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-800">{tierLabels[tier]} 模型组</div>
+                      <div className="text-xs text-slate-500">额度上限为 0 表示不限制；设置上限后余量为 0 会被跳过。</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => addTierModel(tier)}
+                      className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      添加模型
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {form.auto_tiers[tier].map((item, index) => (
+                      <div key={`${tier}-${index}`} className="grid grid-cols-12 gap-2 rounded-lg bg-slate-50 p-2">
+                        <label className="col-span-12 block text-xs md:col-span-5">
+                          <span className="font-medium text-slate-600">模型名</span>
+                          <input
+                            value={item.model}
+                            onChange={(e) => updateTierModel(tier, index, { model: e.target.value })}
+                            className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 font-mono text-xs"
+                            placeholder={tier === "strong" ? "deepseek-v4-pro" : "qwen3.6-plus"}
+                          />
+                        </label>
+                        <label className="col-span-4 block text-xs md:col-span-2">
+                          <span className="font-medium text-slate-600">权重</span>
+                          <input
+                            type="number"
+                            value={item.weight}
+                            onChange={(e) => updateTierModel(tier, index, { weight: Number(e.target.value) })}
+                            className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+                            min={0}
+                          />
+                        </label>
+                        <label className="col-span-4 block text-xs md:col-span-2">
+                          <span className="font-medium text-slate-600">额度上限</span>
+                          <input
+                            type="number"
+                            value={item.quota_tokens}
+                            onChange={(e) => updateTierModel(tier, index, { quota_tokens: Number(e.target.value) })}
+                            className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+                            min={0}
+                          />
+                        </label>
+                        <label className="col-span-4 block text-xs md:col-span-2">
+                          <span className="font-medium text-slate-600">额度余量</span>
+                          <input
+                            type="number"
+                            value={item.quota_remaining_tokens}
+                            onChange={(e) => updateTierModel(tier, index, { quota_remaining_tokens: Number(e.target.value) })}
+                            className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+                            min={0}
+                          />
+                        </label>
+                        <div className="col-span-12 flex items-center justify-between gap-2 md:col-span-1 md:block">
+                          <label className="flex items-center gap-1 pt-1 text-xs text-slate-600 md:pt-6">
+                            <input
+                              type="checkbox"
+                              checked={item.enabled}
+                              onChange={(e) => updateTierModel(tier, index, { enabled: e.target.checked })}
+                            />
+                            启用
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => removeTierModel(tier, index)}
+                            className="pt-1 text-xs text-red-600 hover:text-red-800 md:pt-2"
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <label className="block text-sm">
             <span className="font-medium text-slate-700">降级链（逗号分隔）</span>
             <input

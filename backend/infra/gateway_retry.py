@@ -305,6 +305,24 @@ async def post_chat_with_resilience(
                     detail=err_text,
                 )
             )
+            if upstream.status_code in {404, 429} and should_fallback(
+                policy=policy,
+                status_code=upstream.status_code,
+                error_kind="",
+                hop_index=hop_index,
+                chain_len=len(model_chain),
+            ):
+                result.attempts.append(
+                    AttemptRecord(
+                        model=model_name,
+                        attempt_index=total_attempts,
+                        hop_index=hop_index,
+                        action="fallback",
+                        status_code=upstream.status_code,
+                    )
+                )
+                break
+
             if should_retry_same_model(
                 policy=policy,
                 status_code=upstream.status_code,

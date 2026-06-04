@@ -8,6 +8,14 @@
 
 [English](../en/README.md)
 
+## 产品预览
+
+<p align="center">
+  <img src="../docs/screenshots/evotown-home.png" alt="Evotown 企业首页" width="100%" />
+</p>
+
+*企业 Agent 协作与治理平台首页。*
+
 ---
 
 ## 电梯演讲（30 秒）

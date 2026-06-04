@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, useMemo, type ReactNode } from "react";
 
 import { GatewayAdvancedPanel } from "./gateway/GatewayAdvancedPanel";
 import { GatewayPlaygroundPanel } from "./gateway/GatewayPlaygroundPanel";
@@ -21,6 +21,8 @@ export type GatewayRequest = {
   conversation_id?: string;
   api_key_label?: string;
   agent_id?: string;
+  account_id?: string;
+  account_name?: string;
   team_id?: string;
   engine_id?: string;
   model?: string;
@@ -79,6 +81,106 @@ function asNumber(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * Reusable pagination control. Matches the existing Tailwind style.
+ */
+function Pagination({
+  page,
+  totalPages,
+  total,
+  pageSize,
+  onPageChange,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  pageSize: number;
+  onPageChange: (p: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+
+  const start = (page - 1) * pageSize + 1;
+  const end = Math.min(page * pageSize, total);
+
+  // Build page number buttons with ellipsis
+  const pages: (number | "ellipsis")[] = [];
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (page > 3) pages.push("ellipsis");
+    const lo = Math.max(2, page - 1);
+    const hi = Math.min(totalPages - 1, page + 1);
+    for (let i = lo; i <= hi; i++) pages.push(i);
+    if (page < totalPages - 2) pages.push("ellipsis");
+    pages.push(totalPages);
+  }
+
+  const btnBase =
+    "inline-flex h-7 min-w-[28px] items-center justify-center rounded-md px-2 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/50 px-3 py-2">
+      <span className="text-xs text-slate-500">
+        第 {start}-{end} 条，共 {total} 条
+      </span>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          className={`${btnBase} text-slate-600 hover:bg-slate-200`}
+          disabled={page === 1}
+          onClick={() => onPageChange(page - 1)}
+        >
+          ‹ 上一页
+        </button>
+        {pages.map((p, idx) =>
+          p === "ellipsis" ? (
+            <span key={`e${idx}`} className="px-1 text-xs text-slate-400">
+              …
+            </span>
+          ) : (
+            <button
+              key={p}
+              type="button"
+              className={`${btnBase} ${
+                p === page
+                  ? "bg-slate-900 text-white"
+                  : "text-slate-600 hover:bg-slate-200"
+              }`}
+              onClick={() => onPageChange(p)}
+            >
+              {p}
+            </button>
+          )
+        )}
+        <button
+          type="button"
+          className={`${btnBase} text-slate-600 hover:bg-slate-200`}
+          disabled={page === totalPages}
+          onClick={() => onPageChange(page + 1)}
+        >
+          下一页 ›
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Hook: slice an array into the current page and compute pagination metadata.
+ */
+function usePagination<T>(items: T[], pageSize = 10) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  // Clamp page when data shrinks
+  const safePage = Math.min(page, totalPages);
+  const slice = useMemo(
+    () => items.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [items, safePage, pageSize]
+  );
+  return { page: safePage, setPage, totalPages, pageSize, slice };
+}
+
 function SimpleUsageTable({
   rows,
   nameKey,
@@ -122,6 +224,8 @@ export function RecentRequestsTable({
   requests: GatewayRequest[];
   compact?: boolean;
 }) {
+  const { page, setPage, totalPages, pageSize, slice } = usePagination(requests, 10);
+
   if (!requests.length) {
     return (
       <EmptyState>
@@ -129,7 +233,7 @@ export function RecentRequestsTable({
       </EmptyState>
     );
   }
-  const rows = compact ? requests.slice(0, 8) : requests;
+  const rows = compact ? requests.slice(0, 8) : slice;
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200">
       <table className="w-full table-fixed text-left text-sm">
@@ -137,7 +241,7 @@ export function RecentRequestsTable({
           <tr>
             <th className="px-3 py-2 font-semibold">时间</th>
             <th className="w-28 px-3 py-2 font-semibold">模型</th>
-            <th className="w-24 px-3 py-2 font-semibold">Agent</th>
+            <th className="w-24 px-3 py-2 font-semibold">账号</th>
             <th className="w-14 px-3 py-2 font-semibold">状态</th>
             <th className="w-16 px-3 py-2 font-semibold">Tok</th>
             <th className="w-20 px-3 py-2 font-semibold">成本</th>
@@ -148,7 +252,7 @@ export function RecentRequestsTable({
             <tr key={req.request_id}>
               <td className="truncate px-3 py-2 text-xs text-slate-600">{formatDateTimeShort(req.created_at)}</td>
               <td className="truncate px-3 py-2 font-mono text-xs text-slate-950">{req.model || "—"}</td>
-              <td className="truncate px-3 py-2 font-mono text-xs text-slate-600">{req.agent_id || "—"}</td>
+              <td className="truncate px-3 py-2 font-mono text-xs text-slate-600">{req.account_name || req.agent_id || "—"}</td>
               <td className="px-3 py-2 text-xs text-slate-600">{req.status_code ?? "—"}</td>
               <td className="px-3 py-2 text-xs text-slate-600">{req.total_tokens ?? 0}</td>
               <td className="px-3 py-2 font-mono text-xs text-slate-600">${asNumber(req.cost_usd).toFixed(4)}</td>
@@ -156,11 +260,21 @@ export function RecentRequestsTable({
           ))}
         </tbody>
       </table>
+      {!compact && (
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          total={requests.length}
+          pageSize={pageSize}
+          onPageChange={setPage}
+        />
+      )}
     </div>
   );
 }
 
 function ConversationTable({ conversations }: { conversations: GatewayConversation[] }) {
+  const { page, setPage, totalPages, pageSize, slice } = usePagination(conversations, 10);
   if (!conversations.length) return <EmptyState>暂无会话记录。</EmptyState>;
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200">
@@ -175,7 +289,7 @@ function ConversationTable({ conversations }: { conversations: GatewayConversati
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {conversations.map((c) => (
+          {slice.map((c) => (
             <tr key={c.conversation_id}>
               <td className="truncate px-3 py-2 font-mono text-xs text-slate-950">{c.conversation_id}</td>
               <td className="truncate px-3 py-2 font-mono text-xs text-slate-600">{c.agent_id || "—"}</td>
@@ -186,6 +300,13 @@ function ConversationTable({ conversations }: { conversations: GatewayConversati
           ))}
         </tbody>
       </table>
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        total={conversations.length}
+        pageSize={pageSize}
+        onPageChange={setPage}
+      />
     </div>
   );
 }
@@ -279,7 +400,7 @@ export function GatewayConsole({ data }: { data: GatewayConsoleData }) {
             </Card>
             <Card className="p-4">
               <SectionHeader title="按账号" subtitle="用量 Top" />
-              <SimpleUsageTable rows={byAccount} nameKey="account_id" empty="暂无数据" />
+              <SimpleUsageTable rows={byAccount} nameKey="account_name" empty="暂无数据" />
             </Card>
           </div>
           <Card className="p-4">

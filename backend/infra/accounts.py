@@ -148,17 +148,19 @@ def create_account(
     *,
     name: str,
     org_id: str = "",
+    team_id: str = "",
     owner_email: str = "",
     notes: str = "",
 ) -> dict[str, Any]:
     conn = _ensure_conn()
     account_id = f"acc_{uuid.uuid4().hex[:12]}"
+    resolved_org_id = (org_id or team_id).strip()
     conn.execute(
         """
         INSERT INTO gateway_accounts (account_id, name, org_id, owner_email, notes)
         VALUES (?, ?, ?, ?, ?)
         """,
-        (account_id, name.strip(), org_id.strip(), owner_email.strip(), notes.strip()),
+        (account_id, name.strip(), resolved_org_id, owner_email.strip(), notes.strip()),
     )
     row = conn.execute("SELECT * FROM gateway_accounts WHERE account_id=?", (account_id,)).fetchone()
     return _account_from_row(row)

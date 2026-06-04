@@ -12,9 +12,7 @@ The repo also ships an **Evolution Arena** for benchmarks, team learning, and re
 
 ## Product preview
 
-<p align="center">
-  <img src="docs/screenshots/evotown-home.png" alt="Evotown enterprise landing page" width="100%" />
-</p>
+![Evotown enterprise landing page](/docs/screenshots/evotown-home.png)
 
 *Homepage — enterprise Agent collaboration & governance platform.*
 

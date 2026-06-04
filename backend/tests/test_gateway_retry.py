@@ -53,6 +53,25 @@ class GatewayAutoTest(unittest.TestCase):
         self.assertEqual(tier, "fast")
         self.assertEqual(model, "mini")
 
+    def test_auto_model_chain_orders_group_by_weight_and_quota(self) -> None:
+        body = {"messages": [{"role": "user", "content": "hi"}]}
+        policy = {
+            "tiers": {
+                "fast": [
+                    {"model": "fast-low-quota", "weight": 100, "quota_tokens": 100, "quota_remaining_tokens": 10},
+                    {"model": "fast-disabled", "weight": 200, "enabled": False},
+                    {"model": "fast-good", "weight": 80, "quota_tokens": 100, "quota_remaining_tokens": 100},
+                ],
+                "balanced": [{"model": "mid", "weight": 50}],
+                "strong": [{"model": "pro", "weight": 10}],
+            },
+            "threshold_tokens_fast": 500,
+            "threshold_tokens_strong": 8000,
+        }
+        chain, tier, _ = gateway_auto.resolve_auto_model_chain(body, policy)
+        self.assertEqual(tier, "fast")
+        self.assertEqual(chain, ["fast-good", "fast-low-quota", "mid", "pro"])
+
     def test_tools_force_strong(self) -> None:
         body = {"messages": [{"role": "user", "content": "x"}], "tools": [{"type": "function"}]}
         policy = {"tiers": {"fast": "mini", "balanced": "mid", "strong": "max"}}
@@ -113,6 +132,30 @@ class GatewayRoutesResilienceTest(unittest.TestCase):
         self.assertEqual(target, "cheap")
         self.assertEqual(matched.get("evotown_auto_tier"), "fast")
 
+    def test_auto_route_type_expands_model_groups_across_tiers(self) -> None:
+        gateway_routes.create_route(
+            alias="smart-group",
+            target_model="unused",
+            route_type="auto",
+            auto_policy={
+                "tiers": {
+                    "fast": [
+                        {"model": "cheap-a", "weight": 20},
+                        {"model": "cheap-b", "weight": 10},
+                    ],
+                    "balanced": [{"model": "mid", "weight": 5}],
+                    "strong": [{"model": "pro", "weight": 1}],
+                },
+            },
+        )
+        chain, matched, _, via_alias = gateway_routes.resolve_model_chain(
+            "smart-group",
+            body={"messages": [{"role": "user", "content": "hello"}]},
+        )
+        self.assertTrue(via_alias)
+        self.assertEqual(matched.get("evotown_auto_tier"), "fast")
+        self.assertEqual(chain, ["cheap-a", "cheap-b", "mid", "pro"])
+
 
 class GatewayRetryExecutionTest(unittest.IsolatedAsyncioTestCase):
     async def test_retry_same_model_before_fallback(self) -> None:
@@ -170,6 +213,33 @@ class GatewayRetryExecutionTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.final_model, "backup")
         self.assertEqual(calls, ["missing", "backup"])
+
+    async def test_429_falls_back_without_same_model_retry(self) -> None:
+        calls: list[str] = []
+
+        def build_call(model: str) -> tuple[str, dict[str, str], dict]:
+            calls.append(model)
+            return "http://upstream.test/v1/chat/completions", {}, {"model": model}
+
+        responses = [
+            httpx.Response(429, json={"error": "quota exceeded"}),
+            httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]}),
+        ]
+
+        client = MagicMock()
+        client.post = AsyncMock(side_effect=lambda *a, **k: responses.pop(0))
+
+        policy = gateway_retry.RetryPolicy.from_dict({"max_retries_same_model": 2})
+        result = await gateway_retry.post_chat_with_resilience(
+            client=client,
+            build_call=build_call,
+            model_chain=["limited", "backup"],
+            policy=policy,
+            timeout_sec=30.0,
+        )
+        self.assertTrue(result.success)
+        self.assertEqual(result.final_model, "backup")
+        self.assertEqual(calls, ["limited", "backup"])
 
     async def test_fallback_after_primary_503(self) -> None:
         calls: list[str] = []

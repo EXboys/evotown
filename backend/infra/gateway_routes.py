@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from infra.gateway_auto import parse_auto_policy, resolve_auto_model
+from infra.gateway_auto import parse_auto_policy, resolve_auto_model_chain
 from infra.gateway_retry import RetryPolicy, build_model_chain, parse_fallback_models
 
 _backend_dir = Path(__file__).resolve().parent.parent
@@ -284,14 +284,15 @@ def resolve_target_model(
     route_type = (matched.get("route_type") or "static").strip().lower()
     if route_type == "auto" or alias.lower() == "auto":
         auto_policy = matched.get("auto_policy") if isinstance(matched.get("auto_policy"), dict) else {}
-        model, tier, reason = resolve_auto_model(body or {}, auto_policy)
-        if model:
+        model_chain, tier, reason = resolve_auto_model_chain(body or {}, auto_policy)
+        if model_chain:
             matched = {
                 **matched,
                 "evotown_auto_tier": tier,
                 "evotown_auto_reason": reason,
+                "evotown_auto_model_chain": model_chain,
             }
-            return model, matched
+            return model_chain[0], matched
         target = (matched.get("target_model") or "").strip()
         return target or alias, matched
 
@@ -330,7 +331,17 @@ def resolve_model_chain(
         return [client_model or target], None, policy, False
 
     primary = target or client_model
-    if enable_fallback and fallbacks:
+    auto_chain = matched.get("evotown_auto_model_chain") if isinstance(matched, dict) else None
+    if isinstance(auto_chain, list) and auto_chain:
+        chain = []
+        seen: set[str] = set()
+        for name in [*auto_chain, *(fallbacks if enable_fallback else [])]:
+            key = str(name or "").strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            chain.append(key)
+    elif enable_fallback and fallbacks:
         chain = build_model_chain(primary, fallbacks, max_hops=policy.max_fallback_hops)
     else:
         chain = [primary]

@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from core.auth import require_admin
-from domain.models import GatewayAccountCreate, GatewayAccountUpdate, GatewayApiKeyCreate, GatewayApiKeyUpdate
+from domain.models import GatewayAccountCreate, GatewayAccountUpdate, GatewayApiKeyCreate, GatewayApiKeyUpdate, GatewayOrgCreate, GatewayOrgUpdate
 from infra import accounts as accounts_store
 from infra import gateway as gateway_store
 
@@ -27,9 +27,13 @@ def _enrich_key(key: dict) -> dict:
 
 @router.post("/accounts", dependencies=[Depends(require_admin)])
 async def create_account(body: GatewayAccountCreate):
+    if not body.org_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="org_id is required")
+    if accounts_store.get_gateway_org(body.org_id) is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="org not found")
     account = accounts_store.create_account(
         name=body.name,
-        team_id=body.team_id,
+        org_id=body.org_id,
         owner_email=body.owner_email,
         notes=body.notes,
     )
@@ -60,10 +64,13 @@ async def get_account(account_id: str):
 async def update_account(account_id: str, body: GatewayAccountUpdate):
     if accounts_store.get_account(account_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
+    if body.org_id is not None and body.org_id != "":
+        if accounts_store.get_gateway_org(body.org_id) is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="org not found")
     account = accounts_store.update_account(
         account_id,
         name=body.name,
-        team_id=body.team_id,
+        org_id=body.org_id,
         owner_email=body.owner_email,
         status=body.status,
         notes=body.notes,
@@ -143,3 +150,68 @@ async def revoke_key(key_id: str):
         return {"revoked": True, "key": _enrich_key(key)}
     revoked = accounts_store.revoke_api_key(key_id)
     return {"revoked": True, "key": _enrich_key(revoked or key)}
+
+
+# ── Gateway Orgs ─────────────────────────────────────────────────────────────
+
+def _enrich_org(org: dict) -> dict:
+    org_id = org.get("org_id", "")
+    account_count = accounts_store.gateway_org_account_count(org_id)
+    key_counts = {"active_keys": 0, "total_keys": 0}
+    accounts = accounts_store.list_accounts_by_org(org_id, limit=500)
+    if accounts:
+        ids = [a["account_id"] for a in accounts]
+        raw = accounts_store.account_key_counts(ids)
+        for v in raw.values():
+            key_counts["active_keys"] += v.get("active_keys", 0)
+            key_counts["total_keys"] += v.get("total_keys", 0)
+    return {**org, "account_count": account_count, **key_counts}
+
+
+@router.post("/gateway-orgs", dependencies=[Depends(require_admin)])
+async def create_gateway_org(body: GatewayOrgCreate):
+    org = accounts_store.create_gateway_org(
+        name=body.name,
+        description=body.description,
+        owner_email=body.owner_email,
+    )
+    return {"org": _enrich_org(org)}
+
+
+@router.get("/gateway-orgs", dependencies=[Depends(require_admin)])
+async def list_gateway_orgs(status_filter: str | None = None, limit: int = 100):
+    orgs = accounts_store.list_gateway_orgs(status=status_filter, limit=limit)
+    return {"orgs": [_enrich_org(o) for o in orgs]}
+
+
+@router.get("/gateway-orgs/{org_id}", dependencies=[Depends(require_admin)])
+async def get_gateway_org(org_id: str):
+    org = accounts_store.get_gateway_org(org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="org not found")
+    return {"org": _enrich_org(org)}
+
+
+@router.patch("/gateway-orgs/{org_id}", dependencies=[Depends(require_admin)])
+async def update_gateway_org(org_id: str, body: GatewayOrgUpdate):
+    if accounts_store.get_gateway_org(org_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="org not found")
+    org = accounts_store.update_gateway_org(
+        org_id,
+        name=body.name,
+        description=body.description,
+        owner_email=body.owner_email,
+        status=body.status,
+    )
+    return {"org": _enrich_org(org or {})}
+
+
+@router.delete("/gateway-orgs/{org_id}", dependencies=[Depends(require_admin)])
+async def delete_gateway_org(org_id: str):
+    if accounts_store.get_gateway_org(org_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="org not found")
+    try:
+        accounts_store.delete_gateway_org(org_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return {"ok": True}

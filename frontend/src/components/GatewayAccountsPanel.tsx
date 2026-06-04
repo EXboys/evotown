@@ -1,15 +1,20 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { AccountKeyTable } from "./accounts/AccountKeyTable";
 import { GatewayDrawer } from "./gateway/GatewayDrawer";
+import { OrgDrawer } from "./gateway/OrgDrawer";
 import { EasyInstallWizard } from "./market/EasyInstallWizard";
 import { adminFetch } from "../hooks/useAdminToken";
+import {
+  fetchGatewayOrgs,
+  type GatewayOrg,
+} from "../lib/gatewayOrgs";
 
 export type GatewayAccount = {
   account_id: string;
   name: string;
-  team_id: string;
+  org_id: string;
   owner_email: string;
   status: "active" | "disabled";
   notes: string;
@@ -40,7 +45,7 @@ type DrawerMode = null | "account-create" | "account-edit" | "key-create" | "key
 
 type AccountForm = {
   name: string;
-  team_id: string;
+  org_id: string;
   owner_email: string;
   notes: string;
 };
@@ -54,7 +59,7 @@ type KeyForm = {
   expires_at: string;
 };
 
-const EMPTY_ACCOUNT: AccountForm = { name: "", team_id: "", owner_email: "", notes: "" };
+const EMPTY_ACCOUNT: AccountForm = { name: "", org_id: "", owner_email: "", notes: "" };
 
 const DEFAULT_KEY: KeyForm = {
   label: "",
@@ -84,6 +89,9 @@ function keyToForm(key: GatewayApiKey): KeyForm {
 
 export function GatewayAccountsPanel() {
   const [accounts, setAccounts] = useState<GatewayAccount[]>([]);
+  const [orgs, setOrgs] = useState<GatewayOrg[]>([]);
+  const [viewMode, setViewMode] = useState<"org" | "all">("org");
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [keys, setKeys] = useState<GatewayApiKey[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -92,10 +100,34 @@ export function GatewayAccountsPanel() {
   const [busy, setBusy] = useState(false);
 
   const [drawer, setDrawer] = useState<DrawerMode>(null);
+  const [orgDrawerOpen, setOrgDrawerOpen] = useState(false);
+  const [orgDrawerMode, setOrgDrawerMode] = useState<"create" | "edit">("create");
+  const [editingOrg, setEditingOrg] = useState<GatewayOrg | null>(null);
   const [accountForm, setAccountForm] = useState<AccountForm>(EMPTY_ACCOUNT);
   const [keyForm, setKeyForm] = useState<KeyForm>(DEFAULT_KEY);
   const [editingKeyId, setEditingKeyId] = useState<string | null>(null);
   const [createdSecret, setCreatedSecret] = useState<string | null>(null);
+
+  const ROOT_ORG_ID = "org_root";
+
+  const loadOrgs = useCallback(async () => {
+    try {
+      const list = await fetchGatewayOrgs();
+      setOrgs(list);
+      if (!selectedOrgId && list.length > 0) {
+        setSelectedOrgId(list[0].org_id);
+      }
+    } catch (err) {
+      console.error("Failed to load orgs:", err);
+    }
+  }, [selectedOrgId]);
+
+  const filteredAccounts = useMemo(() => {
+    if (viewMode === "all" || !selectedOrgId) return accounts;
+    return accounts.filter((a) => a.org_id === selectedOrgId);
+  }, [accounts, viewMode, selectedOrgId]);
+
+  const selectedOrg = orgs.find((t) => t.org_id === selectedOrgId) ?? null;
 
   const loadKeys = useCallback(async (accountId: string | null) => {
     if (!accountId) {
@@ -137,6 +169,7 @@ export function GatewayAccountsPanel() {
 
   useEffect(() => {
     load();
+    loadOrgs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -160,16 +193,59 @@ export function GatewayAccountsPanel() {
   const totalActiveKeys = accounts.reduce((sum, a) => sum + (a.active_keys || 0), 0);
 
   const openAccountCreate = () => {
-    setAccountForm(EMPTY_ACCOUNT);
+    setAccountForm({ ...EMPTY_ACCOUNT, org_id: selectedOrgId || "" });
     setDrawer("account-create");
     setError("");
+  };
+
+  const openOrgCreate = () => {
+    setOrgDrawerMode("create");
+    setEditingOrg(null);
+    setOrgDrawerOpen(true);
+  };
+
+  const openOrgEdit = (org: GatewayOrg) => {
+    setOrgDrawerMode("edit");
+    setEditingOrg(org);
+    setOrgDrawerOpen(true);
+  };
+
+  const handleOrgSaved = () => {
+    loadOrgs();
+    load();
+  };
+
+  const handleDeleteOrg = async (org: GatewayOrg) => {
+    if (org.org_id === ROOT_ORG_ID) return;
+    if (!window.confirm(`确定删除组织「${org.name}」？其下账号将移入默认组织。`)) return;
+    try {
+      const { deleteGatewayOrg } = await import("../lib/gatewayOrgs");
+      await deleteGatewayOrg(org.org_id);
+      setMessage(`组织「${org.name}」已删除`);
+      loadOrgs();
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+    }
+  };
+
+  const toggleOrgStatus = async (org: GatewayOrg) => {
+    const next = org.status === "active" ? "disabled" : "active";
+    try {
+      const { updateGatewayOrg } = await import("../lib/gatewayOrgs");
+      await updateGatewayOrg(org.org_id, { status: next });
+      setMessage(next === "active" ? "组织已启用" : "组织已停用");
+      loadOrgs();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "更新失败");
+    }
   };
 
   const openAccountEdit = () => {
     if (!selectedAccount) return;
     setAccountForm({
       name: selectedAccount.name,
-      team_id: selectedAccount.team_id,
+      org_id: selectedAccount.org_id,
       owner_email: selectedAccount.owner_email,
       notes: selectedAccount.notes,
     });
@@ -382,21 +458,34 @@ export function GatewayAccountsPanel() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm text-slate-500">
-            管理企业员工账号与 <code className="text-xs">evk_</code> API Key。员工自助登录见{" "}
+            管理企业组织、员工账号与 <code className="text-xs">evk_</code> API Key。员工自助登录见{" "}
             <Link to="/login" className="font-medium text-blue-600 hover:text-blue-700">/login</Link>
             ；模型与路由见 <Link to="/gateway" className="font-medium text-blue-600 hover:text-blue-700">网关</Link>。
           </p>
         </div>
-        <button
-          type="button"
-          onClick={openAccountCreate}
-          className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800"
-        >
-          创建账号
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={openOrgCreate}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            新建组织
+          </button>
+          <button
+            type="button"
+            onClick={openAccountCreate}
+            className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800"
+          >
+            创建账号
+          </button>
+        </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-4">
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <div className="text-xs font-medium uppercase text-slate-500">组织</div>
+          <div className="mt-1 text-2xl font-semibold text-slate-950">{loading ? "…" : orgs.length}</div>
+        </div>
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
           <div className="text-xs font-medium uppercase text-slate-500">账号</div>
           <div className="mt-1 text-2xl font-semibold text-slate-950">{loading ? "…" : accounts.length}</div>
@@ -414,52 +503,173 @@ export function GatewayAccountsPanel() {
       {message && (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{message}</div>
       )}
-      {error && !drawer && (
+      {error && !drawer && !orgDrawerOpen && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
       )}
 
       <div className="grid min-h-[420px] gap-5 lg:grid-cols-[minmax(240px,300px)_1fr]">
+        {/* Left sidebar: org view or flat account list */}
         <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
           <div className="mb-3 flex items-center justify-between px-1">
-            <span className="text-sm font-semibold text-slate-950">账号列表</span>
-            <button type="button" onClick={load} className="text-xs font-medium text-blue-600 hover:text-blue-800">
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => setViewMode("org")}
+                className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                  viewMode === "org" ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                组织视图
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("all")}
+                className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                  viewMode === "all" ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                全部账号
+              </button>
+            </div>
+            <button type="button" onClick={() => { load(); loadOrgs(); }} className="text-xs font-medium text-blue-600 hover:text-blue-800">
               刷新
             </button>
           </div>
-          {!accounts.length ? (
-            <p className="px-2 py-8 text-center text-sm text-slate-500">暂无账号</p>
+
+          {viewMode === "org" ? (
+            <div className="max-h-[520px] space-y-2 overflow-y-auto">
+              {!orgs.length ? (
+                <p className="px-2 py-8 text-center text-sm text-slate-500">暂无组织</p>
+              ) : (
+                orgs.map((org) => {
+                  const orgAccounts = accounts.filter((a) => a.org_id === org.org_id);
+                  const isSelected = selectedOrgId === org.org_id;
+                  const isRoot = org.org_id === ROOT_ORG_ID;
+                  return (
+                    <div key={org.org_id} className={`rounded-xl transition ${isSelected ? "bg-blue-50 ring-1 ring-blue-200" : ""}`}>
+                      <div className="flex items-center gap-1 px-3 py-2.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (selectedOrgId === org.org_id) {
+                              setSelectedOrgId(null);
+                            } else {
+                              setSelectedOrgId(org.org_id);
+                              const first = accounts.find((a) => a.org_id === org.org_id);
+                              if (first) setSelectedAccountId(first.account_id);
+                            }
+                          }}
+                          className="flex-1 text-left"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="shrink-0 text-xs text-slate-400">{isSelected ? "▼" : "▶"}</span>
+                            <span className="truncate font-medium text-slate-900">
+                              {isRoot ? "📁 " : "👥 "}{org.name}
+                            </span>
+                            <span
+                              className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                                org.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"
+                              }`}
+                            >
+                              {org.status === "active" ? "启用" : "停用"}
+                            </span>
+                          </div>
+                          <div className="mt-0.5 pl-4 text-xs text-slate-500">
+                            {org.account_count} 个账号 · {org.active_keys}/{org.total_keys} keys
+                          </div>
+                        </button>
+                        <div className="flex shrink-0 gap-0.5">
+                          <button type="button" onClick={(e) => { e.stopPropagation(); openOrgEdit(org); }} className="rounded p-1 text-xs text-blue-500 hover:bg-blue-50 hover:text-blue-700" title="编辑">✏️</button>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); toggleOrgStatus(org); }} className="rounded p-1 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600" title={org.status === "active" ? "停用" : "启用"}>
+                            {org.status === "active" ? "⏸" : "▶️"}
+                          </button>
+                          {!isRoot && (
+                            <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteOrg(org); }} className="rounded p-1 text-xs text-red-400 hover:bg-red-50 hover:text-red-600" title="删除">🗑️</button>
+                          )}
+                        </div>
+                      </div>
+                      {/* Show accounts under selected org */}
+                      {isSelected && orgAccounts.length > 0 && (
+                        <ul className="space-y-0.5 border-t border-slate-100 px-1 py-1">
+                          {orgAccounts.map((account) => (
+                            <li key={account.account_id}>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedAccountId(account.account_id)}
+                                className={`w-full rounded-lg px-2.5 py-2 text-left transition ${
+                                  selectedAccountId === account.account_id
+                                    ? "bg-white ring-1 ring-blue-300"
+                                    : "hover:bg-white/60"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="truncate text-sm font-medium text-slate-800">{account.name}</span>
+                                  <span
+                                    className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                                      account.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"
+                                    }`}
+                                  >
+                                    {account.status === "active" ? "启用" : "停用"}
+                                  </span>
+                                </div>
+                                <div className="mt-0.5 text-xs text-slate-400">
+                                  {account.active_keys}/{account.total_keys} keys
+                                </div>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {isSelected && orgAccounts.length === 0 && (
+                        <p className="border-t border-slate-100 px-3 py-3 text-center text-xs text-slate-400">
+                          该组织暂无账号
+                        </p>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
           ) : (
-            <ul className="max-h-[520px] space-y-1 overflow-y-auto">
-              {accounts.map((account) => (
-                <li key={account.account_id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedAccountId(account.account_id)}
-                    className={`w-full rounded-xl px-3 py-2.5 text-left transition ${
-                      selectedAccountId === account.account_id
-                        ? "bg-blue-50 ring-1 ring-blue-200"
-                        : "hover:bg-slate-50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate font-medium text-slate-900">{account.name}</span>
-                      <span
-                        className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                          account.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"
+            /* Flat account list */
+            !accounts.length ? (
+              <p className="px-2 py-8 text-center text-sm text-slate-500">暂无账号</p>
+            ) : (
+              <ul className="max-h-[520px] space-y-1 overflow-y-auto">
+                {accounts.map((account) => {
+                  const orgName = orgs.find((t) => t.org_id === account.org_id)?.name || account.org_id;
+                  return (
+                    <li key={account.account_id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedAccountId(account.account_id)}
+                        className={`w-full rounded-xl px-3 py-2.5 text-left transition ${
+                          selectedAccountId === account.account_id
+                            ? "bg-blue-50 ring-1 ring-blue-200"
+                            : "hover:bg-slate-50"
                         }`}
                       >
-                        {account.status === "active" ? "启用" : "停用"}
-                      </span>
-                    </div>
-                    <div className="mt-0.5 truncate font-mono text-[11px] text-slate-400">{account.account_id}</div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      {account.active_keys}/{account.total_keys} keys
-                      {account.team_id ? ` · ${account.team_id}` : ""}
-                    </div>
-                  </button>
-                </li>
-              ))}
-            </ul>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate font-medium text-slate-900">{account.name}</span>
+                          <span
+                            className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                              account.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"
+                            }`}
+                          >
+                            {account.status === "active" ? "启用" : "停用"}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 truncate font-mono text-[11px] text-slate-400">{account.account_id}</div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {account.active_keys}/{account.total_keys} keys
+                          {orgName ? ` · ${orgName}` : ""}
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )
           )}
         </div>
 
@@ -475,9 +685,12 @@ export function GatewayAccountsPanel() {
                   <h2 className="text-lg font-semibold text-slate-950">{selectedAccount.name}</h2>
                   <p className="mt-0.5 font-mono text-xs text-slate-500">{selectedAccount.account_id}</p>
                   <p className="mt-1 text-sm text-slate-500">
-                    {[selectedAccount.owner_email, selectedAccount.team_id && `团队 ${selectedAccount.team_id}`]
+                    {[
+                      selectedAccount.owner_email,
+                      selectedOrg && `组织 ${selectedOrg.name}`,
+                    ]
                       .filter(Boolean)
-                      .join(" · ") || "未填写负责人 / 团队"}
+                      .join(" · ") || "未填写负责人 / 组织"}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -523,7 +736,7 @@ export function GatewayAccountsPanel() {
       <GatewayDrawer
         open={drawer === "account-create" || drawer === "account-edit"}
         title={drawer === "account-edit" ? "编辑账号" : "创建账号"}
-        subtitle="每个账号可绑定团队并签发多个 evk_ Key"
+        subtitle="每个账号可绑定组织并签发多个 evk_ Key"
         onClose={closeDrawer}
       >
         {error && (drawer === "account-create" || drawer === "account-edit") && (
@@ -540,13 +753,20 @@ export function GatewayAccountsPanel() {
             />
           </label>
           <label className="block text-sm">
-            <span className="font-medium text-slate-700">团队 ID</span>
-            <input
-              value={accountForm.team_id}
-              onChange={(e) => setAccountForm({ ...accountForm, team_id: e.target.value })}
+            <span className="font-medium text-slate-700">所属组织 *</span>
+            <select
+              value={accountForm.org_id}
+              onChange={(e) => setAccountForm({ ...accountForm, org_id: e.target.value })}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-              placeholder="用于网关别名路由 scope"
-            />
+              required
+            >
+              <option value="">请选择组织</option>
+              {orgs.map((org) => (
+                <option key={org.org_id} value={org.org_id}>
+                  {org.name}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="block text-sm">
             <span className="font-medium text-slate-700">负责人邮箱</span>
@@ -627,6 +847,14 @@ export function GatewayAccountsPanel() {
           </div>
         </form>
       </GatewayDrawer>
+
+      <OrgDrawer
+        open={orgDrawerOpen}
+        mode={orgDrawerMode}
+        org={editingOrg}
+        onClose={() => { setOrgDrawerOpen(false); setEditingOrg(null); }}
+        onSaved={handleOrgSaved}
+      />
     </div>
   );
 }

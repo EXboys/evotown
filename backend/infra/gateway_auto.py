@@ -11,8 +11,8 @@ DEFAULT_AUTO_POLICY: dict[str, Any] = {
         "balanced": "",
         "strong": "",
     },
-    "threshold_tokens_fast": 500,
-    "threshold_tokens_strong": 8000,
+    "threshold_tokens_fast": 60000,
+    "threshold_tokens_strong": 100000,
     "tools_use_strong": True,
 }
 

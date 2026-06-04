@@ -65,6 +65,8 @@ def _migrate_gateway_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE gateway_requests ADD COLUMN account_id TEXT NOT NULL DEFAULT ''")
     if "key_id" not in cols:
         conn.execute("ALTER TABLE gateway_requests ADD COLUMN key_id TEXT NOT NULL DEFAULT ''")
+    if "model_alias" not in cols:
+        conn.execute("ALTER TABLE gateway_requests ADD COLUMN model_alias TEXT NOT NULL DEFAULT ''")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_gateway_account ON gateway_requests(account_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_gateway_key_created ON gateway_requests(key_id, created_at)")
 
@@ -87,10 +89,10 @@ def record_request(item: dict[str, Any]) -> dict[str, Any]:
         INSERT OR REPLACE INTO gateway_requests (
             request_id, conversation_id, api_key_label, account_id, key_id,
             agent_id, team_id, engine_id,
-            model, status_code, prompt_tokens, completion_tokens, total_tokens,
+            model, model_alias, status_code, prompt_tokens, completion_tokens, total_tokens,
             cost_usd, latency_ms, risk_status, request_excerpt, response_excerpt, error
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             item["request_id"],
@@ -102,6 +104,7 @@ def record_request(item: dict[str, Any]) -> dict[str, Any]:
             item.get("team_id", ""),
             item.get("engine_id", ""),
             item.get("model", ""),
+            item.get("model_alias", ""),
             int(item.get("status_code", 0)),
             int(item.get("prompt_tokens", 0)),
             int(item.get("completion_tokens", 0)),
@@ -212,7 +215,8 @@ def conversations(limit: int = 100) -> list[dict[str, Any]]:
             MAX(agent_id) AS agent_id,
             MAX(team_id) AS team_id,
             MAX(engine_id) AS engine_id,
-            MAX(model) AS model
+            MAX(model) AS model,
+            MAX(model_alias) AS model_alias
         FROM gateway_requests
         GROUP BY conversation_id
         ORDER BY last_seen_at DESC

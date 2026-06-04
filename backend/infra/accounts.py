@@ -26,6 +26,7 @@ DEFAULT_SCOPES = ["gateway.chat"]
 CONSOLE_SCOPE_READ = "console.read"
 CONSOLE_SCOPE_WRITE = "console.write"
 DEFAULT_CONSOLE_KEY_SCOPES = ["gateway.chat", CONSOLE_SCOPE_READ, CONSOLE_SCOPE_WRITE]
+ROOT_ORG_ID = 'org_root'
 
 
 def _ensure_conn() -> sqlite3.Connection:
@@ -40,21 +41,20 @@ def _ensure_conn() -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA busy_timeout=10000")
+
+    # Step 1: Create tables (without indexes that depend on renamed columns)
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS gateway_accounts (
             account_id   TEXT PRIMARY KEY,
             name         TEXT NOT NULL,
-            team_id      TEXT NOT NULL DEFAULT '',
+            org_id       TEXT NOT NULL DEFAULT '',
             owner_email  TEXT NOT NULL DEFAULT '',
             status       TEXT NOT NULL DEFAULT 'active',
             notes        TEXT NOT NULL DEFAULT '',
             created_at   TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_gateway_accounts_team ON gateway_accounts(team_id);
-        CREATE INDEX IF NOT EXISTS idx_gateway_accounts_status ON gateway_accounts(status);
-
         CREATE TABLE IF NOT EXISTS gateway_api_keys (
             key_id       TEXT PRIMARY KEY,
             account_id   TEXT NOT NULL,
@@ -69,17 +69,43 @@ def _ensure_conn() -> sqlite3.Connection:
             last_used_at TEXT,
             FOREIGN KEY (account_id) REFERENCES gateway_accounts(account_id)
         );
+        CREATE TABLE IF NOT EXISTS gateway_orgs (
+            org_id       TEXT PRIMARY KEY,
+            name         TEXT NOT NULL,
+            description  TEXT NOT NULL DEFAULT '',
+            owner_email  TEXT NOT NULL DEFAULT '',
+            status       TEXT NOT NULL DEFAULT 'active',
+            created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """
+    )
+
+    # Step 2: Migrate old column names BEFORE creating indexes
+    _migrate_accounts_schema(conn)
+
+    # Step 3: Create indexes (now safe — org_id column exists)
+    conn.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_gateway_accounts_org ON gateway_accounts(org_id);
+        CREATE INDEX IF NOT EXISTS idx_gateway_accounts_status ON gateway_accounts(status);
         CREATE INDEX IF NOT EXISTS idx_gateway_api_keys_account ON gateway_api_keys(account_id);
         CREATE INDEX IF NOT EXISTS idx_gateway_api_keys_hash ON gateway_api_keys(key_hash);
         CREATE INDEX IF NOT EXISTS idx_gateway_api_keys_status ON gateway_api_keys(status);
         """
     )
-    _migrate_accounts_schema(conn)
+
+    _seed_gateway_orgs(conn)
     _conn = conn
     return conn
 
 
 def _migrate_accounts_schema(conn: sqlite3.Connection) -> None:
+    # Migrate team_id to org_id if needed
+    acct_cols = {row[1] for row in conn.execute("PRAGMA table_info(gateway_accounts)").fetchall()}
+    if "team_id" in acct_cols and "org_id" not in acct_cols:
+        conn.execute("ALTER TABLE gateway_accounts RENAME COLUMN team_id TO org_id")
+    
     key_cols = {row[1] for row in conn.execute("PRAGMA table_info(gateway_api_keys)").fetchall()}
     if "monthly_token_limit" not in key_cols:
         conn.execute("ALTER TABLE gateway_api_keys ADD COLUMN monthly_token_limit INTEGER NOT NULL DEFAULT 0")
@@ -87,6 +113,15 @@ def _migrate_accounts_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE gateway_api_keys ADD COLUMN monthly_cost_limit_usd REAL NOT NULL DEFAULT 0")
     if "burst_rpm_limit" not in key_cols:
         conn.execute("ALTER TABLE gateway_api_keys ADD COLUMN burst_rpm_limit INTEGER NOT NULL DEFAULT 0")
+
+
+def _seed_gateway_orgs(conn: sqlite3.Connection) -> None:
+    row = conn.execute("SELECT 1 FROM gateway_orgs WHERE org_id=?", (ROOT_ORG_ID,)).fetchone()
+    if row is None:
+        conn.execute(
+            "INSERT INTO gateway_orgs (org_id, name, description) VALUES (?, ?, ?)",
+            (ROOT_ORG_ID, "默认组织", "系统默认根组织"),
+        )
 
 
 def hash_api_key(raw_key: str) -> str:
@@ -112,7 +147,7 @@ def _key_from_row(row: sqlite3.Row, *, include_hash: bool = False) -> dict[str, 
 def create_account(
     *,
     name: str,
-    team_id: str = "",
+    org_id: str = "",
     owner_email: str = "",
     notes: str = "",
 ) -> dict[str, Any]:
@@ -120,10 +155,10 @@ def create_account(
     account_id = f"acc_{uuid.uuid4().hex[:12]}"
     conn.execute(
         """
-        INSERT INTO gateway_accounts (account_id, name, team_id, owner_email, notes)
+        INSERT INTO gateway_accounts (account_id, name, org_id, owner_email, notes)
         VALUES (?, ?, ?, ?, ?)
         """,
-        (account_id, name.strip(), team_id.strip(), owner_email.strip(), notes.strip()),
+        (account_id, name.strip(), org_id.strip(), owner_email.strip(), notes.strip()),
     )
     row = conn.execute("SELECT * FROM gateway_accounts WHERE account_id=?", (account_id,)).fetchone()
     return _account_from_row(row)
@@ -162,7 +197,7 @@ def get_account(account_id: str) -> dict[str, Any] | None:
 
 
 def update_account(account_id: str, **fields: Any) -> dict[str, Any] | None:
-    allowed = {"name", "team_id", "owner_email", "status", "notes"}
+    allowed = {"name", "org_id", "owner_email", "status", "notes"}
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if not updates:
         return get_account(account_id)
@@ -351,7 +386,7 @@ def lookup_api_key(raw_key: str, *, touch_last_used: bool = False) -> dict[str, 
     conn = _ensure_conn()
     row = conn.execute(
         """
-        SELECT k.*, a.name AS account_name, a.team_id AS account_team_id, a.status AS account_status
+        SELECT k.*, a.name AS account_name, a.org_id AS account_org_id, a.status AS account_status
         FROM gateway_api_keys k
         JOIN gateway_accounts a ON a.account_id = k.account_id
         WHERE k.key_hash=?
@@ -411,3 +446,89 @@ def account_key_counts(account_ids: list[str]) -> dict[str, dict[str, int]]:
         row["account_id"]: {"active_keys": row["active_keys"], "total_keys": row["total_keys"]}
         for row in rows
     }
+
+
+def _org_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    return dict(row)
+
+
+def list_gateway_orgs(*, status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    conn = _ensure_conn()
+    params: list[Any] = []
+    where = ""
+    if status:
+        where = "WHERE status=?"
+        params.append(status)
+    params.append(max(1, min(limit, 500)))
+    rows = conn.execute(
+        f"SELECT * FROM gateway_orgs {where} ORDER BY created_at ASC LIMIT ?",
+        params,
+    ).fetchall()
+    return [_org_from_row(r) for r in rows]
+
+
+def get_gateway_org(org_id: str) -> dict[str, Any] | None:
+    row = _ensure_conn().execute(
+        "SELECT * FROM gateway_orgs WHERE org_id=?", (org_id,)
+    ).fetchone()
+    return _org_from_row(row) if row else None
+
+
+def create_gateway_org(
+    *, name: str, description: str = "", owner_email: str = "",
+) -> dict[str, Any]:
+    conn = _ensure_conn()
+    org_id = f"org_{uuid.uuid4().hex[:12]}"
+    conn.execute(
+        "INSERT INTO gateway_orgs (org_id, name, description, owner_email) VALUES (?, ?, ?, ?)",
+        (org_id, name.strip(), description.strip(), owner_email.strip()),
+    )
+    row = conn.execute("SELECT * FROM gateway_orgs WHERE org_id=?", (org_id,)).fetchone()
+    return _org_from_row(row)
+
+
+def update_gateway_org(org_id: str, **fields: Any) -> dict[str, Any] | None:
+    allowed = {"name", "description", "owner_email", "status"}
+    updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if not updates:
+        return get_gateway_org(org_id)
+    sets = ", ".join(f"{k}=?" for k in updates)
+    values = list(updates.values()) + [org_id]
+    _ensure_conn().execute(
+        f"UPDATE gateway_orgs SET {sets}, updated_at=datetime('now') WHERE org_id=?",
+        values,
+    )
+    return get_gateway_org(org_id)
+
+
+def delete_gateway_org(org_id: str) -> bool:
+    if org_id == ROOT_ORG_ID:
+        raise ValueError("cannot delete root org")
+    conn = _ensure_conn()
+    count_row = conn.execute(
+        "SELECT COUNT(*) AS n FROM gateway_accounts WHERE org_id=?", (org_id,)
+    ).fetchone()
+    if count_row and count_row["n"] > 0:
+        conn.execute(
+            "UPDATE gateway_accounts SET org_id=?, updated_at=datetime('now') WHERE org_id=?",
+            (ROOT_ORG_ID, org_id),
+        )
+    conn.execute("DELETE FROM gateway_orgs WHERE org_id=?", (org_id,))
+    return True
+
+
+def gateway_org_account_count(org_id: str) -> int:
+    row = _ensure_conn().execute(
+        "SELECT COUNT(*) AS n FROM gateway_accounts WHERE org_id=?", (org_id,)
+    ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def list_accounts_by_org(org_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
+    conn = _ensure_conn()
+    rows = conn.execute(
+        "SELECT * FROM gateway_accounts WHERE org_id=? ORDER BY created_at DESC LIMIT ?",
+        (org_id, max(1, min(limit, 500))),
+    ).fetchall()
+    return [_account_from_row(r) for r in rows]
+

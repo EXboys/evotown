@@ -8,6 +8,14 @@ Runners stay where they are (laptops, CI, servers, containers). Evotown is the *
 
 [中文](../zh-CN/README.md)
 
+## Product preview
+
+<p align="center">
+  <img src="../docs/screenshots/evotown-home.png" alt="Evotown enterprise landing page" width="100%" />
+</p>
+
+*Homepage — enterprise Agent collaboration & governance platform.*
+
 ---
 
 ## Elevator pitch (30 seconds)

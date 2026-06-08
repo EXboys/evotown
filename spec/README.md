@@ -14,6 +14,8 @@ Evotown is a standalone project. Its specs should not inherit SkillLite-specific
 | [asset-registry.md](asset-registry.md) | Reusable skill / prompt / workflow / memory asset lifecycle. |
 | [skills-market-and-connectors.md](skills-market-and-connectors.md) | Private Skills Market and connector / proxy node architecture. |
 | [policy-center.md](policy-center.md) | Enterprise policy pull, violation reporting, and approval boundaries. |
+| [knowledge-connector.md](knowledge-connector.md) | Feishu / Yuque / native document sources and search index. |
+| [database-connector.md](database-connector.md) | Business database registry, employee ACL, MCP isolation boundary. |
 | [arena-ux.md](arena-ux.md) | Role of the game page as Arena / visual simulation layer. |
 | [security-and-privacy.md](security-and-privacy.md) | Data, secrets, artifacts, employee telemetry, and enterprise privacy boundaries. |
 | [roadmap.md](roadmap.md) | Phased implementation plan and acceptance signals. |

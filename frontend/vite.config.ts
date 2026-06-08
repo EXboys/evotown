@@ -1,27 +1,29 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const backendTarget = `http://127.0.0.1:${process.env.EVOTOWN_BACKEND_PORT || "8765"}`;
+
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 5174,
     proxy: {
-      "/agents": { target: "http://127.0.0.1:8765", changeOrigin: true },
-      "/tasks": { target: "http://127.0.0.1:8765", changeOrigin: true },
-      "/config": { target: "http://127.0.0.1:8765", changeOrigin: true },
-      "/dispatcher": { target: "http://127.0.0.1:8765", changeOrigin: true },
-      "/monitor": { target: "http://127.0.0.1:8765", changeOrigin: true },
-      "/replay": { target: "http://127.0.0.1:8765", changeOrigin: true },
-      "/api/v1": { target: "http://127.0.0.1:8765", changeOrigin: true },
-      "/api/gateway": { target: "http://127.0.0.1:8765", changeOrigin: true },
+      "/agents": { target: backendTarget, changeOrigin: true },
+      "/tasks": { target: backendTarget, changeOrigin: true },
+      "/config": { target: backendTarget, changeOrigin: true },
+      "/dispatcher": { target: backendTarget, changeOrigin: true },
+      "/monitor": { target: backendTarget, changeOrigin: true },
+      "/replay": { target: backendTarget, changeOrigin: true },
+      "/api/v1": { target: backendTarget, changeOrigin: true },
+      "/api/gateway": { target: backendTarget, changeOrigin: true },
       "/api/chronicle": {
-        target: "http://127.0.0.1:8765",
+        target: backendTarget,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },
-      "/teams": { target: "http://127.0.0.1:8765", changeOrigin: true },
-      "/snapshot": { target: "http://127.0.0.1:8765", changeOrigin: true },
-      "/ws": { target: "ws://127.0.0.1:8765", ws: true },
+      "/teams": { target: backendTarget, changeOrigin: true },
+      "/snapshot": { target: backendTarget, changeOrigin: true },
+      "/ws": { target: backendTarget, ws: true },
     },
   },
 });

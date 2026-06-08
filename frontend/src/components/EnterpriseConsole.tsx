@@ -18,6 +18,7 @@ import { SkillsConsole } from "./SkillsConsole";
 import { PoliciesPanel } from "./PoliciesPanel";
 import { AssetsPanel } from "./AssetsPanel";
 import { KnowledgePanel } from "./KnowledgePanel";
+import { DatabasePanel } from "./DatabasePanel";
 import { DispatchPanel } from "./DispatchPanel";
 import { DisplayTimezoneSelect } from "./DisplayTimezoneSelect";
 import { LanguageToggle } from "./LanguageToggle";
@@ -25,7 +26,7 @@ import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hook
 import { formatDateTimeShort } from "../lib/datetime";
 import { useLocale, type Locale } from "../lib/i18n";
 
-type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "costs" | "risk";
+type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "costs" | "risk";
 
 type EngineRecord = {
   engine_id: string;
@@ -180,6 +181,7 @@ const TAB_ROUTE: Record<ConsoleTab, string> = {
   skills: "/skills",
   policies: "/policies",
   knowledge: "/console/knowledge",
+  databases: "/console/databases",
   costs: "/costs",
   risk: "/risk",
 };
@@ -195,6 +197,7 @@ const NAV_ITEMS: ConsoleTab[] = [
   "skills",
   "policies",
   "knowledge",
+  "databases",
   "costs",
   "risk",
 ];
@@ -212,6 +215,7 @@ const CONSOLE_COPY = {
       skills: { label: "技能", desc: "Skills" },
       policies: { label: "策略", desc: "Policies" },
       knowledge: { label: "知识库", desc: "Knowledge" },
+      databases: { label: "数据库", desc: "Databases" },
       costs: { label: "成本", desc: "Costs" },
       risk: { label: "风控", desc: "Risk" },
     },
@@ -266,6 +270,7 @@ const CONSOLE_COPY = {
       skills: { label: "Skills", desc: "Review" },
       policies: { label: "Policies", desc: "Rules" },
       knowledge: { label: "Knowledge", desc: "Sources" },
+      databases: { label: "Databases", desc: "MCP access" },
       costs: { label: "Costs", desc: "Usage" },
       risk: { label: "Risk", desc: "Events" },
     },
@@ -655,6 +660,7 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
             {tab === "assets" && <AssetsPanel />}
             {tab === "policies" && <PoliciesPanel locale={locale} />}
             {tab === "knowledge" && <KnowledgePanel locale={locale} />}
+            {tab === "databases" && <DatabasePanel locale={locale} />}
             {tab === "costs" && <Costs cost={data.cost} />}
             {tab === "risk" && (
               <Risks

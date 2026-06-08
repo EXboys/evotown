@@ -50,7 +50,7 @@ from api.routers import (
     websocket,
     replay,
 )
-from api.routers import skill_market, skill_catalog, console_auth, market, knowledge
+from api.routers import skill_market, skill_catalog, console_auth, market, knowledge, databases
 from api.routers import policies, assets
 from api.routers import teams
 from api.routers import chronicle as chronicle_router
@@ -310,6 +310,7 @@ app.include_router(skill_market.router)
 app.include_router(skill_catalog.router)
 app.include_router(market.router)
 app.include_router(knowledge.router)
+app.include_router(databases.router)
 app.include_router(monitor.router)
 app.include_router(websocket.router)
 app.include_router(replay.router)

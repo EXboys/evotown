@@ -71,6 +71,7 @@ services:
       # 安全配置
       - ADMIN_TOKEN=${ADMIN_TOKEN:-}
       - EVOTOWN_ENGINE_INGEST_TOKEN=${EVOTOWN_ENGINE_INGEST_TOKEN:-}
+      - EVOTOWN_DATABASE_MCP_TOKEN=${EVOTOWN_DATABASE_MCP_TOKEN:-}
       - EVOTOWN_GATEWAY_API_KEYS=${EVOTOWN_GATEWAY_API_KEYS:-}
       - EVOTOWN_GATEWAY_TIMEOUT_SEC=${EVOTOWN_GATEWAY_TIMEOUT_SEC:-120}
       - LITELLM_BASE_URL=${LITELLM_BASE_URL:-http://litellm:4000/v1}
@@ -102,6 +103,30 @@ services:
       timeout: 10s
       retries: 5
       start_period: 15s
+
+  # ── Database MCP Proxy: read-only SQL gateway (optional profile) ─────
+  db-mcp-proxy:
+    build:
+      context: ./integrations/database-mcp-proxy
+      dockerfile: Dockerfile
+    profiles:
+      - db-mcp
+    restart: unless-stopped
+    environment:
+      - EVOTOWN_BASE_URL=http://backend:8765
+      - EVOTOWN_DATABASE_MCP_TOKEN=${EVOTOWN_DATABASE_MCP_TOKEN:-}
+      - DB_MCP_PORT=9100
+    ports:
+      - "${DB_MCP_PORT:-9100}:9100"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9100/health')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
 
   # ── LiteLLM: OpenAI-compatible model router (optional profile) ─────────
   litellm:

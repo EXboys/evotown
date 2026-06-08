@@ -67,6 +67,8 @@ def _migrate_gateway_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE gateway_requests ADD COLUMN key_id TEXT NOT NULL DEFAULT ''")
     if "model_alias" not in cols:
         conn.execute("ALTER TABLE gateway_requests ADD COLUMN model_alias TEXT NOT NULL DEFAULT ''")
+    if "user_message" not in cols:
+        conn.execute("ALTER TABLE gateway_requests ADD COLUMN user_message TEXT NOT NULL DEFAULT ''")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_gateway_account ON gateway_requests(account_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_gateway_key_created ON gateway_requests(key_id, created_at)")
 
@@ -90,9 +92,10 @@ def record_request(item: dict[str, Any]) -> dict[str, Any]:
             request_id, conversation_id, api_key_label, account_id, key_id,
             agent_id, team_id, engine_id,
             model, model_alias, status_code, prompt_tokens, completion_tokens, total_tokens,
-            cost_usd, latency_ms, risk_status, request_excerpt, response_excerpt, error
+            cost_usd, latency_ms, risk_status, request_excerpt, response_excerpt, error,
+            user_message
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             item["request_id"],
@@ -115,6 +118,7 @@ def record_request(item: dict[str, Any]) -> dict[str, Any]:
             _text_excerpt(item.get("request_excerpt", "")),
             _text_excerpt(item.get("response_excerpt", "")),
             _text_excerpt(item.get("error", ""), max_chars=1000),
+            item.get("user_message", ""),
         ),
     )
     return get_request(item["request_id"]) or item
@@ -216,7 +220,9 @@ def conversations(limit: int = 100) -> list[dict[str, Any]]:
             MAX(team_id) AS team_id,
             MAX(engine_id) AS engine_id,
             MAX(model) AS model,
-            MAX(model_alias) AS model_alias
+            MAX(model_alias) AS model_alias,
+            MAX(account_id) AS account_id,
+            MAX(user_message) AS user_message
         FROM gateway_requests
         GROUP BY conversation_id
         ORDER BY last_seen_at DESC
@@ -224,7 +230,23 @@ def conversations(limit: int = 100) -> list[dict[str, Any]]:
         """,
         (max(1, min(limit, 500)),),
     ).fetchall()
-    return [dict(row) for row in rows]
+
+    # Extract unique account_ids and fetch account names from accounts.db
+    result = [dict(row) for row in rows]
+    account_ids = {row["account_id"] for row in result if row["account_id"]}
+    account_names = {}
+    if account_ids:
+        from infra import accounts as accounts_store
+        for acc_id in account_ids:
+            acc = accounts_store.get_account(acc_id)
+            if acc and acc.get("name"):
+                account_names[acc_id] = acc["name"]
+
+    # Merge account names into results
+    for row in result:
+        row["account_name"] = account_names.get(row["account_id"], "")
+
+    return result
 
 
 def monthly_usage_for_key(key_id: str) -> dict[str, Any]:

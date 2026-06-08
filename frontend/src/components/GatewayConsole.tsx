@@ -14,6 +14,9 @@ type GatewayConversation = {
   requests?: number;
   cost_usd?: number;
   agent_id?: string;
+  account_id?: string;
+  account_name?: string;
+  user_message?: string;
   model?: string;
   model_alias?: string;
 };
@@ -390,13 +393,14 @@ function ConversationTable({ conversations, copy }: { conversations: GatewayConv
   if (!conversations.length) return <EmptyState>{copy.empty.conversations}</EmptyState>;
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200">
-      <table className="w-full table-fixed text-left text-sm">
+      <table className="w-full text-left text-sm">
         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
           <tr>
-            <th className="px-3 py-2 font-semibold">Conversation</th>
-            <th className="w-28 px-3 py-2 font-semibold">Agent</th>
-            <th className="w-40 px-3 py-2 font-semibold">Model</th>
-            <th className="w-16 px-3 py-2 font-semibold">Req</th>
+            <th className="w-40 px-3 py-2 font-semibold">Conversation</th>
+            <th className="px-3 py-2 font-semibold">User Message</th>
+            <th className="w-24 px-3 py-2 font-semibold">Agent</th>
+            <th className="w-36 px-3 py-2 font-semibold">Model</th>
+            <th className="w-14 px-3 py-2 font-semibold">Req</th>
             <th className="w-20 px-3 py-2 font-semibold">Cost</th>
           </tr>
         </thead>
@@ -404,7 +408,10 @@ function ConversationTable({ conversations, copy }: { conversations: GatewayConv
           {slice.map((c) => (
             <tr key={c.conversation_id}>
               <td className="truncate px-3 py-2 font-mono text-xs text-slate-950">{c.conversation_id}</td>
-              <td className="truncate px-3 py-2 font-mono text-xs text-slate-600">{c.agent_id || "—"}</td>
+              <td className="px-3 py-2 max-w-0 w-full">
+                <div className="truncate text-xs text-slate-700" title={c.user_message || undefined}>{c.user_message || "—"}</div>
+              </td>
+              <td className="truncate px-3 py-2 font-mono text-xs text-slate-600">{c.account_name || c.agent_id || "—"}</td>
               <td className="px-3 py-2">
                 <div className="truncate font-mono text-xs text-slate-600">{c.model || "—"}</div>
                 {c.model_alias && c.model_alias !== c.model && (

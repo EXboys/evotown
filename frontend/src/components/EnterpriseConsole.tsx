@@ -127,6 +127,9 @@ type GatewayConversation = {
   cost_usd: number;
   total_tokens: number;
   agent_id?: string;
+  account_id?: string;
+  account_name?: string;
+  user_message?: string;
   team_id?: string;
   engine_id?: string;
   model?: string;

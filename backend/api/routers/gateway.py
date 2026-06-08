@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import time
@@ -36,6 +37,7 @@ class GatewayChatContext:
     policy: RetryPolicy
     matched_route: dict[str, Any] | None
     via_alias: bool
+    user_message: str
 
 
 def _usage_from_response(data: dict[str, Any]) -> dict[str, int]:
@@ -99,6 +101,7 @@ def _check_burst_or_raise(identity: dict[str, Any], *, request_id: str, conversa
             "risk_status": reason,
             "request_excerpt": _first_message_excerpt(body),
             "error": reason,
+            "user_message": _extract_last_user_content(body),
         }
     )
     raise HTTPException(
@@ -139,6 +142,7 @@ def _check_quota_or_raise(identity: dict[str, Any], *, request_id: str, conversa
             "risk_status": reason,
             "request_excerpt": _first_message_excerpt(body),
             "error": reason,
+            "user_message": _extract_last_user_content(body),
         }
     )
     raise HTTPException(
@@ -174,6 +178,89 @@ def _gateway_timeout_sec() -> float:
     return float(os.environ.get("EVOTOWN_GATEWAY_TIMEOUT_SEC", "120"))
 
 
+def _extract_first_user_content(body: dict[str, Any]) -> str:
+    """Extract the first user message content from the messages array."""
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return ""
+    for m in messages:
+        if isinstance(m, dict) and m.get("role") == "user":
+            return str(m.get("content", ""))
+    return ""
+
+
+def _extract_last_user_content(body: dict[str, Any]) -> str:
+    """Extract the last user message content from the messages array.
+
+    This is the actual user input that triggered the current model call.
+    In tool-continuation turns, the last user message is still the same
+    as the original question; in multi-turn conversations, it reflects
+    the latest user input.
+    """
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return ""
+    last_user = ""
+    for m in messages:
+        if isinstance(m, dict) and m.get("role") == "user":
+            last_user = str(m.get("content", ""))
+    return last_user
+
+
+def _detect_client_type(body: dict[str, Any]) -> str:
+    """Detect the AI client type from request body characteristics.
+
+    Priority:
+    1. Body carries conversation_id/thread_id → client manages its own
+       session state → OpenClaw (or similar self-managing client).
+    2. Last message role=user → Hermes (default until Claude Code / Codex tested).
+    3. Last message role=tool → Hermes tool-call loop.
+    """
+    # ------------------------------------------------------------------
+    # OpenClaw: sends conversation_id / thread_id in the body (manages
+    # its own session fingerprint).  Hermes does NOT send these fields.
+    # ------------------------------------------------------------------
+    if body.get("conversation_id") or body.get("thread_id"):
+        return "openclaw"
+
+    # ------------------------------------------------------------------
+    # Hermes: standard OpenAI messages with tool-call loop
+    # ------------------------------------------------------------------
+    messages = body.get("messages")
+    if isinstance(messages, list) and messages:
+        last = messages[-1]
+        if isinstance(last, dict):
+            role = last.get("role", "")
+            if role == "tool":
+                return "hermes"
+            if role == "user":
+                # TODO(claude-code): Detect Claude Code — may include Anthropic-specific
+                #   fields (system prompt shape, stop_sequences, etc.)
+                # TODO(codex): Detect Codex — uses different body format
+                #   (responses API, not chat/completions)
+                return "hermes"  # default until other clients are tested
+    return "unknown"
+
+
+def _resolve_conversation_id(body: dict[str, Any], account_id: str, fallback: str) -> str:
+    """Derive conversation_id from first user message fingerprint.
+
+    Each account_id + first-user-message-content pair maps to a unique
+    conversation.  Tool-call continuations inside the same turn will have
+    the same first user message → same conversation_id.  Concurrent
+    sessions from the same account get different fingerprints because
+    their first user message differs.
+    """
+    first_user_content = _extract_first_user_content(body)
+    if not first_user_content:
+        return fallback
+
+    # account_id + first user message → deterministic conversation id
+    fingerprint = f"{account_id}:{first_user_content}"
+    conv_hash = hashlib.md5(fingerprint.encode()).hexdigest()[:16]
+    return f"gw_{conv_hash}"
+
+
 def _prepare_chat_context(
     body: dict[str, Any],
     *,
@@ -184,10 +271,13 @@ def _prepare_chat_context(
     x_evotown_conversation_id: str | None,
 ) -> GatewayChatContext:
     request_id = f"gw_{uuid.uuid4().hex}"
-    conversation_id = x_evotown_conversation_id or str(body.get("conversation_id") or body.get("thread_id") or request_id)
     client_model = str(body.get("model") or "")
     team_scope = (x_evotown_team_id or identity.get("team_id") or "").strip()
     account_scope = (identity.get("account_id") or "").strip()
+    # Priority: header > body > fingerprint-based inference
+    conversation_id = (x_evotown_conversation_id
+                       or str(body.get("conversation_id") or body.get("thread_id") or "")
+                       or _resolve_conversation_id(body, account_scope, request_id))
 
     model_chain, matched_route, policy, via_alias = gateway_routes_store.resolve_model_chain(
         client_model,
@@ -243,6 +333,7 @@ def _prepare_chat_context(
         policy=policy,
         matched_route=matched_route,
         via_alias=via_alias,
+        user_message=_extract_last_user_content(body),
     )
 
 
@@ -507,6 +598,7 @@ async def _stream_upstream_chat(
                 "request_excerpt": _first_message_excerpt(ctx.body),
                 "response_excerpt": {"stream": True, **usage, "attempts": [a.to_dict() for a in attempts]},
                 "error": error,
+                "user_message": ctx.user_message,
             }
         )
         if status_code < 400:
@@ -534,6 +626,10 @@ async def chat_completions(
     x_evotown_conversation_id: str | None = Header(default=None),
 ):
     body = await request.json()
+    # TEMP DEBUG: capture raw request headers for client-type detection
+    import json as _json
+    _hdrs = {k: v for k, v in request.headers.items() if not k.startswith("x-forwarded")}
+    print(f"[CLIENT-DEBUG] account={identity.get('account_id','')} headers={_json.dumps(_hdrs, default=str)}", flush=True)
     if not isinstance(body, dict):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="JSON object body required.")
 
@@ -600,6 +696,7 @@ async def chat_completions(
                 "latency_ms": latency_ms,
                 "request_excerpt": _first_message_excerpt(ctx.body),
                 "error": str(exc),
+                "user_message": ctx.user_message,
             }
         )
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Upstream error: {exc}") from exc
@@ -628,6 +725,7 @@ async def chat_completions(
                 "evotown_attempts": [a.to_dict() for a in upstream_result.attempts],
             },
             "error": "" if upstream_result.success else str(upstream_result.error or data),
+            "user_message": ctx.user_message,
         }
     )
 

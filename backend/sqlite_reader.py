@@ -1,9 +1,12 @@
 """读取 decisions / evolution_log / evolution_metrics 表 + rules.json + transcript"""
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 import aiosqlite
+
+logger = logging.getLogger("evotown.sqlite_reader")
 
 # 任务预览前缀，需排除
 _PREVIEW_PREFIX = "【任务预览】"
@@ -120,7 +123,7 @@ def _parse_ts_to_num(ts: Any) -> float:
             dt = datetime.fromisoformat(ts.replace("Z", "+00:00")[:26])
             return dt.timestamp()
         except Exception:
-            pass
+            logger.debug("failed to parse timestamp %r", ts)
     return 0.0
 
 
@@ -138,7 +141,8 @@ def get_transcript_executions(
         try:
             mtime = p.stat().st_mtime
             lines = p.read_text(encoding="utf-8").strip().splitlines()
-        except OSError:
+        except OSError as exc:
+            logger.debug("skipping unreadable transcript %s: %s", p, exc)
             continue
 
         entries: list[dict[str, Any]] = []
@@ -149,7 +153,7 @@ def get_transcript_executions(
             try:
                 entries.append(json.loads(line))
             except json.JSONDecodeError:
-                pass
+                logger.debug("skipping invalid JSON line in transcript %s", p)
 
         session_ts: str | None = None
         i = 0
@@ -204,7 +208,8 @@ def _parse_all_entries(paths: list[Path]) -> list[dict[str, Any]]:
     for p in paths:
         try:
             lines = p.read_text(encoding="utf-8").strip().splitlines()
-        except OSError:
+        except OSError as exc:
+            logger.debug("skipping unreadable transcript %s: %s", p, exc)
             continue
         for line in lines:
             line = line.strip()
@@ -213,7 +218,7 @@ def _parse_all_entries(paths: list[Path]) -> list[dict[str, Any]]:
             try:
                 all_entries.append(json.loads(line))
             except json.JSONDecodeError:
-                pass
+                logger.debug("skipping invalid JSON line in transcript %s", p)
     return all_entries
 
 
@@ -459,9 +464,10 @@ async def get_evolution_log(chat_root: str, limit: int = 100) -> list[dict[str, 
                     "reason": data.get("reason", ""),
                 })
             except json.JSONDecodeError:
-                pass
+                logger.debug("skipping invalid JSON line in evolution.log")
         return result
-    except OSError:
+    except OSError as exc:
+        logger.warning("failed to read evolution.log at %s: %s", log_path, exc)
         return []
 
 
@@ -484,8 +490,8 @@ def _scan_skill_dir(directory: Path, status: str, result: list[dict[str, Any]]) 
                 info["created_at"] = meta.get("created_at", "")
                 info["call_count"] = meta.get("call_count", 0)
                 info["success_count"] = meta.get("success_count", 0)
-            except (json.JSONDecodeError, OSError):
-                pass
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.debug("skipping skill meta %s: %s", meta_path, exc)
         skill_md = f / "SKILL.md"
         try:
             content = skill_md.read_text(encoding="utf-8")
@@ -496,8 +502,8 @@ def _scan_skill_dir(directory: Path, status: str, result: list[dict[str, Any]]) 
                 if line and not line.startswith("---") and not line.startswith("name:") and not line.startswith("compatibility:"):
                     info.setdefault("description", line[:120])
                     break
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.debug("skipping unreadable SKILL.md %s: %s", skill_md, exc)
         result.append(info)
 
 
@@ -527,8 +533,8 @@ async def get_skills(agent_home: str) -> list[dict[str, Any]]:
                     if line and not line.startswith("---") and not line.startswith("name:"):
                         info.setdefault("description", line[:120])
                         break
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.debug("skipping unreadable SKILL.md %s: %s", sub / "SKILL.md", exc)
             result.append(info)
 
     # 2. 进化技能（.skills/_evolved 及 _pending）
@@ -597,7 +603,8 @@ async def get_rules(chat_root: str) -> list[dict[str, Any]]:
         if isinstance(data, dict) and "rules" in data:
             return data["rules"]
         return []
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("failed to read rules.json at %s: %s", path, exc)
         return []
 
 
@@ -630,9 +637,9 @@ def _evolved_prompt_files(chat_root: str) -> set[str]:
                 for f in data.get("files", []):
                     evolved.add(f)
             except json.JSONDecodeError:
-                pass
-    except OSError:
-        pass
+                logger.debug("skipping invalid JSON line in changelog %s", changelog)
+    except OSError as exc:
+        logger.warning("failed to read changelog %s: %s", changelog, exc)
     return evolved
 
 
@@ -646,15 +653,16 @@ def _get_earliest_snapshot_content(chat_root: str, filename: str) -> str | None:
             [d for d in versions_dir.iterdir() if d.is_dir()],
             key=lambda d: d.name,
         )
-    except OSError:
+    except OSError as exc:
+        logger.warning("failed to list prompt versions at %s: %s", versions_dir, exc)
         return None
     for txn_dir in txn_dirs:
         file_path = txn_dir / filename
         if file_path.exists():
             try:
                 return file_path.read_text(encoding="utf-8")
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.debug("skipping unreadable snapshot %s: %s", file_path, exc)
     return None
 
 
@@ -677,8 +685,8 @@ async def get_prompts(chat_root: str) -> list[dict[str, Any]]:
         if path.exists():
             try:
                 content = path.read_text(encoding="utf-8")
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.debug("skipping unreadable prompt %s: %s", path, exc)
         is_evolved = filename in evolved_files
         original_content: str | None = None
         if is_evolved:

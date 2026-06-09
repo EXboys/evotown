@@ -106,8 +106,8 @@ async def assign_teams(body: AssignTeamsRequest):
                         team_name=t.name,
                         creed=creed,
                     )
-                except Exception as _e:
-                    pass
+                except Exception as exc:
+                    logger.warning("team creed persist/broadcast failed for %s: %s", t.team_id, exc)
     _asyncio.create_task(_gen_creeds())
 
     return {"ok": True, "teams": [t.to_serializable() for t in teams]}
@@ -169,8 +169,8 @@ async def rescue_agent(agent_id: str, body: RescueRequest):
             update_loyalty(donor, "rescue_given")
         if target:
             update_loyalty(target, "rescue_received")
-    except Exception as _be:
-        pass  # 信仰层失败不影响主流程
+    except Exception as exc:
+        logger.warning("belief loyalty update failed for rescue %s -> %s: %s", agent_id, body.target_id, exc)
 
     # 广播救援事件
     await ws.send_rescue_event(

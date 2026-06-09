@@ -171,7 +171,7 @@ cd evotown
 
 # 1. Create .env from the template (same directory as docker-compose.yml)
 cp .env.example .env
-# Edit API_KEY / BASE_URL / MODEL, and optional per-channel overrides (JUDGE, DISPATCHER, SOCIAL, CHRONICLE)
+# Edit API_KEY / BASE_URL / MODEL, ANTHROPIC_API_KEY (Coding Agent), and optional channel overrides
 
 # 2. First-time: build images and start
 docker compose up -d --build

@@ -186,7 +186,8 @@ def issue_ingest_token(engine_id: str) -> str:
     return raw
 
 
-def register_engine(body: EngineRegister) -> tuple[dict[str, Any], str | None]:
+def upsert_engine(body: EngineRegister, *, issue_token: bool = False) -> tuple[dict[str, Any], str | None]:
+    """Insert or update engine metadata; optionally issue a per-engine ingest token."""
     conn = _ensure_conn()
     existing = get_engine(body.engine_id)
     capabilities = _json_dumps(body.capabilities)
@@ -219,11 +220,16 @@ def register_engine(body: EngineRegister) -> tuple[dict[str, Any], str | None]:
         ),
     )
     issued: str | None = None
-    needs_token = existing is None or body.rotate_ingest_token or not (existing.get("ingest_token_hash") or "")
-    if needs_token:
-        issued = issue_ingest_token(body.engine_id)
+    if issue_token:
+        needs_token = existing is None or body.rotate_ingest_token or not (existing.get("ingest_token_hash") or "")
+        if needs_token:
+            issued = issue_ingest_token(body.engine_id)
     engine = get_engine(body.engine_id) or {"engine_id": body.engine_id}
     return engine, issued
+
+
+def register_engine(body: EngineRegister) -> tuple[dict[str, Any], str | None]:
+    return upsert_engine(body, issue_token=True)
 
 
 def _engine_from_row(row: sqlite3.Row) -> dict[str, Any]:

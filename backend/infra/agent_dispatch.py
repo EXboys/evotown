@@ -17,7 +17,7 @@ from domain.models import (
     DispatchJobCreate,
     EngineHeartbeat,
 )
-from infra import engine_ingest
+from infra import engine_ingest, hosted_workspace_engines
 
 _LEASE_SECONDS = 300
 _ONLINE_SECONDS = 120
@@ -154,7 +154,11 @@ def _enrich_engine_row(row: sqlite3.Row) -> dict[str, Any]:
             online = (datetime.now(timezone.utc) - seen).total_seconds() <= _ONLINE_SECONDS
         except ValueError:
             online = False
-    data["online"] = online
+    caps = data.get("capabilities") or {}
+    if caps.get("hosted") and hosted_workspace_engines.hosted_workspace_available(data["engine_id"]):
+        data["online"] = True
+    else:
+        data["online"] = online
     data["online_meta"] = _json_loads(data.get("online_meta") or "{}", {})
     return data
 
@@ -162,6 +166,22 @@ def _enrich_engine_row(row: sqlite3.Row) -> dict[str, Any]:
 def _validate_targets(body: DispatchJobCreate) -> None:
     if not body.target_engine_id and not body.target_team_id:
         raise ValueError("target_engine_id or target_team_id is required")
+    if body.target_engine_id and hosted_workspace_engines.is_hosted_engine(body.target_engine_id):
+        if not hosted_workspace_engines.hosted_workspace_available(body.target_engine_id):
+            raise ValueError("target hosted coding workspace is not available")
+
+
+def fail_job(job_id: str, *, summary: str) -> dict[str, Any] | None:
+    conn = _db()
+    conn.execute(
+        """
+        UPDATE dispatch_jobs
+        SET status='failed', result_summary=?, completed_at=?, updated_at=datetime('now')
+        WHERE job_id=? AND status IN ('queued', 'leased', 'running')
+        """,
+        (summary, _utc_now(), job_id),
+    )
+    return get_job(job_id)
 
 
 def _team_pairs_policy() -> str:
@@ -317,6 +337,8 @@ def _requeue_stale(conn: sqlite3.Connection) -> None:
 
 
 def lease_job(engine_id: str) -> dict[str, Any] | None:
+    if hosted_workspace_engines.is_hosted_engine(engine_id):
+        return None
     engine = engine_ingest.get_engine(engine_id)
     if engine is None:
         return None
@@ -364,6 +386,45 @@ def lease_job(engine_id: str) -> dict[str, Any] | None:
         "source_engine_id": job["source_engine_id"],
         "lease_expires_at": expires,
     }
+
+
+def claim_next_hosted_job() -> dict[str, Any] | None:
+    """Claim the next queued job targeted at a hosted coding workspace engine."""
+    prefix = hosted_workspace_engines.HOSTED_ENGINE_PREFIX + "%"
+    conn = _db()
+    _requeue_stale(conn)
+    while True:
+        row = conn.execute(
+            """
+            SELECT * FROM dispatch_jobs
+            WHERE status='queued' AND target_engine_id LIKE ?
+            ORDER BY created_at ASC
+            LIMIT 1
+            """,
+            (prefix,),
+        ).fetchone()
+        if row is None:
+            return None
+        job_id = row["job_id"]
+        engine_id = row["target_engine_id"]
+        if not hosted_workspace_engines.hosted_workspace_available(engine_id):
+            fail_job(job_id, summary="target hosted coding workspace is not available")
+            continue
+        expires = _expires_at(_LEASE_SECONDS)
+        updated = conn.execute(
+            """
+            UPDATE dispatch_jobs
+            SET status='leased', lease_engine_id=?, lease_expires_at=?, updated_at=datetime('now')
+            WHERE job_id=? AND status='queued'
+            """,
+            (engine_id, expires, job_id),
+        ).rowcount
+        if not updated:
+            continue
+        job = get_job(job_id)
+        if job is None:
+            continue
+        return job
 
 
 def ack_job(job_id: str, body: DispatchJobAck) -> dict[str, Any] | None:

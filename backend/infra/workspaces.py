@@ -130,7 +130,12 @@ def create_workspace(
         """,
         (workspace_id, owner_account_id.strip()),
     )
-    return get_workspace(workspace_id) or {}
+    workspace = get_workspace(workspace_id) or {}
+    if workspace:
+        from infra import hosted_workspace_engines
+
+        hosted_workspace_engines.register_workspace_engine(workspace)
+    return workspace
 
 
 def list_workspaces(
@@ -213,7 +218,12 @@ def update_workspace(
             """,
             (workspace_id, new_owner),
         )
-    return get_workspace(workspace_id)
+    workspace = get_workspace(workspace_id)
+    if workspace is not None:
+        from infra import hosted_workspace_engines
+
+        hosted_workspace_engines.sync_workspace_engine(workspace)
+    return workspace
 
 
 def workspace_usage_bytes(workspace: dict[str, Any]) -> int:

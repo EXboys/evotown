@@ -229,9 +229,20 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
 
+    from infra import hosted_workspace_engines
+    from services.hosted_dispatch_worker import hosted_dispatch_loop
+
+    try:
+        synced = hosted_workspace_engines.sync_all_active_workspaces()
+        if synced:
+            logger.info("[hosted-dispatch] synced %d active workspace fleet engines", synced)
+    except Exception as exc:
+        logger.warning("[hosted-dispatch] workspace fleet sync failed: %s", exc)
+
     _timeout_task = asyncio.create_task(_timeout_loop())
     _checkpoint_task = asyncio.create_task(_checkpoint_loop())
     _chronicle_task = asyncio.create_task(_chronicle_loop())
+    _hosted_dispatch_task = asyncio.create_task(hosted_dispatch_loop())
     # 注意：内存看门狗在 ProcessManager 内部自动启动（spawn 时调用 _start_memory_watchdog）
 
     yield
@@ -239,7 +250,8 @@ async def lifespan(app: FastAPI):
     _timeout_task.cancel()
     _checkpoint_task.cancel()
     _chronicle_task.cancel()
-    for _t in (_timeout_task, _checkpoint_task, _chronicle_task):
+    _hosted_dispatch_task.cancel()
+    for _t in (_timeout_task, _checkpoint_task, _chronicle_task, _hosted_dispatch_task):
         try:
             await _t
         except asyncio.CancelledError:

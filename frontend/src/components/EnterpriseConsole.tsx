@@ -31,7 +31,7 @@ type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" 
 
 type EngineRecord = {
   engine_id: string;
-  engine_type: "openclaw" | "hermes" | "skilllite" | "custom";
+  engine_type: "openclaw" | "hermes" | "skilllite" | "custom" | "hosted_coding";
   engine_version: string;
   display_name?: string;
   owner_team?: string;
@@ -47,7 +47,7 @@ type EngineRecord = {
 type ExternalRun = {
   run_id: string;
   engine_id: string;
-  engine_type?: "openclaw" | "hermes" | "skilllite" | "custom";
+  engine_type?: "openclaw" | "hermes" | "skilllite" | "custom" | "hosted_coding";
   engine_version: string;
   tenant_id?: string;
   team_id?: string;
@@ -326,6 +326,7 @@ const ENGINE_META: Record<EngineRecord["engine_type"], { label: string; classNam
   openclaw: { label: "OpenClaw", className: "border-sky-200 bg-sky-50 text-sky-700" },
   hermes: { label: "Hermes", className: "border-indigo-200 bg-indigo-50 text-indigo-700" },
   skilllite: { label: "SkillLite", className: "border-amber-200 bg-amber-50 text-amber-700" },
+  hosted_coding: { label: "Coding Agent", className: "border-violet-200 bg-violet-50 text-violet-700" },
   custom: { label: "Custom", className: "border-slate-200 bg-slate-50 text-slate-700" },
 };
 
@@ -810,7 +811,7 @@ function Dashboard({
 }
 
 function EngineCard({ engine, runs, violations }: { engine: EngineRecord; runs: ExternalRun[]; violations: PolicyViolation[] }) {
-  const meta = ENGINE_META[engine.engine_type];
+  const meta = ENGINE_META[engine.engine_type] ?? ENGINE_META.custom;
   const count = runs.filter((run) => run.engine_id === engine.engine_id).length;
   const risk = violations.filter((item) => item.engine_id === engine.engine_id).length;
   return (

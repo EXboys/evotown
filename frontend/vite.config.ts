@@ -1,10 +1,15 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 const backendTarget = `http://127.0.0.1:${process.env.EVOTOWN_BACKEND_PORT || "8765"}`;
 
 export default defineConfig({
   plugins: [react()],
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: "./src/test/setup.ts",
+  },
   server: {
     port: 5174,
     proxy: {

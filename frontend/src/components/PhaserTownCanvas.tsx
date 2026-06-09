@@ -9,10 +9,9 @@ export function PhaserTownCanvas() {
   const gameRef = useRef<Phaser.Game | null>(null);
 
   useEffect(() => {
-    let rafId: number;
     let game: Phaser.Game | null = null;
     // 等待浏览器完成布局后再初始化 Phaser，确保父容器尺寸已计算
-    rafId = requestAnimationFrame(() => {
+    const rafId = requestAnimationFrame(() => {
       if (!parentRef.current) return;
       const config = getPhaserConfig(parentRef.current);
       game = new Phaser.Game(config);

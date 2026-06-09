@@ -328,6 +328,12 @@ def _command_template(*, explicit_only: bool = False) -> str:
     return _default_claude_command()
 
 
+def _sdk_ready() -> bool:
+    from services import claude_agent_sdk_runner
+
+    return bool(claude_agent_sdk_runner.sdk_available() and os.environ.get("ANTHROPIC_API_KEY", "").strip())
+
+
 def _execution_backend() -> str:
     """Resolve run backend: embedded SDK (default), external CLI, or dry-run."""
     from services import claude_agent_sdk_runner
@@ -341,7 +347,7 @@ def _execution_backend() -> str:
         return "cli" if _command_template(explicit_only=False) else "dry-run"
     if os.environ.get("EVOTOWN_CLAUDE_CODE_COMMAND", "").strip():
         return "cli"
-    if claude_agent_sdk_runner.sdk_available():
+    if _sdk_ready():
         return "sdk"
     if _default_claude_command():
         return "cli"

@@ -6,6 +6,7 @@ search. Connectors may also push documents via ingest API.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -24,6 +25,8 @@ from domain.models import (
 )
 from infra.knowledge_adapters import fetch_from_source
 from infra.knowledge_chunks import chunk_row, delete_document_chunks, reindex_document_chunks
+
+logger = logging.getLogger("evotown.knowledge")
 
 _backend_dir = Path(__file__).resolve().parent.parent
 _evotown_data = _backend_dir.parent / "data"
@@ -265,8 +268,8 @@ def _seed_defaults(conn: sqlite3.Connection) -> None:
         config["name"] = source["name"]
         try:
             sync_source(source_id, conn=conn, prefetched=fetch_from_source(source["source_type"], config))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("demo source seed sync failed for %s: %s", source_id, exc)
     if conn.execute("SELECT COUNT(*) AS c FROM knowledge_spaces").fetchone()["c"] == 0:
         try:
             create_space(
@@ -295,8 +298,8 @@ def _seed_defaults(conn: sqlite3.Connection) -> None:
                 ),
                 conn=conn,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("default knowledge space seed failed: %s", exc)
 
 
 def list_sources(*, status: str | None = None, source_type: str | None = None, limit: int = 100) -> list[dict[str, Any]]:

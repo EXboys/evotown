@@ -23,7 +23,8 @@ def _load_decision_interval() -> int:
         from core.config import _load_json
         data = _load_json()
         return int(data.get("social", {}).get("decision_interval", _DEFAULT_DECISION_INTERVAL))
-    except Exception:
+    except Exception as exc:
+        logger.debug("social decision_interval config unreadable, using default %s: %s", _DEFAULT_DECISION_INTERVAL, exc)
         return _DEFAULT_DECISION_INTERVAL
 
 

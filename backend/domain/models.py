@@ -74,6 +74,7 @@ EngineType = Literal["openclaw", "hermes", "skilllite", "custom"]
 DeploymentKind = Literal["laptop", "server", "ci", "container"]
 RunStatus = Literal["running", "succeeded", "failed", "cancelled"]
 TerminalRunStatus = Literal["succeeded", "failed", "cancelled"]
+HostedAgentRunStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 RunEventType = Literal[
     "run.started",
     "run.progress",
@@ -107,6 +108,31 @@ class EngineRegister(BaseModel):
     dispatch_url: str | None = None
     capabilities: dict[str, Any] = Field(default_factory=dict)
     rotate_ingest_token: bool = False
+
+
+class WorkspaceCreate(BaseModel):
+    name: str = Field(default="Personal Sandbox", min_length=1, max_length=128)
+    owner_account_id: str = Field(default="", max_length=128)
+    tenant_id: str = Field(default="", max_length=128)
+    team_id: str = Field(default="", max_length=128)
+
+
+class WorkspaceUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    status: Literal["active", "archived"] | None = None
+    owner_account_id: str | None = Field(default=None, max_length=128)
+    storage_quota_mb: int | None = Field(default=None, ge=0, le=1048576)
+
+
+class ClaudeAgentRunCreate(BaseModel):
+    prompt: str = Field(min_length=1, max_length=32000)
+    model: str = Field(default="", max_length=128)
+    skills: list[str] = Field(default_factory=list)
+    mcp: list[str] = Field(default_factory=list)
+
+
+class ClaudeAgentRunStatusUpdate(BaseModel):
+    status: HostedAgentRunStatus
 
 
 DispatchJobKind = Literal["dispatch", "handoff", "notify"]

@@ -25,7 +25,17 @@ KEY_PREFIX = "evk_"
 DEFAULT_SCOPES = ["gateway.chat"]
 CONSOLE_SCOPE_READ = "console.read"
 CONSOLE_SCOPE_WRITE = "console.write"
-DEFAULT_CONSOLE_KEY_SCOPES = ["gateway.chat", CONSOLE_SCOPE_READ, CONSOLE_SCOPE_WRITE]
+WORKSPACE_SCOPE_READ = "workspace.read"
+WORKSPACE_SCOPE_WRITE = "workspace.write"
+AGENT_SCOPE_RUN = "agent.run"
+DEFAULT_CONSOLE_KEY_SCOPES = [
+    "gateway.chat",
+    CONSOLE_SCOPE_READ,
+    CONSOLE_SCOPE_WRITE,
+    WORKSPACE_SCOPE_READ,
+    WORKSPACE_SCOPE_WRITE,
+    AGENT_SCOPE_RUN,
+]
 ROOT_ORG_ID = 'org_root'
 
 

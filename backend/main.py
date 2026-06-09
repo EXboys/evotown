@@ -39,6 +39,7 @@ from api.routers import (
     accounts,
     agent_dispatch,
     config,
+    coding_agent,
     dispatcher,
     engine_ingest,
     gateway,
@@ -300,6 +301,7 @@ app.include_router(engine_ingest.router)
 app.include_router(policies.router)
 app.include_router(assets.router)
 app.include_router(agent_dispatch.router)
+app.include_router(coding_agent.router)
 app.include_router(accounts.router)
 app.include_router(console_auth.router)
 app.include_router(gateway.router)

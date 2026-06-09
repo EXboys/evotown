@@ -17,6 +17,7 @@ import { GATEWAY_COPY, GatewayConsole, RecentRequestsTable } from "./GatewayCons
 import { SkillsConsole } from "./SkillsConsole";
 import { PoliciesPanel } from "./PoliciesPanel";
 import { AssetsPanel } from "./AssetsPanel";
+import { CodingAgentPage } from "./CodingAgentPage";
 import { KnowledgePanel } from "./KnowledgePanel";
 import { DatabasePanel } from "./DatabasePanel";
 import { DispatchPanel } from "./DispatchPanel";
@@ -26,7 +27,7 @@ import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hook
 import { formatDateTimeShort } from "../lib/datetime";
 import { useLocale, type Locale } from "../lib/i18n";
 
-type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "costs" | "risk";
+type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "costs" | "risk";
 
 type EngineRecord = {
   engine_id: string;
@@ -176,6 +177,7 @@ const TAB_ROUTE: Record<ConsoleTab, string> = {
   accounts: "/accounts",
   engines: "/engines",
   dispatch: "/dispatch",
+  coding: "/coding-agent",
   runs: "/runs",
   assets: "/assets",
   skills: "/skills",
@@ -192,6 +194,7 @@ const NAV_ITEMS: ConsoleTab[] = [
   "accounts",
   "engines",
   "dispatch",
+  "coding",
   "runs",
   "assets",
   "skills",
@@ -210,6 +213,7 @@ const CONSOLE_COPY = {
       accounts: { label: "账号", desc: "Accounts" },
       engines: { label: "引擎", desc: "Engines" },
       dispatch: { label: "派活", desc: "Dispatch" },
+      coding: { label: "Agent", desc: "Claude" },
       runs: { label: "运行", desc: "Runs" },
       assets: { label: "资产", desc: "Assets" },
       skills: { label: "技能", desc: "Skills" },
@@ -265,6 +269,7 @@ const CONSOLE_COPY = {
       accounts: { label: "Accounts", desc: "Keys" },
       engines: { label: "Engines", desc: "Runtimes" },
       dispatch: { label: "Dispatch", desc: "Tasks" },
+      coding: { label: "Agent", desc: "Claude" },
       runs: { label: "Runs", desc: "History" },
       assets: { label: "Assets", desc: "Promote" },
       skills: { label: "Skills", desc: "Review" },
@@ -392,7 +397,13 @@ function StatCard({ label, value, note }: { label: string; value: string | numbe
   );
 }
 
-export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: ConsoleTab }) {
+export function EnterpriseConsole({
+  initialTab = "dashboard",
+  initialWorkspaceId = "",
+}: {
+  initialTab?: ConsoleTab;
+  initialWorkspaceId?: string;
+}) {
   const navigate = useNavigate();
   const { locale, setLocale } = useLocale();
   const copy = CONSOLE_COPY[locale];
@@ -655,6 +666,7 @@ export function EnterpriseConsole({ initialTab = "dashboard" }: { initialTab?: C
             {tab === "accounts" && <GatewayAccountsPanel locale={locale} />}
             {tab === "engines" && <Engines engines={data.engines} runs={data.runs} violations={data.violations} />}
             {tab === "dispatch" && <DispatchPanel engines={data.engines} onRefresh={load} />}
+            {tab === "coding" && <CodingAgentPage locale={locale} initialWorkspaceId={initialWorkspaceId} />}
             {tab === "runs" && <Runs runs={data.runs} selectedRun={selectedRun} events={events} loading={eventsLoading} onRun={openRun} onAssetSubmitted={() => setRoute("assets")} />}
             {tab === "skills" && <SkillsConsole locale={locale} />}
             {tab === "assets" && <AssetsPanel />}

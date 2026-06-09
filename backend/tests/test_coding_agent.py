@@ -22,6 +22,8 @@ class CodingAgentApiTest(unittest.TestCase):
                 "EVOTOWN_DATA_DIR": self._tmpdir.name,
                 "ADMIN_TOKEN": "test-admin",
                 "EVOTOWN_CLAUDE_CODE_COMMAND": "",
+                "EVOTOWN_CLAUDE_EXECUTION_MODE": "dry-run",
+                "ANTHROPIC_API_KEY": "",
             },
             clear=False,
         )

@@ -77,6 +77,19 @@ services:
       - LITELLM_BASE_URL=${LITELLM_BASE_URL:-http://litellm:4000/v1}
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      # Hosted Claude Coding Agent (embedded claude-agent-sdk in backend image)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - EVOTOWN_CLAUDE_EXECUTION_MODE=${EVOTOWN_CLAUDE_EXECUTION_MODE:-auto}
+      - EVOTOWN_CLAUDE_MODEL=${EVOTOWN_CLAUDE_MODEL:-}
+      - EVOTOWN_CLAUDE_PERMISSION_MODE=${EVOTOWN_CLAUDE_PERMISSION_MODE:-acceptEdits}
+      - EVOTOWN_CLAUDE_ALLOWED_TOOLS=${EVOTOWN_CLAUDE_ALLOWED_TOOLS:-Read,Edit,Bash,Glob,Grep,Write}
+      - EVOTOWN_CLAUDE_SKILL_BUNDLE=${EVOTOWN_CLAUDE_SKILL_BUNDLE:-default-agent-skills}
+      - EVOTOWN_CLAUDE_SKILL_CHANNEL=${EVOTOWN_CLAUDE_SKILL_CHANNEL:-stable}
+      - EVOTOWN_CLAUDE_SKILL_RUNTIME=${EVOTOWN_CLAUDE_SKILL_RUNTIME:-custom}
+      - EVOTOWN_CLAUDE_MAX_ACTIVE_RUNS_PER_ACCOUNT=${EVOTOWN_CLAUDE_MAX_ACTIVE_RUNS_PER_ACCOUNT:-2}
+      - EVOTOWN_CLAUDE_CODE_COMMAND=${EVOTOWN_CLAUDE_CODE_COMMAND:-}
+      - EVOTOWN_DB_MCP_URL=${EVOTOWN_DB_MCP_URL:-http://db-mcp-proxy:9100}
+      - EVOTOWN_WORKSPACES_DIR=${EVOTOWN_WORKSPACES_DIR:-}
     # 使用定制 seccomp profile，允许 bubblewrap (bwrap) 创建 user namespace，
     # 同时拦截最危险的内核级 syscall（kexec / module load / perf_event 等）。
     # 比 seccomp:unconfined 更安全：默认 ALLOW 但明确 DENY 高危操作。

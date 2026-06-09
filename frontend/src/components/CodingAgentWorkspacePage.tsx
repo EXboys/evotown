@@ -75,8 +75,14 @@ function describeEvent(event: AgentRunEvent): { icon: string; title: string; det
       return { icon: "📦", title: "准备执行环境", detail: "挂载私有 workspace 与上下文" };
     case "context.ready": {
       const skills = num("skills") ?? 0;
+      const materialized = num("materialized_skills") ?? 0;
+      const mcp = num("mcp_connections") ?? 0;
       const knowledge = num("knowledge_results") ?? 0;
-      return { icon: "✅", title: "上下文就绪", detail: `注入 ${skills} 个 skills，命中 ${knowledge} 条知识库结果` };
+      const parts = [`${skills} 个 skills`];
+      if (materialized) parts.push(`${materialized} 个已落地到 workspace`);
+      if (mcp) parts.push(`${mcp} 个 MCP 连接器`);
+      parts.push(`命中 ${knowledge} 条知识库`);
+      return { icon: "✅", title: "上下文就绪", detail: parts.join("，") };
     }
     case "assistant_message":
       return { icon: "🤖", title: "Agent 返回结果", detail: str("summary") || "执行完成" };

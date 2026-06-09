@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -136,6 +137,100 @@ class CodingAgentApiTest(unittest.TestCase):
         )
         self.assertEqual(fetched.status_code, 200)
         self.assertEqual(fetched.json()["run"]["status"], "succeeded")
+
+    def test_runner_injects_selected_skills_and_mcp(self) -> None:
+        from infra import claude_agent_runs, workspaces
+        from services import claude_code_runner
+
+        client = self._client()
+        _alice, alice_key = self._account_key("Alice")
+        with patch("services.claude_code_runner.schedule_run", lambda run_id: None):
+            workspace = client.post(
+                "/api/v1/workspaces",
+                headers={"Authorization": f"Bearer {alice_key}"},
+                json={"name": "Inject Sandbox"},
+            ).json()["workspace"]
+            create_run = client.post(
+                f"/api/v1/workspaces/{workspace['workspace_id']}/runs",
+                headers={"Authorization": f"Bearer {alice_key}"},
+                json={
+                    "prompt": "Use http-request skill and query demo database.",
+                    "model": "claude-test",
+                    "skills": ["http-request"],
+                    "mcp": ["demo-sqlite"],
+                },
+            )
+            self.assertEqual(create_run.status_code, 200)
+            run_id = create_run.json()["run"]["run_id"]
+
+        with patch(
+            "services.claude_code_runner._resolve_mcp_context",
+            return_value={
+                "selection_mode": "explicit",
+                "connections": [
+                    {
+                        "connection_id": "demo-sqlite",
+                        "name": "Demo SQLite",
+                        "db_type": "sqlite",
+                        "mcp_server_url": "http://localhost:9100",
+                        "permission": "read",
+                        "usage": "test",
+                    }
+                ],
+                "tool_skill": "database-query",
+            },
+        ):
+            updated = asyncio.run(claude_code_runner.run_claude_agent(run_id))
+
+        self.assertEqual(updated["status"], "succeeded")
+        self.assertEqual(updated["signals"]["materialized_skill_count"], 1)
+        self.assertEqual(updated["signals"]["mcp_connection_count"], 1)
+
+        stored_workspace = workspaces.get_workspace(workspace["workspace_id"])
+        assert stored_workspace is not None
+        root = Path(stored_workspace["root_path"])
+        self.assertTrue((root / ".evotown" / "mcp_context.json").is_file())
+        self.assertTrue((root / ".evotown" / "skills" / "http-request" / "SKILL.md").is_file())
+        mcp_payload = json.loads((root / ".evotown" / "mcp_context.json").read_text(encoding="utf-8"))
+        self.assertEqual(mcp_payload["connections"][0]["connection_id"], "demo-sqlite")
+        self.assertTrue((root / ".mcp.json").is_file())
+
+        ready = next(e for e in claude_agent_runs.list_events(run_id) if e["event_type"] == "context.ready")
+        self.assertEqual(ready["payload"]["materialized_skills"], 1)
+        self.assertEqual(ready["payload"]["mcp_connections"], 1)
+
+    def test_runner_prefers_embedded_sdk_when_available(self) -> None:
+        from services import claude_code_runner
+
+        client = self._client()
+        _alice, alice_key = self._account_key("Alice")
+        with patch("services.claude_code_runner.schedule_run", lambda run_id: None):
+            workspace = client.post(
+                "/api/v1/workspaces",
+                headers={"Authorization": f"Bearer {alice_key}"},
+                json={"name": "SDK Sandbox"},
+            ).json()["workspace"]
+            create_run = client.post(
+                f"/api/v1/workspaces/{workspace['workspace_id']}/runs",
+                headers={"Authorization": f"Bearer {alice_key}"},
+                json={"prompt": "Add a comment to README.md", "model": "claude-sonnet-4"},
+            )
+            run_id = create_run.json()["run"]["run_id"]
+
+        with (
+            patch.dict(os.environ, {"EVOTOWN_CLAUDE_EXECUTION_MODE": "sdk"}, clear=False),
+            patch("services.claude_agent_sdk_runner.sdk_available", return_value=True),
+            patch(
+                "services.claude_agent_sdk_runner.run_agent_sdk",
+                new=AsyncMock(return_value=(0, "Updated README via embedded SDK.")),
+            ),
+        ):
+            updated = asyncio.run(claude_code_runner.run_claude_agent(run_id))
+
+        self.assertEqual(updated["status"], "succeeded")
+        self.assertEqual(updated["signals"]["execution_backend"], "sdk")
+        self.assertTrue(updated["signals"]["sdk_command_configured"])
+        self.assertIn("embedded SDK", updated["result_summary"])
 
 
 if __name__ == "__main__":

@@ -58,6 +58,23 @@ def _max_turns() -> int | None:
     return value if value > 0 else None
 
 
+def _truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def gateway_sdk_env() -> dict[str, str]:
+    if not _truthy_env("EVOTOWN_CLAUDE_USE_GATEWAY"):
+        return {}
+    base_url = os.environ.get("EVOTOWN_CLAUDE_GATEWAY_BASE_URL", "").strip().rstrip("/")
+    api_key = os.environ.get("EVOTOWN_CLAUDE_GATEWAY_API_KEY", "").strip()
+    env: dict[str, str] = {"CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST": "1"}
+    if base_url:
+        env["ANTHROPIC_BASE_URL"] = base_url
+    if api_key:
+        env["ANTHROPIC_API_KEY"] = api_key
+    return env
+
+
 async def run_agent_sdk(
     *,
     workspace_root: Path,
@@ -77,6 +94,7 @@ async def run_agent_sdk(
         "mcp_servers": _mcp_servers(workspace_root),
         "setting_sources": ["project"],
         "env": {
+            **gateway_sdk_env(),
             "EVOTOWN_AGENT_RUN_ID": str(run.get("run_id") or ""),
             "EVOTOWN_WORKSPACE_ROOT": str(workspace_root),
             "EVOTOWN_CLAUDE_MODEL": model,

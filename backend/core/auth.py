@@ -27,6 +27,7 @@ from infra import engine_ingest as engine_ingest_store
 
 _HEADER_SCHEME = APIKeyHeader(name="X-Admin-Token", auto_error=False)
 _BEARER_SCHEME = HTTPBearer(auto_error=False)
+_ANTHROPIC_API_KEY_HEADER = APIKeyHeader(name="x-api-key", auto_error=False)
 
 GATEWAY_SCOPE_CHAT = "gateway.chat"
 CONSOLE_SCOPE_READ = "console.read"
@@ -367,14 +368,18 @@ async def _require_gateway_api_key(
     credentials: HTTPAuthorizationCredentials | None,
     *,
     required_scope: str | None = None,
+    raw_token: str | None = None,
 ) -> dict[str, Any]:
-    if credentials is None or credentials.scheme.lower() != "bearer":
+    token = (raw_token or "").strip()
+    if not token and credentials is not None and credentials.scheme.lower() == "bearer":
+        token = credentials.credentials
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid or missing gateway bearer token.",
+            detail="Invalid or missing gateway token.",
         )
 
-    identity = _resolve_gateway_identity(credentials.credentials)
+    identity = _resolve_gateway_identity(token)
     if identity is None:
         if not _legacy_gateway_keys():
             raise HTTPException(
@@ -383,7 +388,7 @@ async def _require_gateway_api_key(
             )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid or missing gateway bearer token.",
+            detail="Invalid or missing gateway token.",
         )
 
     if required_scope:
@@ -401,6 +406,17 @@ async def require_gateway_chat(
     credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
 ) -> dict[str, Any]:
     return await _require_gateway_api_key(credentials, required_scope=GATEWAY_SCOPE_CHAT)
+
+
+async def require_gateway_chat_or_x_api_key(
+    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
+    x_api_key: str | None = Security(_ANTHROPIC_API_KEY_HEADER),
+) -> dict[str, Any]:
+    return await _require_gateway_api_key(
+        credentials,
+        raw_token=x_api_key,
+        required_scope=GATEWAY_SCOPE_CHAT,
+    )
 
 
 def admin_token_status() -> str:

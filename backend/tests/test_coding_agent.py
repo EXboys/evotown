@@ -234,6 +234,30 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertTrue(updated["signals"]["sdk_command_configured"])
         self.assertIn("embedded SDK", updated["result_summary"])
 
+    def test_runner_gateway_env_marks_sdk_ready(self) -> None:
+        from services import claude_agent_sdk_runner, claude_code_runner
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "ANTHROPIC_API_KEY": "",
+                    "EVOTOWN_CLAUDE_EXECUTION_MODE": "auto",
+                    "EVOTOWN_CLAUDE_USE_GATEWAY": "1",
+                    "EVOTOWN_CLAUDE_GATEWAY_BASE_URL": "http://backend:8000/api/gateway/anthropic/",
+                    "EVOTOWN_CLAUDE_GATEWAY_API_KEY": "evk_test",
+                },
+                clear=False,
+            ),
+            patch("services.claude_agent_sdk_runner.sdk_available", return_value=True),
+        ):
+            self.assertEqual(claude_code_runner._execution_backend(), "sdk")  # noqa: SLF001
+            env = claude_agent_sdk_runner.gateway_sdk_env()
+
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://backend:8000/api/gateway/anthropic")
+        self.assertEqual(env["ANTHROPIC_API_KEY"], "evk_test")
+        self.assertEqual(env["CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST"], "1")
+
 
 if __name__ == "__main__":
     unittest.main()

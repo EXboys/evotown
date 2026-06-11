@@ -115,6 +115,57 @@ class GatewayAnthropicApiTest(unittest.TestCase):
         self.assertEqual(rows[0]["completion_tokens"], 3)
         self.assertEqual(rows[0]["total_tokens"], 5)
 
+    def test_messages_keeps_managed_upstream_behind_litellm_translation(self) -> None:
+        from infra import gateway_models
+
+        gateway_models.create_model(
+            model_name="corp-qwen",
+            api_base="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            api_key="dashscope-secret",
+            litellm_model="dashscope/qwen3-coder-plus",
+        )
+        client, api_key = self._client_and_key()
+        calls: list[dict] = []
+
+        class FakeClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def post(self, target, *, json, headers):
+                calls.append({"target": target, "json": json, "headers": headers})
+                response = MagicMock()
+                response.status_code = 200
+                response.is_success = True
+                response.json.return_value = {
+                    "id": "msg_managed",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "ok"}],
+                    "model": "dashscope/qwen3-coder-plus",
+                    "usage": {"input_tokens": 4, "output_tokens": 6},
+                }
+                return response
+
+        with patch("api.routers.gateway.httpx.AsyncClient", return_value=FakeClient()):
+            resp = client.post(
+                "/api/gateway/anthropic/v1/messages",
+                json={
+                    "model": "corp-qwen",
+                    "max_tokens": 64,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
+                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+            )
+
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(calls[0]["target"], "http://litellm-anthropic.test/v1/messages")
+        self.assertEqual(calls[0]["json"]["model"], "dashscope/qwen3-coder-plus")
+        self.assertEqual(calls[0]["headers"]["Authorization"], "Bearer test-master")
+        self.assertNotIn("x-api-key", calls[0]["headers"])
+
     def test_stream_messages_accepts_bearer_and_preserves_sse(self) -> None:
         client, api_key = self._client_and_key()
         sse_lines = [

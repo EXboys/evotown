@@ -80,20 +80,10 @@ def build_anthropic_upstream_call(
     forwarded = _anthropic_forward_headers(request_headers or {})
     managed = gateway_models_store.get_by_model_name(effective_model)
     if managed:
-        api_base = managed.get("_api_base") or ""
-        if not api_base.startswith("http"):
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Upstream model '{effective_model}' has invalid api_base.",
-            )
+        # Claude Code sends Anthropic /messages payloads. Managed upstream
+        # api_base entries are OpenAI-compatible, so route through LiteLLM for
+        # Anthropic -> OpenAI translation and only reuse their model mapping.
         req["model"] = managed.get("_litellm_model") or effective_model
-        target = f"{api_base.rstrip('/')}/messages"
-        headers = {
-            "Content-Type": "application/json",
-            "x-api-key": str(managed.get("_api_key", "")),
-            **forwarded,
-        }
-        return target, headers, req
 
     litellm_base = litellm_anthropic_base_url()
     if not litellm_base:

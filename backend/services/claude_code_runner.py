@@ -331,7 +331,10 @@ def _command_template(*, explicit_only: bool = False) -> str:
 def _sdk_ready() -> bool:
     from services import claude_agent_sdk_runner
 
-    return bool(claude_agent_sdk_runner.sdk_available() and os.environ.get("ANTHROPIC_API_KEY", "").strip())
+    direct_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    gateway_key = os.environ.get("EVOTOWN_CLAUDE_GATEWAY_API_KEY", "").strip()
+    gateway_enabled = os.environ.get("EVOTOWN_CLAUDE_USE_GATEWAY", "").strip().lower() in {"1", "true", "yes", "on"}
+    return bool(claude_agent_sdk_runner.sdk_available() and (direct_key or (gateway_enabled and gateway_key)))
 
 
 def _execution_backend() -> str:
@@ -376,7 +379,8 @@ async def _run_agent(*, workspace_root: Path, prompt: str, run: dict[str, Any], 
         return exit_code, output, backend
     summary = (
         "Dry-run completed. Install claude-agent-sdk (pip install claude-agent-sdk) and set "
-        "ANTHROPIC_API_KEY, or configure EVOTOWN_CLAUDE_CODE_COMMAND for CLI execution. "
+        "ANTHROPIC_API_KEY, enable EVOTOWN_CLAUDE_USE_GATEWAY with EVOTOWN_CLAUDE_GATEWAY_API_KEY, "
+        "or configure EVOTOWN_CLAUDE_CODE_COMMAND for CLI execution. "
         "Workspace context files were written under .evotown/."
     )
     return 0, summary, "dry-run"

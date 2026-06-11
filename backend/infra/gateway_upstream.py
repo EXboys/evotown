@@ -14,6 +14,10 @@ def litellm_base_url() -> str:
     return os.environ.get("LITELLM_BASE_URL", "").rstrip("/")
 
 
+def litellm_anthropic_base_url() -> str:
+    return (os.environ.get("LITELLM_ANTHROPIC_BASE_URL", "").strip() or litellm_base_url()).rstrip("/")
+
+
 def litellm_auth_header() -> dict[str, str]:
     token = os.environ.get("LITELLM_MASTER_KEY", "").strip() or os.environ.get("LITELLM_API_KEY", "").strip()
     return {"Authorization": f"Bearer {token}"} if token else {}
@@ -60,3 +64,59 @@ def build_upstream_call(
     target = f"{litellm_base}/chat/completions"
     headers = {"Content-Type": "application/json", **litellm_auth_header()}
     return target, headers, req
+
+
+def build_anthropic_upstream_call(
+    body: dict[str, Any],
+    effective_model: str,
+    *,
+    request_headers: dict[str, str] | None = None,
+) -> tuple[str, dict[str, str], dict[str, Any]]:
+    """Return (url, headers, request_body) for one Anthropic /messages call."""
+    req = copy.deepcopy(body)
+    req["model"] = effective_model
+    req.pop("metadata", None)
+
+    forwarded = _anthropic_forward_headers(request_headers or {})
+    managed = gateway_models_store.get_by_model_name(effective_model)
+    if managed:
+        api_base = managed.get("_api_base") or ""
+        if not api_base.startswith("http"):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Upstream model '{effective_model}' has invalid api_base.",
+            )
+        req["model"] = managed.get("_litellm_model") or effective_model
+        target = f"{api_base.rstrip('/')}/messages"
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": str(managed.get("_api_key", "")),
+            **forwarded,
+        }
+        return target, headers, req
+
+    litellm_base = litellm_anthropic_base_url()
+    if not litellm_base:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                f"Model '{effective_model}' is not registered in Evotown and LITELLM_ANTHROPIC_BASE_URL is not configured. "
+                "Configure a LiteLLM Anthropic-compatible endpoint or add the model under Gateway → 上游模型."
+            ),
+        )
+    target = f"{litellm_base}/messages"
+    headers = {"Content-Type": "application/json", **litellm_auth_header(), **forwarded}
+    return target, headers, req
+
+
+def _anthropic_forward_headers(headers: dict[str, str]) -> dict[str, str]:
+    allowed = {
+        "anthropic-version",
+        "anthropic-beta",
+        "anthropic-dangerous-direct-browser-access",
+    }
+    return {
+        key: value
+        for key, value in headers.items()
+        if key.lower() in allowed and value
+    }

@@ -13,9 +13,9 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
-from core.auth import key_record_for_checks, require_admin, require_gateway_chat
+from core.auth import key_record_for_checks, require_admin, require_gateway_chat, require_gateway_chat_or_x_api_key
 from infra import accounts as accounts_store
 from infra import gateway
 from infra import gateway_models as gateway_models_store
@@ -25,6 +25,7 @@ from infra import gateway_upstream
 from infra.gateway_retry import RetryPolicy
 
 router = APIRouter(prefix="/api/gateway/v1", tags=["gateway"])
+anthropic_router = APIRouter(prefix="/api/gateway/anthropic/v1", tags=["gateway"])
 
 
 @dataclass
@@ -42,12 +43,16 @@ class GatewayChatContext:
 
 def _usage_from_response(data: dict[str, Any]) -> dict[str, int]:
     usage = data.get("usage") if isinstance(data, dict) else {}
+    if not isinstance(usage, dict) and isinstance(data.get("message"), dict):
+        usage = data["message"].get("usage")
     if not isinstance(usage, dict):
         usage = {}
+    prompt_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+    completion_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
     return {
-        "prompt_tokens": int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
-        "completion_tokens": int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
-        "total_tokens": int(usage.get("total_tokens") or 0),
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": int(usage.get("total_tokens") or (prompt_tokens + completion_tokens)),
     }
 
 
@@ -389,7 +394,12 @@ def _parse_sse_usage(line: str, usage: dict[str, int], cost: float) -> tuple[dic
         return usage, cost
     parsed_usage = _usage_from_response(payload)
     if parsed_usage.get("total_tokens"):
-        usage = parsed_usage
+        usage = {
+            "prompt_tokens": parsed_usage["prompt_tokens"] or usage.get("prompt_tokens", 0),
+            "completion_tokens": parsed_usage["completion_tokens"] or usage.get("completion_tokens", 0),
+            "total_tokens": 0,
+        }
+        usage["total_tokens"] = usage["prompt_tokens"] + usage["completion_tokens"]
     parsed_cost = _cost_from_response(payload)
     if parsed_cost:
         cost = parsed_cost
@@ -605,12 +615,210 @@ async def _stream_upstream_chat(
             _finalize_success_audit(identity, response, request_id=ctx.request_id)
 
 
+def _anthropic_error_payload(message: str, error_type: str = "gateway_upstream_error") -> dict[str, Any]:
+    return {"type": "error", "error": {"type": error_type, "message": message}}
+
+
+def _anthropic_error_event(message: str, error_type: str = "gateway_upstream_error") -> bytes:
+    payload = json.dumps(_anthropic_error_payload(message, error_type), ensure_ascii=False)
+    return f"event: error\ndata: {payload}\n\n".encode("utf-8")
+
+
+async def _stream_upstream_anthropic(
+    *,
+    ctx: GatewayChatContext,
+    identity: dict[str, Any],
+    x_evotown_agent_id: str | None,
+    x_evotown_team_id: str | None,
+    x_evotown_engine_id: str | None,
+    response: Response,
+    request_headers: dict[str, str],
+) -> AsyncIterator[bytes]:
+    started = time.perf_counter()
+    usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    cost = 0.0
+    status_code = 200
+    error = ""
+    attempts: list[gateway_retry.AttemptRecord] = []
+    audit = _audit_identity_fields(
+        identity,
+        x_evotown_agent_id=x_evotown_agent_id,
+        x_evotown_team_id=x_evotown_team_id,
+        x_evotown_engine_id=x_evotown_engine_id,
+    )
+    policy = ctx.policy
+    total_attempts = 0
+    deadline = time.perf_counter() + _gateway_timeout_sec()
+
+    def build_call(model_name: str) -> tuple[str, dict[str, str], dict[str, Any]]:
+        return gateway_upstream.build_anthropic_upstream_call(
+            ctx.body,
+            model_name,
+            request_headers=request_headers,
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=_gateway_timeout_sec()) as client:
+            for hop_index, model_name in enumerate(ctx.model_chain):
+                retries_on_hop = 0
+                while True:
+                    if total_attempts >= policy.max_total_attempts or time.perf_counter() >= deadline:
+                        status_code = 502
+                        error = "gateway retry budget exceeded"
+                        yield _anthropic_error_event(error)
+                        return
+
+                    total_attempts += 1
+                    target, headers, req_body = build_call(model_name)
+                    chunks_sent = False
+                    try:
+                        async with client.stream("POST", target, json=req_body, headers=headers) as upstream:
+                            status_code = upstream.status_code
+                            if upstream.status_code >= 400:
+                                err_body = await upstream.aread()
+                                error = err_body.decode("utf-8", errors="replace")
+                                attempts.append(
+                                    gateway_retry.AttemptRecord(
+                                        model=model_name,
+                                        attempt_index=total_attempts,
+                                        hop_index=hop_index,
+                                        action="upstream_error",
+                                        status_code=upstream.status_code,
+                                        detail=error[:200],
+                                    )
+                                )
+                                if gateway_retry.should_retry_same_model(
+                                    policy=policy,
+                                    status_code=upstream.status_code,
+                                    error_kind="",
+                                    retries_used=retries_on_hop,
+                                ):
+                                    delay_ms = gateway_retry.backoff_ms(policy, retries_on_hop, upstream)
+                                    retries_on_hop += 1
+                                    await asyncio.sleep(delay_ms / 1000.0)
+                                    continue
+                                if gateway_retry.should_fallback(
+                                    policy=policy,
+                                    status_code=upstream.status_code,
+                                    error_kind="",
+                                    hop_index=hop_index,
+                                    chain_len=len(ctx.model_chain),
+                                ):
+                                    attempts.append(
+                                        gateway_retry.AttemptRecord(
+                                            model=model_name,
+                                            attempt_index=total_attempts,
+                                            hop_index=hop_index,
+                                            action="fallback",
+                                            status_code=upstream.status_code,
+                                        )
+                                    )
+                                    break
+                                yield _anthropic_error_event(error[:1000] or "upstream error")
+                                return
+
+                            attempts.append(
+                                gateway_retry.AttemptRecord(
+                                    model=model_name,
+                                    attempt_index=total_attempts,
+                                    hop_index=hop_index,
+                                    action="stream_start",
+                                    status_code=200,
+                                )
+                            )
+                            async for line in upstream.aiter_lines():
+                                if line:
+                                    chunks_sent = chunks_sent or line.startswith("data:")
+                                    usage, cost = _parse_sse_usage(line, usage, cost)
+                                    yield (line + "\n").encode("utf-8")
+                                else:
+                                    yield b"\n"
+                            attempts.append(
+                                gateway_retry.AttemptRecord(
+                                    model=model_name,
+                                    attempt_index=total_attempts,
+                                    hop_index=hop_index,
+                                    action="success",
+                                    status_code=200,
+                                )
+                            )
+                            return
+                    except httpx.HTTPError as exc:
+                        kind = gateway_retry.error_kind(exc)
+                        error = str(exc)
+                        attempts.append(
+                            gateway_retry.AttemptRecord(
+                                model=model_name,
+                                attempt_index=total_attempts,
+                                hop_index=hop_index,
+                                action="error",
+                                error_kind=kind,
+                                detail=error,
+                            )
+                        )
+                        if chunks_sent:
+                            status_code = 502
+                            yield _anthropic_error_event(error)
+                            return
+                        if gateway_retry.should_retry_same_model(
+                            policy=policy,
+                            status_code=None,
+                            error_kind=kind,
+                            retries_used=retries_on_hop,
+                        ):
+                            delay_ms = gateway_retry.backoff_ms(policy, retries_on_hop, None)
+                            retries_on_hop += 1
+                            await asyncio.sleep(delay_ms / 1000.0)
+                            continue
+                        if gateway_retry.should_fallback(
+                            policy=policy,
+                            status_code=None,
+                            error_kind=kind,
+                            hop_index=hop_index,
+                            chain_len=len(ctx.model_chain),
+                        ):
+                            break
+                        status_code = 502
+                        yield _anthropic_error_event(error)
+                        return
+
+            status_code = 502
+            error = error or "all models in chain failed"
+            yield _anthropic_error_event(error)
+    finally:
+        _record_attempts_metadata(ctx.body, attempts)
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        _success_models = [a.model for a in attempts if a.action == "success"]
+        _stream_final_model = _success_models[-1] if _success_models else ""
+        _record_gateway_request(
+            {
+                "request_id": ctx.request_id,
+                "conversation_id": ctx.conversation_id,
+                **audit,
+                "model": _stream_final_model or ctx.client_model,
+                "model_alias": ctx.client_model if ctx.via_alias else "",
+                "status_code": status_code,
+                **usage,
+                "cost_usd": cost,
+                "latency_ms": latency_ms,
+                "risk_status": "allowed" if status_code < 400 else "upstream_error",
+                "request_excerpt": _first_message_excerpt(ctx.body),
+                "response_excerpt": {"stream": True, **usage, "attempts": [a.to_dict() for a in attempts]},
+                "error": error,
+                "user_message": ctx.user_message,
+            }
+        )
+        if status_code < 400:
+            _finalize_success_audit(identity, response, request_id=ctx.request_id)
+
+
 @router.get("/health")
 async def gateway_health():
     return {
         "status": "ok",
         "litellm_configured": bool(gateway_upstream.litellm_base_url()),
         "litellm_base_url": gateway_upstream.litellm_base_url() or None,
+        "litellm_anthropic_base_url": gateway_upstream.litellm_anthropic_base_url() or None,
         "managed_upstream_models": len(gateway_models_store.list_models(enabled_only=True)),
     }
 
@@ -739,6 +947,147 @@ async def chat_completions(
         return data
 
     raise HTTPException(status_code=upstream_result.status_code, detail=data)
+
+
+@anthropic_router.post("/messages")
+async def anthropic_messages(
+    request: Request,
+    response: Response,
+    identity: dict[str, Any] = Depends(require_gateway_chat_or_x_api_key),
+    x_evotown_agent_id: str | None = Header(default=None),
+    x_evotown_team_id: str | None = Header(default=None),
+    x_evotown_engine_id: str | None = Header(default=None),
+    x_evotown_conversation_id: str | None = Header(default=None),
+):
+    body = await request.json()
+    if not isinstance(body, dict):
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content=_anthropic_error_payload("JSON object body required.", "invalid_request_error"),
+        )
+
+    ctx = _prepare_chat_context(
+        body,
+        identity=identity,
+        x_evotown_agent_id=x_evotown_agent_id,
+        x_evotown_team_id=x_evotown_team_id,
+        x_evotown_engine_id=x_evotown_engine_id,
+        x_evotown_conversation_id=x_evotown_conversation_id,
+    )
+    request_headers = {k: v for k, v in request.headers.items()}
+
+    if body.get("stream") is True:
+        return StreamingResponse(
+            _stream_upstream_anthropic(
+                ctx=ctx,
+                identity=identity,
+                x_evotown_agent_id=x_evotown_agent_id,
+                x_evotown_team_id=x_evotown_team_id,
+                x_evotown_engine_id=x_evotown_engine_id,
+                response=response,
+                request_headers=request_headers,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Evotown-Request-Id": ctx.request_id,
+                "X-Evotown-Conversation-Id": ctx.conversation_id,
+            },
+        )
+
+    started = time.perf_counter()
+    audit = _audit_identity_fields(
+        identity,
+        x_evotown_agent_id=x_evotown_agent_id,
+        x_evotown_team_id=x_evotown_team_id,
+        x_evotown_engine_id=x_evotown_engine_id,
+    )
+
+    build_call: Callable[[str], tuple[str, dict[str, str], dict[str, Any]]] = (
+        lambda model_name: gateway_upstream.build_anthropic_upstream_call(
+            ctx.body,
+            model_name,
+            request_headers=request_headers,
+        )
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=_gateway_timeout_sec()) as client:
+            upstream_result = await gateway_retry.post_chat_with_resilience(
+                client=client,
+                build_call=build_call,
+                model_chain=ctx.model_chain,
+                policy=ctx.policy,
+                timeout_sec=_gateway_timeout_sec(),
+            )
+    except HTTPException:
+        raise
+    except httpx.HTTPError as exc:
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        _record_gateway_request(
+            {
+                "request_id": ctx.request_id,
+                "conversation_id": ctx.conversation_id,
+                **audit,
+                "model": "",
+                "model_alias": ctx.client_model if ctx.via_alias else "",
+                "status_code": 502,
+                "latency_ms": latency_ms,
+                "request_excerpt": _first_message_excerpt(ctx.body),
+                "error": str(exc),
+                "user_message": ctx.user_message,
+            }
+        )
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content=_anthropic_error_payload(f"Upstream error: {exc}"),
+        )
+
+    _record_attempts_metadata(ctx.body, upstream_result.attempts)
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    data = upstream_result.data if upstream_result.data is not None else _anthropic_error_payload(upstream_result.error)
+    usage = _usage_from_response(data if isinstance(data, dict) else {})
+
+    _record_gateway_request(
+        {
+            "request_id": ctx.request_id,
+            "conversation_id": ctx.conversation_id,
+            **audit,
+            "model": upstream_result.final_model or ctx.client_model,
+            "model_alias": ctx.client_model if ctx.via_alias else "",
+            "status_code": upstream_result.status_code,
+            **usage,
+            "cost_usd": _cost_from_response(data if isinstance(data, dict) else {}),
+            "latency_ms": latency_ms,
+            "risk_status": "allowed" if upstream_result.success else "upstream_error",
+            "request_excerpt": _first_message_excerpt(ctx.body),
+            "response_excerpt": {
+                **(data if isinstance(data, dict) else {"raw": data}),
+                "evotown_final_model": upstream_result.final_model,
+                "evotown_attempts": [a.to_dict() for a in upstream_result.attempts],
+            },
+            "error": "" if upstream_result.success else str(upstream_result.error or data),
+            "user_message": ctx.user_message,
+        }
+    )
+
+    headers = {
+        "X-Evotown-Request-Id": ctx.request_id,
+        "X-Evotown-Conversation-Id": ctx.conversation_id,
+        "X-Evotown-Upstream-Attempts": str(len(upstream_result.attempts)),
+    }
+    if upstream_result.final_model:
+        headers["X-Evotown-Final-Model"] = upstream_result.final_model
+
+    if upstream_result.success:
+        _finalize_success_audit(identity, response, request_id=ctx.request_id)
+        return JSONResponse(status_code=upstream_result.status_code, content=data, headers=headers)
+
+    return JSONResponse(
+        status_code=upstream_result.status_code,
+        content=data if isinstance(data, dict) and data.get("type") == "error" else _anthropic_error_payload(str(data)),
+        headers=headers,
+    )
 
 
 @router.get("/usage/summary", dependencies=[Depends(require_admin)])

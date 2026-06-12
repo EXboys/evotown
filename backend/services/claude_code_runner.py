@@ -165,6 +165,76 @@ def _materialize_skills(workspace: dict[str, Any], skill_ids: list[str]) -> list
     return paths
 
 
+def _get_conversation_history(previous_run_id: str, *, max_rounds: int = 20) -> list[dict[str, Any]]:
+    """Walk the previous_run_id chain backwards to collect full conversation history."""
+    history: list[dict[str, Any]] = []
+    current_id = previous_run_id.strip()
+    seen: set[str] = set()
+    while current_id and len(history) < max_rounds:
+        if current_id in seen:
+            break
+        seen.add(current_id)
+        prev = claude_agent_runs.get_run(current_id)
+        if prev is None or prev.get("status") != "succeeded":
+            break
+        history.append(prev)
+        signals = prev.get("signals") or {}
+        current_id = str(signals.get("previous_run_id") or "").strip()
+    history.reverse()
+    return history
+
+
+def _build_conversation_prompt(current_prompt: str, history: list[dict[str, Any]]) -> str:
+    """Build a prompt that includes full conversation history."""
+    if not history:
+        return current_prompt
+    lines = ["[以下是之前的对话历史，请基于此上下文回复用户的新消息]"]
+    for i, h in enumerate(history, 1):
+        lines.append(f"第{i}轮:")
+        lines.append(f"  用户: {h.get('prompt', '')}")
+        result = str(h.get("result_summary") or h.get("log_excerpt") or "")
+        lines.append(f"  助手: {result}")
+    lines.append(f"---")
+    lines.append(f"用户的新消息: {current_prompt}")
+    return "\n".join(lines)
+
+
+def _write_conversation_context(
+    workspace: dict[str, Any],
+    previous_run_id: str,
+) -> dict[str, Any] | None:
+    """Fetch previous run's prompt+result and write conversation context to workspace."""
+    if not previous_run_id.strip():
+        return None
+    prev = claude_agent_runs.get_run(previous_run_id.strip())
+    if prev is None:
+        return None
+    prev_prompt = str(prev.get("prompt") or "")
+    prev_result = str(prev.get("result_summary") or prev.get("log_excerpt") or "")
+    if not prev_prompt and not prev_result:
+        return None
+
+    lines = [
+        "# Conversation Continuation",
+        "",
+        "You are continuing a conversation. Use the context below to maintain continuity.",
+        "",
+        f"## Previous message (run `{prev['run_id']}`)",
+        "",
+        prev_prompt,
+    ]
+    if prev_result.strip():
+        lines.extend(["", "## Your previous response", "", prev_result])
+    content = "\n".join(lines)
+
+    root = workspaces.resolve_workspace_path(workspace)
+    evotown_dir = root / ".evotown"
+    evotown_dir.mkdir(parents=True, exist_ok=True)
+    path = evotown_dir / "conversation_context.md"
+    path.write_text(content, encoding="utf-8")
+    return prev
+
+
 def _render_agent_context_md(
     *,
     workspace: dict[str, Any],
@@ -208,6 +278,24 @@ def _render_agent_context_md(
             "Citations and search hits: `.evotown/knowledge_context.json`",
             "Tool endpoint: `/api/v1/knowledge/search?q=<query>`",
             "",
+        ]
+    )
+    conversation_hint = (
+        "This is a **continuation** of a previous conversation. "
+        "Read `.evotown/conversation_context.md` for the prior exchange."
+    )
+    prev_run_id = str((run.get("signals") or {}).get("previous_run_id") or "").strip()
+    if prev_run_id:
+        lines.extend(
+            [
+                "## Conversation History",
+                "",
+                conversation_hint,
+                "",
+            ]
+        )
+    lines.extend(
+        [
             "## MCP / Databases",
             "",
             f"- Selection: `{mcp_block.get('selection_mode', 'none')}`",
@@ -316,6 +404,17 @@ def _default_claude_command() -> str:
             '--allowedTools "Read,Edit,Bash,Glob,Grep,Write" '
             "--append-system-prompt-file .evotown/AGENT_CONTEXT.md"
         )
+    # Fallback: use bundled Claude CLI from the SDK package
+    bundled = Path("/usr/local/lib/python3.11/site-packages/claude_agent_sdk/_bundled/claude")
+    if bundled.is_file():
+        return (
+            f"{shlex.quote(str(bundled))} -p {{prompt}} --model {{model}} "
+            '--permission-mode acceptEdits '
+            '--allowedTools "Read,Edit,Bash,Glob,Grep,Write" '
+            "--max-turns 25 "
+            "--output-format stream-json --verbose --bare "
+            "--append-system-prompt-file .evotown/AGENT_CONTEXT.md"
+        )
     return ""
 
 
@@ -386,6 +485,56 @@ async def _run_agent(*, workspace_root: Path, prompt: str, run: dict[str, Any], 
     return 0, summary, "dry-run"
 
 
+def _parse_cli_output(raw_output: str) -> tuple[str, str]:
+    """Parse stream-json CLI output into human-readable text.
+
+    Returns (text_output, result_summary) where text_output is the
+    full extracted text and result_summary is the final answer.
+    """
+    lines = raw_output.splitlines()
+    assistant_texts: list[str] = []
+    result_text = ""
+    exit_code_text = ""
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            # Non-JSON line — keep as-is
+            assistant_texts.append(line)
+            continue
+
+        obj_type = obj.get("type", "")
+        if obj_type == "assistant":
+            message = obj.get("message", {})
+            for block in message.get("content", []):
+                text = block.get("text", "")
+                if text:
+                    assistant_texts.append(text)
+        elif obj_type == "result":
+            result_text = obj.get("result", "") or ""
+            if obj.get("is_error") and not result_text:
+                result_text = obj.get("subtype", "error")
+            exit_code_text = result_text
+        elif obj_type == "system":
+            subtype = obj.get("subtype", "")
+            if subtype == "init":
+                assistant_texts.append(f"[Claude Agent started — model: {obj.get('model','?')}]")
+        elif obj_type == "user":
+            # tool_result content — skip for display
+            pass
+
+    if not assistant_texts:
+        return result_text or exit_code_text or "[no output]", result_text or exit_code_text or ""
+
+    full_text = "\n\n".join(assistant_texts)
+    summary = result_text or assistant_texts[-1]
+    return full_text, summary
+
+
 async def _run_configured_command(*, workspace_root: Path, prompt: str, run: dict[str, Any], model: str) -> tuple[int, str]:
     template = _command_template()
     if not template:
@@ -405,6 +554,10 @@ async def _run_configured_command(*, workspace_root: Path, prompt: str, run: dic
         stderr=asyncio.subprocess.STDOUT,
         env={
             **os.environ,
+            "NODE_TLS_REJECT_UNAUTHORIZED": "0",
+            "CLAUDE_CODE_SIMPLE": "1",
+            "ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+            "ANTHROPIC_API_KEY": os.environ.get("EVOTOWN_CLAUDE_GATEWAY_API_KEY", "").strip() or os.environ.get("ANTHROPIC_API_KEY", "").strip(),
             "EVOTOWN_AGENT_RUN_ID": run["run_id"],
             "EVOTOWN_AGENT_PROMPT": run.get("prompt", ""),
             "EVOTOWN_WORKSPACE_ROOT": str(workspace_root),
@@ -416,8 +569,9 @@ async def _run_configured_command(*, workspace_root: Path, prompt: str, run: dic
         },
     )
     stdout, _ = await proc.communicate()
-    output = stdout.decode("utf-8", errors="replace") if stdout else ""
-    return int(proc.returncode or 0), output[-65536:]
+    raw_output = stdout.decode("utf-8", errors="replace") if stdout else ""
+    clean_output, _ = _parse_cli_output(raw_output)
+    return int(proc.returncode or 0), clean_output[-65536:]
 
 
 async def run_claude_agent(run_id: str) -> dict[str, Any]:
@@ -436,6 +590,10 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
     signals = run.get("signals") or {}
     selected_skills = list(signals.get("selected_skills") or [])
     selected_mcp = list(signals.get("selected_mcp") or [])
+    previous_run_id = str(signals.get("previous_run_id") or "").strip()
+    _write_conversation_context(workspace, previous_run_id)
+    history = _get_conversation_history(previous_run_id)
+    prompt = _build_conversation_prompt(run["prompt"], history)
     identity = _runner_identity(run)
     shared_context = build_shared_context(
         prompt=run["prompt"],
@@ -466,7 +624,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
     try:
         exit_code, output, execution_backend = await _run_agent(
             workspace_root=root,
-            prompt=run["prompt"],
+            prompt=prompt,
             run=run,
             model=model,
         )

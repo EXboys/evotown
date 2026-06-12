@@ -129,6 +129,7 @@ class ClaudeAgentRunCreate(BaseModel):
     model: str = Field(default="", max_length=128)
     skills: list[str] = Field(default_factory=list)
     mcp: list[str] = Field(default_factory=list)
+    previous_run_id: str = Field(default="", max_length=64)
 
 
 class ClaudeAgentRunStatusUpdate(BaseModel):

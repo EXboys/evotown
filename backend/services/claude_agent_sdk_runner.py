@@ -67,7 +67,11 @@ def gateway_sdk_env() -> dict[str, str]:
         return {}
     base_url = os.environ.get("EVOTOWN_CLAUDE_GATEWAY_BASE_URL", "").strip().rstrip("/")
     api_key = os.environ.get("EVOTOWN_CLAUDE_GATEWAY_API_KEY", "").strip()
-    env: dict[str, str] = {"CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST": "1"}
+    env: dict[str, str] = {
+        "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST": "1",
+        "NODE_TLS_REJECT_UNAUTHORIZED": "0",
+        "CLAUDE_CODE_SIMPLE": "1",
+    }
     if base_url:
         env["ANTHROPIC_BASE_URL"] = base_url
     if api_key:
@@ -99,6 +103,7 @@ async def run_agent_sdk(
             "EVOTOWN_WORKSPACE_ROOT": str(workspace_root),
             "EVOTOWN_CLAUDE_MODEL": model,
         },
+        "extra_args": {"bare": None},
     }
     system_prompt = _system_prompt(workspace_root)
     if system_prompt is not None:

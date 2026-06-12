@@ -273,6 +273,7 @@ async def create_agent_run(workspace_id: str, body: ClaudeAgentRunCreate, identi
             "workspace_name": workspace.get("name", ""),
             "selected_skills": list(body.skills or []),
             "selected_mcp": list(body.mcp or []),
+            "previous_run_id": body.previous_run_id,
         },
     )
     claude_code_runner.schedule_run(run["run_id"])

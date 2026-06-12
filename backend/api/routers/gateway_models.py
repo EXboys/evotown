@@ -50,6 +50,8 @@ async def create_upstream_model(body: GatewayUpstreamModelCreate):
         model_name=body.model_name,
         api_base=body.api_base,
         api_key=body.api_key,
+        anthropic_api_base=body.anthropic_api_base,
+        protocol=body.protocol,
         litellm_model=body.litellm_model,
         provider_label=body.provider_label,
         description=body.description,

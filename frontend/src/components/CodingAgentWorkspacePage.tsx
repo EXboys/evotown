@@ -246,6 +246,19 @@ export function CodingAgentWorkspacePage() {
     setEditingTitle(null);
   };
 
+  const SESSION_TITLES_KEY = `evotown-session-titles-${workspaceId}`;
+  const [sessionTitles, setSessionTitles] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem(SESSION_TITLES_KEY) || "{}"); } catch { return {}; }
+  });
+  const [editingTitle, setEditingTitle] = useState<{ id: string; value: string } | null>(null);
+
+  const saveSessionTitle = (sessionId: string, title: string) => {
+    const next = { ...sessionTitles, [sessionId]: title.trim() || "" };
+    setSessionTitles(next);
+    localStorage.setItem(SESSION_TITLES_KEY, JSON.stringify(next));
+    setEditingTitle(null);
+  };
+
   const openFile = async (path: string) => {
     if (!workspaceId) return;
     setFileLoading(path);
@@ -829,13 +842,11 @@ export function CodingAgentWorkspacePage() {
                               )}
                             </div>
                           )}
-                          {/* Expanded: 执行日志 */}
                           {isLast && run.log_excerpt && logExpanded ? (
                             <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">
                               {run.log_excerpt}
                             </pre>
                           ) : null}
-                          {/* Expanded: 事件时间线 */}
                           {isLast && eventsExpanded && events.length ? (
                             <div className="mt-2 space-y-1">
                               {events.map((event) => {
@@ -851,7 +862,6 @@ export function CodingAgentWorkspacePage() {
                               })}
                             </div>
                           ) : null}
-                          {/* Expanded: 文件下载列表 (only non-media, non-html regular files) */}
                           {isLast && filesExpanded && (
                             <div className="mt-2 space-y-1">
                               {(run.artifact_manifest || [])

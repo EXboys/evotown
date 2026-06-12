@@ -254,7 +254,11 @@ def is_workspace_member(workspace_id: str, account_id: str) -> bool:
 def can_access_workspace(workspace: dict[str, Any] | None, identity: dict[str, Any]) -> bool:
     if workspace is None:
         return False
-    if "*" in (identity.get("scopes") or []):
+    scopes = identity.get("scopes") or []
+    if "*" in scopes:
+        return True
+    admin_scopes = {"console.write", "workspace.write", "workspace.read"}
+    if any(s in scopes for s in admin_scopes):
         return True
     account_id = str(identity.get("account_id") or "")
     return bool(account_id and workspace.get("owner_account_id") == account_id)
@@ -268,7 +272,8 @@ def can_run_workspace(workspace: dict[str, Any] | None, identity: dict[str, Any]
 
 
 def resolve_workspace_path(workspace: dict[str, Any], relative_path: str = ".") -> Path:
-    root = Path(str(workspace["root_path"])).resolve()
+    base = workspace_base_dir()
+    root = (base / str(workspace["root_path"])).resolve()
     target = (root / relative_path).resolve()
     try:
         target.relative_to(root)

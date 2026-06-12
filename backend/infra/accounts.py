@@ -124,6 +124,9 @@ def _migrate_accounts_schema(conn: sqlite3.Connection) -> None:
     if "burst_rpm_limit" not in key_cols:
         conn.execute("ALTER TABLE gateway_api_keys ADD COLUMN burst_rpm_limit INTEGER NOT NULL DEFAULT 0")
 
+    if "account_type" not in acct_cols:
+        conn.execute("ALTER TABLE gateway_accounts ADD COLUMN account_type TEXT NOT NULL DEFAULT 'employee'")
+
 
 def _seed_gateway_orgs(conn: sqlite3.Connection) -> None:
     row = conn.execute("SELECT 1 FROM gateway_orgs WHERE org_id=?", (ROOT_ORG_ID,)).fetchone()
@@ -161,16 +164,17 @@ def create_account(
     team_id: str = "",
     owner_email: str = "",
     notes: str = "",
+    account_type: str = "employee",
 ) -> dict[str, Any]:
     conn = _ensure_conn()
     account_id = f"acc_{uuid.uuid4().hex[:12]}"
     resolved_org_id = (org_id or team_id).strip()
     conn.execute(
         """
-        INSERT INTO gateway_accounts (account_id, name, org_id, owner_email, notes)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO gateway_accounts (account_id, name, org_id, owner_email, notes, account_type)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (account_id, name.strip(), resolved_org_id, owner_email.strip(), notes.strip()),
+        (account_id, name.strip(), resolved_org_id, owner_email.strip(), notes.strip(), account_type.strip() or "employee"),
     )
     row = conn.execute("SELECT * FROM gateway_accounts WHERE account_id=?", (account_id,)).fetchone()
     return _account_from_row(row)
@@ -209,7 +213,7 @@ def get_account(account_id: str) -> dict[str, Any] | None:
 
 
 def update_account(account_id: str, **fields: Any) -> dict[str, Any] | None:
-    allowed = {"name", "org_id", "owner_email", "status", "notes"}
+    allowed = {"name", "org_id", "owner_email", "status", "notes", "account_type"}
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if not updates:
         return get_account(account_id)

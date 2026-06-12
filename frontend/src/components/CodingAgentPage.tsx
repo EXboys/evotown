@@ -134,6 +134,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
   const [message, setMessage] = useState("");
   const [creating, setCreating] = useState(false);
   const [workspaceName, setWorkspaceName] = useState("Personal Sandbox");
+  const [workspaceOwner, setWorkspaceOwner] = useState("");
   const [showArchived, setShowArchived] = useState(false);
 
   const [viewer, setViewer] = useState<Viewer>({ is_admin: Boolean(getAdminToken()), account_id: "" });
@@ -164,7 +165,13 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
   const load = async () => {
     setMessage("");
     try {
-      const url = showArchived ? "/api/v1/workspaces?status_filter=" : "/api/v1/workspaces";
+      const base = "/api/v1/workspaces";
+      const params = new URLSearchParams();
+      if (showArchived) params.set("status_filter", "");
+      // Always request include_all — backend filters by account for non-admins
+      params.set("include_all", "true");
+      const qs = params.toString();
+      const url = `${base}?${qs}`;
       const wsData = await adminFetch(url).then((res) =>
         readJson<{ workspaces?: Workspace[]; viewer?: Viewer }>(res),
       );
@@ -212,7 +219,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
     try {
       const data = await adminFetch("/api/v1/workspaces", {
         method: "POST",
-        body: JSON.stringify({ name: workspaceName }),
+        body: JSON.stringify({ name: workspaceName, ...(workspaceOwner ? { owner_account_id: workspaceOwner } : {}) }),
       }).then((res) => readJson<{ workspace: Workspace }>(res));
       window.location.assign(`/coding-agent/workspaces/${encodeURIComponent(data.workspace.workspace_id)}`);
     } catch (err) {
@@ -300,10 +307,10 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
             </button>
             <button
               type="button"
-              onClick={() => setCreating(true)}
+              onClick={() => { setWorkspaceOwner(""); setCreating(true); }}
               className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow-sm hover:bg-indigo-50"
             >
-              ＋ {copy.newWorkspace}
+              ＋ 新建助理
             </button>
           </div>
         </div>
@@ -430,7 +437,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
             onClick={() => setCreating(true)}
             className="mt-5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
           >
-            ＋ {copy.newWorkspace}
+            ＋ 新建助理
           </button>
         </div>
       )}
@@ -447,7 +454,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
             className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="text-lg font-semibold text-slate-900">{copy.newWorkspace}</div>
+            <div className="text-lg font-semibold text-slate-900">新建助理</div>
             <p className="mt-1 text-sm text-slate-500">{copy.subtitle}</p>
             <label className="mt-5 block text-sm font-medium text-slate-700">{copy.workspaceName}</label>
             <input
@@ -459,6 +466,33 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
               }}
               className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
+            {isAdmin && (
+              <label className="mt-4 block text-sm font-medium text-slate-700">
+                绑定账号
+                {accounts.length ? (
+                  <select
+                    value={workspaceOwner}
+                    onChange={(e) => setWorkspaceOwner(e.target.value)}
+                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  >
+                    <option value="">选择账号…</option>
+                    {accounts.map((account) => (
+                      <option key={account.account_id} value={account.account_id}>
+                        {account.name ? `${account.name} · ${account.account_id}` : account.account_id}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={workspaceOwner}
+                    onChange={(e) => setWorkspaceOwner(e.target.value)}
+                    placeholder="account_id"
+                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  />
+                )}
+                <p className="mt-1 text-xs text-slate-400">把这个助理绑定给指定账号（不选则绑定自己）</p>
+              </label>
+            )}
             <div className="mt-6 flex justify-end gap-2">
               <button
                 type="button"

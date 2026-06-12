@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import ReactMarkdown from "react-markdown";
 
 import { adminFetch, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import { formatDateTimeShort, formatDateTimeFull } from "../lib/datetime";
@@ -221,12 +222,16 @@ export function CodingAgentWorkspacePage() {
   useEffect(() => {
     setLogExpanded(false);
     setEventsExpanded(false);
+    setFilesExpanded(false);
   }, [selectedRunId]);
 
   const [fileViewer, setFileViewer] = useState<{ path: string; content: string; size: number; truncated: boolean } | null>(null);
   const [logExpanded, setLogExpanded] = useState(false);
   const [eventsExpanded, setEventsExpanded] = useState(false);
+  const [filesExpanded, setFilesExpanded] = useState(false);
   const [fileLoading, setFileLoading] = useState("");
+  const [htmlContents, setHtmlContents] = useState<Record<string, string>>({});
+  const [mediaBlobUrls, setMediaBlobUrls] = useState<Record<string, string>>({});
 
   const SESSION_TITLES_KEY = `evotown-session-titles-${workspaceId}`;
   const [sessionTitles, setSessionTitles] = useState<Record<string, string>>(() => {
@@ -414,6 +419,49 @@ export function CodingAgentWorkspacePage() {
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
   }, [events.length, selectedRunId, runs.length]);
+
+  // Fetch media assets via XHR (with auth) so <img>/<video>/<iframe> can render
+  useEffect(() => {
+    if (!workspaceId || !runChain.length) return;
+    let cancelled = false;
+    const fetchMedia = async () => {
+      for (const run of runChain) {
+        const artifacts = run.artifact_manifest || [];
+        for (const a of artifacts) {
+          if (a.path.startsWith(".evotown/")) continue;
+          const isHtml = /\.html?$/i.test(a.path);
+          const isMedia = /\.(png|jpg|jpeg|gif|webp|svg|mp4|webm)$/i.test(a.path);
+          if (!isHtml && !isMedia) continue;
+          try {
+            const serveUrl = `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/serve/${encodeURIComponent(a.path)}`;
+            const res = await adminFetch(serveUrl);
+            if (cancelled) return;
+            if (isHtml) {
+              const text = res.ok ? await res.text() : `<p>Error loading: ${res.status}</p>`;
+              setHtmlContents((prev) => {
+                if (prev[a.path] !== undefined) return prev;
+                return { ...prev, [a.path]: text };
+              });
+            } else if (isMedia && res.ok) {
+              const blob = await res.blob();
+              const blobUrl = URL.createObjectURL(blob);
+              setMediaBlobUrls((prev) => {
+                if (prev[a.path] !== undefined) return prev;
+                return { ...prev, [a.path]: blobUrl };
+              });
+            }
+          } catch {
+            if (!cancelled && isHtml) {
+              setHtmlContents((prev) => ({ ...prev, [a.path]: "<p>Failed to load HTML content</p>" }));
+            }
+          }
+        }
+      }
+    };
+    void fetchMedia();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId, runChain.map((r) => r.artifact_manifest?.map((a) => a.path).join(",")).join("|")]);
 
   const toggleSkill = (id: string) =>
     setSelectedSkills((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
@@ -639,16 +687,115 @@ export function CodingAgentWorkspacePage() {
                             </Badge>
                           </div>
                           {runRunning && !run.result_summary && !run.error ? (
-                            <div className="flex items-center gap-2 text-slate-500">
-                              <TypingDots />
-                              <span>Agent 正在这个私有 workspace 中执行…</span>
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2 text-slate-500">
+                                <TypingDots />
+                                <span>Agent 正在执行…</span>
+                                {run.created_at && (
+                                  <span className="text-xs text-slate-400">
+                                    {(() => {
+                                      const start = new Date(run.created_at).getTime();
+                                      const now = Date.now();
+                                      const sec = Math.floor((now - start) / 1000);
+                                      if (sec < 60) return `(${sec}秒)`;
+                                      return `(${Math.floor(sec/60)}分${sec%60}秒)`;
+                                    })()}
+                                  </span>
+                                )}
+                              </div>
+                              {events.length > 0 && (
+                                <div className="space-y-0.5">
+                                  {events.slice(-3).map((event) => {
+                                    const info = describeEvent(event);
+                                    return (
+                                      <div key={`${event.id}-${event.seq}`} className="flex items-center gap-1.5 text-xs text-slate-400">
+                                        <span>{info.icon}</span>
+                                        <span className={event.event_type === "context.ready" ? "text-emerald-600" : ""}>
+                                          {info.title}
+                                        </span>
+                                        {info.detail ? <span className="text-slate-300">· {info.detail}</span> : null}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
                           ) : (
-                            <p className="whitespace-pre-wrap">
-                              {run.result_summary || run.error || "执行完成。"}
-                            </p>
+                            <div className="prose prose-sm max-w-none prose-slate">
+                              <ReactMarkdown>
+                                {run.result_summary || run.error || "执行完成。"}
+                              </ReactMarkdown>
+                            </div>
                           )}
-                          {isLast && (run.log_excerpt || events.length > 0) && (
+                          {/* Image/Video previews — always visible inline */}
+                          {isLast && (run.artifact_manifest || [])
+                            .filter(a => !a.path.startsWith(".evotown/") && /\.(png|jpg|jpeg|gif|webp|svg|mp4|webm)$/i.test(a.path))
+                            .length > 0 && (
+                            <div className="mt-3 space-y-2">
+                              {(run.artifact_manifest || [])
+                                .filter(a => !a.path.startsWith(".evotown/") && /\.(png|jpg|jpeg|gif|webp|svg|mp4|webm)$/i.test(a.path))
+                                .map((a) => {
+                                  const ext = a.path.split(".").pop()?.toLowerCase() || "";
+                                  const isVideo = ext === "mp4" || ext === "webm";
+                                  const blobUrl = mediaBlobUrls[a.path];
+                                  if (isVideo) {
+                                    return (
+                                      <video key={a.path} controls className="max-h-80 max-w-full rounded-lg">
+                                        {blobUrl ? <source src={blobUrl} type={`video/${ext}`} /> : null}
+                                      </video>
+                                    );
+                                  }
+                                  return blobUrl ? (
+                                    <img key={a.path} src={blobUrl} alt={a.path} className="max-h-80 max-w-full rounded-lg" />
+                                  ) : null;
+                                })}
+                            </div>
+                          )}
+                          {/* Web preview (HTML files) — always visible inline */}
+                          {isLast && (run.artifact_manifest || [])
+                            .filter(a => !a.path.startsWith(".evotown/") && /\.html?$/i.test(a.path))
+                            .length > 0 && (
+                            <div className="mt-3 space-y-3">
+                              {(run.artifact_manifest || [])
+                                .filter(a => !a.path.startsWith(".evotown/") && /\.html?$/i.test(a.path))
+                                .map((a) => {
+                                  const serveUrl = `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/serve/${encodeURIComponent(a.path)}`;
+                                  return (
+                                    <div key={a.path} className="rounded-lg border border-slate-200 overflow-hidden">
+                                      <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
+                                        <span className="text-xs font-medium text-slate-600">
+                                          📄 {a.path.split("/").pop() || a.path}
+                                        </span>
+                                        <a
+                                          href={serveUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="text-xs text-indigo-600 hover:text-indigo-800"
+                                        >
+                                          在新窗口打开 ↗
+                                        </a>
+                                      </div>
+                                      <div className="w-full" style={{ height: "70vh", maxHeight: "600px" }}>
+                                        {htmlContents[a.path] ? (
+                                          <iframe
+                                            srcDoc={htmlContents[a.path]}
+                                            className="w-full h-full border-0"
+                                            title={a.path}
+                                            sandbox="allow-scripts allow-same-origin"
+                                          />
+                                        ) : (
+                                          <div className="flex items-center justify-center h-full text-sm text-slate-400">
+                                            Loading preview...
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          )}
+                          {/* Toggle buttons */}
+                          {isLast && (run.log_excerpt || events.length > 0 || (run.artifact_manifest?.filter(a => !a.path.startsWith(".evotown/")).length ?? 0) > 0) && (
                             <div className="mt-3 flex items-center gap-4 border-t border-slate-100 pt-3">
                               {run.log_excerpt ? (
                                 <button
@@ -670,13 +817,25 @@ export function CodingAgentWorkspacePage() {
                                   <span>事件时间线</span>
                                 </button>
                               ) : null}
+                              {((run.artifact_manifest || []).filter(a => !a.path.startsWith(".evotown/")).length > 0) && (
+                                <button
+                                  type="button"
+                                  onClick={() => setFilesExpanded((v) => !v)}
+                                  className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 transition-colors"
+                                >
+                                  <span>{filesExpanded ? "▾" : "▸"}</span>
+                                  <span>文件下载 ({(run.artifact_manifest || []).filter(a => !a.path.startsWith(".evotown/")).length})</span>
+                                </button>
+                              )}
                             </div>
                           )}
+                          {/* Expanded: 执行日志 */}
                           {isLast && run.log_excerpt && logExpanded ? (
                             <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">
                               {run.log_excerpt}
                             </pre>
                           ) : null}
+                          {/* Expanded: 事件时间线 */}
                           {isLast && eventsExpanded && events.length ? (
                             <div className="mt-2 space-y-1">
                               {events.map((event) => {
@@ -692,6 +851,27 @@ export function CodingAgentWorkspacePage() {
                               })}
                             </div>
                           ) : null}
+                          {/* Expanded: 文件下载列表 (only non-media, non-html regular files) */}
+                          {isLast && filesExpanded && (
+                            <div className="mt-2 space-y-1">
+                              {(run.artifact_manifest || [])
+                                .filter(a => !a.path.startsWith(".evotown/"))
+                                .map((a) => (
+                                  <a
+                                    key={a.path}
+                                    href={`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/files?path=${encodeURIComponent(a.path)}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50 transition-colors"
+                                  >
+                                    <span>{fileMeta(a.path).icon}</span>
+                                    <span className="truncate flex-1">{a.path.split("/").pop() || a.path}</span>
+                                    <span className="shrink-0 text-slate-400">{formatBytes(a.bytes)}</span>
+                                    <span className="shrink-0 text-slate-300">↓</span>
+                                  </a>
+                                ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

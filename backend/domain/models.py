@@ -132,6 +132,10 @@ class ClaudeAgentRunCreate(BaseModel):
     previous_run_id: str = Field(default="", max_length=64)
 
 
+class SetupAgentRequest(BaseModel):
+    workspace_name: str = Field(default="", max_length=128)  # 专属账号时必填，其他自动生成
+
+
 class ClaudeAgentRunStatusUpdate(BaseModel):
     status: HostedAgentRunStatus
 
@@ -358,12 +362,14 @@ class GatewayAccountCreate(BaseModel):
     org_id: str = Field(default="", max_length=128)
     owner_email: str = Field(default="", max_length=256)
     notes: str = Field(default="", max_length=2000)
+    account_type: str = Field(default="employee", max_length=32)  # employee | department | dedicated
 
 
 class GatewayAccountUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     org_id: str | None = Field(default=None, max_length=128)
     owner_email: str | None = Field(default=None, max_length=256)
+    account_type: str | None = Field(default=None, max_length=32)
     status: AccountStatus | None = None
     notes: str | None = Field(default=None, max_length=2000)
 

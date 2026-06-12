@@ -29,14 +29,30 @@ def _arena_skills_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "arena_skills"
 
 
-def _skill_manifest() -> dict[str, Any]:
-    manifest = skill_market.get_bundle_manifest(
-        os.environ.get("EVOTOWN_CLAUDE_SKILL_BUNDLE", "default-agent-skills"),
-        channel=os.environ.get("EVOTOWN_CLAUDE_SKILL_CHANNEL", "stable"),
-        runtime_target=os.environ.get("EVOTOWN_CLAUDE_SKILL_RUNTIME", "custom"),
-    )
-    if manifest is not None:
-        return manifest
+def _skill_manifest(account_id: str = "") -> dict[str, Any]:
+    """Build a skill manifest for one account based on assigned skills."""
+    from infra import account_skills as acct_skills
+
+    if account_id.strip():
+        assigned = acct_skills.list_for_account(account_id.strip())
+        # Build manifest from assigned skills (may be empty)
+        skills: list[dict[str, Any]] = []
+        for sid in assigned:
+            entry = skill_market.get_market_skill(sid)
+            if entry:
+                skills.append(entry)
+        return {
+            "bundle_id": f"account-{account_id[:8]}",
+            "version": "1.0.0",
+            "channel": "assigned",
+            "runtime_targets": ["custom"],
+            "skills": skills,
+            "selection_mode": "assigned",
+            "signature": "",
+            "published_at": "",
+        }
+
+    # Fallback: empty manifest when no account context
     return {
         "bundle_id": "default-agent-skills",
         "version": "0.0.0",
@@ -241,9 +257,11 @@ def _render_agent_context_md(
     run: dict[str, Any],
     shared_context: dict[str, Any],
     materialized_skills: list[str],
+    workspace_root: str = "",
 ) -> str:
     skills_block = shared_context.get("skills", {})
     mcp_block = shared_context.get("mcp", {})
+    root_path = workspace_root or str(workspaces.resolve_workspace_path(workspace))
     lines = [
         "# Evotown Hosted Claude Context",
         "",
@@ -251,24 +269,29 @@ def _render_agent_context_md(
         f"Workspace ID: `{workspace['workspace_id']}`",
         f"Model: `{run.get('model') or DEFAULT_MODEL}`",
         "",
-        "Use files in this workspace as the only writable project state.",
+        f"Workspace Root: `{root_path}`",
+        "ALL file read/write/edit/bash operations MUST use paths relative to",
+        "the workspace root above. Never use absolute paths like /data/workspace/.",
         "",
-        "## Skills",
+        "## Available Skills",
         "",
-        f"- Selection: `{skills_block.get('selection_mode', 'bundle_all')}`",
-        f"- Manifest: `.evotown/skills_manifest.json`",
     ]
-    if materialized_skills:
-        lines.append("- Materialized skill directories (read `SKILL.md` in each):")
-        for path in materialized_skills:
-            lines.append(f"  - `{path}/SKILL.md`")
+    skill_entries = skills_block.get("skills") or []
+    if skill_entries:
+        for entry in skill_entries[:30]:
+            if isinstance(entry, dict):
+                sid = entry.get("skill_id", "")
+                name = entry.get("name", sid)
+                summary = entry.get("summary") or entry.get("description") or ""
+                lines.append(f"- **{sid}** — {name}")
+                if summary:
+                    lines.append(f"  {summary}")
     else:
-        skill_entries = skills_block.get("skills") or []
-        if skill_entries:
-            lines.append("- Referenced skills (manifest only; mount directories under `.evotown/skills/` when available):")
-            for entry in skill_entries[:20]:
-                if isinstance(entry, dict):
-                    lines.append(f"  - `{entry.get('skill_id', '')}` — {entry.get('name', '')}")
+        lines.append("- (no skills assigned)")
+    lines.append("")
+    if materialized_skills:
+        lines.append("- Materialized under `.evotown/skills/`")
+        lines.append("")
 
     lines.extend(
         [
@@ -324,10 +347,11 @@ def build_shared_context(
     team_id: str = "",
     selected_skills: list[str] | None = None,
     selected_mcp: list[str] | None = None,
+    account_id: str = "",
     identity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     hits = _knowledge_hits(prompt, team_id=team_id)
-    skills = _filter_skill_manifest(_skill_manifest(), list(selected_skills or []))
+    skills = _filter_skill_manifest(_skill_manifest(account_id), list(selected_skills or []))
     mcp = _resolve_mcp_context(list(selected_mcp or []), identity or {})
     return {
         "skills": skills,
@@ -360,6 +384,7 @@ def _write_context_files(
         run=run,
         shared_context=shared_context,
         materialized_skills=materialized_skills,
+        workspace_root=str(root),
     )
     files: list[tuple[str, str]] = [
         ("skills_manifest.json", _json_dumps(shared_context.get("skills", {}))),
@@ -609,6 +634,12 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
         shared_context,
         materialized_skills=materialized_skills,
     )
+
+    # Snapshot workspace before agent run to detect new files
+    _before_files = set()
+    for p in root.rglob("*"):
+        if p.is_file() and not any(part.startswith(".") for part in p.relative_to(root).parts):
+            _before_files.add(str(p.relative_to(root)))
     claude_agent_runs.append_event(
         run_id,
         "context.ready",
@@ -650,6 +681,21 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
 
     status = "succeeded" if exit_code == 0 else "failed"
     summary = output.strip().splitlines()[-1] if output.strip() else "Claude Code runner completed."
+
+    # Scan workspace for new files created by the Agent
+    try:
+        for p in root.rglob("*"):
+            if p.is_file() and not any(part.startswith(".") for part in p.relative_to(root).parts):
+                rel = str(p.relative_to(root))
+                if rel not in _before_files:
+                    artifacts.append({
+                        "path": rel,
+                        "bytes": p.stat().st_size,
+                        "sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
+                    })
+    except Exception:
+        pass
+
     claude_agent_runs.append_event(
         run_id,
         "assistant_message" if status == "succeeded" else "run.error",

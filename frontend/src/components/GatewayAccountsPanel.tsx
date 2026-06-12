@@ -5,6 +5,7 @@ import { AccountKeyTable } from "./accounts/AccountKeyTable";
 import { GatewayDrawer } from "./gateway/GatewayDrawer";
 import { OrgDrawer } from "./gateway/OrgDrawer";
 import { EasyInstallWizard } from "./market/EasyInstallWizard";
+import { SkillsAssignmentPanel } from "./SkillsAssignmentPanel";
 import { adminFetch } from "../hooks/useAdminToken";
 import {
   fetchGatewayOrgs,
@@ -19,6 +20,9 @@ export type GatewayAccount = {
   owner_email: string;
   status: "active" | "disabled";
   notes: string;
+  account_type?: string;
+  agent_workspace_id?: string;
+  agent_workspace_name?: string;
   created_at: string;
   updated_at: string;
   active_keys: number;
@@ -49,6 +53,7 @@ type AccountForm = {
   org_id: string;
   owner_email: string;
   notes: string;
+  account_type: string;
 };
 
 type KeyForm = {
@@ -60,7 +65,7 @@ type KeyForm = {
   expires_at: string;
 };
 
-const EMPTY_ACCOUNT: AccountForm = { name: "", org_id: "", owner_email: "", notes: "" };
+const EMPTY_ACCOUNT: AccountForm = { name: "", org_id: "", owner_email: "", notes: "", account_type: "employee" };
 
 const DEFAULT_KEY: KeyForm = {
   label: "",
@@ -245,6 +250,7 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
   const [busy, setBusy] = useState(false);
 
   const [drawer, setDrawer] = useState<DrawerMode>(null);
+  const [skillsDrawerOpen, setSkillsDrawerOpen] = useState(false);
   const [orgDrawerOpen, setOrgDrawerOpen] = useState(false);
   const [orgDrawerMode, setOrgDrawerMode] = useState<"create" | "edit">("create");
   const [editingOrg, setEditingOrg] = useState<GatewayOrg | null>(null);
@@ -393,6 +399,7 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
       org_id: selectedAccount.org_id,
       owner_email: selectedAccount.owner_email,
       notes: selectedAccount.notes,
+      account_type: selectedAccount.account_type || "employee",
     });
     setDrawer("account-edit");
     setError("");
@@ -466,6 +473,34 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : copy.messages.updateFailed);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setupAgent = async (accountId: string, workspaceName?: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await adminFetch(`/api/v1/accounts/${encodeURIComponent(accountId)}/setup-agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspace_name: workspaceName || "" }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { detail?: string }).detail || `配置失败 (${res.status})`);
+      }
+      const data = await res.json() as { configured?: boolean; workspace?: { name?: string }; secret?: string };
+      if (data.secret) {
+        setCreatedSecret(data.secret);
+      }
+      setMessage(data.configured
+        ? `已配置 Agent: ${data.workspace?.name || ""}`
+        : `Agent 工作空间 "${data.workspace?.name || ""}" 创建成功`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "配置失败");
     } finally {
       setBusy(false);
     }
@@ -863,6 +898,31 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
                   >
                     {copy.issueKey}
                   </button>
+                  {selectedAccount.agent_workspace_id ? (
+                    <a
+                      href={`/coding-agent/workspaces/${encodeURIComponent(selectedAccount.agent_workspace_id)}`}
+                      className="rounded-lg border border-green-200 bg-green-50 px-3 py-1.5 text-sm font-medium text-green-700 hover:bg-green-100"
+                    >
+                      {selectedAccount.agent_workspace_name || "已配置"}
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busy || selectedAccount.status !== "active"}
+                      onClick={() => setupAgent(selectedAccount.account_id)}
+                      className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                    >
+                      配置助理
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={busy || selectedAccount.status !== "active"}
+                    onClick={() => setSkillsDrawerOpen(true)}
+                    className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-50"
+                  >
+                    技能下发
+                  </button>
                 </div>
               </div>
 
@@ -896,6 +956,18 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               required
             />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">账号类型</span>
+            <select
+              value={accountForm.account_type}
+              onChange={(e) => setAccountForm({ ...accountForm, account_type: e.target.value })}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="employee">员工账号</option>
+              <option value="department">部门账号</option>
+              <option value="dedicated">专属账号</option>
+            </select>
           </label>
           <label className="block text-sm">
             <span className="font-medium text-slate-700">{copy.accountOrg}</span>
@@ -991,6 +1063,20 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
             )}
           </div>
         </form>
+      </GatewayDrawer>
+
+      <GatewayDrawer
+        open={skillsDrawerOpen}
+        title={`技能下发 · ${selectedAccount?.name || ""}`}
+        subtitle="勾选后保存，该账号的 Agent 只能使用以下技能"
+        onClose={() => setSkillsDrawerOpen(false)}
+      >
+        {selectedAccount && (
+          <SkillsAssignmentPanel
+            accountId={selectedAccount.account_id}
+            accountName={selectedAccount.name}
+          />
+        )}
       </GatewayDrawer>
 
       <OrgDrawer

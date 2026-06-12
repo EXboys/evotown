@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 
 from core.auth import require_console_read
 from domain.models import ClaudeAgentRunCreate, WorkspaceCreate, WorkspaceUpdate
@@ -20,7 +21,10 @@ _FALLBACK_MODELS = [
 
 
 def _is_admin(identity: dict | None) -> bool:
-    return bool(identity and "*" in (identity.get("scopes") or []))
+    if not identity:
+        return False
+    scopes = identity.get("scopes") or []
+    return "*" in scopes or "console.write" in scopes
 
 
 def _account_id(identity: dict | None) -> str:
@@ -93,18 +97,19 @@ async def get_coding_agent_options(identity: dict | None = Depends(require_conso
 
     skills: list[dict] = []
     try:
-        from infra import skill_market
+        from infra import account_skills, skill_market
 
-        team_id = str(identity.get("team_id") or "")
-        for skill in skill_market.list_market_skills(team_id=team_id, limit=50):
-            skills.append(
-                {
+        account_id = _account_id(identity)
+        assigned = account_skills.list_for_account(account_id) if account_id else []
+        for sid in assigned:
+            skill = skill_market.get_market_skill(sid)
+            if skill:
+                skills.append({
                     "id": skill.get("skill_id") or skill.get("id") or skill.get("name", ""),
                     "name": skill.get("name") or skill.get("skill_id", ""),
                     "version": skill.get("version", ""),
                     "summary": skill.get("summary") or skill.get("description", ""),
-                }
-            )
+                })
     except Exception:
         skills = []
 
@@ -216,6 +221,51 @@ async def update_workspace(workspace_id: str, body: WorkspaceUpdate, identity: d
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return {"workspace": updated}
+
+
+@router.get("/workspaces/{workspace_id}/serve/{file_path:path}")
+async def serve_workspace_file(workspace_id: str, file_path: str, identity: dict | None = Depends(require_console_read)):
+    """Serve a static file from the workspace directory (HTML, images, etc.)."""
+    identity = _require_identity(identity)
+    _load_workspace_for_identity(workspace_id, identity)
+
+    workspace = workspaces.get_workspace(workspace_id)
+    if workspace is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="workspace not found")
+
+    root = workspaces.resolve_workspace_path(workspace)
+    target = (root / file_path).resolve()
+
+    # Prevent path traversal
+    if not str(target).startswith(str(root.resolve())):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="access denied")
+
+    if not target.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="file not found")
+
+    # Determine MIME type
+    suffix = target.suffix.lower()
+    mime_map = {
+        ".html": "text/html",
+        ".htm": "text/html",
+        ".css": "text/css",
+        ".js": "application/javascript",
+        ".json": "application/json",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+        ".mp4": "video/mp4",
+        ".webm": "video/webm",
+        ".pdf": "application/pdf",
+        ".txt": "text/plain",
+        ".md": "text/markdown",
+    }
+    content_type = mime_map.get(suffix, "application/octet-stream")
+
+    return FileResponse(target, media_type=content_type)
 
 
 @router.get("/workspaces/{workspace_id}/files")

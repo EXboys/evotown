@@ -4,11 +4,26 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from core.auth import require_admin
-from domain.models import GatewayAccountCreate, GatewayAccountUpdate, GatewayApiKeyCreate, GatewayApiKeyUpdate, GatewayOrgCreate, GatewayOrgUpdate
+from domain.models import (
+    GatewayAccountCreate, GatewayAccountUpdate,
+    GatewayApiKeyCreate, GatewayApiKeyUpdate,
+    GatewayOrgCreate, GatewayOrgUpdate,
+    SetupAgentRequest,
+)
 from infra import accounts as accounts_store
 from infra import gateway as gateway_store
+from infra import workspaces as workspaces_store
 
 router = APIRouter(prefix="/api/v1", tags=["accounts"])
+
+
+def _generate_workspace_name(account: dict, account_type: str, custom_name: str = "") -> str:
+    if custom_name.strip():
+        return custom_name.strip()
+    name = account.get("name", "")
+    if account_type == "employee":
+        return f"{name}助理"
+    return name
 
 
 def _enrich_account(account: dict) -> dict:
@@ -19,10 +34,7 @@ def _enrich_account(account: dict) -> dict:
 
 def _enrich_key(key: dict) -> dict:
     usage = gateway_store.monthly_usage_for_key(key.get("key_id", ""))
-    return {
-        **key,
-        "monthly_usage": usage,
-    }
+    return {**key, "monthly_usage": usage}
 
 
 @router.post("/accounts", dependencies=[Depends(require_admin)])
@@ -35,20 +47,70 @@ async def create_account(body: GatewayAccountCreate):
         org_id=org_id,
         owner_email=body.owner_email,
         notes=body.notes,
+        account_type=body.account_type,
     )
     return {"account": _enrich_account(account)}
+
+
+@router.post("/accounts/{account_id}/setup-agent", dependencies=[Depends(require_admin)])
+async def setup_agent(account_id: str, body: SetupAgentRequest | None = None):
+    """一键为已有账号创建 Agent 工作空间并签发 agent key。每个账号只能配置一次。"""
+    account = accounts_store.get_account(account_id)
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
+
+    # 检查是否已配置
+    existing = workspaces_store.list_workspaces(owner_account_id=account_id)
+    if existing:
+        return {
+            "configured": True,
+            "workspace": existing[0],
+            "message": "该账号已配置 Agent 工作空间",
+        }
+
+    account_type = account.get("account_type", "employee")
+    workspace_name = _generate_workspace_name(
+        account, account_type, (body.workspace_name if body else "")
+    )
+
+    workspace = workspaces_store.create_workspace(
+        owner_account_id=account_id,
+        name=workspace_name,
+        tenant_id=account.get("org_id", ""),
+        team_id=account.get("org_id", ""),
+    )
+
+    key_record, secret = accounts_store.create_api_key(
+        account_id,
+        label=f"Agent 助理 - {workspace_name}",
+        scopes=["console.read", "agent.run"],
+    )
+
+    return {
+        "configured": False,
+        "workspace": workspace,
+        "api_key": key_record,
+        "secret": secret,
+        "warning": "Store this secret now. It will not be shown again.",
+    }
 
 
 @router.get("/accounts", dependencies=[Depends(require_admin)])
 async def list_accounts(status_filter: str | None = None, limit: int = 100):
     items = accounts_store.list_accounts(status=status_filter, limit=limit)
     counts = accounts_store.account_key_counts([a["account_id"] for a in items])
-    return {
-        "accounts": [
-            {**a, **counts.get(a["account_id"], {"active_keys": 0, "total_keys": 0})}
-            for a in items
-        ]
-    }
+    # Enrich with workspace info
+    result = []
+    for a in items:
+        aid = a["account_id"]
+        enriched = {**a, **counts.get(aid, {"active_keys": 0, "total_keys": 0})}
+        # Check if this account has an agent workspace
+        agent_ws = workspaces_store.list_workspaces(owner_account_id=aid)
+        if agent_ws:
+            enriched["agent_workspace_id"] = agent_ws[0]["workspace_id"]
+            enriched["agent_workspace_name"] = agent_ws[0]["name"]
+        result.append(enriched)
+    return {"accounts": result}
 
 
 @router.get("/accounts/{account_id}", dependencies=[Depends(require_admin)])
@@ -73,6 +135,7 @@ async def update_account(account_id: str, body: GatewayAccountUpdate):
         owner_email=body.owner_email,
         status=body.status,
         notes=body.notes,
+        account_type=body.account_type,
     )
     return {"account": _enrich_account(account or {})}
 

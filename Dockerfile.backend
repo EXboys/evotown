@@ -13,6 +13,9 @@ ARG TARGETARCH
 #   uidmap              — 提供 newuidmap/newgidmap，支持非特权用户命名空间映射
 #   curl / gnupg        — 下载 GitHub Release 预编译二进制 + NodeJS 源
 #   nodejs / npm        — agent-browser skill 运行时依赖
+#  使用清华镜像加速 apt 和 pip 下载
+RUN sed -i 's|http://deb.debian.org|http://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null; \
+    sed -i 's|http://deb.debian.org|http://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list 2>/dev/null; true
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bubblewrap \
     uidmap \
@@ -43,7 +46,7 @@ RUN set -e && \
 # --mount=type=cache 持久化 pip wheel 缓存，--no-cache 也不会清除，跨次构建复用。
 COPY evotown/backend/requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --timeout=120 --retries=5 -r requirements.txt
+    pip install --timeout=120 --retries=5 -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
 # 复制源码
 COPY evotown/backend/ .

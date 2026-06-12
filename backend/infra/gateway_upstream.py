@@ -72,18 +72,38 @@ def build_anthropic_upstream_call(
     *,
     request_headers: dict[str, str] | None = None,
 ) -> tuple[str, dict[str, str], dict[str, Any]]:
-    """Return (url, headers, request_body) for one Anthropic /messages call."""
+    """Return (url, headers, request_body) for one Anthropic /messages call.
+
+    When the model is registered in Evotown, the request is forwarded
+    directly to the upstream's Anthropic-compatible endpoint, preserving
+    the original Anthropic message format (no protocol conversion needed).
+    LiteLLM is only used as a fallback for unregistered models.
+    """
     req = copy.deepcopy(body)
     req["model"] = effective_model
     req.pop("metadata", None)
+    req.pop("stream", None)  # 禁 streaming，避免 SSE 兼容性问题
 
     forwarded = _anthropic_forward_headers(request_headers or {})
     managed = gateway_models_store.get_by_model_name(effective_model)
     if managed:
-        # Claude Code sends Anthropic /messages payloads. Managed upstream
-        # api_base entries are OpenAI-compatible, so route through LiteLLM for
-        # Anthropic -> OpenAI translation and only reuse their model mapping.
+        base = managed.get("_anthropic_api_base") or ""
+        if not base:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    f"Upstream model '{effective_model}' has no anthropic_api_base configured. "
+                    "Add an Anthropic-compatible endpoint under Gateway → 上游模型."
+                ),
+            )
         req["model"] = managed.get("_litellm_model") or effective_model
+        target = f"{base.rstrip('/')}/messages"
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": str(managed.get("_api_key", "")),
+            **forwarded,
+        }
+        return target, headers, req
 
     litellm_base = litellm_anthropic_base_url()
     if not litellm_base:

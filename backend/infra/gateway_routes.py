@@ -86,6 +86,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         ("retry_policy", "TEXT NOT NULL DEFAULT '{}'"),
         ("auto_policy", "TEXT NOT NULL DEFAULT '{}'"),
         ("enable_fallback", "INTEGER NOT NULL DEFAULT 1"),
+        ("protocol", "TEXT NOT NULL DEFAULT 'openai'"),
     ]
     for name, col_type in additions:
         if name not in cols:
@@ -144,6 +145,7 @@ def create_route(
     retry_policy: dict[str, Any] | None = None,
     auto_policy: dict[str, Any] | None = None,
     enable_fallback: bool = True,
+    protocol: str = "openai",
 ) -> dict[str, Any]:
     conn = _ensure_conn()
     route_id = f"gr_{uuid.uuid4().hex[:12]}"
@@ -152,8 +154,8 @@ def create_route(
         """
         INSERT INTO gateway_model_routes (
             route_id, alias, target_model, team_id, account_id, description, priority, enabled,
-            route_type, fallback_models, retry_policy, auto_policy, enable_fallback
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            route_type, fallback_models, retry_policy, auto_policy, enable_fallback, protocol
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             route_id,
@@ -169,6 +171,7 @@ def create_route(
             json.dumps(retry_policy or {}, ensure_ascii=False),
             json.dumps(auto_policy or {}, ensure_ascii=False),
             1 if enable_fallback else 0,
+            (protocol or "openai").strip(),
         ),
     )
     return get_route(route_id) or {"route_id": route_id}
@@ -198,6 +201,7 @@ def update_route(route_id: str, **fields: Any) -> dict[str, Any] | None:
         "retry_policy",
         "auto_policy",
         "enable_fallback",
+        "protocol",
     }
     updates: list[str] = []
     params: list[Any] = []
@@ -353,6 +357,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     item["enabled"] = bool(item.get("enabled", 1))
     item["enable_fallback"] = bool(item.get("enable_fallback", 1))
     item["route_type"] = (item.get("route_type") or "static").strip()
+    item["protocol"] = (item.get("protocol") or "openai").strip()
     item["fallback_models"] = parse_fallback_models(_parse_json_field(item.get("fallback_models"), []))
     item["retry_policy"] = _parse_json_field(item.get("retry_policy"), {})
     item["auto_policy"] = parse_auto_policy(_parse_json_field(item.get("auto_policy"), {}))

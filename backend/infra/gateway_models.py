@@ -19,6 +19,17 @@ def _data_dir() -> Path:
 _conn: sqlite3.Connection | None = None
 
 
+def _migrate_models_schema(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(gateway_upstream_models)").fetchall()}
+    additions = [
+        ("protocol", "TEXT NOT NULL DEFAULT 'openai'"),
+        ("anthropic_api_base", "TEXT NOT NULL DEFAULT ''"),
+    ]
+    for name, col_type in additions:
+        if name not in cols:
+            conn.execute(f"ALTER TABLE gateway_upstream_models ADD COLUMN {name} {col_type}")
+
+
 def _ensure_conn() -> sqlite3.Connection:
     global _conn
     if _conn is not None:
@@ -48,6 +59,7 @@ def _ensure_conn() -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_gw_upstream_name ON gateway_upstream_models(model_name, enabled);
         """
     )
+    _migrate_models_schema(conn)
     _conn = conn
     return conn
 
@@ -63,6 +75,8 @@ def _public_row(row: sqlite3.Row, *, include_api_key: bool = False) -> dict[str,
     item = dict(row)
     item["enabled"] = bool(item.get("enabled", 1))
     item["litellm_synced"] = bool(item.get("litellm_synced", 0))
+    item["protocol"] = (item.get("protocol") or "openai").strip()
+    item["anthropic_api_base"] = (item.get("anthropic_api_base") or "").strip()
     raw_key = str(item.pop("api_key", "") or "")
     item["api_key_hint"] = _mask_api_key(raw_key)
     item["api_key_set"] = bool(raw_key)
@@ -102,6 +116,7 @@ def get_by_model_name(model_name: str) -> dict[str, Any] | None:
     item["_api_key"] = row["api_key"]
     item["_litellm_model"] = (row["litellm_model"] or "").strip() or name
     item["_api_base"] = (row["api_base"] or "").strip()
+    item["_anthropic_api_base"] = (row["anthropic_api_base"] or "").strip()
     return item
 
 
@@ -110,9 +125,11 @@ def create_model(
     model_name: str,
     api_base: str,
     api_key: str,
+    anthropic_api_base: str = "",
     litellm_model: str = "",
     provider_label: str = "",
     description: str = "",
+    protocol: str = "openai",
     enabled: bool = True,
 ) -> dict[str, Any]:
     conn = _ensure_conn()
@@ -122,8 +139,8 @@ def create_model(
         """
         INSERT INTO gateway_upstream_models (
             model_id, model_name, provider_label, litellm_model, api_base, api_key,
-            description, enabled
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            anthropic_api_base, protocol, description, enabled
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             model_id,
@@ -132,6 +149,8 @@ def create_model(
             (litellm_model or "").strip(),
             api_base.strip().rstrip("/"),
             api_key.strip(),
+            anthropic_api_base.strip().rstrip("/"),
+            (protocol or "openai").strip(),
             description.strip(),
             1 if enabled else 0,
         ),
@@ -153,6 +172,8 @@ def update_model(model_id: str, **fields: Any) -> dict[str, Any] | None:
         "litellm_model",
         "api_base",
         "api_key",
+        "anthropic_api_base",
+        "protocol",
         "description",
         "enabled",
         "litellm_synced",
@@ -169,6 +190,8 @@ def update_model(model_id: str, **fields: Any) -> dict[str, Any] | None:
         if key == "litellm_synced":
             value = 1 if value else 0
         if key == "api_base" and isinstance(value, str):
+            value = value.strip().rstrip("/")
+        if key == "anthropic_api_base" and isinstance(value, str):
             value = value.strip().rstrip("/")
         if key == "api_key" and isinstance(value, str) and not value.strip():
             continue

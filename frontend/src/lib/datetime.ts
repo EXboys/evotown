@@ -125,6 +125,14 @@ export function formatChartDay(value: string | number | null | undefined): strin
   return formatDateTime(value, { month: "numeric", day: "numeric" });
 }
 
+/** yyyy-MM-dd HH:mm 固定格式 */
+export function formatDateTimeFull(value: string | number | null | undefined): string {
+  const d = parseEvotownTimestamp(value);
+  if (!d) return "-";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export function timezoneOptionLabel(tz: string): string {
   return TIMEZONE_OPTIONS.find((o) => o.id === tz)?.label ?? tz;
 }

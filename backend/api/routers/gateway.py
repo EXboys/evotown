@@ -26,6 +26,13 @@ from infra.gateway_retry import RetryPolicy
 
 router = APIRouter(prefix="/api/gateway/v1", tags=["gateway"])
 anthropic_router = APIRouter(prefix="/api/gateway/anthropic/v1", tags=["gateway"])
+# Catch-all router for Anthropic internal API calls (event_logging, eval, etc.)
+anthropic_api_router = APIRouter(prefix="/api/gateway/anthropic", tags=["gateway"])
+
+@anthropic_api_router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
+async def anthropic_api_catch_all(path: str):
+    return {"status": "ok"}
+
 
 
 @dataclass
@@ -1138,3 +1145,11 @@ async def list_api_keys():
         "legacy_env_count": len(legacy),
         "admin_token_fallback": bool(os.environ.get("ADMIN_TOKEN", "").strip()),
     }
+
+
+# ── Claude CLI internal API stubs (return 200 to unblock agent) ──────────
+@anthropic_router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
+async def anthropic_catch_all(path: str):
+    """Catch-all for Anthropic internal API calls (event_logging, eval, bootstrap, etc.).
+    Claude CLI calls these endpoints; evotown doesn't implement them — return 200."""
+    return {"status": "ok"}

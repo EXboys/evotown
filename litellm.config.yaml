@@ -2,8 +2,17 @@ model_list:
   - model_name: default
     litellm_params:
       model: os.environ/MODEL
-      api_key: os.environ/OPENAI_API_KEY
-      api_base: os.environ/OPENAI_BASE_URL
+      api_key: os.environ/API_KEY
+      api_base: os.environ/BASE_URL
+
+  - model_name: ethink-agent
+    litellm_params:
+      model: os.environ/MODEL
+      api_key: os.environ/API_KEY
+      api_base: os.environ/BASE_URL
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
+
+router_settings:
+  allowed_routes: ["/v1/chat/completions", "/anthropic/v1/messages"]

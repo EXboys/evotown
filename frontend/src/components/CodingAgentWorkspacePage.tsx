@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useNavigate, useParams } from "react-router-dom";
 
 import { adminFetch, isConsoleAuthenticated } from "../hooks/useAdminToken";
-import { formatDateTimeShort } from "../lib/datetime";
+import { formatDateTimeShort, formatDateTimeFull } from "../lib/datetime";
 
 type Workspace = {
   workspace_id: string;
@@ -218,8 +218,28 @@ export function CodingAgentWorkspacePage() {
   const threadRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
+  useEffect(() => {
+    setLogExpanded(false);
+    setEventsExpanded(false);
+  }, [selectedRunId]);
+
   const [fileViewer, setFileViewer] = useState<{ path: string; content: string; size: number; truncated: boolean } | null>(null);
+  const [logExpanded, setLogExpanded] = useState(false);
+  const [eventsExpanded, setEventsExpanded] = useState(false);
   const [fileLoading, setFileLoading] = useState("");
+
+  const SESSION_TITLES_KEY = `evotown-session-titles-${workspaceId}`;
+  const [sessionTitles, setSessionTitles] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem(SESSION_TITLES_KEY) || "{}"); } catch { return {}; }
+  });
+  const [editingTitle, setEditingTitle] = useState<{ id: string; value: string } | null>(null);
+
+  const saveSessionTitle = (sessionId: string, title: string) => {
+    const next = { ...sessionTitles, [sessionId]: title.trim() || "" };
+    setSessionTitles(next);
+    localStorage.setItem(SESSION_TITLES_KEY, JSON.stringify(next));
+    setEditingTitle(null);
+  };
 
   const openFile = async (path: string) => {
     if (!workspaceId) return;
@@ -236,10 +256,72 @@ export function CodingAgentWorkspacePage() {
     }
   };
 
+  const runChain = useMemo(() => {
+    if (!selectedRunId) return [];
+    // Find the root of this session
+    const rootMap = new Map<string, string>();
+    for (const run of runs) {
+      let root = run.run_id;
+      let cur: AgentRun | undefined = run;
+      const seen = new Set<string>();
+      let prevId: string;
+      while (true) {
+        prevId = ((cur.signals?.previous_run_id as string) || "").trim();
+        if (!prevId || seen.has(prevId)) break;
+        seen.add(prevId);
+        const prev: AgentRun | undefined = runs.find((r) => r.run_id === prevId);
+        if (!prev) break;
+        root = prevId;
+        cur = prev;
+      }
+      rootMap.set(run.run_id, root);
+    }
+    const targetRoot = rootMap.get(selectedRunId) || selectedRunId;
+    // Collect all runs sharing this root, sorted by time
+    return runs
+      .filter((r) => (rootMap.get(r.run_id) || r.run_id) === targetRoot)
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  }, [selectedRunId, runs]);
+
   const selectedRun = useMemo(
-    () => runs.find((item) => item.run_id === selectedRunId) || null,
-    [runs, selectedRunId],
+    () => runChain.length > 0 ? runChain[runChain.length - 1] : null,
+    [runChain],
   );
+
+  type Session = { id: string; prompt: string; count: number; lastAt: string; lastStatus: AgentRun["status"] };
+  const sessions = useMemo((): Session[] => {
+    const rootMap = new Map<string, string>();
+    for (const run of runs) {
+      let root = run.run_id;
+      let cur: AgentRun | undefined = run;
+      const seen = new Set<string>();
+      let prevId: string;
+      while (true) {
+        prevId = ((cur.signals?.previous_run_id as string) || "").trim();
+        if (!prevId || seen.has(prevId)) break;
+        seen.add(prevId);
+        const prev: AgentRun | undefined = runs.find((r) => r.run_id === prevId);
+        if (!prev) break;
+        root = prevId;
+        cur = prev;
+      }
+      rootMap.set(run.run_id, root);
+    }
+    const groups = new Map<string, AgentRun[]>();
+    for (const run of runs) {
+      const root = rootMap.get(run.run_id) || run.run_id;
+      const g = groups.get(root) || [];
+      g.push(run);
+      groups.set(root, g);
+    }
+    return Array.from(groups.entries())
+      .map(([id, sessionRuns]) => {
+        sessionRuns.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        const last = sessionRuns[sessionRuns.length - 1];
+        return { id, prompt: sessionRuns[0].prompt, count: sessionRuns.length, lastAt: last.created_at, lastStatus: last.status };
+      })
+      .sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
+  }, [runs]);
 
   const groupedRuns = useMemo(() => groupRunsByDate(runs), [runs]);
   const isRunning = selectedRun?.status === "running" || selectedRun?.status === "queued";
@@ -345,7 +427,7 @@ export function CodingAgentWorkspacePage() {
     try {
       const data = await adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/runs`, {
         method: "POST",
-        body: JSON.stringify({ prompt, model, skills: selectedSkills, mcp: selectedMcp }),
+        body: JSON.stringify({ prompt, model, skills: selectedSkills, mcp: selectedMcp, previous_run_id: selectedRunId }),
       }).then((res) => readJson<{ run: AgentRun }>(res));
       setSelectedRunId(data.run.run_id);
       setPrompt("");
@@ -420,34 +502,62 @@ export function CodingAgentWorkspacePage() {
               ))}
             </div>
           ) : runs.length ? (
-            <div className="space-y-4">
-              {groupedRuns.map((group) => (
-                <div key={group.label} className="space-y-1.5">
-                  <div className="px-1 text-[11px] font-medium text-slate-400">{group.label}</div>
-                  {group.items.map((run) => (
-                    <button
-                      key={run.run_id}
-                      type="button"
-                      onClick={() => setSelectedRunId(run.run_id)}
-                      className={`w-full rounded-lg border px-3 py-2.5 text-left transition ${
-                        selectedRunId === run.run_id
-                          ? "border-indigo-300 bg-indigo-50/70"
-                          : "border-transparent hover:border-slate-200 hover:bg-slate-50"
-                      }`}
+            <div className="space-y-1.5">
+              {sessions.map((session) => {
+                const customTitle = sessionTitles[session.id] || "";
+                const displayTitle = customTitle || session.prompt;
+                const isActive = runChain.some((r) => r.run_id === session.id || ((r.signals?.previous_run_id as string) || "").trim() === session.id);
+                return (
+                <button
+                  key={session.id}
+                  type="button"
+                  onClick={() => setSelectedRunId(session.id)}
+                  className={`w-full rounded-lg border px-3 py-2.5 text-left transition ${
+                    isActive
+                      ? "border-indigo-300 bg-indigo-50/70"
+                      : "border-transparent hover:border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_META[session.lastStatus].dot}`} />
+                    {editingTitle?.id === session.id ? (
+                      <input
+                        autoFocus
+                        value={editingTitle.value}
+                        onChange={(e) => setEditingTitle({ id: session.id, value: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveSessionTitle(session.id, editingTitle.value);
+                          if (e.key === "Escape") setEditingTitle(null);
+                        }}
+                        onBlur={() => saveSessionTitle(session.id, editingTitle.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex-1 rounded border border-indigo-300 bg-white px-1.5 py-0.5 text-sm text-slate-700 outline-none focus:ring-1 focus:ring-indigo-300"
+                      />
+                    ) : (
+                      <span className="truncate text-sm text-slate-700">{displayTitle}</span>
+                    )}
+                    <span
+                      role="button"
+                      title="编辑标题"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingTitle({ id: session.id, value: displayTitle });
+                      }}
+                      className="ml-auto shrink-0 text-xs text-slate-300 hover:text-slate-500 transition-colors"
                     >
-                      <div className="flex items-center gap-2">
-                        <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_META[run.status].dot}`} />
-                        <span className="truncate text-sm text-slate-700">{run.prompt}</span>
-                      </div>
-                      <div className="mt-1 flex items-center gap-2 pl-4 text-[11px] text-slate-400">
-                        <span>{STATUS_META[run.status].label}</span>
-                        <span>·</span>
-                        <span>{formatDateTimeShort(run.created_at)}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ))}
+                      ✏️
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 pl-4 text-[11px] text-slate-400">
+                    <span>{STATUS_META[session.lastStatus].label}</span>
+                    <span>·</span>
+                    <span>{session.count} 轮对话</span>
+                    <span>·</span>
+                    <span>{formatDateTimeShort(session.lastAt)}</span>
+                  </div>
+                </button>
+                );
+              })}
             </div>
           ) : (
             <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-500">
@@ -494,61 +604,100 @@ export function CodingAgentWorkspacePage() {
         )}
 
         <div ref={threadRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
-          {selectedRun ? (
+          {runChain.length > 0 ? (
             <div className="mx-auto max-w-3xl space-y-4">
-              <div className="flex justify-end">
-                <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-indigo-600 px-4 py-3 text-sm text-white shadow-sm">
-                  <p className="whitespace-pre-wrap">{selectedRun.prompt}</p>
-                  <div className="mt-1.5 text-[11px] text-indigo-100">
-                    {selectedRun.model} · {formatDateTimeShort(selectedRun.created_at)}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-xs font-bold text-white">
-                  AI
-                </div>
-                <div className="max-w-[85%] flex-1 rounded-2xl rounded-tl-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
-                  <div className="mb-2 flex items-center gap-2">
-                    <Badge className={STATUS_META[selectedRun.status].className}>
-                      <span className={`h-1.5 w-1.5 rounded-full ${STATUS_META[selectedRun.status].dot}`} />
-                      {STATUS_META[selectedRun.status].label}
-                    </Badge>
-                  </div>
-                  {isRunning && !selectedRun.result_summary && !selectedRun.error ? (
-                    <div className="flex items-center gap-2 text-slate-500">
-                      <TypingDots />
-                      <span>Agent 正在这个私有 workspace 中执行…</span>
-                    </div>
-                  ) : (
-                    <p className="whitespace-pre-wrap">
-                      {selectedRun.result_summary || selectedRun.error || "执行完成。"}
-                    </p>
-                  )}
-                  {selectedRun.log_excerpt ? (
-                    <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">
-                      {selectedRun.log_excerpt}
-                    </pre>
-                  ) : null}
-                </div>
-              </div>
-
-              {events.length ? (
-                <div className="ml-11 space-y-1">
-                  {events.map((event) => {
-                    const info = describeEvent(event);
-                    return (
-                      <div key={`${event.id}-${event.seq}`} className="flex items-center gap-2 text-xs text-slate-400">
-                        <span aria-hidden>{info.icon}</span>
-                        <span className="text-slate-600">{info.title}</span>
-                        {info.detail ? <span className="truncate text-slate-400">· {info.detail}</span> : null}
-                        <span className="ml-auto text-slate-300">{formatDateTimeShort(event.ts)}</span>
+              {runChain.map((run) => {
+                const isLast = run.run_id === selectedRun?.run_id;
+                const runRunning = run.status === "running" || run.status === "queued";
+                return (
+                  <div key={run.run_id}>
+                    {/* User message */}
+                    <div className="flex justify-end">
+                      <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-indigo-600 px-4 py-3 text-sm text-white shadow-sm">
+                        <p className="whitespace-pre-wrap">{run.prompt}</p>
+                        <div className="mt-1.5 text-[11px] text-indigo-100">
+                          {run.model} · {formatDateTimeShort(run.created_at)}
+                        </div>
                       </div>
-                    );
-                  })}
-                </div>
-              ) : null}
+                    </div>
+
+                    {/* AI response */}
+                    <div className="mt-3 flex gap-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-xs font-bold text-white">
+                        AI
+                      </div>
+                      <div className="max-w-[85%] flex-1">
+                        <div className="mb-1 flex items-center gap-1.5 text-xs text-slate-400">
+                          <span className="font-medium">Agent</span>
+                          <span>{formatDateTimeFull(run.completed_at || run.created_at)}</span>
+                        </div>
+                        <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+                          <div className="mb-2 flex items-center gap-2">
+                            <Badge className={STATUS_META[run.status].className}>
+                              <span className={`h-1.5 w-1.5 rounded-full ${STATUS_META[run.status].dot}`} />
+                              {STATUS_META[run.status].label}
+                            </Badge>
+                          </div>
+                          {runRunning && !run.result_summary && !run.error ? (
+                            <div className="flex items-center gap-2 text-slate-500">
+                              <TypingDots />
+                              <span>Agent 正在这个私有 workspace 中执行…</span>
+                            </div>
+                          ) : (
+                            <p className="whitespace-pre-wrap">
+                              {run.result_summary || run.error || "执行完成。"}
+                            </p>
+                          )}
+                          {isLast && (run.log_excerpt || events.length > 0) && (
+                            <div className="mt-3 flex items-center gap-4 border-t border-slate-100 pt-3">
+                              {run.log_excerpt ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setLogExpanded((v) => !v)}
+                                  className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 transition-colors"
+                                >
+                                  <span>{logExpanded ? "▾" : "▸"}</span>
+                                  <span>执行日志</span>
+                                </button>
+                              ) : null}
+                              {events.length > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setEventsExpanded((v) => !v)}
+                                  className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 transition-colors"
+                                >
+                                  <span>{eventsExpanded ? "▾" : "▸"}</span>
+                                  <span>事件时间线</span>
+                                </button>
+                              ) : null}
+                            </div>
+                          )}
+                          {isLast && run.log_excerpt && logExpanded ? (
+                            <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">
+                              {run.log_excerpt}
+                            </pre>
+                          ) : null}
+                          {isLast && eventsExpanded && events.length ? (
+                            <div className="mt-2 space-y-1">
+                              {events.map((event) => {
+                                const info = describeEvent(event);
+                                return (
+                                  <div key={`${event.id}-${event.seq}`} className="flex items-center gap-2 text-xs text-slate-400">
+                                    <span aria-hidden>{info.icon}</span>
+                                    <span className="text-slate-600">{info.title}</span>
+                                    {info.detail ? <span className="truncate text-slate-400">· {info.detail}</span> : null}
+                                    <span className="ml-auto text-slate-300">{formatDateTimeShort(event.ts)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="flex h-full items-center justify-center">
@@ -608,7 +757,7 @@ export function CodingAgentWorkspacePage() {
                 onChange={(event) => setPrompt(event.target.value)}
                 onKeyDown={onPromptKeyDown}
                 rows={1}
-                placeholder="给这个 workspace 里的 Agent 发一个任务（Cmd/Ctrl + Enter 发送）…"
+                placeholder={selectedRunId ? "继续此对话…（Cmd/Ctrl + Enter 发送）" : "给这个 workspace 里的 Agent 发一个任务（Cmd/Ctrl + Enter 发送）…"}
                 className="max-h-52 min-h-[3rem] w-full resize-none rounded-t-2xl px-4 pt-3 text-sm leading-relaxed outline-none"
               />
               <div className="flex items-center justify-between gap-2 px-3 pb-3">

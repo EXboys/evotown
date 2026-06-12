@@ -9,6 +9,7 @@ export type GatewayUpstreamModel = {
   provider_label?: string;
   litellm_model?: string;
   api_base: string;
+  anthropic_api_base?: string;
   api_key_hint?: string;
   api_key_set?: boolean;
   description?: string;
@@ -22,6 +23,7 @@ type FormState = {
   provider_label: string;
   upstream_model_param: string;
   api_base: string;
+  anthropic_api_base: string;
   api_key: string;
   description: string;
   enabled: boolean;
@@ -32,6 +34,7 @@ const emptyForm: FormState = {
   provider_label: "",
   upstream_model_param: "",
   api_base: "",
+  anthropic_api_base: "",
   api_key: "",
   description: "",
   enabled: true,
@@ -43,6 +46,7 @@ function rowToForm(row: GatewayUpstreamModel): FormState {
     provider_label: row.provider_label || "",
     upstream_model_param: row.litellm_model || "",
     api_base: row.api_base,
+    anthropic_api_base: row.anthropic_api_base || "",
     api_key: "",
     description: row.description || "",
     enabled: row.enabled !== false,
@@ -107,6 +111,7 @@ export function GatewayUpstreamModelsPanel() {
           provider_label: form.provider_label,
           litellm_model,
           api_base: form.api_base,
+          anthropic_api_base: form.anthropic_api_base,
           description: form.description,
           enabled: form.enabled,
         };
@@ -138,6 +143,7 @@ export function GatewayUpstreamModelsPanel() {
           provider_label: form.provider_label,
           litellm_model,
           api_base: form.api_base,
+          anthropic_api_base: form.anthropic_api_base,
           api_key: form.api_key,
           description: form.description,
           enabled: form.enabled,
@@ -196,6 +202,7 @@ export function GatewayUpstreamModelsPanel() {
             <tr>
               <th className="px-3 py-2.5">Model</th>
               <th className="hidden px-3 py-2.5 sm:table-cell">Base URL</th>
+              <th className="hidden px-3 py-2.5 lg:table-cell">Anthropic Base</th>
               <th className="px-3 py-2.5">状态</th>
               <th className="w-28 px-3 py-2.5 text-right">操作</th>
             </tr>
@@ -211,6 +218,9 @@ export function GatewayUpstreamModelsPanel() {
                 </td>
                 <td className="hidden max-w-[220px] truncate px-3 py-2.5 text-slate-600 sm:table-cell" title={row.api_base}>
                   {row.api_base}
+                </td>
+                <td className="hidden max-w-[220px] truncate px-3 py-2.5 text-slate-600 lg:table-cell" title={row.anthropic_api_base || ""}>
+                  {row.anthropic_api_base || "—"}
                 </td>
                 <td className="px-3 py-2.5">
                   <span
@@ -236,7 +246,7 @@ export function GatewayUpstreamModelsPanel() {
             ))}
             {!models.length && (
               <tr>
-                <td colSpan={4} className="px-3 py-8 text-center text-slate-500">
+                <td colSpan={5} className="px-3 py-8 text-center text-slate-500">
                   暂无上游模型，点击「添加模型」开始配置。
                 </td>
               </tr>
@@ -281,6 +291,15 @@ export function GatewayUpstreamModelsPanel() {
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
               placeholder="https://api.openai.com/v1"
               required
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">Anthropic API Base</span>
+            <input
+              value={form.anthropic_api_base}
+              onChange={(e) => setForm({ ...form, anthropic_api_base: e.target.value })}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              placeholder="https://api.deepseek.com/anthropic"
             />
           </label>
           <label className="block text-sm">

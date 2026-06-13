@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { MarkdownContent } from "./MarkdownContent";
+import { ClickableConversationImage, ImageLightbox, type LightboxImage } from "./ImageLightbox";
 
 import { adminFetch, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import { formatDateTimeShort, formatDateTimeFull, parseEvotownTimestamp } from "../lib/datetime";
@@ -287,6 +288,7 @@ export function CodingAgentWorkspacePage() {
   const [fileLoading, setFileLoading] = useState("");
   const [htmlContents, setHtmlContents] = useState<Record<string, string>>({});
   const [mediaBlobUrls, setMediaBlobUrls] = useState<Record<string, string>>({});
+  const [lightboxImage, setLightboxImage] = useState<LightboxImage | null>(null);
 
   const SESSION_TITLES_KEY = `evotown-session-titles-${workspaceId}`;
   const [sessionTitles, setSessionTitles] = useState<Record<string, string>>(() => {
@@ -914,10 +916,11 @@ export function CodingAgentWorkspacePage() {
                               const blobUrl = mediaBlobUrls[path];
                               if (isImageAttachmentPath(path) && blobUrl) {
                                 return (
-                                  <img
+                                  <ClickableConversationImage
                                     key={path}
                                     src={blobUrl}
                                     alt={name}
+                                    onOpen={setLightboxImage}
                                     className="max-h-48 max-w-full rounded-lg border border-indigo-400/40 bg-white/10"
                                   />
                                 );
@@ -1028,7 +1031,13 @@ export function CodingAgentWorkspacePage() {
                                     );
                                   }
                                   return blobUrl ? (
-                                    <img key={a.path} src={blobUrl} alt={a.path} className="max-h-80 max-w-full rounded-lg" />
+                                    <ClickableConversationImage
+                                      key={a.path}
+                                      src={blobUrl}
+                                      alt={a.path.split("/").pop() || a.path}
+                                      onOpen={setLightboxImage}
+                                      className="max-h-80 max-w-full rounded-lg"
+                                    />
                                   ) : null;
                                 })}
                             </div>
@@ -1611,6 +1620,7 @@ export function CodingAgentWorkspacePage() {
           </div>
         </div>
       )}
+      <ImageLightbox image={lightboxImage} onClose={() => setLightboxImage(null)} />
     </div>
   );
 }

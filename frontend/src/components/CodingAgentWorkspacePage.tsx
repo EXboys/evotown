@@ -2,6 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useNavigate, useParams } from "react-router-dom";
 import { MarkdownContent } from "./MarkdownContent";
 import { ClickableConversationImage, ImageLightbox, type LightboxImage } from "./ImageLightbox";
+import {
+  ContextFileViewer,
+  contextArtifactMeta,
+  contextArtifactPath,
+  sortContextArtifacts,
+} from "./ContextFileViewer";
 
 import { adminFetch, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import { formatDateTimeShort, formatDateTimeFull, parseEvotownTimestamp } from "../lib/datetime";
@@ -170,16 +176,6 @@ function fileMeta(path: string): { icon: string; label: string } {
   return { icon: "📁", label: "File" };
 }
 
-function prettyContent(path: string, content: string): string {
-  if (path.toLowerCase().endsWith(".json")) {
-    try {
-      return JSON.stringify(JSON.parse(content), null, 2);
-    } catch {
-      return content;
-    }
-  }
-  return content;
-}
 
 /** Agent 思考中的动画点。 */
 function TypingDots() {
@@ -354,8 +350,18 @@ export function CodingAgentWorkspacePage() {
   }, [selectedRunId, runs]);
 
   const selectedRun = useMemo(
-    () => runChain.length > 0 ? runChain[runChain.length - 1] : null,
+    () => (runChain.length > 0 ? runChain[runChain.length - 1] : null),
     [runChain],
+  );
+
+  const selectedRunArtifacts = useMemo(() => selectedRun?.artifact_manifest || [], [selectedRun]);
+  const contextArtifacts = useMemo(
+    () => sortContextArtifacts(selectedRunArtifacts.filter((artifact) => contextArtifactPath(artifact.path))),
+    [selectedRunArtifacts],
+  );
+  const outputArtifacts = useMemo(
+    () => selectedRunArtifacts.filter((artifact) => !contextArtifactPath(artifact.path)),
+    [selectedRunArtifacts],
   );
 
   type Session = { id: string; prompt: string; count: number; lastAt: string; lastStatus: AgentRun["status"] };
@@ -1514,11 +1520,45 @@ export function CodingAgentWorkspacePage() {
                 <div>
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm font-medium text-slate-700">上下文文件</span>
-                    <span className="text-[11px] text-slate-400">点击查看</span>
+                    <span className="text-[11px] text-slate-400">结构化预览</span>
                   </div>
                   <div className="space-y-2">
-                    {(selectedRun.artifact_manifest || []).length ? (
-                      (selectedRun.artifact_manifest || []).map((artifact) => {
+                    {contextArtifacts.length ? (
+                      contextArtifacts.map((artifact) => {
+                        const meta = contextArtifactMeta(artifact.path);
+                        return (
+                          <button
+                            key={artifact.path}
+                            type="button"
+                            onClick={() => void openFile(artifact.path)}
+                            className="flex w-full items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-left transition hover:border-indigo-300 hover:bg-indigo-50/40"
+                          >
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-lg" aria-hidden>
+                              {meta.icon}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-xs font-semibold text-slate-900">{meta.title}</span>
+                              <span className="block truncate text-[11px] text-slate-400">
+                                {meta.subtitle} · {formatBytes(artifact.bytes)}
+                              </span>
+                            </span>
+                            <span className="shrink-0 text-xs text-slate-300">
+                              {fileLoading === artifact.path ? "…" : "›"}
+                            </span>
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="text-xs text-slate-400">暂无上下文文件。</div>
+                    )}
+                  </div>
+                </div>
+
+                {outputArtifacts.length ? (
+                  <div>
+                    <div className="mb-2 text-sm font-medium text-slate-700">产出文件</div>
+                    <div className="space-y-2">
+                      {outputArtifacts.map((artifact) => {
                         const meta = fileMeta(artifact.path);
                         const name = artifact.path.split("/").pop() || artifact.path;
                         return (
@@ -1540,12 +1580,10 @@ export function CodingAgentWorkspacePage() {
                             </span>
                           </button>
                         );
-                      })
-                    ) : (
-                      <div className="text-xs text-slate-400">暂无上下文文件。</div>
-                    )}
+                      })}
+                    </div>
                   </div>
-                </div>
+                ) : null}
 
                 <div>
                   <div className="mb-2 text-sm font-medium text-slate-700">执行步骤</div>
@@ -1592,13 +1630,19 @@ export function CodingAgentWorkspacePage() {
           onClick={() => setFileViewer(null)}
         >
           <div
-            className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+            className={`flex max-h-[85vh] w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-2xl ${
+              contextArtifactPath(fileViewer.path) ? "max-w-4xl" : "max-w-2xl"
+            }`}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <span aria-hidden>{fileMeta(fileViewer.path).icon}</span>
-                <span className="truncate font-mono text-sm font-medium text-slate-900">{fileViewer.path}</span>
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-slate-900">
+                  {contextArtifactPath(fileViewer.path)
+                    ? contextArtifactMeta(fileViewer.path).title
+                    : fileViewer.path.split("/").pop() || fileViewer.path}
+                </div>
+                <div className="truncate font-mono text-[11px] text-slate-400">{fileViewer.path}</div>
               </div>
               <div className="flex shrink-0 items-center gap-3">
                 <span className="text-[11px] text-slate-400">
@@ -1614,9 +1658,15 @@ export function CodingAgentWorkspacePage() {
                 </button>
               </div>
             </div>
-            <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap bg-slate-950 p-4 text-xs leading-relaxed text-slate-100">
-              {prettyContent(fileViewer.path, fileViewer.content)}
-            </pre>
+            <div className="flex min-h-0 flex-1 flex-col p-4">
+              {contextArtifactPath(fileViewer.path) || fileViewer.path.toLowerCase().endsWith(".json") || fileViewer.path.toLowerCase().endsWith(".md") ? (
+                <ContextFileViewer path={fileViewer.path} content={fileViewer.content} />
+              ) : (
+                <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-white p-4 text-xs leading-relaxed text-slate-800">
+                  {fileViewer.content}
+                </pre>
+              )}
+            </div>
           </div>
         </div>
       )}

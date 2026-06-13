@@ -86,33 +86,26 @@ class GatewayUpstreamModelsTest(unittest.TestCase):
         self.assertEqual(body["model"], "gpt-4o-mini")
         self.assertEqual(headers["Authorization"], "Bearer sk-test")
 
-    def test_anthropic_managed_upstream_routes_through_litellm(self) -> None:
+    def test_anthropic_managed_upstream_routes_to_anthropic_api_base(self) -> None:
         from infra import gateway_models
         from infra import gateway_upstream
 
+        anthropic_base = "https://dashscope.aliyuncs.com/apps/anthropic/v1"
         gateway_models.create_model(
             model_name="corp-qwen",
             api_base="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            anthropic_api_base=anthropic_base,
             api_key="dashscope-secret",
             litellm_model="dashscope/qwen3-coder-plus",
         )
-        with patch.dict(
-            os.environ,
-            {
-                "LITELLM_BASE_URL": "",
-                "LITELLM_ANTHROPIC_BASE_URL": "http://litellm.test/v1",
-                "LITELLM_MASTER_KEY": "litellm-master",
-            },
-            clear=False,
-        ):
-            target, headers, body = gateway_upstream.build_anthropic_upstream_call(
-                {"model": "corp-qwen", "max_tokens": 64, "messages": [{"role": "user", "content": "hi"}]},
-                "corp-qwen",
-                request_headers={"anthropic-version": "2023-06-01"},
-            )
+        target, headers, body = gateway_upstream.build_anthropic_upstream_call(
+            {"model": "corp-qwen", "max_tokens": 64, "messages": [{"role": "user", "content": "hi"}]},
+            "corp-qwen",
+            request_headers={"anthropic-version": "2023-06-01"},
+        )
 
-        self.assertEqual(target, "http://litellm.test/v1/messages")
+        self.assertEqual(target, f"{anthropic_base}/messages")
         self.assertEqual(body["model"], "dashscope/qwen3-coder-plus")
-        self.assertEqual(headers["Authorization"], "Bearer litellm-master")
+        self.assertEqual(headers["x-api-key"], "dashscope-secret")
         self.assertEqual(headers["anthropic-version"], "2023-06-01")
-        self.assertNotIn("x-api-key", headers)
+        self.assertNotIn("Authorization", headers)

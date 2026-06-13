@@ -81,6 +81,7 @@ services:
       - LITELLM_ANTHROPIC_BASE_URL=${LITELLM_ANTHROPIC_BASE_URL:-}
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      - EVOTOWN_PUBLIC_URL=${EVOTOWN_PUBLIC_URL:-}
       # Hosted Claude Coding Agent (embedded claude-agent-sdk in backend image)
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - EVOTOWN_CLAUDE_USE_GATEWAY=${EVOTOWN_CLAUDE_USE_GATEWAY:-}

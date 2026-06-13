@@ -236,10 +236,14 @@ def _build_conversation_prompt(current_prompt: str, history: list[dict[str, Any]
 
 def _attachment_prompt_suffix(signals: dict[str, Any]) -> str:
     paths = [str(p).strip() for p in (signals.get("attachments") or []) if str(p).strip()]
-    if not paths:
-        return ""
-    joined = ", ".join(f"`{path}`" for path in paths)
-    return f"用户附件: {joined}"
+    parts: list[str] = []
+    if paths:
+        parts.append(f"用户附件: {', '.join(f'`{path}`' for path in paths)}")
+    vision = str(signals.get("vision_analysis") or "").strip()
+    if vision:
+        excerpt = vision if len(vision) <= 400 else vision[:400] + "…"
+        parts.append(f"视觉分析: {excerpt}")
+    return " · ".join(parts)
 
 
 def _append_attachments_to_prompt(prompt: str, workspace: dict[str, Any], attachment_paths: list[str]) -> str:
@@ -258,6 +262,37 @@ def _append_attachments_to_prompt(prompt: str, workspace: dict[str, Any], attach
             size = 0
         lines.append(f"- `{rel}` ({size} bytes)")
     return "\n".join(lines)
+
+
+def _append_vision_to_prompt(prompt: str, vision_text: str, image_paths: list[str]) -> str:
+    if not vision_text.strip():
+        return prompt
+    paths = ", ".join(f"`{path}`" for path in image_paths)
+    return "\n".join(
+        [
+            prompt,
+            "",
+            f"[系统视觉分析 — 已通过视觉模型理解图片附件 {paths}]",
+            vision_text.strip(),
+            "",
+            "请基于以上视觉分析回答用户；不要声称你看不到图片。若需进一步操作文件，仍可使用 workspace 相对路径。",
+        ]
+    )
+
+
+def _result_summary_from_output(output: str, *, vision_text: str = "") -> str:
+    text = output.strip()
+    vision = vision_text.strip()
+    if vision and len(text) < 120:
+        return vision[:8000]
+    if not text:
+        return vision or "Claude Code runner completed."
+    blocks = [block.strip() for block in text.split("\n\n") if block.strip()]
+    if len(blocks) >= 2 and len(blocks[-1]) < 100 and ("?" in blocks[-1] or "？" in blocks[-1]):
+        body = "\n\n".join(blocks[:-1])
+        if len(body) > 200:
+            return body[:8000]
+    return text[:8000]
 
 
 def _write_conversation_context(
@@ -685,6 +720,39 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
     history = _get_conversation_history(previous_run_id)
     prompt = _build_conversation_prompt(run["prompt"], history)
     prompt = _append_attachments_to_prompt(prompt, workspace, attachment_paths)
+
+    vision_text = ""
+    from services import workspace_vision
+
+    image_paths = workspace_vision.filter_image_paths(attachment_paths)
+    if image_paths:
+        if workspace_vision.vision_enabled():
+            try:
+                vision_text = await workspace_vision.describe_workspace_images(
+                    workspace,
+                    image_paths,
+                    user_prompt=str(run.get("prompt") or ""),
+                )
+                claude_agent_runs.append_event(
+                    run_id,
+                    "vision.ready",
+                    {
+                        "model": workspace_vision.vision_model_name(),
+                        "images": len(image_paths),
+                        "chars": len(vision_text),
+                    },
+                )
+            except ValueError as exc:
+                claude_agent_runs.append_event(run_id, "vision.error", {"error": str(exc)})
+                vision_text = f"[视觉分析不可用: {exc}]"
+        else:
+            claude_agent_runs.append_event(
+                run_id,
+                "vision.skipped",
+                {"reason": "EVOTOWN_CLAUDE_VISION_MODEL 未配置"},
+            )
+        prompt = _append_vision_to_prompt(prompt, vision_text, image_paths)
+
     identity = _runner_identity(run)
     shared_context = build_shared_context(
         prompt=run["prompt"],
@@ -791,7 +859,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
         return updated or run
 
     status = "succeeded" if exit_code == 0 else "failed"
-    summary = output.strip().splitlines()[-1] if output.strip() else "Claude Code runner completed."
+    summary = _result_summary_from_output(output, vision_text=vision_text)
 
     # Scan workspace for new files created by the Agent
     try:
@@ -829,6 +897,8 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
             "materialized_skill_count": len(materialized_skills),
             "mcp_connection_count": len(shared_context.get("mcp", {}).get("connections", [])),
             "knowledge_result_count": len(shared_context.get("knowledge", {}).get("results", [])),
+            "vision_model": workspace_vision.vision_model_name() if vision_text else "",
+            **({"vision_analysis": vision_text[:8000]} if vision_text and not vision_text.startswith("[视觉分析不可用") else {}),
         },
     )
     return updated or run

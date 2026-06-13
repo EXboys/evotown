@@ -83,6 +83,24 @@ EVOTOWN_CLAUDE_GATEWAY_API_KEY=evk_xxxxxxxx
 EVOTOWN_CLAUDE_EXECUTION_MODE=sdk
 ```
 
+### 图片识图（Vision）
+
+上传的图片附件**不会**自动被 `deepseek-v4-flash` 等纯文本模型「看见」。需在 Gateway 注册 **支持 OpenAI 多模态** 的上游模型，并配置：
+
+```bash
+# 与 deepseek-v4-flash 分开；示例为通义千问 VL（需在控制台注册 api_base / api_key）
+EVOTOWN_CLAUDE_VISION_MODEL=qwen-vl-plus
+EVOTOWN_CLAUDE_VISION_MAX_TOKENS=2048
+```
+
+流程：Run 启动前 Evotown 调用视觉模型做 **vision preflight**，将识图结果注入 Agent prompt；对话 UI 会显示「图片视觉分析完成」事件。
+
+| 模型 | 是否可用于 EVOTOWN_CLAUDE_VISION_MODEL |
+|------|--------------------------------------|
+| `deepseek-v4-flash` | ❌ 纯文本，不支持 image_url |
+| 通义 `qwen-vl-plus` / `qwen-vl-max` | ✅ OpenAI 兼容多模态 |
+| OpenAI `gpt-4o` 等 | ✅ |
+
 ### 常见错误
 
 | 错误配置 | 现象 |

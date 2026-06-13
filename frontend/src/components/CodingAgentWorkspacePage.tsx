@@ -112,6 +112,16 @@ function describeEvent(event: AgentRunEvent): { icon: string; title: string; det
       parts.push(`命中 ${knowledge} 条知识库`);
       return { icon: "✅", title: "上下文就绪", detail: parts.join("，") };
     }
+    case "vision.ready":
+      return {
+        icon: "👁️",
+        title: "图片视觉分析完成",
+        detail: str("model") ? `模型 ${str("model")} · ${num("images") ?? 0} 张` : `${num("images") ?? 0} 张图片`,
+      };
+    case "vision.error":
+      return { icon: "⚠️", title: "图片视觉分析失败", detail: str("error") || "视觉模型不可用" };
+    case "vision.skipped":
+      return { icon: "ℹ️", title: "未启用视觉模型", detail: str("reason") || "请配置 EVOTOWN_CLAUDE_VISION_MODEL" };
     case "assistant_message":
       return { icon: "🤖", title: "Agent 返回结果", detail: str("summary") || "执行完成" };
     case "run.error":

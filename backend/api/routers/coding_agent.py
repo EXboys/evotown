@@ -371,3 +371,19 @@ async def list_agent_run_events(run_id: str, limit: int = 500, identity: dict | 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
     _load_workspace_for_identity(run["workspace_id"], identity)
     return {"events": claude_agent_runs.list_events(run_id, limit=limit)}
+
+
+@router.post("/agent-runs/{run_id}/cancel")
+async def cancel_agent_run(run_id: str, identity: dict | None = Depends(require_console_read)):
+    identity = _require_identity(identity)
+    _require_scope(identity, "agent.run", "console.write")
+    run = claude_agent_runs.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
+    _load_workspace_for_identity(run["workspace_id"], identity)
+    if not _is_admin(identity) and run.get("account_id") != _account_id(identity):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not allowed to cancel this run")
+    updated = await claude_code_runner.cancel_run(run_id)
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
+    return {"run": updated}

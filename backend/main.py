@@ -244,6 +244,9 @@ async def lifespan(app: FastAPI):
     _checkpoint_task = asyncio.create_task(_checkpoint_loop())
     _chronicle_task = asyncio.create_task(_chronicle_loop())
     _hosted_dispatch_task = asyncio.create_task(hosted_dispatch_loop())
+    from services.claude_code_runner import stale_run_watchdog_loop
+
+    _claude_watchdog_task = asyncio.create_task(stale_run_watchdog_loop())
     # 注意：内存看门狗在 ProcessManager 内部自动启动（spawn 时调用 _start_memory_watchdog）
 
     yield
@@ -252,7 +255,8 @@ async def lifespan(app: FastAPI):
     _checkpoint_task.cancel()
     _chronicle_task.cancel()
     _hosted_dispatch_task.cancel()
-    for _t in (_timeout_task, _checkpoint_task, _chronicle_task, _hosted_dispatch_task):
+    _claude_watchdog_task.cancel()
+    for _t in (_timeout_task, _checkpoint_task, _chronicle_task, _hosted_dispatch_task, _claude_watchdog_task):
         try:
             await _t
         except asyncio.CancelledError:

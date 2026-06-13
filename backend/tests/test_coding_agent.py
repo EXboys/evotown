@@ -258,6 +258,66 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertEqual(env["ANTHROPIC_API_KEY"], "evk_test")
         self.assertEqual(env["CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST"], "1")
 
+    def test_cli_subprocess_env_uses_gateway_base(self) -> None:
+        from services import claude_code_runner
+
+        with patch.dict(
+            os.environ,
+            {
+                "EVOTOWN_CLAUDE_USE_GATEWAY": "1",
+                "EVOTOWN_CLAUDE_GATEWAY_BASE_URL": "http://backend:8765/api/gateway/anthropic",
+                "EVOTOWN_CLAUDE_GATEWAY_API_KEY": "evk_test",
+            },
+            clear=False,
+        ):
+            env = claude_code_runner._cli_subprocess_env(  # noqa: SLF001
+                workspace_root=Path("/tmp/ws"),
+                run={"run_id": "car_test", "prompt": "hi", "signals": {}},
+                model="deepseek-v4-flash",
+            )
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://backend:8765/api/gateway/anthropic")
+        self.assertEqual(env["ANTHROPIC_API_KEY"], "evk_test")
+
+    def test_cancel_run_marks_cancelled(self) -> None:
+        from infra import claude_agent_runs, workspaces
+        from services import claude_code_runner
+
+        account, secret = self._account_key("CancelUser")
+        ws = workspaces.create_workspace(owner_account_id=account["account_id"], name="Cancel WS")
+        run = claude_agent_runs.create_run(
+            workspace_id=ws["workspace_id"],
+            account_id=account["account_id"],
+            prompt="slow task",
+            model="claude-sonnet-4",
+        )
+        claude_agent_runs.update_run_status(run["run_id"], status="running")
+
+        updated = asyncio.run(claude_code_runner.cancel_run(run["run_id"]))
+        self.assertIsNotNone(updated)
+        assert updated is not None
+        self.assertEqual(updated["status"], "cancelled")
+
+    def test_list_stale_active_runs(self) -> None:
+        from infra import claude_agent_runs, workspaces
+
+        account, _secret = self._account_key("StaleUser")
+        ws = workspaces.create_workspace(owner_account_id=account["account_id"], name="Stale WS")
+        run = claude_agent_runs.create_run(
+            workspace_id=ws["workspace_id"],
+            account_id=account["account_id"],
+            prompt="stale",
+            model="claude-sonnet-4",
+        )
+        claude_agent_runs.update_run_status(run["run_id"], status="running")
+        conn = claude_agent_runs._ensure_conn()  # noqa: SLF001
+        conn.execute(
+            "UPDATE claude_agent_runs SET started_at=datetime('now', '-700 seconds') WHERE run_id=?",
+            (run["run_id"],),
+        )
+        conn.commit()
+        stale = claude_agent_runs.list_stale_active_runs(timeout_sec=600)
+        self.assertTrue(any(item["run_id"] == run["run_id"] for item in stale))
+
 
 if __name__ == "__main__":
     unittest.main()

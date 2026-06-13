@@ -47,6 +47,30 @@ is_env_placeholder() {
   esac
 }
 
+set_env_value() {
+  local key="$1"
+  local val="$2"
+  local force="${3:-0}"
+  [[ -n "$val" ]] || return 0
+
+  local current=""
+  if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+    current="$(grep "^${key}=" "$ENV_FILE" | head -1 | cut -d= -f2-)"
+  fi
+
+  if [[ "$force" -eq 1 ]] || [[ -z "$current" ]] || is_env_placeholder "$key" "$current"; then
+    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+      if [[ "$(uname)" == "Darwin" ]]; then
+        sed -i '' "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
+      else
+        sed -i "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
+      fi
+    else
+      printf '\n%s=%s\n' "$key" "$val" >>"$ENV_FILE"
+    fi
+  fi
+}
+
 ensure_env() {
   # Capture shell overrides before sourcing .env (template values must not clobber exports).
   local deploy_public_url="${EVOTOWN_PUBLIC_URL:-}"
@@ -66,30 +90,6 @@ ensure_env() {
   fi
 
   local changed=0
-  set_env_value() {
-    local key="$1"
-    local val="$2"
-    local force="${3:-0}"
-    [[ -n "$val" ]] || return 0
-
-    local current=""
-    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-      current="$(grep "^${key}=" "$ENV_FILE" | head -1 | cut -d= -f2-)"
-    fi
-
-    if [[ "$force" -eq 1 ]] || [[ -z "$current" ]] || is_env_placeholder "$key" "$current"; then
-      if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-        if [[ "$(uname)" == "Darwin" ]]; then
-          sed -i '' "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
-        else
-          sed -i "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
-        fi
-      else
-        printf '\n%s=%s\n' "$key" "$val" >>"$ENV_FILE"
-      fi
-      changed=1
-    fi
-  }
 
   set_env_value "ADMIN_TOKEN" "$(gen_secret)"
   set_env_value "EVOTOWN_ENGINE_INGEST_TOKEN" "$(gen_secret)"
@@ -114,6 +114,11 @@ ensure_env() {
   set_env_value "PORT" "8080"
   set_env_value "LITELLM_BASE_URL" "http://litellm:4000/v1"
   set_env_value "EVOTOWN_ALLOW_PUBLIC_REGISTER" "0"
+  set_env_value "EVOTOWN_CLAUDE_USE_GATEWAY" "1"
+  set_env_value "EVOTOWN_CLAUDE_GATEWAY_BASE_URL" "http://backend:8765/api/gateway/anthropic"
+  set_env_value "EVOTOWN_CLAUDE_EXECUTION_MODE" "sdk"
+  set_env_value "EVOTOWN_CLAUDE_RUN_TIMEOUT_SEC" "600"
+  changed=1
 
   if [[ "$changed" -eq 1 ]]; then
     log "已写入/补全 .env 密钥与默认值"
@@ -164,7 +169,7 @@ create_employee_key() {
   key_resp="$(curl -fsS -X POST "$base/api/v1/accounts/${account_id}/keys" \
     -H "X-Admin-Token: $admin" \
     -H "Content-Type: application/json" \
-    -d '{"label":"employee-default","scopes":["gateway.chat","console.read","console.write"]}')"
+    -d '{"label":"employee-default","scopes":["gateway.chat","console.read","console.write","agent.run"]}')"
 
   python3 -c 'import json,sys; print(json.load(sys.stdin)["secret"])' <<<"$key_resp"
 }
@@ -209,6 +214,18 @@ skills_market:
   install_scope: team
 EOF
 
+  cat >"$OUTPUT_DIR/coding-agent.env" <<EOF
+# Coding Agent 服务端配置 — 写入服务器 $ENV_FILE（勿提交 git）
+EVOTOWN_CLAUDE_USE_GATEWAY=1
+EVOTOWN_CLAUDE_GATEWAY_BASE_URL=http://backend:8765/api/gateway/anthropic
+EVOTOWN_CLAUDE_GATEWAY_API_KEY=${api_key}
+EVOTOWN_CLAUDE_EXECUTION_MODE=sdk
+EVOTOWN_CLAUDE_RUN_TIMEOUT_SEC=600
+EOF
+
+  set_env_value "EVOTOWN_CLAUDE_GATEWAY_API_KEY" "$api_key" 1
+  set_env_value "CORS_ORIGINS" "${base}" 1
+
   cat >"$OUTPUT_DIR/IT_DEPLOY_SUMMARY.txt" <<EOF
 Evotown 企业部署完成
 ====================
@@ -231,8 +248,13 @@ Skills manifest（Bearer 同上 key）：
 
 配置文件目录：${OUTPUT_DIR}/
   - evotown.agent.env
+  - coding-agent.env
   - openclaw.evotown.yaml
   - hermes.evotown.yaml
+
+Coding Agent（/coding-agent）：
+  将 coding-agent.env 中的变量合并进服务器 .env 后 docker compose up -d
+  文档：docs/zh-CN/CODING_AGENT_AND_GATEWAY.md
 
 引擎 ingest：
   服务器 .env：EVOTOWN_ENGINE_INGEST_TOKEN（IT bootstrap，仅 register/轮换，勿下发员工镜像）

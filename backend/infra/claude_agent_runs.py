@@ -252,3 +252,20 @@ def active_run_count(account_id: str) -> int:
         (account_id,),
     ).fetchone()
     return int(row["n"]) if row else 0
+
+
+def list_stale_active_runs(*, timeout_sec: int, limit: int = 50) -> list[dict[str, Any]]:
+    """Return queued/running runs whose started_at/created_at exceeds timeout_sec."""
+    if timeout_sec <= 0:
+        return []
+    rows = _ensure_conn().execute(
+        """
+        SELECT * FROM claude_agent_runs
+        WHERE status IN ('queued', 'running')
+          AND datetime(COALESCE(started_at, created_at)) < datetime('now', ?)
+        ORDER BY created_at ASC
+        LIMIT ?
+        """,
+        (f"-{int(timeout_sec)} seconds", max(1, min(limit, 200))),
+    ).fetchall()
+    return [_run_from_row(row) for row in rows]

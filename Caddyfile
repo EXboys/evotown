@@ -9,6 +9,9 @@
 
 
 www.skilllite.ai {
+    # 必须开启：否则浏览器每次下载 ~2.7MB 未压缩 JS，Coding Agent 等页面长时间白屏
+    encode gzip
+
     reverse_proxy localhost:8080 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}

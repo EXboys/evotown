@@ -246,6 +246,14 @@ export function CodingAgentWorkspacePage() {
     setEditingTitle(null);
   };
 
+  const deleteSessionTitle = (sessionId: string) => {
+    if (!sessionTitles[sessionId]) return;
+    const next = { ...sessionTitles };
+    delete next[sessionId];
+    setSessionTitles(next);
+    localStorage.setItem(SESSION_TITLES_KEY, JSON.stringify(next));
+  };
+
   const openFile = async (path: string) => {
     if (!workspaceId) return;
     setFileLoading(path);
@@ -502,6 +510,33 @@ export function CodingAgentWorkspacePage() {
     }
   };
 
+  const deleteSession = async (sessionId: string, sessionStatus: AgentRun["status"]) => {
+    if (!workspaceId) return;
+    const title = sessionTitles[sessionId] || sessions.find((s) => s.id === sessionId)?.prompt || "该会话";
+    const runningHint =
+      sessionStatus === "running" || sessionStatus === "queued" ? "运行中的任务将先取消，然后删除。" : "";
+    if (!window.confirm(`确定删除会话「${title.slice(0, 40)}」？${runningHint}此操作不可恢复。`)) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await adminFetch(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`,
+        { method: "DELETE" },
+      ).then((res) => readJson<{ deleted_count?: number }>(res));
+      deleteSessionTitle(sessionId);
+      if (runChain[0]?.run_id === sessionId) {
+        setSelectedRunId("");
+      }
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除会话失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onPromptKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
@@ -571,15 +606,18 @@ export function CodingAgentWorkspacePage() {
                 const displayTitle = customTitle || session.prompt;
                 const isActive = runChain.some((r) => r.run_id === session.id || ((r.signals?.previous_run_id as string) || "").trim() === session.id);
                 return (
-                <button
+                <div
                   key={session.id}
-                  type="button"
-                  onClick={() => setSelectedRunId(session.id)}
-                  className={`w-full rounded-lg border px-3 py-2.5 text-left transition ${
+                  className={`flex items-stretch gap-1 rounded-lg border transition ${
                     isActive
                       ? "border-indigo-300 bg-indigo-50/70"
                       : "border-transparent hover:border-slate-200 hover:bg-slate-50"
                   }`}
+                >
+                <button
+                  type="button"
+                  onClick={() => setSelectedRunId(session.id)}
+                  className="min-w-0 flex-1 rounded-lg px-3 py-2.5 text-left"
                 >
                   <div className="flex items-center gap-2">
                     <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_META[session.lastStatus].dot}`} />
@@ -619,6 +657,16 @@ export function CodingAgentWorkspacePage() {
                     <span>{formatDateTimeShort(session.lastAt)}</span>
                   </div>
                 </button>
+                <button
+                  type="button"
+                  title="删除会话"
+                  disabled={busy}
+                  onClick={() => void deleteSession(session.id, session.lastStatus)}
+                  className="shrink-0 self-center rounded-md px-2 py-1 text-xs text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                >
+                  删除
+                </button>
+                </div>
                 );
               })}
             </div>

@@ -387,3 +387,31 @@ async def cancel_agent_run(run_id: str, identity: dict | None = Depends(require_
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
     return {"run": updated}
+
+
+@router.delete("/workspaces/{workspace_id}/sessions/{session_id}")
+async def delete_workspace_session(
+    workspace_id: str,
+    session_id: str,
+    identity: dict | None = Depends(require_console_read),
+):
+    identity = _require_identity(identity)
+    _require_scope(identity, "console.write", "workspace.write")
+    workspace = _load_workspace_for_identity(workspace_id, identity)
+    if not _is_admin(identity) and workspace.get("owner_account_id") != _account_id(identity):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only the workspace owner can delete sessions")
+
+    runs = claude_agent_runs.list_runs(workspace_id=workspace_id, limit=500)
+    run_ids = claude_agent_runs.session_run_ids(runs, session_id)
+    if not run_ids:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+
+    runs_by_id = {run["run_id"]: run for run in runs}
+    for run_id in run_ids:
+        run = runs_by_id.get(run_id)
+        if run and run.get("status") in claude_agent_runs.RUNNING_STATUSES:
+            await claude_code_runner.cancel_run(run_id)
+
+    deleted = claude_agent_runs.delete_runs(run_ids)
+    root = claude_agent_runs.resolve_session_root(runs, session_id) or session_id
+    return {"session_id": root, "deleted_run_ids": deleted, "deleted_count": len(deleted)}

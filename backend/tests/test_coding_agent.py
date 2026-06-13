@@ -318,6 +318,42 @@ class CodingAgentApiTest(unittest.TestCase):
         stale = claude_agent_runs.list_stale_active_runs(timeout_sec=600)
         self.assertTrue(any(item["run_id"] == run["run_id"] for item in stale))
 
+    def test_delete_session_removes_run_chain(self) -> None:
+        from infra import claude_agent_runs, workspaces
+
+        client = self._client()
+        account, secret = self._account_key("DeleteSessionUser")
+        ws = workspaces.create_workspace(owner_account_id=account["account_id"], name="Delete WS")
+        workspace_id = ws["workspace_id"]
+
+        first = client.post(
+            f"/api/v1/workspaces/{workspace_id}/runs",
+            headers={"Authorization": f"Bearer {secret}"},
+            json={"prompt": "first turn", "model": "claude-test"},
+        )
+        self.assertEqual(first.status_code, 200)
+        run1 = first.json()["run"]["run_id"]
+
+        second = client.post(
+            f"/api/v1/workspaces/{workspace_id}/runs",
+            headers={"Authorization": f"Bearer {secret}"},
+            json={"prompt": "second turn", "model": "claude-test", "previous_run_id": run1},
+        )
+        self.assertEqual(second.status_code, 200)
+        run2 = second.json()["run"]["run_id"]
+
+        deleted = client.delete(
+            f"/api/v1/workspaces/{workspace_id}/sessions/{run1}",
+            headers={"Authorization": f"Bearer {secret}"},
+        )
+        self.assertEqual(deleted.status_code, 200)
+        body = deleted.json()
+        self.assertEqual(body["deleted_count"], 2)
+        self.assertIn(run1, body["deleted_run_ids"])
+        self.assertIn(run2, body["deleted_run_ids"])
+        self.assertIsNone(claude_agent_runs.get_run(run1))
+        self.assertIsNone(claude_agent_runs.get_run(run2))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 
 import { adminFetch, isConsoleAuthenticated } from "../hooks/useAdminToken";
-import { formatDateTimeShort, formatDateTimeFull } from "../lib/datetime";
+import { formatDateTimeShort, formatDateTimeFull, parseEvotownTimestamp } from "../lib/datetime";
 
 type Workspace = {
   workspace_id: string;
@@ -487,6 +487,21 @@ export function CodingAgentWorkspacePage() {
     }
   };
 
+  const cancelRun = async (runId: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }).then((res) =>
+        readJson<{ run: AgentRun }>(res),
+      );
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "取消失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onPromptKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
@@ -680,11 +695,21 @@ export function CodingAgentWorkspacePage() {
                           <span>{formatDateTimeFull(run.completed_at || run.created_at)}</span>
                         </div>
                         <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
-                          <div className="mb-2 flex items-center gap-2">
+                          <div className="mb-2 flex flex-wrap items-center gap-2">
                             <Badge className={STATUS_META[run.status].className}>
                               <span className={`h-1.5 w-1.5 rounded-full ${STATUS_META[run.status].dot}`} />
                               {STATUS_META[run.status].label}
                             </Badge>
+                            {isLast && runRunning && (
+                              <button
+                                type="button"
+                                onClick={() => void cancelRun(run.run_id)}
+                                disabled={busy}
+                                className="rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                              >
+                                取消运行
+                              </button>
+                            )}
                           </div>
                           {runRunning && !run.result_summary && !run.error ? (
                             <div className="space-y-2">
@@ -694,11 +719,11 @@ export function CodingAgentWorkspacePage() {
                                 {run.created_at && (
                                   <span className="text-xs text-slate-400">
                                     {(() => {
-                                      const start = new Date(run.created_at).getTime();
-                                      const now = Date.now();
-                                      const sec = Math.floor((now - start) / 1000);
+                                      const start = parseEvotownTimestamp(run.created_at)?.getTime();
+                                      if (!start) return null;
+                                      const sec = Math.floor((Date.now() - start) / 1000);
                                       if (sec < 60) return `(${sec}秒)`;
-                                      return `(${Math.floor(sec/60)}分${sec%60}秒)`;
+                                      return `(${Math.floor(sec / 60)}分${sec % 60}秒)`;
                                     })()}
                                   </span>
                                 )}

@@ -19,6 +19,22 @@ from infra import claude_agent_runs, database_registry, knowledge, skill_market,
 
 DEFAULT_MODEL = "claude-sonnet-4"
 DEFAULT_ENGINE_ID = "claude-code-hosted"
+DEFAULT_RUN_TIMEOUT_SEC = 600
+
+_RUN_TASKS: dict[str, asyncio.Task] = {}
+
+
+def run_timeout_sec() -> int:
+    raw = os.environ.get("EVOTOWN_CLAUDE_RUN_TIMEOUT_SEC", str(DEFAULT_RUN_TIMEOUT_SEC)).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_RUN_TIMEOUT_SEC
+    return max(0, value)
+
+
+def get_run_task(run_id: str) -> asyncio.Task | None:
+    return _RUN_TASKS.get(run_id)
 
 
 def _json_dumps(value: Any) -> str:
@@ -560,6 +576,34 @@ def _parse_cli_output(raw_output: str) -> tuple[str, str]:
     return full_text, summary
 
 
+def _cli_subprocess_env(*, workspace_root: Path, run: dict[str, Any], model: str) -> dict[str, str]:
+    from services import claude_agent_sdk_runner
+
+    signals = run.get("signals") or {}
+    gateway_env = claude_agent_sdk_runner.gateway_sdk_env()
+    api_key = gateway_env.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    env: dict[str, str] = {
+        **{k: str(v) for k, v in os.environ.items()},
+        "NODE_TLS_REJECT_UNAUTHORIZED": "0",
+        "CLAUDE_CODE_SIMPLE": "1",
+        "ANTHROPIC_API_KEY": api_key,
+        "EVOTOWN_AGENT_RUN_ID": run["run_id"],
+        "EVOTOWN_AGENT_PROMPT": run.get("prompt", ""),
+        "EVOTOWN_WORKSPACE_ROOT": str(workspace_root),
+        "EVOTOWN_CLAUDE_MODEL": model,
+        "EVOTOWN_SELECTED_SKILLS": json.dumps(signals.get("selected_skills") or []),
+        "EVOTOWN_SELECTED_MCP": json.dumps(signals.get("selected_mcp") or []),
+        "EVOTOWN_SKILLS_MANIFEST": str(workspace_root / ".evotown" / "skills_manifest.json"),
+        "EVOTOWN_MCP_CONTEXT": str(workspace_root / ".evotown" / "mcp_context.json"),
+    }
+    if gateway_env.get("ANTHROPIC_BASE_URL"):
+        env["ANTHROPIC_BASE_URL"] = gateway_env["ANTHROPIC_BASE_URL"]
+    elif api_key:
+        env.setdefault("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+    env.update({k: str(v) for k, v in gateway_env.items() if k not in env})
+    return env
+
+
 async def _run_configured_command(*, workspace_root: Path, prompt: str, run: dict[str, Any], model: str) -> tuple[int, str]:
     template = _command_template()
     if not template:
@@ -571,27 +615,12 @@ async def _run_configured_command(*, workspace_root: Path, prompt: str, run: dic
         model=shlex.quote(model),
         workspace=shlex.quote(str(workspace_root)),
     )
-    signals = run.get("signals") or {}
     proc = await asyncio.create_subprocess_shell(
         command,
         cwd=str(workspace_root),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
-        env={
-            **os.environ,
-            "NODE_TLS_REJECT_UNAUTHORIZED": "0",
-            "CLAUDE_CODE_SIMPLE": "1",
-            "ANTHROPIC_BASE_URL": "https://api.anthropic.com",
-            "ANTHROPIC_API_KEY": os.environ.get("EVOTOWN_CLAUDE_GATEWAY_API_KEY", "").strip() or os.environ.get("ANTHROPIC_API_KEY", "").strip(),
-            "EVOTOWN_AGENT_RUN_ID": run["run_id"],
-            "EVOTOWN_AGENT_PROMPT": run.get("prompt", ""),
-            "EVOTOWN_WORKSPACE_ROOT": str(workspace_root),
-            "EVOTOWN_CLAUDE_MODEL": model,
-            "EVOTOWN_SELECTED_SKILLS": json.dumps(signals.get("selected_skills") or []),
-            "EVOTOWN_SELECTED_MCP": json.dumps(signals.get("selected_mcp") or []),
-            "EVOTOWN_SKILLS_MANIFEST": str(workspace_root / ".evotown" / "skills_manifest.json"),
-            "EVOTOWN_MCP_CONTEXT": str(workspace_root / ".evotown" / "mcp_context.json"),
-        },
+        env=_cli_subprocess_env(workspace_root=workspace_root, run=run, model=model),
     )
     stdout, _ = await proc.communicate()
     raw_output = stdout.decode("utf-8", errors="replace") if stdout else ""
@@ -652,13 +681,58 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
     )
 
     execution_backend = "dry-run"
+    timeout_sec = run_timeout_sec()
     try:
-        exit_code, output, execution_backend = await _run_agent(
+        agent_coro = _run_agent(
             workspace_root=root,
             prompt=prompt,
             run=run,
             model=model,
         )
+        if timeout_sec > 0:
+            exit_code, output, execution_backend = await asyncio.wait_for(agent_coro, timeout=timeout_sec)
+        else:
+            exit_code, output, execution_backend = await agent_coro
+    except asyncio.TimeoutError:
+        msg = f"Run timed out after {timeout_sec}s"
+        claude_agent_runs.append_event(run_id, "run.error", {"error": msg, "timeout_sec": timeout_sec})
+        updated = claude_agent_runs.update_run_status(
+            run_id,
+            status="failed",
+            log_excerpt=msg,
+            result_summary=msg,
+            error=msg,
+            artifact_manifest=artifacts,
+            signals={
+                **(run.get("signals") or {}),
+                "engine_id": DEFAULT_ENGINE_ID,
+                "workspace_id": workspace["workspace_id"],
+                "execution_backend": execution_backend,
+                "sdk_command_configured": execution_backend != "dry-run",
+            },
+        )
+        return updated or run
+    except asyncio.CancelledError:
+        current = claude_agent_runs.get_run(run_id) or run
+        if current.get("status") in claude_agent_runs.TERMINAL_STATUSES:
+            return current
+        msg = "Run cancelled"
+        claude_agent_runs.append_event(run_id, "run.error", {"error": msg, "cancelled": True})
+        updated = claude_agent_runs.update_run_status(
+            run_id,
+            status="cancelled",
+            log_excerpt=msg,
+            result_summary=msg,
+            error=msg,
+            artifact_manifest=artifacts,
+            signals={
+                **(run.get("signals") or {}),
+                "engine_id": DEFAULT_ENGINE_ID,
+                "workspace_id": workspace["workspace_id"],
+                "execution_backend": execution_backend,
+            },
+        )
+        raise
     except Exception as exc:
         error = str(exc)
         claude_agent_runs.append_event(run_id, "run.error", {"error": error})
@@ -723,5 +797,72 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
     return updated or run
 
 
+async def cancel_run(run_id: str) -> dict[str, Any] | None:
+    run = claude_agent_runs.get_run(run_id)
+    if run is None:
+        return None
+    if run.get("status") in claude_agent_runs.TERMINAL_STATUSES:
+        return run
+    task = _RUN_TASKS.get(run_id)
+    if task is not None and not task.done():
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    run = claude_agent_runs.get_run(run_id)
+    if run is not None and run.get("status") in claude_agent_runs.RUNNING_STATUSES:
+        msg = "Run cancelled by user"
+        claude_agent_runs.append_event(run_id, "run.error", {"error": msg, "cancelled": True})
+        return claude_agent_runs.update_run_status(
+            run_id,
+            status="cancelled",
+            log_excerpt=msg,
+            result_summary=msg,
+            error=msg,
+        )
+    return run
+
+
+async def stale_run_watchdog_loop() -> None:
+    """Mark queued/running runs as failed when they exceed EVOTOWN_CLAUDE_RUN_TIMEOUT_SEC."""
+    while True:
+        try:
+            await asyncio.sleep(30)
+            timeout_sec = run_timeout_sec()
+            if timeout_sec <= 0:
+                continue
+            for stale in claude_agent_runs.list_stale_active_runs(timeout_sec=timeout_sec):
+                run_id = stale["run_id"]
+                task = _RUN_TASKS.get(run_id)
+                if task is not None and not task.done():
+                    task.cancel()
+                msg = f"Run timed out after {timeout_sec}s (watchdog)"
+                claude_agent_runs.append_event(run_id, "run.error", {"error": msg, "timeout_sec": timeout_sec})
+                claude_agent_runs.update_run_status(
+                    run_id,
+                    status="failed",
+                    log_excerpt=msg,
+                    result_summary=msg,
+                    error=msg,
+                )
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            continue
+
+
 def schedule_run(run_id: str) -> None:
-    asyncio.create_task(run_claude_agent(run_id))
+    async def _runner() -> None:
+        try:
+            await run_claude_agent(run_id)
+        except asyncio.CancelledError:
+            pass
+
+    task = asyncio.create_task(_runner())
+    _RUN_TASKS[run_id] = task
+
+    def _clear(_task: asyncio.Task) -> None:
+        _RUN_TASKS.pop(run_id, None)
+
+    task.add_done_callback(_clear)

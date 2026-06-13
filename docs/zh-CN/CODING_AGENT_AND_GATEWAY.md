@@ -91,6 +91,7 @@ EVOTOWN_CLAUDE_EXECUTION_MODE=sdk
 | 未设 `EVOTOWN_CLAUDE_USE_GATEWAY` | 直连 Anthropic，控制台选的 DeepSeek 路由**不生效** |
 | `ANTHROPIC_API_KEY` 为空且未走 Gateway | `ConnectionRefused` 或 dry-run |
 | 上游模型未配 `anthropic_api_base` | Anthropic 协议转发失败（OpenAI-only 的 api_base 不够） |
+| Run 超过 `EVOTOWN_CLAUDE_RUN_TIMEOUT_SEC` | 自动 failed；UI「取消运行」→ `POST .../cancel` |
 
 DeepSeek 等在控制台注册上游模型时，需填写 **Anthropic 兼容** 的 `anthropic_api_base`（若供应商提供），或改用 LiteLLM 的 Anthropic 代理。
 

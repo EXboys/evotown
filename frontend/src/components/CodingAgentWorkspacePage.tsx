@@ -122,9 +122,23 @@ function describeEvent(event: AgentRunEvent): { icon: string; title: string; det
 }
 
 async function readJson<T>(res: Response): Promise<T> {
-  const data = await res.json();
+  const text = await res.text();
+  let data: unknown = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      if (res.status === 413) {
+        throw new Error("文件过大：单文件请不超过 10MB");
+      }
+      throw new Error(`服务器返回异常 (HTTP ${res.status})，请稍后重试`);
+    }
+  }
   if (!res.ok) {
-    const detail = typeof data?.detail === "string" ? data.detail : `HTTP ${res.status}`;
+    const detail =
+      typeof (data as { detail?: unknown })?.detail === "string"
+        ? (data as { detail: string }).detail
+        : `HTTP ${res.status}`;
     throw new Error(detail);
   }
   return data as T;
@@ -557,6 +571,13 @@ export function CodingAgentWorkspacePage() {
     const picked = Array.from(event.target.files || []);
     event.target.value = "";
     if (!picked.length) return;
+
+    const maxBytes = 10 * 1024 * 1024;
+    const tooLarge = picked.filter((file) => file.size > maxBytes);
+    if (tooLarge.length) {
+      setError(`以下文件超过 10MB 限制：${tooLarge.map((f) => f.name).join("、")}`);
+      return;
+    }
 
     setUploadingAttachments(true);
     setError("");

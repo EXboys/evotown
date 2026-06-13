@@ -98,7 +98,7 @@ export async function adminFetch(
   } else if (adminToken) {
     headers.set("X-Admin-Token", adminToken);
   }
-  if (init.body && !headers.has("Content-Type")) {
+  if (init.body && !headers.has("Content-Type") && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
 

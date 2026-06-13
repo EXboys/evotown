@@ -354,6 +354,49 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertIsNone(claude_agent_runs.get_run(run1))
         self.assertIsNone(claude_agent_runs.get_run(run2))
 
+    def test_upload_files_and_create_run_with_attachments(self) -> None:
+        from infra import claude_agent_runs, workspaces
+
+        client = self._client()
+        account, secret = self._account_key("UploadUser")
+        ws = workspaces.create_workspace(owner_account_id=account["account_id"], name="Upload WS")
+        workspace_id = ws["workspace_id"]
+        headers = {"Authorization": f"Bearer {secret}"}
+
+        uploaded = client.post(
+            f"/api/v1/workspaces/{workspace_id}/uploads",
+            headers=headers,
+            files=[
+                ("files", ("note.txt", b"hello attachment", "text/plain")),
+                ("files", ("photo.png", b"\x89PNG\r\n\x1a\n", "image/png")),
+            ],
+        )
+        self.assertEqual(uploaded.status_code, 200, uploaded.text)
+        uploads = uploaded.json()["uploads"]
+        self.assertEqual(len(uploads), 2)
+        paths = [item["path"] for item in uploads]
+        self.assertTrue(all(path.startswith("uploads/") for path in paths))
+
+        created = client.post(
+            f"/api/v1/workspaces/{workspace_id}/runs",
+            headers=headers,
+            json={
+                "prompt": "请阅读附件",
+                "model": "claude-test",
+                "attachments": paths,
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        run = created.json()["run"]
+        self.assertEqual(run["signals"]["attachments"], paths)
+
+        invalid = client.post(
+            f"/api/v1/workspaces/{workspace_id}/runs",
+            headers=headers,
+            json={"prompt": "bad path", "model": "claude-test", "attachments": ["../README.md"]},
+        )
+        self.assertEqual(invalid.status_code, 400)
+
 
 if __name__ == "__main__":
     unittest.main()

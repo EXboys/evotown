@@ -254,11 +254,7 @@ def is_workspace_member(workspace_id: str, account_id: str) -> bool:
 def can_access_workspace(workspace: dict[str, Any] | None, identity: dict[str, Any]) -> bool:
     if workspace is None:
         return False
-    scopes = identity.get("scopes") or []
-    if "*" in scopes:
-        return True
-    admin_scopes = {"console.write", "workspace.write", "workspace.read"}
-    if any(s in scopes for s in admin_scopes):
+    if "*" in (identity.get("scopes") or []):
         return True
     account_id = str(identity.get("account_id") or "")
     return bool(account_id and workspace.get("owner_account_id") == account_id)

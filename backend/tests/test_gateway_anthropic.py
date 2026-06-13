@@ -115,12 +115,14 @@ class GatewayAnthropicApiTest(unittest.TestCase):
         self.assertEqual(rows[0]["completion_tokens"], 3)
         self.assertEqual(rows[0]["total_tokens"], 5)
 
-    def test_messages_keeps_managed_upstream_behind_litellm_translation(self) -> None:
+    def test_messages_routes_managed_upstream_to_anthropic_api_base(self) -> None:
         from infra import gateway_models
 
+        anthropic_base = "https://dashscope.aliyuncs.com/apps/anthropic/v1"
         gateway_models.create_model(
             model_name="corp-qwen",
             api_base="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            anthropic_api_base=anthropic_base,
             api_key="dashscope-secret",
             litellm_model="dashscope/qwen3-coder-plus",
         )
@@ -161,10 +163,11 @@ class GatewayAnthropicApiTest(unittest.TestCase):
             )
 
         self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertEqual(calls[0]["target"], "http://litellm-anthropic.test/v1/messages")
+        self.assertEqual(calls[0]["target"], f"{anthropic_base}/messages")
         self.assertEqual(calls[0]["json"]["model"], "dashscope/qwen3-coder-plus")
-        self.assertEqual(calls[0]["headers"]["Authorization"], "Bearer test-master")
-        self.assertNotIn("x-api-key", calls[0]["headers"])
+        self.assertEqual(calls[0]["headers"]["x-api-key"], "dashscope-secret")
+        self.assertEqual(calls[0]["headers"]["anthropic-version"], "2023-06-01")
+        self.assertNotIn("Authorization", calls[0]["headers"])
 
     def test_stream_messages_accepts_bearer_and_preserves_sse(self) -> None:
         client, api_key = self._client_and_key()

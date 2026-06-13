@@ -1,6 +1,8 @@
 # Evotown - local test data
 backend/arena_state.json
 backend/replays/
+backend/data/
+!backend/data/.gitkeep
 data/
 
 # Python
@@ -34,3 +36,4 @@ CODE_GUIDE.md
 # OS
 .DS_Store
 Thumbs.db
+PLAN-2026-任务分配.md

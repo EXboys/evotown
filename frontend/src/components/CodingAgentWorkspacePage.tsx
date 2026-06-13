@@ -568,7 +568,7 @@ export function CodingAgentWorkspacePage() {
   const onPromptKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== "Enter") return;
     // 输入法组字/选词期间：回车交给 IME 确认候选，不发送
-    if (event.nativeEvent.isComposing || event.isComposing || imeComposingRef.current) return;
+    if (event.nativeEvent.isComposing || imeComposingRef.current) return;
     // Shift+Enter 换行
     if (event.shiftKey) return;
 

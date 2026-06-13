@@ -70,6 +70,8 @@ chmod +x scripts/enterprise-deploy.sh
 
 也可登录控制台后，在 **`/market`** 或 **`/gateway`** 页使用「员工两行配置 · 复制即用」面板；在 **`/accounts`** 签发新 key 后会自动生成完整员工配置包。
 
+**Coding Agent 工作台**（`/coding-agent`）需在服务器 `.env` 额外配置 `EVOTOWN_CLAUDE_*`（走 Gateway Anthropic 端点，非 OpenAI `/v1` 路径）。见 [CODING_AGENT_AND_GATEWAY.md](./CODING_AGENT_AND_GATEWAY.md)。
+
 ### 员工本机一条命令（推荐）
 
 ```bash
@@ -167,6 +169,7 @@ source ~/.config/evotown/evotown.agent.env
 3. **按人 / 按团队发 key**：在 `/accounts` 创建账号并设置 `monthly_token_limit`
 4. **HTTPS + 内网 DNS**：参考仓库根目录 `Caddyfile`
 5. **`deploy-output/` 加入 `.gitignore`**（若尚未忽略）
+5. **`deploy-output/` 加入 `.gitignore`**（若尚未忽略）
 
 ---
 
@@ -182,6 +185,7 @@ Evotown **不替代** OpenClaw/Hermes 本机执行，也 **不绑定** 某一朵
 
 ## 相关文档
 
+- [Coding Agent 与 Gateway 部署](./CODING_AGENT_AND_GATEWAY.md)
 - [私有化 Skills 市场部署](./PRIVATE_SKILLS_MARKET_DEPLOYMENT.md)
 - [引擎接入 API](./EVOTOWN-ENGINE-INGEST-V0.1.md)
 - [企业控制面产品规划](./ENTERPRISE_CONTROL_PLANE_PRODUCT_SPEC.md)

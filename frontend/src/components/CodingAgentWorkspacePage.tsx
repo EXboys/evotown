@@ -218,6 +218,7 @@ export function CodingAgentWorkspacePage() {
   const [error, setError] = useState("");
   const threadRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const imeComposingRef = useRef(false);
 
   useEffect(() => {
     setLogExpanded(false);
@@ -565,8 +566,14 @@ export function CodingAgentWorkspacePage() {
   };
 
   const onPromptKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-      event.preventDefault();
+    if (event.key !== "Enter") return;
+    // 输入法组字/选词期间：回车交给 IME 确认候选，不发送
+    if (event.nativeEvent.isComposing || event.isComposing || imeComposingRef.current) return;
+    // Shift+Enter 换行
+    if (event.shiftKey) return;
+
+    event.preventDefault();
+    if (!busy && prompt.trim()) {
       void startRun();
     }
   };
@@ -1041,9 +1048,15 @@ export function CodingAgentWorkspacePage() {
                 ref={textareaRef}
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
+                onCompositionStart={() => {
+                  imeComposingRef.current = true;
+                }}
+                onCompositionEnd={() => {
+                  imeComposingRef.current = false;
+                }}
                 onKeyDown={onPromptKeyDown}
                 rows={1}
-                placeholder={selectedRunId ? "继续此对话…（Cmd/Ctrl + Enter 发送）" : "给这个 workspace 里的 Agent 发一个任务（Cmd/Ctrl + Enter 发送）…"}
+                placeholder={selectedRunId ? "继续此对话…（Enter 发送，Shift+Enter 换行）" : "给这个 workspace 里的 Agent 发一个任务（Enter 发送，Shift+Enter 换行）…"}
                 className="max-h-52 min-h-[3rem] w-full resize-none rounded-t-2xl px-4 pt-3 text-sm leading-relaxed outline-none"
               />
               <div className="flex items-center justify-between gap-2 px-3 pb-3">
@@ -1222,7 +1235,7 @@ export function CodingAgentWorkspacePage() {
               </div>
             </div>
             <div className="mt-1.5 text-center text-[11px] text-slate-400">
-              任务在中心化托管环境中执行 · Cmd/Ctrl + Enter 快速发送
+              任务在中心化托管环境中执行 · Enter 发送 · Shift+Enter 换行
             </div>
           </div>
         </div>

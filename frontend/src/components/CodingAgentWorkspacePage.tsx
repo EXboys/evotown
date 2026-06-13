@@ -246,19 +246,6 @@ export function CodingAgentWorkspacePage() {
     setEditingTitle(null);
   };
 
-  const SESSION_TITLES_KEY = `evotown-session-titles-${workspaceId}`;
-  const [sessionTitles, setSessionTitles] = useState<Record<string, string>>(() => {
-    try { return JSON.parse(localStorage.getItem(SESSION_TITLES_KEY) || "{}"); } catch { return {}; }
-  });
-  const [editingTitle, setEditingTitle] = useState<{ id: string; value: string } | null>(null);
-
-  const saveSessionTitle = (sessionId: string, title: string) => {
-    const next = { ...sessionTitles, [sessionId]: title.trim() || "" };
-    setSessionTitles(next);
-    localStorage.setItem(SESSION_TITLES_KEY, JSON.stringify(next));
-    setEditingTitle(null);
-  };
-
   const openFile = async (path: string) => {
     if (!workspaceId) return;
     setFileLoading(path);

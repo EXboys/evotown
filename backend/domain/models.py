@@ -130,6 +130,7 @@ class ClaudeAgentRunCreate(BaseModel):
     skills: list[str] = Field(default_factory=list)
     mcp: list[str] = Field(default_factory=list)
     previous_run_id: str = Field(default="", max_length=64)
+    attachments: list[str] = Field(default_factory=list, max_length=20)
 
 
 class SetupAgentRequest(BaseModel):

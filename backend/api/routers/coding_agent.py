@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 
 from core.auth import require_console_read
 from domain.models import ClaudeAgentRunCreate, WorkspaceCreate, WorkspaceUpdate
-from infra import claude_agent_runs, workspaces
+from infra import claude_agent_runs, workspace_uploads, workspaces
 from services import claude_code_runner
 
 router = APIRouter(prefix="/api/v1", tags=["coding-agent"])
@@ -53,6 +53,26 @@ def _load_workspace_for_identity(workspace_id: str, identity: dict) -> dict:
     if not workspaces.can_access_workspace(workspace, identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="workspace access denied")
     return workspace
+
+
+def _normalize_attachment_paths(workspace: dict, paths: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in paths:
+        rel = str(raw or "").strip().replace("\\", "/").lstrip("/")
+        if not rel or rel in seen:
+            continue
+        if not rel.startswith("uploads/"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"invalid attachment path: {rel}")
+        try:
+            target = workspaces.resolve_workspace_path(workspace, rel)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        if not target.is_file():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"attachment not found: {rel}")
+        seen.add(rel)
+        normalized.append(rel)
+    return normalized
 
 
 @router.get("/coding-agent/options")
@@ -299,6 +319,35 @@ async def read_workspace_file(
     }
 
 
+@router.post("/workspaces/{workspace_id}/uploads")
+async def upload_workspace_files(
+    workspace_id: str,
+    files: list[UploadFile] = File(...),
+    identity: dict | None = Depends(require_console_read),
+):
+    """Upload images/files into the workspace uploads/ directory for agent runs."""
+    identity = _require_identity(identity)
+    _require_scope(identity, "workspace.write", "console.write", "agent.run")
+    workspace = _load_workspace_for_identity(workspace_id, identity)
+    if not workspaces.can_run_workspace(workspace, identity):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="upload is not allowed for this workspace")
+    if not files:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="no files provided")
+
+    payload: list[tuple[str, bytes]] = []
+    for item in files:
+        name = (item.filename or "file").strip()
+        content = await item.read()
+        payload.append((name, content))
+
+    try:
+        saved = workspace_uploads.save_uploads(workspace, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return {"uploads": saved}
+
+
 @router.post("/workspaces/{workspace_id}/runs")
 async def create_agent_run(workspace_id: str, body: ClaudeAgentRunCreate, identity: dict | None = Depends(require_console_read)):
     identity = _require_identity(identity)
@@ -312,6 +361,8 @@ async def create_agent_run(workspace_id: str, body: ClaudeAgentRunCreate, identi
     if max_active > 0 and claude_agent_runs.active_run_count(account_id) >= max_active:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="too many active hosted agent runs")
 
+    attachment_paths = _normalize_attachment_paths(workspace, list(body.attachments or []))
+
     run = claude_agent_runs.create_run(
         workspace_id=workspace_id,
         account_id=account_id,
@@ -324,6 +375,7 @@ async def create_agent_run(workspace_id: str, body: ClaudeAgentRunCreate, identi
             "selected_skills": list(body.skills or []),
             "selected_mcp": list(body.mcp or []),
             "previous_run_id": body.previous_run_id,
+            "attachments": attachment_paths,
         },
     )
     claude_code_runner.schedule_run(run["run_id"])

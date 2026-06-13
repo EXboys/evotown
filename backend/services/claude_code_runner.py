@@ -224,10 +224,39 @@ def _build_conversation_prompt(current_prompt: str, history: list[dict[str, Any]
     for i, h in enumerate(history, 1):
         lines.append(f"第{i}轮:")
         lines.append(f"  用户: {h.get('prompt', '')}")
+        attachment_note = _attachment_prompt_suffix(h.get("signals") or {})
+        if attachment_note:
+            lines.append(f"  {attachment_note}")
         result = str(h.get("result_summary") or h.get("log_excerpt") or "")
         lines.append(f"  助手: {result}")
     lines.append(f"---")
     lines.append(f"用户的新消息: {current_prompt}")
+    return "\n".join(lines)
+
+
+def _attachment_prompt_suffix(signals: dict[str, Any]) -> str:
+    paths = [str(p).strip() for p in (signals.get("attachments") or []) if str(p).strip()]
+    if not paths:
+        return ""
+    joined = ", ".join(f"`{path}`" for path in paths)
+    return f"用户附件: {joined}"
+
+
+def _append_attachments_to_prompt(prompt: str, workspace: dict[str, Any], attachment_paths: list[str]) -> str:
+    if not attachment_paths:
+        return prompt
+    lines = [
+        prompt,
+        "",
+        "[用户在本轮消息中上传了以下文件，已保存在 workspace 中，请按需读取并使用相对路径访问]",
+    ]
+    for rel in attachment_paths:
+        try:
+            target = workspaces.resolve_workspace_path(workspace, rel)
+            size = target.stat().st_size if target.is_file() else 0
+        except (OSError, ValueError):
+            size = 0
+        lines.append(f"- `{rel}` ({size} bytes)")
     return "\n".join(lines)
 
 
@@ -333,6 +362,12 @@ def _render_agent_context_md(
                 "",
             ]
         )
+    attachment_paths = [str(p).strip() for p in (run.get("signals") or {}).get("attachments") or [] if str(p).strip()]
+    if attachment_paths:
+        lines.extend(["## User Uploads", "", "The user attached these files for this run:", ""])
+        for rel in attachment_paths:
+            lines.append(f"- `{rel}`")
+        lines.append("")
     lines.extend(
         [
             "## MCP / Databases",
@@ -645,9 +680,11 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
     selected_skills = list(signals.get("selected_skills") or [])
     selected_mcp = list(signals.get("selected_mcp") or [])
     previous_run_id = str(signals.get("previous_run_id") or "").strip()
+    attachment_paths = [str(p).strip() for p in (signals.get("attachments") or []) if str(p).strip()]
     _write_conversation_context(workspace, previous_run_id)
     history = _get_conversation_history(previous_run_id)
     prompt = _build_conversation_prompt(run["prompt"], history)
+    prompt = _append_attachments_to_prompt(prompt, workspace, attachment_paths)
     identity = _runner_identity(run)
     shared_context = build_shared_context(
         prompt=run["prompt"],

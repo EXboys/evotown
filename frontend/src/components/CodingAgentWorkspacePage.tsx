@@ -48,6 +48,33 @@ type SkillOption = { id: string; name: string; version?: string; summary?: strin
 type McpOption = { id: string; name: string; db_type?: string; access_mode?: string };
 type AgentOptions = { models: ModelOption[]; default_model: string; skills: SkillOption[]; mcp: McpOption[] };
 
+type WorkspaceUpload = {
+  path: string;
+  filename: string;
+  bytes: number;
+  sha256: string;
+  kind: "image" | "file";
+  content_type: string;
+};
+
+type PendingAttachment = WorkspaceUpload & {
+  localId: string;
+  previewUrl?: string;
+};
+
+const ATTACHMENT_ACCEPT =
+  "image/*,.pdf,.txt,.md,.json,.csv,.yaml,.yml,.xml,.html,.htm,.py,.js,.ts,.tsx,.jsx,.css,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx";
+
+function runAttachmentPaths(run: AgentRun): string[] {
+  const raw = run.signals?.attachments;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function isImageAttachmentPath(path: string): boolean {
+  return /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(path);
+}
+
 const STATUS_META: Record<AgentRun["status"], { label: string; className: string; dot: string }> = {
   queued: { label: "排队中", className: "border-slate-200 bg-slate-50 text-slate-600", dot: "bg-slate-400" },
   running: { label: "运行中", className: "border-blue-200 bg-blue-50 text-blue-700", dot: "bg-blue-500 animate-pulse" },
@@ -218,7 +245,10 @@ export function CodingAgentWorkspacePage() {
   const [error, setError] = useState("");
   const threadRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imeComposingRef = useRef(false);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [uploadingAttachments, setUploadingAttachments] = useState(false);
 
   useEffect(() => {
     setLogExpanded(false);
@@ -435,6 +465,24 @@ export function CodingAgentWorkspacePage() {
     let cancelled = false;
     const fetchMedia = async () => {
       for (const run of runChain) {
+        for (const path of runAttachmentPaths(run)) {
+          if (!isImageAttachmentPath(path)) continue;
+          try {
+            const serveUrl = `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/serve/${encodeURIComponent(path)}`;
+            const res = await adminFetch(serveUrl);
+            if (cancelled) return;
+            if (res.ok) {
+              const blob = await res.blob();
+              const blobUrl = URL.createObjectURL(blob);
+              setMediaBlobUrls((prev) => {
+                if (prev[path] !== undefined) return prev;
+                return { ...prev, [path]: blobUrl };
+              });
+            }
+          } catch {
+            /* ignore preview failures */
+          }
+        }
         const artifacts = run.artifact_manifest || [];
         for (const a of artifacts) {
           if (a.path.startsWith(".evotown/")) continue;
@@ -470,16 +518,75 @@ export function CodingAgentWorkspacePage() {
     void fetchMedia();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, runChain.map((r) => r.artifact_manifest?.map((a) => a.path).join(",")).join("|")]);
+  }, [
+    workspaceId,
+    runChain
+      .map((r) => `${runAttachmentPaths(r).join(",")}|${r.artifact_manifest?.map((a) => a.path).join(",") || ""}`)
+      .join(";"),
+  ]);
 
   const toggleSkill = (id: string) =>
     setSelectedSkills((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   const toggleMcp = (id: string) =>
     setSelectedMcp((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
 
+  const removePendingAttachment = (localId: string) => {
+    setPendingAttachments((prev) => {
+      const target = prev.find((item) => item.localId === localId);
+      if (target?.previewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(target.previewUrl);
+      }
+      return prev.filter((item) => item.localId !== localId);
+    });
+  };
+
+  const uploadWorkspaceFiles = async (files: File[]) => {
+    if (!workspaceId || !files.length) return [] as WorkspaceUpload[];
+    const form = new FormData();
+    for (const file of files) {
+      form.append("files", file);
+    }
+    const data = await adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/uploads`, {
+      method: "POST",
+      body: form,
+    }).then((res) => readJson<{ uploads?: WorkspaceUpload[] }>(res));
+    return data.uploads || [];
+  };
+
+  const handleAttachmentPick = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!picked.length) return;
+
+    setUploadingAttachments(true);
+    setError("");
+    try {
+      const uploaded = await uploadWorkspaceFiles(picked);
+      const next: PendingAttachment[] = uploaded.map((item, index) => {
+        const source = picked[index];
+        const previewUrl =
+          item.kind === "image" && source
+            ? URL.createObjectURL(source)
+            : undefined;
+        return {
+          ...item,
+          localId: `${item.path}-${Date.now()}-${index}`,
+          previewUrl,
+        };
+      });
+      setPendingAttachments((prev) => [...prev, ...next]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "上传失败");
+    } finally {
+      setUploadingAttachments(false);
+    }
+  };
+
   const startRun = async () => {
-    if (!workspaceId || !prompt.trim()) return;
+    if (!workspaceId) return;
     const sentPrompt = prompt.trim();
+    const attachmentPaths = pendingAttachments.map((item) => item.path);
+    if (!sentPrompt && !attachmentPaths.length) return;
     const chainPreviousRunId = selectedRun?.run_id || selectedRunId || "";
     setBusy(true);
     setError("");
@@ -487,20 +594,22 @@ export function CodingAgentWorkspacePage() {
       const data = await adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/runs`, {
         method: "POST",
         body: JSON.stringify({
-          prompt: sentPrompt,
+          prompt: sentPrompt || "请处理我上传的附件。",
           model,
           skills: selectedSkills,
           mcp: selectedMcp,
           previous_run_id: chainPreviousRunId,
+          attachments: attachmentPaths,
         }),
       }).then((res) => readJson<{ run: AgentRun }>(res));
       const newRun: AgentRun = {
         ...data.run,
-        prompt: data.run.prompt || sentPrompt,
+        prompt: data.run.prompt || sentPrompt || "请处理我上传的附件。",
         signals: {
           ...(data.run.signals || {}),
           previous_run_id:
             ((data.run.signals?.previous_run_id as string) || "").trim() || chainPreviousRunId,
+          attachments: attachmentPaths,
         },
       };
       // 乐观更新：先写入 runs 再切换 selectedRunId，避免 runChain 短暂为空导致中间对话区闪白
@@ -515,6 +624,12 @@ export function CodingAgentWorkspacePage() {
       });
       setSelectedRunId(newRun.run_id);
       setPrompt("");
+      for (const item of pendingAttachments) {
+        if (item.previewUrl?.startsWith("blob:")) {
+          URL.revokeObjectURL(item.previewUrl);
+        }
+      }
+      setPendingAttachments([]);
       void load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "运行失败");
@@ -573,7 +688,7 @@ export function CodingAgentWorkspacePage() {
     if (event.shiftKey) return;
 
     event.preventDefault();
-    if (!busy && prompt.trim()) {
+    if (!busy && (prompt.trim() || pendingAttachments.length)) {
       void startRun();
     }
   };
@@ -754,12 +869,43 @@ export function CodingAgentWorkspacePage() {
               {runChain.map((run) => {
                 const isLast = run.run_id === selectedRun?.run_id;
                 const runRunning = run.status === "running" || run.status === "queued";
+                const attachments = runAttachmentPaths(run);
                 return (
                   <div key={run.run_id}>
                     {/* User message */}
                     <div className="flex justify-end">
                       <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-indigo-600 px-4 py-3 text-sm text-white shadow-sm">
-                        <p className="whitespace-pre-wrap">{run.prompt}</p>
+                        {run.prompt ? <p className="whitespace-pre-wrap">{run.prompt}</p> : null}
+                        {attachments.length ? (
+                          <div className={`space-y-2 ${run.prompt ? "mt-3" : ""}`}>
+                            {attachments.map((path) => {
+                              const name = path.split("/").pop() || path;
+                              const blobUrl = mediaBlobUrls[path];
+                              if (isImageAttachmentPath(path) && blobUrl) {
+                                return (
+                                  <img
+                                    key={path}
+                                    src={blobUrl}
+                                    alt={name}
+                                    className="max-h-48 max-w-full rounded-lg border border-indigo-400/40 bg-white/10"
+                                  />
+                                );
+                              }
+                              return (
+                                <a
+                                  key={path}
+                                  href={`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/files?path=${encodeURIComponent(path)}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex items-center gap-2 rounded-lg border border-indigo-400/40 bg-indigo-500/30 px-3 py-2 text-xs text-indigo-50 hover:bg-indigo-500/40"
+                                >
+                                  <span>📎</span>
+                                  <span className="truncate">{name}</span>
+                                </a>
+                              );
+                            })}
+                          </div>
+                        ) : null}
                         <div className="mt-1.5 text-[11px] text-indigo-100">
                           {run.model} · {formatDateTimeShort(run.created_at)}
                         </div>
@@ -1043,6 +1189,44 @@ export function CodingAgentWorkspacePage() {
               </div>
             )}
 
+            {pendingAttachments.length ? (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {pendingAttachments.map((item) => (
+                  <div
+                    key={item.localId}
+                    className="inline-flex max-w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 shadow-sm"
+                  >
+                    {item.kind === "image" && item.previewUrl ? (
+                      <img src={item.previewUrl} alt={item.filename} className="h-10 w-10 rounded-md object-cover" />
+                    ) : (
+                      <span className="flex h-10 w-10 items-center justify-center rounded-md bg-slate-100 text-base">📎</span>
+                    )}
+                    <span className="min-w-0">
+                      <span className="block max-w-[160px] truncate font-medium">{item.filename}</span>
+                      <span className="text-[11px] text-slate-400">{formatBytes(item.bytes)}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removePendingAttachment(item.localId)}
+                      className="rounded-md px-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                      aria-label={`移除 ${item.filename}`}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept={ATTACHMENT_ACCEPT}
+              className="hidden"
+              onChange={(event) => void handleAttachmentPick(event)}
+            />
+
             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm transition focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100">
               <textarea
                 ref={textareaRef}
@@ -1061,6 +1245,15 @@ export function CodingAgentWorkspacePage() {
               />
               <div className="flex items-center justify-between gap-2 px-3 pb-3">
                 <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={busy || uploadingAttachments}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    title="上传图片或文件"
+                  >
+                    📎 {uploadingAttachments ? "上传中…" : "附件"}
+                  </button>
                   {/* 模型切换 */}
                   <div className="relative">
                     <button
@@ -1227,7 +1420,7 @@ export function CodingAgentWorkspacePage() {
                 <button
                   type="button"
                   onClick={() => void startRun()}
-                  disabled={busy || !prompt.trim()}
+                  disabled={busy || uploadingAttachments || (!prompt.trim() && !pendingAttachments.length)}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
                 >
                   {busy ? "提交中…" : "发送任务"}
@@ -1235,7 +1428,7 @@ export function CodingAgentWorkspacePage() {
               </div>
             </div>
             <div className="mt-1.5 text-center text-[11px] text-slate-400">
-              任务在中心化托管环境中执行 · Enter 发送 · Shift+Enter 换行
+              任务在中心化托管环境中执行 · Enter 发送 · Shift+Enter 换行 · 支持图片/文件附件
             </div>
           </div>
         </div>

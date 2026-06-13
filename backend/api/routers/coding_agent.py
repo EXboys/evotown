@@ -13,13 +13,6 @@ from services import claude_code_runner
 
 router = APIRouter(prefix="/api/v1", tags=["coding-agent"])
 
-_FALLBACK_MODELS = [
-    {"id": "claude-sonnet-4", "label": "Claude Sonnet 4", "provider": "Anthropic"},
-    {"id": "claude-opus-4", "label": "Claude Opus 4", "provider": "Anthropic"},
-    {"id": "claude-haiku-4", "label": "Claude Haiku 4", "provider": "Anthropic"},
-]
-
-
 def _is_admin(identity: dict | None) -> bool:
     if not identity:
         return False
@@ -81,39 +74,7 @@ async def get_coding_agent_options(identity: dict | None = Depends(require_conso
     identity = _require_identity(identity)
     _require_scope(identity, "workspace.read", "workspace.write", "console.read", "console.write")
 
-    models: list[dict] = []
-    seen: set[str] = set()
-    try:
-        from infra import gateway_routes, gateway_models
-
-        for route in gateway_routes.list_routes(enabled_only=True):
-            alias = str(route.get("alias") or "").strip()
-            if alias and alias not in seen:
-                seen.add(alias)
-                models.append(
-                    {
-                        "id": alias,
-                        "label": alias,
-                        "provider": "Evotown Route",
-                        "target": route.get("target_model", ""),
-                    }
-                )
-        for model in gateway_models.list_models(enabled_only=True):
-            name = str(model.get("model_name") or "").strip()
-            if name and name not in seen:
-                seen.add(name)
-                models.append(
-                    {
-                        "id": name,
-                        "label": name,
-                        "provider": model.get("provider_label") or "Upstream",
-                        "target": model.get("litellm_model", ""),
-                    }
-                )
-    except Exception:
-        models = []
-    if not models:
-        models = list(_FALLBACK_MODELS)
+    models = claude_code_runner.list_available_models()
 
     skills: list[dict] = []
     try:
@@ -155,7 +116,7 @@ async def get_coding_agent_options(identity: dict | None = Depends(require_conso
 
     return {
         "models": models,
-        "default_model": models[0]["id"] if models else claude_code_runner.DEFAULT_MODEL,
+        "default_model": claude_code_runner.default_model_id(),
         "skills": skills,
         "mcp": databases,
     }
@@ -369,7 +330,7 @@ async def create_agent_run(workspace_id: str, body: ClaudeAgentRunCreate, identi
         prompt=body.prompt,
         tenant_id=workspace.get("tenant_id", ""),
         team_id=workspace.get("team_id", ""),
-        model=body.model or os.environ.get("EVOTOWN_CLAUDE_MODEL", claude_code_runner.DEFAULT_MODEL),
+        model=claude_code_runner.resolve_run_model(body.model),
         signals={
             "workspace_name": workspace.get("name", ""),
             "selected_skills": list(body.skills or []),

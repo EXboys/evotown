@@ -64,7 +64,7 @@ async def process_next_hosted_job() -> bool:
     payload = job.get("payload") or {}
     if not isinstance(payload, dict):
         payload = {}
-    model = str(payload.get("model") or os.environ.get("EVOTOWN_CLAUDE_MODEL", claude_code_runner.DEFAULT_MODEL))
+    model = claude_code_runner.resolve_run_model(str(payload.get("model") or ""))
     skills = list(payload.get("skills") or [])
     mcp = list(payload.get("mcp") or [])
 

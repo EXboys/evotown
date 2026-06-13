@@ -21,6 +21,70 @@ DEFAULT_MODEL = "claude-sonnet-4"
 DEFAULT_ENGINE_ID = "claude-code-hosted"
 DEFAULT_RUN_TIMEOUT_SEC = 600
 
+FALLBACK_MODELS: list[dict[str, str]] = [
+    {"id": "claude-sonnet-4", "label": "Claude Sonnet 4", "provider": "Anthropic"},
+    {"id": "claude-opus-4", "label": "Claude Opus 4", "provider": "Anthropic"},
+    {"id": "claude-haiku-4", "label": "Claude Haiku 4", "provider": "Anthropic"},
+]
+
+
+def list_available_models() -> list[dict[str, Any]]:
+    """Gateway route aliases + upstream models, same catalog as Coding Agent workbench."""
+    models: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    try:
+        from infra import gateway_models, gateway_routes
+
+        for route in gateway_routes.list_routes(enabled_only=True):
+            alias = str(route.get("alias") or "").strip()
+            if alias and alias not in seen:
+                seen.add(alias)
+                models.append(
+                    {
+                        "id": alias,
+                        "label": alias,
+                        "provider": "Evotown Route",
+                        "target": route.get("target_model", ""),
+                    }
+                )
+        for entry in gateway_models.list_models(enabled_only=True):
+            name = str(entry.get("model_name") or "").strip()
+            if name and name not in seen:
+                seen.add(name)
+                models.append(
+                    {
+                        "id": name,
+                        "label": name,
+                        "provider": entry.get("provider_label") or "Upstream",
+                        "target": entry.get("litellm_model", ""),
+                    }
+                )
+    except Exception:
+        models = []
+    if not models:
+        models = [dict(item) for item in FALLBACK_MODELS]
+    return models
+
+
+def default_model_id() -> str:
+    """Default hosted-agent model: Gateway catalog first, then env, then hardcoded fallback."""
+    models = list_available_models()
+    if models:
+        first = str(models[0].get("id") or "").strip()
+        if first:
+            return first
+    env_model = os.environ.get("EVOTOWN_CLAUDE_MODEL", "").strip()
+    if env_model:
+        return env_model
+    return DEFAULT_MODEL
+
+
+def resolve_run_model(explicit: str | None = None) -> str:
+    chosen = (explicit or "").strip()
+    if chosen:
+        return chosen
+    return default_model_id()
+
 _RUN_TASKS: dict[str, asyncio.Task] = {}
 
 
@@ -707,7 +771,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
         raise ValueError("workspace not found")
 
     root = workspaces.resolve_workspace_path(workspace)
-    model = run.get("model") or os.environ.get("EVOTOWN_CLAUDE_MODEL", DEFAULT_MODEL)
+    model = resolve_run_model(str(run.get("model") or ""))
     claude_agent_runs.update_run_status(run_id, status="running")
     claude_agent_runs.append_event(run_id, "context.prepare", {"workspace_root": str(root), "model": model})
 

@@ -110,6 +110,46 @@ class HostedDispatchTest(unittest.TestCase):
         self.assertIn("README", job.get("result_summary") or "")
         self.assertTrue(str(job.get("run_id") or "").startswith("car_"))
 
+    def test_dispatch_payload_model_is_used(self) -> None:
+        from infra import claude_agent_runs, hosted_workspace_engines, workspaces
+        from services import hosted_dispatch_worker
+
+        workspace = workspaces.create_workspace(owner_account_id="acct-model", name="Model Target")
+        engine_id = hosted_workspace_engines.engine_id_for_workspace(workspace["workspace_id"])
+
+        client = self._client()
+        admin = {"X-Admin-Token": "test-admin"}
+        create = client.post(
+            "/api/v1/jobs",
+            headers=admin,
+            json={
+                "target_engine_id": engine_id,
+                "message": "hello",
+                "payload": {"model": "deepseek-v4-flash"},
+            },
+        )
+        self.assertEqual(create.status_code, 200)
+        captured: dict[str, str] = {}
+
+        async def _fake_run(run_id: str):
+            run = claude_agent_runs.get_run(run_id) or {}
+            captured["model"] = str(run.get("model") or "")
+            claude_agent_runs.update_run_status(
+                run_id,
+                status="succeeded",
+                log_excerpt="ok",
+                result_summary="ok",
+            )
+            return claude_agent_runs.get_run(run_id)
+
+        with patch("services.claude_code_runner.run_claude_agent", side_effect=_fake_run):
+            import asyncio
+
+            handled = asyncio.run(hosted_dispatch_worker.process_next_hosted_job())
+            self.assertTrue(handled)
+
+        self.assertEqual(captured.get("model"), "deepseek-v4-flash")
+
     def test_archived_workspace_rejects_dispatch_target(self) -> None:
         from infra import hosted_workspace_engines, workspaces
 

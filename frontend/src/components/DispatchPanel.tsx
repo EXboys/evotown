@@ -52,8 +52,10 @@ export type DispatchJob = {
   completed_at?: string;
   result_summary?: string;
   refs?: { parent_job_id?: string };
-  payload?: { on_success_handoff?: Record<string, unknown> };
+  payload?: { model?: string; on_success_handoff?: Record<string, unknown> };
 };
+
+type ModelOption = { id: string; label: string; provider?: string };
 
 type Props = {
   engines: FleetEngine[];
@@ -77,12 +79,14 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
   const [selected, setSelected] = useState<DispatchJob | null>(null);
   const [teamPairs, setTeamPairs] = useState("*");
   const [policyLoading, setPolicyLoading] = useState(false);
+  const [models, setModels] = useState<ModelOption[]>([]);
   const [form, setForm] = useState({
     kind: "dispatch" as "dispatch" | "handoff" | "notify",
     target_engine_id: "",
     target_team_id: "",
     title: "",
     message: "",
+    model: "",
     chain: false,
     chain_team: "",
     chain_message: "",
@@ -109,6 +113,18 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((data: { team_pairs?: string }) => setTeamPairs(data.team_pairs || "*"))
       .catch(() => setTeamPairs("*"));
+  }, []);
+
+  useEffect(() => {
+    adminFetch("/api/v1/coding-agent/options")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data: { models?: ModelOption[]; default_model?: string }) => {
+        const list = data.models || [];
+        setModels(list);
+        const fallback = data.default_model || list[0]?.id || "";
+        setForm((f) => ({ ...f, model: f.model || fallback }));
+      })
+      .catch(() => setModels([]));
   }, []);
 
   useEffect(() => {
@@ -154,15 +170,20 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
       title: form.title,
       message: form.message,
     };
+    const payload: Record<string, unknown> = {};
+    if (form.model.trim()) {
+      payload.model = form.model.trim();
+    }
     if (form.chain && form.chain_team && form.chain_message.trim()) {
-      body.payload = {
-        on_success_handoff: {
-          kind: "handoff",
-          target_team_id: form.chain_team,
-          title: "接续任务",
-          message: form.chain_message,
-        },
+      payload.on_success_handoff = {
+        kind: "handoff",
+        target_team_id: form.chain_team,
+        title: "接续任务",
+        message: form.chain_message,
       };
+    }
+    if (Object.keys(payload).length) {
+      body.payload = payload;
     }
     const r = await adminFetch("/api/v1/jobs", {
       method: "POST",
@@ -207,6 +228,8 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
     onRefresh();
   };
 
+  const isHostedTarget = form.target_engine_id.startsWith("hosted-ws-");
+
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-blue-100 bg-blue-50/80 p-4 text-sm text-slate-700">
@@ -241,7 +264,11 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
       <div className="grid gap-6 xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-semibold text-slate-950">派发任务</h2>
-          <p className="mt-1 text-sm text-slate-500">任务由目标 Connector 经本机 Gateway 执行。</p>
+          <p className="mt-1 text-sm text-slate-500">
+            {isHostedTarget
+              ? "目标为 Coding Agent 托管工作区：由服务端执行，模型与 Coding Agent 工作台一致。"
+              : "OpenClaw/Hermes 目标：由员工机 Connector 经本机 Gateway 执行。"}
+          </p>
 
           <div className="mt-4 space-y-3">
             <label className="block text-sm">
@@ -279,6 +306,26 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
                 value={form.target_team_id}
                 onChange={(e) => setForm({ ...form, target_team_id: e.target.value })}
               />
+            </label>
+
+            <label className="block text-sm">
+              <span className="font-medium text-slate-700">模型（托管工作区）</span>
+              <select
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                value={form.model}
+                onChange={(e) => setForm({ ...form, model: e.target.value })}
+              >
+                {!form.model && <option value="">默认（Gateway 首个可用模型）</option>}
+                {models.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                    {item.provider ? ` · ${item.provider}` : ""}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-xs text-slate-500">
+                写入 <code className="text-[11px]">payload.model</code>；与 Coding Agent 工作台默认模型对齐。
+              </span>
             </label>
 
             <label className="block text-sm">

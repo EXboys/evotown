@@ -398,5 +398,21 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertEqual(invalid.status_code, 400)
 
 
+class ClaudeRunModelResolveTest(unittest.TestCase):
+    def test_resolve_run_model_prefers_explicit(self) -> None:
+        from services import claude_code_runner
+
+        self.assertEqual(claude_code_runner.resolve_run_model("deepseek-v4-flash"), "deepseek-v4-flash")
+        self.assertEqual(claude_code_runner.resolve_run_model("  custom  "), "custom")
+
+    def test_default_model_falls_back_to_catalog(self) -> None:
+        from services import claude_code_runner
+
+        models = claude_code_runner.list_available_models()
+        self.assertTrue(models)
+        self.assertEqual(claude_code_runner.default_model_id(), models[0]["id"])
+        self.assertEqual(claude_code_runner.resolve_run_model(None), models[0]["id"])
+
+
 if __name__ == "__main__":
     unittest.main()

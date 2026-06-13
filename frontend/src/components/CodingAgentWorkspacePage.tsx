@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
+import { MarkdownContent } from "./MarkdownContent";
 
 import { adminFetch, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import { formatDateTimeShort, formatDateTimeFull, parseEvotownTimestamp } from "../lib/datetime";
@@ -1005,11 +1005,9 @@ export function CodingAgentWorkspacePage() {
                               )}
                             </div>
                           ) : (
-                            <div className="prose prose-sm max-w-none prose-slate">
-                              <ReactMarkdown>
-                                {run.result_summary || run.error || "执行完成。"}
-                              </ReactMarkdown>
-                            </div>
+                            <MarkdownContent>
+                              {run.result_summary || run.error || "执行完成。"}
+                            </MarkdownContent>
                           )}
                           {/* Image/Video previews — always visible inline */}
                           {isLast && (run.artifact_manifest || [])

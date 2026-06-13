@@ -478,16 +478,43 @@ export function CodingAgentWorkspacePage() {
 
   const startRun = async () => {
     if (!workspaceId || !prompt.trim()) return;
+    const sentPrompt = prompt.trim();
+    const chainPreviousRunId = selectedRun?.run_id || selectedRunId || "";
     setBusy(true);
     setError("");
     try {
       const data = await adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/runs`, {
         method: "POST",
-        body: JSON.stringify({ prompt, model, skills: selectedSkills, mcp: selectedMcp, previous_run_id: selectedRunId }),
+        body: JSON.stringify({
+          prompt: sentPrompt,
+          model,
+          skills: selectedSkills,
+          mcp: selectedMcp,
+          previous_run_id: chainPreviousRunId,
+        }),
       }).then((res) => readJson<{ run: AgentRun }>(res));
-      setSelectedRunId(data.run.run_id);
+      const newRun: AgentRun = {
+        ...data.run,
+        prompt: data.run.prompt || sentPrompt,
+        signals: {
+          ...(data.run.signals || {}),
+          previous_run_id:
+            ((data.run.signals?.previous_run_id as string) || "").trim() || chainPreviousRunId,
+        },
+      };
+      // 乐观更新：先写入 runs 再切换 selectedRunId，避免 runChain 短暂为空导致中间对话区闪白
+      setRuns((prev) => {
+        const idx = prev.findIndex((run) => run.run_id === newRun.run_id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = newRun;
+          return next;
+        }
+        return [...prev, newRun];
+      });
+      setSelectedRunId(newRun.run_id);
       setPrompt("");
-      await load();
+      void load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "运行失败");
     } finally {
@@ -948,6 +975,15 @@ export function CodingAgentWorkspacePage() {
                   </div>
                 );
               })}
+            </div>
+          ) : loading ? (
+            <div className="mx-auto max-w-3xl space-y-4">
+              {[0, 1].map((index) => (
+                <div key={index} className="animate-pulse space-y-3">
+                  <div className="ml-auto h-16 w-2/3 rounded-2xl bg-slate-200" />
+                  <div className="h-24 w-4/5 rounded-2xl border border-slate-100 bg-white" />
+                </div>
+              ))}
             </div>
           ) : (
             <div className="flex h-full items-center justify-center">

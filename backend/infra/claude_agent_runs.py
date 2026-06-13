@@ -269,3 +269,69 @@ def list_stale_active_runs(*, timeout_sec: int, limit: int = 50) -> list[dict[st
         (f"-{int(timeout_sec)} seconds", max(1, min(limit, 200))),
     ).fetchall()
     return [_run_from_row(row) for row in rows]
+
+
+def build_session_groups(runs: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """Map session root run_id -> all run_ids in the conversation chain."""
+    by_id = {run["run_id"]: run for run in runs}
+    root_map: dict[str, str] = {}
+    for run in runs:
+        root = run["run_id"]
+        cur: dict[str, Any] | None = run
+        seen: set[str] = set()
+        while cur is not None:
+            prev_id = str((cur.get("signals") or {}).get("previous_run_id") or "").strip()
+            if not prev_id or prev_id in seen:
+                break
+            seen.add(prev_id)
+            prev = by_id.get(prev_id)
+            if prev is None:
+                break
+            root = prev_id
+            cur = prev
+        root_map[run["run_id"]] = root
+
+    groups: dict[str, list[str]] = {}
+    for run in runs:
+        root = root_map.get(run["run_id"], run["run_id"])
+        groups.setdefault(root, []).append(run["run_id"])
+    return groups
+
+
+def resolve_session_root(runs: list[dict[str, Any]], session_id: str) -> str | None:
+    """Resolve session root from root id or any run id in the chain."""
+    session_id = session_id.strip()
+    if not session_id:
+        return None
+    groups = build_session_groups(runs)
+    if session_id in groups:
+        return session_id
+    for root, run_ids in groups.items():
+        if session_id in run_ids:
+            return root
+    if any(run["run_id"] == session_id for run in runs):
+        return session_id
+    return None
+
+
+def session_run_ids(runs: list[dict[str, Any]], session_id: str) -> list[str]:
+    root = resolve_session_root(runs, session_id)
+    if root is None:
+        return []
+    return build_session_groups(runs).get(root, [])
+
+
+def delete_runs(run_ids: list[str]) -> list[str]:
+    """Delete runs and their events. Returns deleted run_ids."""
+    if not run_ids:
+        return []
+    conn = _ensure_conn()
+    deleted: list[str] = []
+    for run_id in run_ids:
+        row = conn.execute("SELECT run_id FROM claude_agent_runs WHERE run_id=?", (run_id,)).fetchone()
+        if row is None:
+            continue
+        conn.execute("DELETE FROM claude_agent_run_events WHERE run_id=?", (run_id,))
+        conn.execute("DELETE FROM claude_agent_runs WHERE run_id=?", (run_id,))
+        deleted.append(run_id)
+    return deleted

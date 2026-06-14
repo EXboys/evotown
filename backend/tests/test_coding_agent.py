@@ -151,6 +151,38 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertIn("strict code reviewer", text)
         self.assertIn("conventional commits", text)
 
+    def test_workspace_file_index_lists_relative_paths_only(self) -> None:
+        client = self._client()
+        _alice, alice_key = self._account_key("Alice")
+        create_ws = client.post(
+            "/api/v1/workspaces",
+            headers={"Authorization": f"Bearer {alice_key}"},
+            json={"name": "Files Sandbox"},
+        )
+        workspace = create_ws.json()["workspace"]
+        ws_id = workspace["workspace_id"]
+        root = Path(workspace["root_path"])
+        (root / "notes.md").write_text("# hello", encoding="utf-8")
+        (root / ".evotown" / "hidden.json").write_text("{}", encoding="utf-8")
+
+        listed = client.get(
+            f"/api/v1/workspaces/{ws_id}/file-index",
+            headers={"Authorization": f"Bearer {alice_key}"},
+        )
+        self.assertEqual(listed.status_code, 200)
+        paths = [item["path"] for item in listed.json()["entries"]]
+        self.assertIn("README.md", paths)
+        self.assertIn("notes.md", paths)
+        self.assertTrue(all(not p.startswith("/") for p in paths))
+        self.assertFalse(any(p.startswith(".evotown/") for p in paths))
+
+        with_dot = client.get(
+            f"/api/v1/workspaces/{ws_id}/file-index?include_dot=true",
+            headers={"Authorization": f"Bearer {alice_key}"},
+        )
+        dot_paths = [item["path"] for item in with_dot.json()["entries"]]
+        self.assertTrue(any(p.startswith(".evotown/") for p in dot_paths))
+
     def test_create_run_and_runner_writes_shared_context(self) -> None:
         from infra import claude_agent_runs, workspaces
         from services import claude_code_runner

@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 
 from core.auth import check_prompt_injection, require_console_read, validate_soul_content
 from domain.models import ClaudeAgentRunCreate, WorkspaceCreate, WorkspaceProfileUpdate, WorkspaceUpdate
-from infra import claude_agent_runs, workspace_profile, workspace_uploads, workspaces
+from infra import claude_agent_runs, workspace_files, workspace_profile, workspace_uploads, workspaces
 from services import claude_code_runner
 
 router = APIRouter(prefix="/api/v1", tags=["coding-agent"])
@@ -321,6 +321,28 @@ async def read_workspace_file(
         "truncated": size > max_bytes,
         "content": content,
     }
+
+
+@router.get("/workspaces/{workspace_id}/file-index")
+async def list_workspace_file_index(
+    workspace_id: str,
+    include_dot: bool = False,
+    limit: int = 400,
+    identity: dict | None = Depends(require_console_read),
+):
+    """List workspace files by relative path (no absolute server paths exposed)."""
+    identity = _require_identity(identity)
+    _require_scope(identity, "workspace.read", "workspace.write", "console.read", "console.write")
+    workspace = _load_workspace_for_identity(workspace_id, identity)
+    try:
+        payload = workspace_files.list_workspace_files(
+            workspace,
+            include_dot=include_dot,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return payload
 
 
 @router.post("/workspaces/{workspace_id}/uploads")

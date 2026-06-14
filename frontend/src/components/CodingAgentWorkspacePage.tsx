@@ -12,6 +12,8 @@ import { WorkspaceAgentProfilePanel, type WorkspaceAgentProfile } from "./Worksp
 
 import { adminFetch, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import { formatDateTimeShort, formatDateTimeFull, parseEvotownTimestamp } from "../lib/datetime";
+import { formatBytes, fileMeta } from "../lib/codingAgentUtils";
+import { WorkspaceFileList, type WorkspaceFileEntry } from "./WorkspaceFileList";
 
 type Workspace = {
   workspace_id: string;
@@ -162,22 +164,6 @@ async function readJson<T>(res: Response): Promise<T> {
   return data as T;
 }
 
-function formatBytes(bytes: number): string {
-  if (!bytes) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / 1024 ** i).toFixed(i ? 1 : 0)} ${units[i]}`;
-}
-
-function fileMeta(path: string): { icon: string; label: string } {
-  const lower = path.toLowerCase();
-  if (lower.endsWith(".json")) return { icon: "🧾", label: "JSON" };
-  if (lower.endsWith(".md")) return { icon: "📄", label: "Markdown" };
-  if (lower.endsWith(".txt") || lower.endsWith(".log")) return { icon: "📃", label: "Text" };
-  return { icon: "📁", label: "File" };
-}
-
-
 /** Agent 思考中的动画点。 */
 function TypingDots() {
   return (
@@ -285,6 +271,10 @@ export function CodingAgentWorkspacePage() {
   const [eventsExpanded, setEventsExpanded] = useState(false);
   const [filesExpanded, setFilesExpanded] = useState(false);
   const [fileLoading, setFileLoading] = useState("");
+  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFileEntry[]>([]);
+  const [workspaceFilesTruncated, setWorkspaceFilesTruncated] = useState(false);
+  const [workspaceFilesLoading, setWorkspaceFilesLoading] = useState(false);
+  const [showSystemFiles, setShowSystemFiles] = useState(false);
   const [htmlContents, setHtmlContents] = useState<Record<string, string>>({});
   const [mediaBlobUrls, setMediaBlobUrls] = useState<Record<string, string>>({});
   const [lightboxImage, setLightboxImage] = useState<LightboxImage | null>(null);
@@ -473,6 +463,23 @@ export function CodingAgentWorkspacePage() {
     };
   }, [workspaceId, profileApplied, applyProfileDefaults]);
 
+  const loadWorkspaceFiles = useCallback(async () => {
+    if (!workspaceId) return;
+    setWorkspaceFilesLoading(true);
+    try {
+      const data = await adminFetch(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/file-index?include_dot=${showSystemFiles ? "true" : "false"}`,
+      ).then((res) => readJson<{ entries?: WorkspaceFileEntry[]; truncated?: boolean }>(res));
+      setWorkspaceFiles(data.entries || []);
+      setWorkspaceFilesTruncated(Boolean(data.truncated));
+    } catch {
+      setWorkspaceFiles([]);
+      setWorkspaceFilesTruncated(false);
+    } finally {
+      setWorkspaceFilesLoading(false);
+    }
+  }, [workspaceId, showSystemFiles]);
+
   const load = useCallback(async () => {
     if (!workspaceId) return;
     try {
@@ -486,12 +493,17 @@ export function CodingAgentWorkspacePage() {
         `/api/v1/agent-runs?workspace_id=${encodeURIComponent(workspaceId)}&limit=100`,
       ).then((res) => readJson<{ runs?: AgentRun[] }>(res));
       setRuns(runData.runs || []);
+      void loadWorkspaceFiles();
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败");
     } finally {
       setLoading(false);
     }
-  }, [workspaceId]);
+  }, [workspaceId, loadWorkspaceFiles]);
+
+  useEffect(() => {
+    void loadWorkspaceFiles();
+  }, [loadWorkspaceFiles]);
 
   useEffect(() => {
     void load();
@@ -1691,14 +1703,30 @@ export function CodingAgentWorkspacePage() {
                     <div className="text-xs text-slate-400">暂无执行步骤。</div>
                   )}
                 </div>
+
+                <WorkspaceFileList
+                  entries={workspaceFiles}
+                  loading={workspaceFilesLoading}
+                  truncated={workspaceFilesTruncated}
+                  showSystemFiles={showSystemFiles}
+                  onToggleSystemFiles={() => setShowSystemFiles((value) => !value)}
+                  onOpenFile={(path) => void openFile(path)}
+                  fileLoadingPath={fileLoading}
+                  compact
+                />
               </div>
             ) : (
               <div className="space-y-3">
                 <div className="text-xs text-slate-400">选择左侧的一次运行查看详情。</div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-                  <div className="mb-1 font-medium text-slate-700">workspace 路径</div>
-                  <div className="break-all font-mono text-[11px] text-slate-500">{workspace?.root_path || "—"}</div>
-                </div>
+                <WorkspaceFileList
+                  entries={workspaceFiles}
+                  loading={workspaceFilesLoading}
+                  truncated={workspaceFilesTruncated}
+                  showSystemFiles={showSystemFiles}
+                  onToggleSystemFiles={() => setShowSystemFiles((value) => !value)}
+                  onOpenFile={(path) => void openFile(path)}
+                  fileLoadingPath={fileLoading}
+                />
               </div>
             )}
           </div>

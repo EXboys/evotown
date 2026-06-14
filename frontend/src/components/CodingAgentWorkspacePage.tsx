@@ -463,9 +463,9 @@ export function CodingAgentWorkspacePage() {
     };
   }, [workspaceId, profileApplied, applyProfileDefaults]);
 
-  const loadWorkspaceFiles = useCallback(async () => {
+  const loadWorkspaceFiles = useCallback(async (options?: { silent?: boolean }) => {
     if (!workspaceId) return;
-    setWorkspaceFilesLoading(true);
+    if (!options?.silent) setWorkspaceFilesLoading(true);
     try {
       const data = await adminFetch(
         `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/file-index?include_dot=${showSystemFiles ? "true" : "false"}`,
@@ -473,10 +473,12 @@ export function CodingAgentWorkspacePage() {
       setWorkspaceFiles(data.entries || []);
       setWorkspaceFilesTruncated(Boolean(data.truncated));
     } catch {
-      setWorkspaceFiles([]);
-      setWorkspaceFilesTruncated(false);
+      if (!options?.silent) {
+        setWorkspaceFiles([]);
+        setWorkspaceFilesTruncated(false);
+      }
     } finally {
-      setWorkspaceFilesLoading(false);
+      if (!options?.silent) setWorkspaceFilesLoading(false);
     }
   }, [workspaceId, showSystemFiles]);
 
@@ -493,7 +495,7 @@ export function CodingAgentWorkspacePage() {
         `/api/v1/agent-runs?workspace_id=${encodeURIComponent(workspaceId)}&limit=100`,
       ).then((res) => readJson<{ runs?: AgentRun[] }>(res));
       setRuns(runData.runs || []);
-      void loadWorkspaceFiles();
+      void loadWorkspaceFiles({ silent: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败");
     } finally {

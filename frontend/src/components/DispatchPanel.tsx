@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { adminFetch } from "../hooks/useAdminToken";
 import { formatDateTimeShort } from "../lib/datetime";
 import { evotownEvents, type EvotownEventMap } from "../phaser/events";
@@ -115,6 +116,9 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
   const [message, setMessage] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [selected, setSelected] = useState<DispatchJob | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailTab, setDetailTab] = useState<"content" | "result" | "log">("content");
+  const [fleetExpanded, setFleetExpanded] = useState(true);
   const [teamPairs, setTeamPairs] = useState("*");
   const [policyLoading, setPolicyLoading] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]);
@@ -174,6 +178,36 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
     evotownEvents.on("dispatch_job_updated", onUpdate);
     return () => evotownEvents.off("dispatch_job_updated", onUpdate);
   }, []);
+
+  const fetchJobDetail = useCallback(async (job: DispatchJob) => {
+    setSelected(job);
+    setDetailTab("content");
+    setDetailLoading(true);
+    try {
+      const r = await adminFetch(`/api/v1/jobs/${encodeURIComponent(job.job_id)}`);
+      if (r.ok) {
+        const data = (await r.json()) as { job?: DispatchJob };
+        if (data.job) {
+          setSelected(data.job);
+          setJobs((prev) => mergeJob(prev, data.job!));
+        }
+      }
+    } catch {
+      /* keep list row */
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (jobs.length === 0) {
+      setSelected(null);
+      return;
+    }
+    if (!selected || !jobs.some((j) => j.job_id === selected.job_id)) {
+      void fetchJobDetail(jobs[0]);
+    }
+  }, [jobs, selected, fetchJobDetail]);
 
   const stats = useMemo(() => {
     const online = engines.filter((e) => e.online).length;
@@ -314,7 +348,7 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
         </div>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
         {/* Left: compose */}
         <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -515,235 +549,361 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
           </details>
         </aside>
 
-        {/* Right: fleet + jobs */}
-        <div className="space-y-4">
-          {/* Fleet */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* Right: compact fleet picker */}
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <button
+            type="button"
+            onClick={() => setFleetExpanded((v) => !v)}
+            className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
+          >
+            <div>
               <h2 className="text-base font-semibold text-slate-950">Fleet</h2>
-              <span className="text-xs text-slate-500">点击卡片填入目标引擎</span>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {stats.online}/{stats.totalEngines} 在线 · 点击卡片填入目标引擎
+              </p>
             </div>
-            {engines.length === 0 ? (
-              <p className="mt-4 text-sm text-slate-500">暂无注册引擎</p>
-            ) : (
-              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {engines.map((e) => {
-                  const hosted = isHostedEngine(e.engine_id);
-                  const selectedCard = form.target_engine_id === e.engine_id;
-                  return (
-                    <button
-                      key={e.engine_id}
-                      type="button"
-                      onClick={() => pickEngine(e.engine_id)}
-                      className={`rounded-xl border p-3 text-left transition ${
-                        selectedCard
-                          ? "border-indigo-300 bg-indigo-50/80 ring-2 ring-indigo-100"
-                          : "border-slate-200 bg-slate-50/50 hover:border-slate-300 hover:bg-white"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="line-clamp-1 text-sm font-medium text-slate-900">
-                          {e.display_name || e.engine_id}
-                        </span>
-                        <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${e.online ? "bg-emerald-500" : "bg-slate-300"}`} />
-                      </div>
-                      <p className="mt-1 truncate font-mono text-[10px] text-slate-500">{e.engine_id}</p>
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                        <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-slate-600 ring-1 ring-slate-200">
-                          {hosted ? "托管" : e.engine_type || "connector"}
-                        </span>
-                        {e.owner_team && (
-                          <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-slate-600 ring-1 ring-slate-200">
-                            {e.owner_team}
-                          </span>
-                        )}
-                      </div>
-                      {!hosted && (
-                        <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-200/80 pt-2">
-                          <span className="font-mono text-[10px] text-slate-500">
-                            {e.ingest_token_prefix ? `${e.ingest_token_prefix}…` : "未签发 token"}
+            <span className="text-xs text-slate-400">{fleetExpanded ? "收起 ▴" : "展开 ▾"}</span>
+          </button>
+          {fleetExpanded && (
+            <div className="border-t border-slate-100 px-5 pb-5">
+              {engines.length === 0 ? (
+                <p className="pt-4 text-sm text-slate-500">暂无注册引擎</p>
+              ) : (
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {engines.map((e) => {
+                    const hosted = isHostedEngine(e.engine_id);
+                    const selectedCard = form.target_engine_id === e.engine_id;
+                    return (
+                      <button
+                        key={e.engine_id}
+                        type="button"
+                        onClick={() => pickEngine(e.engine_id)}
+                        className={`rounded-xl border p-3 text-left transition ${
+                          selectedCard
+                            ? "border-indigo-300 bg-indigo-50/80 ring-2 ring-indigo-100"
+                            : "border-slate-200 bg-slate-50/50 hover:border-slate-300 hover:bg-white"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="line-clamp-1 text-sm font-medium text-slate-900">
+                            {e.display_name || e.engine_id}
                           </span>
                           <span
-                            role="button"
-                            tabIndex={0}
-                            onClick={(ev) => {
-                              ev.stopPropagation();
-                              void rotateIngestToken(e.engine_id);
-                            }}
-                            onKeyDown={(ev) => {
-                              if (ev.key === "Enter") {
+                            className={`mt-1 h-2 w-2 shrink-0 rounded-full ${e.online ? "bg-emerald-500" : "bg-slate-300"}`}
+                          />
+                        </div>
+                        <p className="mt-1 truncate font-mono text-[10px] text-slate-500">{e.engine_id}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-slate-600 ring-1 ring-slate-200">
+                            {hosted ? "托管" : e.engine_type || "connector"}
+                          </span>
+                          {e.owner_team && (
+                            <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-slate-600 ring-1 ring-slate-200">
+                              {e.owner_team}
+                            </span>
+                          )}
+                        </div>
+                        {!hosted && (
+                          <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-200/80 pt-2">
+                            <span className="font-mono text-[10px] text-slate-500">
+                              {e.ingest_token_prefix ? `${e.ingest_token_prefix}…` : "未签发 token"}
+                            </span>
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(ev) => {
                                 ev.stopPropagation();
                                 void rotateIngestToken(e.engine_id);
-                              }
-                            }}
-                            className="text-[10px] font-medium text-indigo-600 hover:text-indigo-800"
-                          >
-                            轮换 evi_
+                              }}
+                              onKeyDown={(ev) => {
+                                if (ev.key === "Enter") {
+                                  ev.stopPropagation();
+                                  void rotateIngestToken(e.engine_id);
+                                }
+                              }}
+                              className="text-[10px] font-medium text-indigo-600 hover:text-indigo-800"
+                            >
+                              轮换 evi_
+                            </span>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Full-width operations console */}
+      <div className="flex min-h-[min(780px,calc(100vh-10rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/80 px-5 py-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">任务操作台</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              共 {stats.totalJobs} 条 · 选中任务可查看完整内容与执行日志
+              {loading ? " · 刷新中…" : ""}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm shadow-sm"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="">全部状态</option>
+              {Object.entries(STATUS_META).map(([key, meta]) => (
+                <option key={key} value={key}>
+                  {meta.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                loadJobs();
+                onRefresh();
+              }}
+              disabled={loading}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50"
+            >
+              刷新
+            </button>
+          </div>
+        </div>
+
+        <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+          {/* Job list */}
+          <div className="flex min-h-0 flex-col border-b border-slate-100 lg:border-b-0 lg:border-r">
+            {jobs.length === 0 ? (
+              <div className="flex flex-1 flex-col items-center justify-center px-6 py-20 text-center">
+                <p className="text-sm font-medium text-slate-700">暂无任务</p>
+                <p className="mt-1 text-xs text-slate-500">左侧派发后将在此显示</p>
+              </div>
+            ) : (
+              <ul className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto">
+                {jobs.map((j) => {
+                  const active = selected?.job_id === j.job_id;
+                  return (
+                    <li key={j.job_id}>
+                      <button
+                        type="button"
+                        onClick={() => void fetchJobDetail(j)}
+                        className={`w-full px-4 py-3.5 text-left transition ${
+                          active ? "border-l-2 border-l-indigo-500 bg-indigo-50/90 pl-[14px]" : "border-l-2 border-l-transparent hover:bg-slate-50"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <StatusBadge status={j.status} />
+                          <span className="shrink-0 text-[10px] text-slate-400">
+                            {j.created_at ? formatDateTimeShort(j.created_at) : ""}
                           </span>
                         </div>
-                      )}
-                    </button>
+                        <p className="mt-2 line-clamp-3 text-sm leading-snug text-slate-800">{j.title || j.message}</p>
+                        <p className="mt-1.5 truncate font-mono text-[10px] text-slate-400">{j.job_id}</p>
+                      </button>
+                    </li>
                   );
                 })}
-              </div>
+              </ul>
             )}
           </div>
 
-          {/* Jobs */}
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-              <div>
-                <h2 className="text-base font-semibold text-slate-950">任务队列</h2>
-                <p className="text-xs text-slate-500">共 {stats.totalJobs} 条{loading ? " · 刷新中…" : ""}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <select
-                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm shadow-sm"
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                >
-                  <option value="">全部状态</option>
-                  {Object.entries(STATUS_META).map(([key, meta]) => (
-                    <option key={key} value={key}>
-                      {meta.label}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => {
-                    loadJobs();
-                    onRefresh();
-                  }}
-                  disabled={loading}
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50"
-                >
-                  刷新
-                </button>
-              </div>
+          {/* Job detail workspace */}
+          <JobDetailWorkspace
+            job={selected}
+            loading={detailLoading}
+            tab={detailTab}
+            onTabChange={setDetailTab}
+            onCancel={cancelJob}
+            onRefresh={() => selected && void fetchJobDetail(selected)}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function hostedWorkspacePath(engineId: string | undefined): string | null {
+  if (!engineId?.startsWith("hosted-ws-")) return null;
+  return `/coding-agent/workspaces/${engineId.slice("hosted-ws-".length)}`;
+}
+
+type DetailTab = "content" | "result" | "log";
+
+function JobDetailWorkspace({
+  job,
+  loading,
+  tab,
+  onTabChange,
+  onCancel,
+  onRefresh,
+}: {
+  job: DispatchJob | null;
+  loading: boolean;
+  tab: DetailTab;
+  onTabChange: (tab: DetailTab) => void;
+  onCancel: (jobId: string) => void;
+  onRefresh: () => void;
+}) {
+  if (!job) {
+    return (
+      <div className="flex min-h-[480px] flex-1 flex-col items-center justify-center bg-slate-50/30 p-8 text-center">
+        <p className="text-base font-medium text-slate-700">任务操作台</p>
+        <p className="mt-2 max-w-sm text-sm text-slate-500">从左侧列表选择任务，在此查看完整派活内容、执行结果与运行日志</p>
+      </div>
+    );
+  }
+
+  const workspacePath = hostedWorkspacePath(job.target_engine_id);
+  const canCancel = ["queued", "leased", "running"].includes(job.status);
+  const hasResult = Boolean(job.result_summary?.trim());
+  const hasLog = Boolean(job.log_excerpt?.trim());
+
+  const tabs: { id: DetailTab; label: string; hint?: string }[] = [
+    { id: "content", label: "任务明细" },
+    { id: "result", label: "执行结果", hint: hasResult ? undefined : "暂无" },
+    { id: "log", label: "运行日志", hint: hasLog ? undefined : "暂无" },
+  ];
+
+  return (
+    <div className="flex min-h-[480px] flex-1 flex-col bg-slate-50/30">
+      {/* Header */}
+      <div className="shrink-0 border-b border-slate-200/80 bg-white px-6 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge status={job.status} />
+              <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                {KIND_LABEL[job.kind] || job.kind}
+              </span>
+              {loading && <span className="text-xs text-slate-400">同步中…</span>}
             </div>
-
-            <div className="grid min-h-[420px] lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
-              {/* Job list */}
-              <div className="border-b border-slate-100 lg:border-b-0 lg:border-r">
-                {jobs.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-                    <p className="text-sm font-medium text-slate-700">暂无任务</p>
-                    <p className="mt-1 text-xs text-slate-500">派发后将在此显示</p>
-                  </div>
-                ) : (
-                  <ul className="max-h-[480px] divide-y divide-slate-100 overflow-y-auto">
-                    {jobs.map((j) => {
-                      const active = selected?.job_id === j.job_id;
-                      return (
-                        <li key={j.job_id}>
-                          <button
-                            type="button"
-                            onClick={() => setSelected(j)}
-                            className={`w-full px-4 py-3 text-left transition ${
-                              active ? "bg-indigo-50/90" : "hover:bg-slate-50"
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <StatusBadge status={j.status} />
-                              <span className="shrink-0 text-[10px] text-slate-400">
-                                {j.created_at ? formatDateTimeShort(j.created_at) : ""}
-                              </span>
-                            </div>
-                            <p className="mt-2 line-clamp-2 text-sm text-slate-800">{j.title || j.message}</p>
-                            <p className="mt-1 truncate font-mono text-[10px] text-slate-400">{j.job_id}</p>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-
-              {/* Job detail */}
-              <div className="flex flex-col bg-slate-50/40 p-5">
-                {selected ? (
-                  <>
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <StatusBadge status={selected.status} />
-                        <h3 className="mt-3 text-lg font-semibold text-slate-950">
-                          {selected.title || "（无标题）"}
-                        </h3>
-                        <p className="mt-1 font-mono text-xs text-slate-400">{selected.job_id}</p>
-                      </div>
-                      {["queued", "leased", "running"].includes(selected.status) && (
-                        <button
-                          type="button"
-                          onClick={() => cancelJob(selected.job_id)}
-                          className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50"
-                        >
-                          取消任务
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800">{selected.message}</p>
-                    </div>
-
-                    <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-                      <MetaItem label="类型" value={KIND_LABEL[selected.kind] || selected.kind} />
-                      <MetaItem
-                        label="目标"
-                        value={selected.target_engine_id || `team:${selected.target_team_id}`}
-                        mono
-                      />
-                      {selected.payload?.model && <MetaItem label="模型" value={selected.payload.model} mono />}
-                      {selected.source_engine_id && (
-                        <MetaItem label="来源引擎" value={selected.source_engine_id} mono />
-                      )}
-                      {selected.run_id && <MetaItem label="Run ID" value={selected.run_id} mono />}
-                      {selected.created_at && (
-                        <MetaItem label="创建" value={formatDateTimeShort(selected.created_at)} />
-                      )}
-                      {selected.completed_at && (
-                        <MetaItem label="完成" value={formatDateTimeShort(selected.completed_at)} />
-                      )}
-                    </dl>
-
-                    {(selected.result_summary || selected.log_excerpt) && (
-                      <div className="mt-4 space-y-2">
-                        {selected.result_summary && (
-                          <div
-                            className={`rounded-xl border p-3 text-sm ${
-                              selected.status === "failed"
-                                ? "border-red-200 bg-red-50 text-red-900"
-                                : "border-slate-200 bg-white text-slate-700"
-                            }`}
-                          >
-                            <p className="text-xs font-medium text-slate-500">结果摘要</p>
-                            <p className="mt-1 whitespace-pre-wrap">{selected.result_summary}</p>
-                          </div>
-                        )}
-                        {selected.log_excerpt &&
-                          selected.log_excerpt !== selected.result_summary &&
-                          selected.status === "failed" && (
-                            <div className="rounded-xl border border-slate-200 bg-slate-900 p-3">
-                              <p className="text-xs font-medium text-slate-400">详细日志</p>
-                              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-slate-200">
-                                {selected.log_excerpt}
-                              </pre>
-                            </div>
-                          )}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="flex flex-1 flex-col items-center justify-center py-12 text-center">
-                    <p className="text-sm font-medium text-slate-600">选择左侧任务查看详情</p>
-                    <p className="mt-1 text-xs text-slate-400">包含状态、模型、错误日志等</p>
-                  </div>
-                )}
-              </div>
-            </div>
+            <h3 className="mt-2 truncate text-xl font-semibold text-slate-950">{job.title || "（无标题）"}</h3>
+            <p className="mt-1 font-mono text-xs text-slate-400">{job.job_id}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={onRefresh}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              刷新详情
+            </button>
+            {workspacePath && (
+              <Link
+                to={workspacePath}
+                className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-800 hover:bg-indigo-100"
+              >
+                打开工作区
+              </Link>
+            )}
+            {canCancel && (
+              <button
+                type="button"
+                onClick={() => onCancel(job.job_id)}
+                className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50"
+              >
+                取消任务
+              </button>
+            )}
           </div>
         </div>
+
+        <dl className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <MetaItem label="目标" value={job.target_engine_id || `team:${job.target_team_id}`} mono />
+          {job.payload?.model && <MetaItem label="模型" value={job.payload.model} mono />}
+          {job.source_engine_id && <MetaItem label="来源" value={job.source_engine_id} mono />}
+          {job.run_id && <MetaItem label="Run" value={job.run_id} mono />}
+          {job.created_at && <MetaItem label="创建" value={formatDateTimeShort(job.created_at)} />}
+          {job.completed_at && <MetaItem label="完成" value={formatDateTimeShort(job.completed_at)} />}
+        </dl>
+      </div>
+
+      {/* Tabs */}
+      <div className="shrink-0 flex gap-1 border-b border-slate-200 bg-white px-6">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => onTabChange(t.id)}
+            className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition ${
+              tab === t.id
+                ? "border-indigo-600 text-indigo-700"
+                : "border-transparent text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            {t.label}
+            {t.hint && <span className="ml-1 text-xs font-normal text-slate-400">({t.hint})</span>}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab body — fills remaining height */}
+      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        {tab === "content" && (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-100 px-5 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">派活内容</p>
+              </div>
+              <div className="min-h-[280px] px-5 py-5">
+                <p className="whitespace-pre-wrap text-base leading-relaxed text-slate-800">{job.message}</p>
+              </div>
+            </div>
+            {job.refs?.parent_job_id && (
+              <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+                父任务：<span className="font-mono text-xs">{job.refs.parent_job_id}</span>
+              </div>
+            )}
+            {job.payload?.on_success_handoff && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+                <p className="text-xs font-semibold text-amber-900">成功后 Handoff</p>
+                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap font-mono text-xs text-amber-950">
+                  {JSON.stringify(job.payload.on_success_handoff, null, 2)}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "result" && (
+          <div
+            className={`min-h-[320px] rounded-xl border p-6 shadow-sm ${
+              job.status === "failed"
+                ? "border-red-200 bg-red-50/80"
+                : job.status === "completed"
+                  ? "border-emerald-200 bg-emerald-50/50"
+                  : "border-slate-200 bg-white"
+            }`}
+          >
+            {hasResult ? (
+              <p className="whitespace-pre-wrap text-base leading-relaxed text-slate-800">{job.result_summary}</p>
+            ) : (
+              <p className="text-sm text-slate-500">
+                {["queued", "leased", "running"].includes(job.status)
+                  ? "任务执行中，完成后将显示结果摘要…"
+                  : "暂无执行结果"}
+              </p>
+            )}
+          </div>
+        )}
+
+        {tab === "log" && (
+          <div className="min-h-[320px] overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-sm">
+            {hasLog ? (
+              <pre className="max-h-[min(520px,calc(100vh-22rem))] overflow-auto whitespace-pre-wrap p-5 font-mono text-sm leading-relaxed text-slate-200">
+                {job.log_excerpt}
+              </pre>
+            ) : (
+              <p className="p-6 text-sm text-slate-400">
+                {["queued", "leased", "running"].includes(job.status) ? "执行中，日志将在完成后可用" : "暂无运行日志"}
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -91,6 +91,66 @@ class CodingAgentApiTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             workspaces.resolve_workspace_path(workspace, "../escape.txt")
 
+    def test_workspace_profile_crud_and_run_injection(self) -> None:
+        from services import claude_code_runner
+
+        client = self._client()
+        _alice, alice_key = self._account_key("Alice")
+        create_ws = client.post(
+            "/api/v1/workspaces",
+            headers={"Authorization": f"Bearer {alice_key}"},
+            json={"name": "Profile Sandbox"},
+        )
+        self.assertEqual(create_ws.status_code, 200)
+        workspace = create_ws.json()["workspace"]
+        ws_id = workspace["workspace_id"]
+
+        empty = client.get(
+            f"/api/v1/workspaces/{ws_id}/profile",
+            headers={"Authorization": f"Bearer {alice_key}"},
+        )
+        self.assertEqual(empty.status_code, 200)
+        self.assertEqual(empty.json()["profile"]["agent_type"], "")
+
+        save = client.put(
+            f"/api/v1/workspaces/{ws_id}/profile",
+            headers={"Authorization": f"Bearer {alice_key}"},
+            json={
+                "agent_type": "code-reviewer",
+                "soul": "You are a strict code reviewer.",
+                "paradigm": "Read diff first, then comment.",
+                "standards": "Use conventional commits.",
+                "default_model": "claude-test",
+                "default_skills": ["http-request"],
+                "default_mcp": [],
+            },
+        )
+        self.assertEqual(save.status_code, 200)
+        self.assertEqual(save.json()["profile"]["agent_type"], "code-reviewer")
+
+        with patch("services.claude_code_runner.schedule_run", lambda run_id: None):
+            create_run = client.post(
+                f"/api/v1/workspaces/{ws_id}/runs",
+                headers={"Authorization": f"Bearer {alice_key}"},
+                json={"prompt": "Review this patch."},
+            )
+            self.assertEqual(create_run.status_code, 200)
+            run = create_run.json()["run"]
+            self.assertEqual(run["model"], "claude-test")
+            self.assertEqual(run["signals"]["selected_skills"], ["http-request"])
+            run_id = run["run_id"]
+
+        updated = asyncio.run(claude_code_runner.run_claude_agent(run_id))
+        self.assertEqual(updated["status"], "succeeded")
+        context = Path(workspace["root_path"]) / ".evotown" / "AGENT_CONTEXT.md"
+        profile_md = Path(workspace["root_path"]) / ".evotown" / "AGENT_PROFILE.md"
+        self.assertTrue(context.is_file())
+        self.assertTrue(profile_md.is_file())
+        text = context.read_text(encoding="utf-8")
+        self.assertIn("code-reviewer", text)
+        self.assertIn("strict code reviewer", text)
+        self.assertIn("conventional commits", text)
+
     def test_create_run_and_runner_writes_shared_context(self) -> None:
         from infra import claude_agent_runs, workspaces
         from services import claude_code_runner

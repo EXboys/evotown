@@ -6,9 +6,9 @@ import os
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 
-from core.auth import require_console_read
-from domain.models import ClaudeAgentRunCreate, WorkspaceCreate, WorkspaceUpdate
-from infra import claude_agent_runs, workspace_uploads, workspaces
+from core.auth import check_prompt_injection, require_console_read, validate_soul_content
+from domain.models import ClaudeAgentRunCreate, WorkspaceCreate, WorkspaceProfileUpdate, WorkspaceUpdate
+from infra import claude_agent_runs, workspace_profile, workspace_uploads, workspaces
 from services import claude_code_runner
 
 router = APIRouter(prefix="/api/v1", tags=["coding-agent"])
@@ -204,6 +204,49 @@ async def update_workspace(workspace_id: str, body: WorkspaceUpdate, identity: d
     return {"workspace": updated}
 
 
+def _validate_profile_text_fields(body: WorkspaceProfileUpdate) -> None:
+    validate_soul_content(body.soul)
+    for label, text in (("paradigm", body.paradigm), ("standards", body.standards)):
+        if len(text) > workspace_profile.PROFILE_TEXT_MAX:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{label} exceeds {workspace_profile.PROFILE_TEXT_MAX} character limit.",
+            )
+        hit = check_prompt_injection(text)
+        if hit:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{label} contains disallowed prompt-injection pattern: '{hit}'.",
+            )
+
+
+@router.get("/workspaces/{workspace_id}/profile")
+async def get_workspace_profile(workspace_id: str, identity: dict | None = Depends(require_console_read)):
+    identity = _require_identity(identity)
+    _require_scope(identity, "workspace.read", "workspace.write", "console.read", "console.write")
+    workspace = _load_workspace_for_identity(workspace_id, identity)
+    return {"profile": workspace_profile.get_profile(workspace)}
+
+
+@router.put("/workspaces/{workspace_id}/profile")
+async def update_workspace_profile(
+    workspace_id: str,
+    body: WorkspaceProfileUpdate,
+    identity: dict | None = Depends(require_console_read),
+):
+    identity = _require_identity(identity)
+    _require_scope(identity, "workspace.write", "console.write")
+    workspace = _load_workspace_for_identity(workspace_id, identity)
+    if not _is_admin(identity) and workspace.get("owner_account_id") != _account_id(identity):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only the owner can update agent profile")
+    _validate_profile_text_fields(body)
+    try:
+        profile = workspace_profile.save_profile(workspace, body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return {"profile": profile}
+
+
 @router.get("/workspaces/{workspace_id}/serve/{file_path:path}")
 async def serve_workspace_file(workspace_id: str, file_path: str, identity: dict | None = Depends(require_console_read)):
     """Serve a static file from the workspace directory (HTML, images, etc.)."""
@@ -324,17 +367,22 @@ async def create_agent_run(workspace_id: str, body: ClaudeAgentRunCreate, identi
 
     attachment_paths = _normalize_attachment_paths(workspace, list(body.attachments or []))
 
+    profile = workspace_profile.get_profile(workspace)
+    run_skills = list(body.skills or []) or list(profile.get("default_skills") or [])
+    run_mcp = list(body.mcp or []) or list(profile.get("default_mcp") or [])
+    run_model = claude_code_runner.resolve_run_model(body.model or profile.get("default_model") or "")
+
     run = claude_agent_runs.create_run(
         workspace_id=workspace_id,
         account_id=account_id,
         prompt=body.prompt,
         tenant_id=workspace.get("tenant_id", ""),
         team_id=workspace.get("team_id", ""),
-        model=claude_code_runner.resolve_run_model(body.model),
+        model=run_model,
         signals={
             "workspace_name": workspace.get("name", ""),
-            "selected_skills": list(body.skills or []),
-            "selected_mcp": list(body.mcp or []),
+            "selected_skills": run_skills,
+            "selected_mcp": run_mcp,
             "previous_run_id": body.previous_run_id,
             "attachments": attachment_paths,
         },

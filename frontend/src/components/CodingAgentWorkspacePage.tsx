@@ -8,6 +8,7 @@ import {
   contextArtifactPath,
   sortContextArtifacts,
 } from "./ContextFileViewer";
+import { WorkspaceAgentProfilePanel, type WorkspaceAgentProfile } from "./WorkspaceAgentProfilePanel";
 
 import { adminFetch, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import { formatDateTimeShort, formatDateTimeFull, parseEvotownTimestamp } from "../lib/datetime";
@@ -260,6 +261,8 @@ export function CodingAgentWorkspacePage() {
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(true);
+  const [detailsTab, setDetailsTab] = useState<"run" | "profile">("run");
+  const [profileApplied, setProfileApplied] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -436,6 +439,39 @@ export function CodingAgentWorkspacePage() {
       cancelled = true;
     };
   }, []);
+
+  const applyProfileDefaults = useCallback(
+    (profile: WorkspaceAgentProfile) => {
+      if (profile.default_model) {
+        setModel(profile.default_model);
+      }
+      if (profile.default_skills.length) {
+        setSelectedSkills(profile.default_skills);
+      }
+      if (profile.default_mcp.length) {
+        setSelectedMcp(profile.default_mcp);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!workspaceId || profileApplied) return;
+    let cancelled = false;
+    void adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/profile`)
+      .then((res) => readJson<{ profile?: WorkspaceAgentProfile }>(res))
+      .then((data) => {
+        if (cancelled || !data.profile) return;
+        applyProfileDefaults(data.profile);
+        setProfileApplied(true);
+      })
+      .catch(() => {
+        if (!cancelled) setProfileApplied(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId, profileApplied, applyProfileDefaults]);
 
   const load = useCallback(async () => {
     if (!workspaceId) return;
@@ -886,14 +922,31 @@ export function CodingAgentWorkspacePage() {
             </button>
             <button
               type="button"
-              onClick={() => setDetailsOpen((value) => !value)}
+              onClick={() => {
+                setDetailsOpen(true);
+                setDetailsTab("profile");
+              }}
               className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
-                detailsOpen
+                detailsOpen && detailsTab === "profile"
+                  ? "border-violet-200 bg-violet-50 text-violet-700"
+                  : "border-slate-200 text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Agent 配置
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDetailsOpen(true);
+                setDetailsTab("run");
+              }}
+              className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                detailsOpen && detailsTab === "run"
                   ? "border-indigo-200 bg-indigo-50 text-indigo-700"
                   : "border-slate-200 text-slate-700 hover:bg-slate-50"
               }`}
             >
-              详情面板
+              运行详情
             </button>
           </div>
         </header>
@@ -1481,11 +1534,40 @@ export function CodingAgentWorkspacePage() {
       {/* 右侧：运行详情 */}
       {detailsOpen && (
         <aside className="flex w-80 shrink-0 flex-col border-l border-slate-200 bg-white">
-          <div className="border-b border-slate-100 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            运行详情
+          <div className="flex shrink-0 border-b border-slate-100">
+            <button
+              type="button"
+              onClick={() => setDetailsTab("run")}
+              className={`flex-1 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide ${
+                detailsTab === "run" ? "border-b-2 border-indigo-600 text-indigo-700" : "text-slate-400"
+              }`}
+            >
+              运行详情
+            </button>
+            <button
+              type="button"
+              onClick={() => setDetailsTab("profile")}
+              className={`flex-1 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide ${
+                detailsTab === "profile" ? "border-b-2 border-violet-600 text-violet-700" : "text-slate-400"
+              }`}
+            >
+              Agent 配置
+            </button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            {selectedRun ? (
+            {detailsTab === "profile" ? (
+              <WorkspaceAgentProfilePanel
+                workspaceId={workspaceId}
+                models={options.models}
+                skills={options.skills}
+                mcp={options.mcp}
+                defaultModel={options.default_model}
+                onSaved={(profile) => {
+                  applyProfileDefaults(profile);
+                  setProfileApplied(true);
+                }}
+              />
+            ) : selectedRun ? (
               <div className="space-y-4">
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <div className="font-mono text-[11px] text-slate-500">{selectedRun.run_id}</div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { adminFetch } from "../hooks/useAdminToken";
 import { formatDateTimeShort } from "../lib/datetime";
@@ -103,9 +103,71 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function SectionTitle({ children }: { children: ReactNode }) {
+function FleetChipStrip({
+  engines,
+  selectedId,
+  onPick,
+  onRotate,
+}: {
+  engines: FleetEngine[];
+  selectedId: string;
+  onPick: (engineId: string) => void;
+  onRotate: (engineId: string) => void;
+}) {
+  if (engines.length === 0) {
+    return (
+      <div className="shrink-0 border-b border-slate-100 px-4 py-2 text-xs text-slate-500">暂无 Fleet 引擎</div>
+    );
+  }
+
   return (
-    <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{children}</h3>
+    <div className="shrink-0 border-b border-slate-100 bg-slate-50/60 px-3 py-2">
+      <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">目标引擎</div>
+      <div className="flex gap-2 overflow-x-auto pb-0.5 [scrollbar-width:thin]">
+        {engines.map((e) => {
+          const hosted = isHostedEngine(e.engine_id);
+          const active = selectedId === e.engine_id;
+          return (
+            <button
+              key={e.engine_id}
+              type="button"
+              onClick={() => onPick(e.engine_id)}
+              className={`flex shrink-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-left transition ${
+                active
+                  ? "border-indigo-400 bg-indigo-50 text-indigo-950 shadow-sm"
+                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+              }`}
+            >
+              <span className={`h-2 w-2 shrink-0 rounded-full ${e.online ? "bg-emerald-500" : "bg-slate-300"}`} />
+              <span className="max-w-[140px] truncate text-xs font-medium">{e.display_name || e.engine_id}</span>
+              <span className="rounded bg-slate-100 px-1 py-0.5 text-[9px] text-slate-500">
+                {hosted ? "托管" : "conn"}
+              </span>
+              {!hosted && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  title="轮换 evi_ token"
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    onRotate(e.engine_id);
+                  }}
+                  onKeyDown={(ev) => {
+                    if (ev.key === "Enter") {
+                      ev.stopPropagation();
+                      onRotate(e.engine_id);
+                    }
+                  }}
+                  className="text-[10px] text-indigo-600 hover:underline"
+                >
+                  ↻
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -118,7 +180,7 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
   const [selected, setSelected] = useState<DispatchJob | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailTab, setDetailTab] = useState<"content" | "result" | "log">("content");
-  const [fleetExpanded, setFleetExpanded] = useState(true);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [teamPairs, setTeamPairs] = useState("*");
   const [policyLoading, setPolicyLoading] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]);
@@ -170,6 +232,15 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
   }, []);
 
   useEffect(() => {
+    if (engines.length === 0) return;
+    setForm((f) => {
+      if (f.target_engine_id && engines.some((e) => e.engine_id === f.target_engine_id)) return f;
+      const preferred = engines.find((e) => e.online) || engines[0];
+      return preferred ? { ...f, target_engine_id: preferred.engine_id } : f;
+    });
+  }, [engines]);
+
+  useEffect(() => {
     const onUpdate = (data: EvotownEventMap["dispatch_job_updated"]) => {
       const job = toDispatchJob(data.job);
       setJobs((prev) => mergeJob(prev, job));
@@ -181,7 +252,6 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
 
   const fetchJobDetail = useCallback(async (job: DispatchJob) => {
     setSelected(job);
-    setDetailTab("content");
     setDetailLoading(true);
     try {
       const r = await adminFetch(`/api/v1/jobs/${encodeURIComponent(job.job_id)}`);
@@ -190,10 +260,19 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
         if (data.job) {
           setSelected(data.job);
           setJobs((prev) => mergeJob(prev, data.job!));
+          if (data.job.status === "failed" && data.job.log_excerpt?.trim()) {
+            setDetailTab("log");
+          } else if (data.job.status === "completed" && data.job.result_summary?.trim()) {
+            setDetailTab("result");
+          } else {
+            setDetailTab("content");
+          }
         }
+      } else {
+        setDetailTab("content");
       }
     } catch {
-      /* keep list row */
+      setDetailTab("content");
     } finally {
       setDetailLoading(false);
     }
@@ -217,7 +296,6 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
   }, [engines, jobs]);
 
   const isHostedTarget = isHostedEngine(form.target_engine_id);
-  const selectedEngine = engines.find((e) => e.engine_id === form.target_engine_id);
 
   const savePolicy = async () => {
     setPolicyLoading(true);
@@ -275,6 +353,7 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
         setMessage({ tone: "err", text: `派发失败: ${(await r.text()).slice(0, 200)}` });
         return;
       }
+      const data = (await r.json()) as { job?: DispatchJob };
       setMessage({
         tone: "ok",
         text: form.chain ? "已入队，成功后自动 handoff 到下一团队" : "任务已入队",
@@ -282,6 +361,10 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
       setForm((f) => ({ ...f, message: "", title: "", chain_message: "" }));
       loadJobs();
       onRefresh();
+      if (data.job) {
+        setJobs((prev) => mergeJob(prev, data.job!));
+        void fetchJobDetail(data.job);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -320,25 +403,33 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
   };
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="-mx-1 flex min-h-[calc(100vh-12rem)] flex-col gap-4">
+      {/* Page header */}
+      <div className="flex shrink-0 flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-950">派活中心</h1>
-          <p className="mt-1 max-w-2xl text-sm text-slate-500">
-            向 Connector 或 Coding Agent 托管工作区派发任务，实时查看队列与执行结果。
+          <h2 className="text-lg font-semibold text-slate-950">派活中心</h2>
+          <p className="mt-0.5 text-sm text-slate-500">
+            选引擎、写任务、派发 — 结果在下方操作台实时查看
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <StatPill label="在线引擎" value={`${stats.online}/${stats.totalEngines}`} tone="emerald" />
-          <StatPill label="进行中" value={String(stats.active)} tone="blue" />
-          {stats.failed > 0 && <StatPill label="失败" value={String(stats.failed)} tone="red" />}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
+          <span>
+            引擎 <strong className="text-slate-900">{stats.online}</strong>/{stats.totalEngines}
+          </span>
+          <span>
+            进行中 <strong className="text-blue-700">{stats.active}</strong>
+          </span>
+          {stats.failed > 0 && (
+            <span>
+              失败 <strong className="text-red-700">{stats.failed}</strong>
+            </span>
+          )}
         </div>
       </div>
 
       {message && (
         <div
-          className={`rounded-xl border px-4 py-3 text-sm ${
+          className={`shrink-0 rounded-lg border px-3 py-2 text-sm ${
             message.tone === "ok"
               ? "border-emerald-200 bg-emerald-50 text-emerald-900"
               : "border-red-200 bg-red-50 text-red-900"
@@ -348,308 +439,183 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
         </div>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
-        {/* Left: compose */}
-        <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-base font-semibold text-slate-950">新建任务</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  {isHostedTarget
-                    ? "托管工作区 · 服务端 Claude Agent 执行"
-                    : form.target_engine_id
-                      ? "Connector · 员工机 Gateway 执行"
-                      : "选择目标引擎或填写团队 ID"}
-                </p>
-              </div>
-              {selectedEngine && (
-                <span
-                  className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
-                    selectedEngine.online ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"
-                  }`}
+      {/* Compose strip — full width */}
+      <section className="shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <FleetChipStrip
+          engines={engines}
+          selectedId={form.target_engine_id}
+          onPick={pickEngine}
+          onRotate={rotateIngestToken}
+        />
+
+        <div className="space-y-3 p-4">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span className="font-medium text-slate-700">
+              {isHostedTarget ? "托管工作区" : "Connector"}
+            </span>
+            <span className="text-slate-300">·</span>
+            <span className="truncate font-mono text-[11px]">{form.target_engine_id || "未选引擎"}</span>
+            {form.target_team_id && (
+              <>
+                <span className="text-slate-300">·</span>
+                <span>团队 {form.target_team_id}</span>
+              </>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
+            <label className="min-w-0 flex-1 text-sm">
+              <span className="sr-only">任务内容</span>
+              <textarea
+                className="min-h-[72px] w-full resize-y rounded-lg border border-slate-200 px-3 py-2.5 text-sm leading-relaxed focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                placeholder="描述 Agent 需要完成的工作…"
+                value={form.message}
+                onChange={(e) => setForm({ ...form, message: e.target.value })}
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") void submit();
+                }}
+              />
+            </label>
+
+            <div className="flex shrink-0 flex-col gap-2 lg:w-44">
+              {isHostedTarget && (
+                <select
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  value={form.model}
+                  onChange={(e) => setForm({ ...form, model: e.target.value })}
+                  aria-label="模型"
                 >
-                  {selectedEngine.online ? "在线" : "离线"}
-                </span>
+                  {models.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
               )}
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={submit}
+                className="rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+              >
+                {submitting ? "提交中…" : "派发"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="text-xs text-slate-500 hover:text-slate-700"
+              >
+                {showAdvanced ? "收起选项" : "更多选项"}
+              </button>
             </div>
+          </div>
 
-            <div className="mt-5 space-y-5">
-              <div className="space-y-3">
-                <SectionTitle>目标</SectionTitle>
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium text-slate-700">任务类型</span>
-                  <select
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-                    value={form.kind}
-                    onChange={(e) => setForm({ ...form, kind: e.target.value as typeof form.kind })}
-                  >
-                    <option value="dispatch">dispatch — 中心派活</option>
-                    <option value="handoff">handoff — 团队交接</option>
-                    <option value="notify">notify — 通知（触发即完成）</option>
-                  </select>
-                </label>
-
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium text-slate-700">目标引擎</span>
-                  <input
-                    list="engine-ids"
-                    placeholder="从右侧 Fleet 点选，或手动输入 engine_id"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-sm shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-                    value={form.target_engine_id}
-                    onChange={(e) => setForm({ ...form, target_engine_id: e.target.value })}
-                  />
-                  <datalist id="engine-ids">
-                    {engines.map((e) => (
-                      <option key={e.engine_id} value={e.engine_id} />
-                    ))}
-                  </datalist>
-                </label>
-
-                <div className="relative flex items-center gap-3 py-1 text-xs text-slate-400">
-                  <span className="h-px flex-1 bg-slate-200" />
-                  或
-                  <span className="h-px flex-1 bg-slate-200" />
-                </div>
-
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium text-slate-700">目标团队</span>
-                  <input
-                    placeholder="owner_team，如 org_root"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-                    value={form.target_team_id}
-                    onChange={(e) => setForm({ ...form, target_team_id: e.target.value })}
-                  />
-                </label>
-
-                {(isHostedTarget || form.model) && (
-                  <label className="block text-sm">
-                    <span className="mb-1 block font-medium text-slate-700">模型</span>
-                    <select
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-                      value={form.model}
-                      onChange={(e) => setForm({ ...form, model: e.target.value })}
-                    >
-                      {!form.model && <option value="">Gateway 默认模型</option>}
-                      {models.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.label}
-                          {item.provider ? ` · ${item.provider}` : ""}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="mt-1 block text-xs text-slate-500">与工作台相同；仅托管工作区生效</span>
-                  </label>
-                )}
-              </div>
-
-              <div className="space-y-3 border-t border-slate-100 pt-5">
-                <SectionTitle>内容</SectionTitle>
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium text-slate-700">标题（可选）</span>
-                  <input
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-                    value={form.title}
-                    onChange={(e) => setForm({ ...form, title: e.target.value })}
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium text-slate-700">任务内容</span>
-                  <textarea
-                    className="min-h-[120px] w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-                    placeholder="描述 Agent 需要完成的工作…"
-                    value={form.message}
-                    onChange={(e) => setForm({ ...form, message: e.target.value })}
-                  />
-                </label>
-              </div>
-
-              <div className="space-y-3 border-t border-slate-100 pt-5">
-                <SectionTitle>高级</SectionTitle>
-                <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-700">
+          {showAdvanced && (
+            <div className="grid gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/80 p-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="block text-xs sm:col-span-2 lg:col-span-1">
+                <span className="mb-1 block font-medium text-slate-600">任务类型</span>
+                <select
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm"
+                  value={form.kind}
+                  onChange={(e) => setForm({ ...form, kind: e.target.value as typeof form.kind })}
+                >
+                  <option value="dispatch">dispatch — 中心派活</option>
+                  <option value="handoff">handoff — 团队交接</option>
+                  <option value="notify">notify — 通知</option>
+                </select>
+              </label>
+              <label className="block text-xs">
+                <span className="mb-1 block font-medium text-slate-600">标题（可选）</span>
+                <input
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm"
+                  value={form.title}
+                  onChange={(e) => setForm({ ...form, title: e.target.value })}
+                />
+              </label>
+              <label className="block text-xs">
+                <span className="mb-1 block font-medium text-slate-600">目标团队（可选）</span>
+                <input
+                  placeholder="owner_team"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm"
+                  value={form.target_team_id}
+                  onChange={(e) => setForm({ ...form, target_team_id: e.target.value })}
+                />
+              </label>
+              <label className="block text-xs sm:col-span-2 lg:col-span-1">
+                <span className="mb-1 block font-medium text-slate-600">手动 engine_id</span>
+                <input
+                  list="engine-ids"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 font-mono text-xs"
+                  value={form.target_engine_id}
+                  onChange={(e) => setForm({ ...form, target_engine_id: e.target.value })}
+                />
+                <datalist id="engine-ids">
+                  {engines.map((e) => (
+                    <option key={e.engine_id} value={e.engine_id} />
+                  ))}
+                </datalist>
+              </label>
+              <div className="space-y-2 sm:col-span-2 lg:col-span-4">
+                <label className="flex items-center gap-2 text-xs text-slate-700">
                   <input
                     type="checkbox"
-                    className="mt-0.5 rounded border-slate-300"
                     checked={form.chain}
                     onChange={(e) => setForm({ ...form, chain: e.target.checked })}
                   />
-                  <span>
-                    <span className="font-medium">成功后自动 handoff</span>
-                    <span className="mt-0.5 block text-xs text-slate-500">父任务完成后自动创建子任务给下一团队</span>
-                  </span>
+                  成功后自动 handoff 到下一团队
                 </label>
                 {form.chain && (
-                  <div className="space-y-2 rounded-lg border border-dashed border-slate-200 bg-slate-50/80 p-3">
+                  <div className="grid gap-2 sm:grid-cols-2">
                     <input
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-                      placeholder="下一团队 owner_team"
+                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm"
+                      placeholder="下一团队"
                       value={form.chain_team}
                       onChange={(e) => setForm({ ...form, chain_team: e.target.value })}
                     />
-                    <textarea
-                      className="min-h-[72px] w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-                      placeholder="接续任务内容"
+                    <input
+                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm"
+                      placeholder="接续内容"
                       value={form.chain_message}
                       onChange={(e) => setForm({ ...form, chain_message: e.target.value })}
                     />
                   </div>
                 )}
               </div>
-
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={submit}
-                className="w-full rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60"
-              >
-                {submitting ? "提交中…" : "派发到队列"}
-              </button>
-            </div>
-          </div>
-
-          <details className="group rounded-xl border border-slate-200 bg-white shadow-sm">
-            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-slate-800 marker:content-none [&::-webkit-details-marker]:hidden">
-              <span className="flex items-center justify-between">
-                Handoff 团队白名单
-                <span className="text-xs font-normal text-slate-400 group-open:hidden">展开</span>
-              </span>
-            </summary>
-            <div className="border-t border-slate-100 px-4 pb-4 pt-3">
-              <p className="text-xs text-slate-500">
-                <code>*</code> 允许全部，或 <code>sales:finance,it:finance</code>
-              </p>
-              <textarea
-                className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs"
-                rows={2}
-                value={teamPairs}
-                onChange={(e) => setTeamPairs(e.target.value)}
-              />
-              <button
-                type="button"
-                disabled={policyLoading}
-                onClick={savePolicy}
-                className="mt-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50"
-              >
-                保存策略
-              </button>
-            </div>
-          </details>
-
-          <details className="group rounded-xl border border-blue-100 bg-blue-50/50 shadow-sm">
-            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-slate-800 marker:content-none [&::-webkit-details-marker]:hidden">
-              <span className="flex items-center justify-between">
-                Connector 部署检查
-                <span className="text-xs font-normal text-slate-400 group-open:hidden">展开</span>
-              </span>
-            </summary>
-            <div className="border-t border-blue-100 px-4 pb-4 pt-3 text-xs leading-relaxed text-slate-600">
-              员工机需 <code>register</code> + <code>connector</code>；OpenClaw 配置 <code>hooks</code> 与{" "}
-              <code>OPENCLAW_HOOK_TOKEN</code>。Handoff 受 <code>EVOTOWN_DISPATCH_TEAM_PAIRS</code> 控制。
-            </div>
-          </details>
-        </aside>
-
-        {/* Right: compact fleet picker */}
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <button
-            type="button"
-            onClick={() => setFleetExpanded((v) => !v)}
-            className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
-          >
-            <div>
-              <h2 className="text-base font-semibold text-slate-950">Fleet</h2>
-              <p className="mt-0.5 text-xs text-slate-500">
-                {stats.online}/{stats.totalEngines} 在线 · 点击卡片填入目标引擎
-              </p>
-            </div>
-            <span className="text-xs text-slate-400">{fleetExpanded ? "收起 ▴" : "展开 ▾"}</span>
-          </button>
-          {fleetExpanded && (
-            <div className="border-t border-slate-100 px-5 pb-5">
-              {engines.length === 0 ? (
-                <p className="pt-4 text-sm text-slate-500">暂无注册引擎</p>
-              ) : (
-                <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                  {engines.map((e) => {
-                    const hosted = isHostedEngine(e.engine_id);
-                    const selectedCard = form.target_engine_id === e.engine_id;
-                    return (
-                      <button
-                        key={e.engine_id}
-                        type="button"
-                        onClick={() => pickEngine(e.engine_id)}
-                        className={`rounded-xl border p-3 text-left transition ${
-                          selectedCard
-                            ? "border-indigo-300 bg-indigo-50/80 ring-2 ring-indigo-100"
-                            : "border-slate-200 bg-slate-50/50 hover:border-slate-300 hover:bg-white"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="line-clamp-1 text-sm font-medium text-slate-900">
-                            {e.display_name || e.engine_id}
-                          </span>
-                          <span
-                            className={`mt-1 h-2 w-2 shrink-0 rounded-full ${e.online ? "bg-emerald-500" : "bg-slate-300"}`}
-                          />
-                        </div>
-                        <p className="mt-1 truncate font-mono text-[10px] text-slate-500">{e.engine_id}</p>
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-slate-600 ring-1 ring-slate-200">
-                            {hosted ? "托管" : e.engine_type || "connector"}
-                          </span>
-                          {e.owner_team && (
-                            <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-slate-600 ring-1 ring-slate-200">
-                              {e.owner_team}
-                            </span>
-                          )}
-                        </div>
-                        {!hosted && (
-                          <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-200/80 pt-2">
-                            <span className="font-mono text-[10px] text-slate-500">
-                              {e.ingest_token_prefix ? `${e.ingest_token_prefix}…` : "未签发 token"}
-                            </span>
-                            <span
-                              role="button"
-                              tabIndex={0}
-                              onClick={(ev) => {
-                                ev.stopPropagation();
-                                void rotateIngestToken(e.engine_id);
-                              }}
-                              onKeyDown={(ev) => {
-                                if (ev.key === "Enter") {
-                                  ev.stopPropagation();
-                                  void rotateIngestToken(e.engine_id);
-                                }
-                              }}
-                              className="text-[10px] font-medium text-indigo-600 hover:text-indigo-800"
-                            >
-                              轮换 evi_
-                            </span>
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
+              <details className="text-xs sm:col-span-2 lg:col-span-4">
+                <summary className="cursor-pointer font-medium text-slate-600">Handoff 白名单</summary>
+                <div className="mt-2 flex flex-wrap items-end gap-2">
+                  <textarea
+                    className="min-w-[200px] flex-1 rounded border border-slate-200 px-2 py-1.5 font-mono text-[11px]"
+                    rows={1}
+                    value={teamPairs}
+                    onChange={(e) => setTeamPairs(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    disabled={policyLoading}
+                    onClick={savePolicy}
+                    className="rounded border border-slate-200 px-2 py-1 hover:bg-white disabled:opacity-50"
+                  >
+                    保存
+                  </button>
                 </div>
-              )}
+              </details>
             </div>
           )}
         </div>
-      </div>
+      </section>
 
-      {/* Full-width operations console */}
-      <div className="flex min-h-[min(780px,calc(100vh-10rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/80 px-5 py-4">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-950">任务操作台</h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              共 {stats.totalJobs} 条 · 选中任务可查看完整内容与执行日志
-              {loading ? " · 刷新中…" : ""}
-            </p>
-          </div>
+      {/* Operations console — master / detail */}
+      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/70 px-4 py-2.5">
+          <p className="text-sm text-slate-600">
+            任务队列
+            <span className="ml-1.5 tabular-nums text-slate-900">{stats.totalJobs}</span>
+            {loading && <span className="ml-2 text-xs text-slate-400">刷新中…</span>}
+          </p>
           <div className="flex items-center gap-2">
             <select
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm shadow-sm"
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
             >
@@ -674,13 +640,12 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
           </div>
         </div>
 
-        <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
-          {/* Job list */}
+        <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
           <div className="flex min-h-0 flex-col border-b border-slate-100 lg:border-b-0 lg:border-r">
             {jobs.length === 0 ? (
-              <div className="flex flex-1 flex-col items-center justify-center px-6 py-20 text-center">
-                <p className="text-sm font-medium text-slate-700">暂无任务</p>
-                <p className="mt-1 text-xs text-slate-500">左侧派发后将在此显示</p>
+              <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
+                <p className="text-sm font-medium text-slate-600">暂无任务</p>
+                <p className="mt-1 text-xs text-slate-400">在上方填写内容并点击派发</p>
               </div>
             ) : (
               <ul className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto">
@@ -691,18 +656,22 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
                       <button
                         type="button"
                         onClick={() => void fetchJobDetail(j)}
-                        className={`w-full px-4 py-3.5 text-left transition ${
-                          active ? "border-l-2 border-l-indigo-500 bg-indigo-50/90 pl-[14px]" : "border-l-2 border-l-transparent hover:bg-slate-50"
+                        className={`w-full px-4 py-3 text-left transition ${
+                          active
+                            ? "border-l-2 border-l-indigo-500 bg-indigo-50 pl-[14px]"
+                            : "border-l-2 border-l-transparent hover:bg-slate-50"
                         }`}
                       >
-                        <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center justify-between gap-2">
                           <StatusBadge status={j.status} />
                           <span className="shrink-0 text-[10px] text-slate-400">
                             {j.created_at ? formatDateTimeShort(j.created_at) : ""}
                           </span>
                         </div>
-                        <p className="mt-2 line-clamp-3 text-sm leading-snug text-slate-800">{j.title || j.message}</p>
-                        <p className="mt-1.5 truncate font-mono text-[10px] text-slate-400">{j.job_id}</p>
+                        <p className="mt-2 line-clamp-2 text-sm leading-snug text-slate-800">
+                          {j.title || j.message}
+                        </p>
+                        <p className="mt-1 truncate font-mono text-[10px] text-slate-400">{j.job_id}</p>
                       </button>
                     </li>
                   );
@@ -711,7 +680,6 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
             )}
           </div>
 
-          {/* Job detail workspace */}
           <JobDetailWorkspace
             job={selected}
             loading={detailLoading}
@@ -721,7 +689,7 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
             onRefresh={() => selected && void fetchJobDetail(selected)}
           />
         </div>
-      </div>
+      </section>
     </div>
   );
 }
@@ -750,9 +718,9 @@ function JobDetailWorkspace({
 }) {
   if (!job) {
     return (
-      <div className="flex min-h-[480px] flex-1 flex-col items-center justify-center bg-slate-50/30 p-8 text-center">
-        <p className="text-base font-medium text-slate-700">任务操作台</p>
-        <p className="mt-2 max-w-sm text-sm text-slate-500">从左侧列表选择任务，在此查看完整派活内容、执行结果与运行日志</p>
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center bg-slate-50/40 p-8 text-center">
+        <p className="text-sm font-medium text-slate-600">选择任务查看明细</p>
+        <p className="mt-1 max-w-xs text-xs text-slate-400">派发后任务出现在上方列表，内容与日志在此展示</p>
       </div>
     );
   }
@@ -769,67 +737,60 @@ function JobDetailWorkspace({
   ];
 
   return (
-    <div className="flex min-h-[480px] flex-1 flex-col bg-slate-50/30">
-      {/* Header */}
-      <div className="shrink-0 border-b border-slate-200/80 bg-white px-6 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="flex min-h-0 flex-1 flex-col bg-slate-50/30">
+      {/* Compact header */}
+      <div className="shrink-0 border-b border-slate-200/80 bg-white px-4 py-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge status={job.status} />
-              <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                {KIND_LABEL[job.kind] || job.kind}
-              </span>
-              {loading && <span className="text-xs text-slate-400">同步中…</span>}
+              {loading && <span className="text-[10px] text-slate-400">同步中…</span>}
             </div>
-            <h3 className="mt-2 truncate text-xl font-semibold text-slate-950">{job.title || "（无标题）"}</h3>
-            <p className="mt-1 font-mono text-xs text-slate-400">{job.job_id}</p>
+            <h3 className="mt-1.5 truncate text-base font-semibold text-slate-950">{job.title || job.message.slice(0, 48)}</h3>
+            <p className="mt-0.5 truncate text-[10px] font-mono text-slate-400">{job.job_id}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex shrink-0 flex-wrap gap-1.5">
             <button
               type="button"
               onClick={onRefresh}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
             >
-              刷新详情
+              刷新
             </button>
             {workspacePath && (
               <Link
                 to={workspacePath}
-                className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-800 hover:bg-indigo-100"
+                className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] text-indigo-800 hover:bg-indigo-100"
               >
-                打开工作区
+                工作区
               </Link>
             )}
             {canCancel && (
               <button
                 type="button"
                 onClick={() => onCancel(job.job_id)}
-                className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50"
+                className="rounded border border-red-200 bg-white px-2 py-1 text-[11px] text-red-700 hover:bg-red-50"
               >
-                取消任务
+                取消
               </button>
             )}
           </div>
         </div>
-
-        <dl className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          <MetaItem label="目标" value={job.target_engine_id || `team:${job.target_team_id}`} mono />
-          {job.payload?.model && <MetaItem label="模型" value={job.payload.model} mono />}
-          {job.source_engine_id && <MetaItem label="来源" value={job.source_engine_id} mono />}
-          {job.run_id && <MetaItem label="Run" value={job.run_id} mono />}
-          {job.created_at && <MetaItem label="创建" value={formatDateTimeShort(job.created_at)} />}
-          {job.completed_at && <MetaItem label="完成" value={formatDateTimeShort(job.completed_at)} />}
-        </dl>
+        <p className="mt-2 truncate text-[11px] text-slate-500">
+          {KIND_LABEL[job.kind] || job.kind} → {job.target_engine_id || `team:${job.target_team_id}`}
+          {job.payload?.model ? ` · ${job.payload.model}` : ""}
+          {job.created_at ? ` · ${formatDateTimeShort(job.created_at)}` : ""}
+        </p>
       </div>
 
       {/* Tabs */}
-      <div className="shrink-0 flex gap-1 border-b border-slate-200 bg-white px-6">
+      <div className="flex shrink-0 gap-0.5 border-b border-slate-200 bg-white px-4">
         {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
             onClick={() => onTabChange(t.id)}
-            className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition ${
+            className={`-mb-px border-b-2 px-3 py-2 text-xs font-medium transition ${
               tab === t.id
                 ? "border-indigo-600 text-indigo-700"
                 : "border-transparent text-slate-500 hover:text-slate-800"
@@ -841,37 +802,39 @@ function JobDetailWorkspace({
         ))}
       </div>
 
-      {/* Tab body — fills remaining height */}
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      {/* Tab body */}
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {tab === "content" && (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-100 px-5 py-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">派活内容</p>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-slate-200 bg-white">
+              <div className="border-b border-slate-100 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                派活内容
               </div>
-              <div className="min-h-[280px] px-5 py-5">
-                <p className="whitespace-pre-wrap text-base leading-relaxed text-slate-800">{job.message}</p>
+              <div className="px-4 py-4">
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800">{job.message}</p>
               </div>
             </div>
-            {job.refs?.parent_job_id && (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-                父任务：<span className="font-mono text-xs">{job.refs.parent_job_id}</span>
-              </div>
+            {job.title && job.title !== job.message.slice(0, job.title.length) && (
+              <p className="text-xs text-slate-500">
+                标题：<span className="text-slate-700">{job.title}</span>
+              </p>
             )}
-            {job.payload?.on_success_handoff && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
-                <p className="text-xs font-semibold text-amber-900">成功后 Handoff</p>
-                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap font-mono text-xs text-amber-950">
-                  {JSON.stringify(job.payload.on_success_handoff, null, 2)}
-                </pre>
-              </div>
+            {job.refs?.parent_job_id && (
+              <p className="text-xs text-slate-500">
+                父任务 <span className="font-mono">{job.refs.parent_job_id}</span>
+              </p>
+            )}
+            {job.run_id && (
+              <p className="text-xs text-slate-500">
+                Run <span className="font-mono">{job.run_id}</span>
+              </p>
             )}
           </div>
         )}
 
         {tab === "result" && (
           <div
-            className={`min-h-[320px] rounded-xl border p-6 shadow-sm ${
+            className={`min-h-[200px] rounded-lg border p-4 ${
               job.status === "failed"
                 ? "border-red-200 bg-red-50/80"
                 : job.status === "completed"
@@ -880,62 +843,29 @@ function JobDetailWorkspace({
             }`}
           >
             {hasResult ? (
-              <p className="whitespace-pre-wrap text-base leading-relaxed text-slate-800">{job.result_summary}</p>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800">{job.result_summary}</p>
             ) : (
               <p className="text-sm text-slate-500">
-                {["queued", "leased", "running"].includes(job.status)
-                  ? "任务执行中，完成后将显示结果摘要…"
-                  : "暂无执行结果"}
+                {["queued", "leased", "running"].includes(job.status) ? "执行中…" : "暂无结果"}
               </p>
             )}
           </div>
         )}
 
         {tab === "log" && (
-          <div className="min-h-[320px] overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-sm">
+          <div className="min-h-[200px] overflow-hidden rounded-lg border border-slate-700 bg-slate-900">
             {hasLog ? (
-              <pre className="max-h-[min(520px,calc(100vh-22rem))] overflow-auto whitespace-pre-wrap p-5 font-mono text-sm leading-relaxed text-slate-200">
+              <pre className="max-h-full overflow-auto whitespace-pre-wrap p-4 font-mono text-xs leading-relaxed text-slate-200">
                 {job.log_excerpt}
               </pre>
             ) : (
-              <p className="p-6 text-sm text-slate-400">
-                {["queued", "leased", "running"].includes(job.status) ? "执行中，日志将在完成后可用" : "暂无运行日志"}
+              <p className="p-4 text-sm text-slate-400">
+                {["queued", "leased", "running"].includes(job.status) ? "执行中…" : "暂无日志"}
               </p>
             )}
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function StatPill({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: "emerald" | "blue" | "red";
-}) {
-  const colors = {
-    emerald: "border-emerald-200 bg-emerald-50 text-emerald-900",
-    blue: "border-blue-200 bg-blue-50 text-blue-900",
-    red: "border-red-200 bg-red-50 text-red-900",
-  };
-  return (
-    <div className={`rounded-xl border px-3 py-2 text-center ${colors[tone]}`}>
-      <div className="text-lg font-semibold tabular-nums leading-none">{value}</div>
-      <div className="mt-1 text-[10px] font-medium uppercase tracking-wide opacity-80">{label}</div>
-    </div>
-  );
-}
-
-function MetaItem({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="rounded-lg border border-slate-200/80 bg-white px-3 py-2">
-      <dt className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className={`mt-0.5 text-sm text-slate-800 ${mono ? "font-mono text-xs break-all" : ""}`}>{value}</dd>
     </div>
   );
 }

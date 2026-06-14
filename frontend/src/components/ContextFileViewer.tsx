@@ -26,6 +26,12 @@ export function contextArtifactMeta(path: string): {
       icon: "📋",
       badgeClass: "border-indigo-200 bg-indigo-50 text-indigo-700",
     },
+    "AGENT_PROFILE.md": {
+      title: "Agent 配置",
+      subtitle: "类型 · 身份 · 范式 · 标准",
+      icon: "🧠",
+      badgeClass: "border-violet-200 bg-violet-50 text-violet-700",
+    },
     "skills_manifest.json": {
       title: "Skills 清单",
       subtitle: "已注入的技能包与选择模式",

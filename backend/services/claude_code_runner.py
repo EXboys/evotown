@@ -402,6 +402,7 @@ def _render_agent_context_md(
     shared_context: dict[str, Any],
     materialized_skills: list[str],
     workspace_root: str = "",
+    profile: dict[str, Any] | None = None,
 ) -> str:
     skills_block = shared_context.get("skills", {})
     mcp_block = shared_context.get("mcp", {})
@@ -417,9 +418,18 @@ def _render_agent_context_md(
         "ALL file read/write/edit/bash operations MUST use paths relative to",
         "the workspace root above. Never use absolute paths like /data/workspace/.",
         "",
+    ]
+    from infra import workspace_profile
+
+    profile_sections = workspace_profile.profile_context_sections(profile or {})
+    if profile_sections:
+        lines.extend(profile_sections)
+    lines.extend(
+        [
         "## Available Skills",
         "",
-    ]
+        ]
+    )
     skill_entries = skills_block.get("skills") or []
     if skill_entries:
         for entry in skill_entries[:30]:
@@ -525,6 +535,8 @@ def _write_context_files(
     *,
     materialized_skills: list[str],
 ) -> list[dict[str, Any]]:
+    from infra import workspace_profile
+
     root = workspaces.resolve_workspace_path(workspace)
     evotown_dir = root / ".evotown"
     evotown_dir.mkdir(parents=True, exist_ok=True)
@@ -535,6 +547,7 @@ def _write_context_files(
         shared_context=shared_context,
         materialized_skills=materialized_skills,
         workspace_root=str(root),
+        profile=shared_context.get("workspace_profile"),
     )
     files: list[tuple[str, str]] = [
         ("skills_manifest.json", _json_dumps(shared_context.get("skills", {}))),
@@ -550,6 +563,17 @@ def _write_context_files(
         path.write_text(content, encoding="utf-8")
         digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
         manifest.append({"path": f".evotown/{relative}", "sha256": digest, "bytes": len(content.encode("utf-8"))})
+
+    profile_md = workspaces.resolve_workspace_path(workspace, workspace_profile.PROFILE_MD_RELATIVE)
+    if profile_md.is_file():
+        profile_bytes = profile_md.read_bytes()
+        manifest.append(
+            {
+                "path": workspace_profile.PROFILE_MD_RELATIVE,
+                "sha256": hashlib.sha256(profile_bytes).hexdigest(),
+                "bytes": len(profile_bytes),
+            }
+        )
 
     mcp_servers: dict[str, Any] = {}
     for conn in (shared_context.get("mcp") or {}).get("connections") or []:
@@ -818,6 +842,9 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
         prompt = _append_vision_to_prompt(prompt, vision_text, image_paths)
 
     identity = _runner_identity(run)
+    from infra import workspace_profile
+
+    ws_profile = workspace_profile.get_profile(workspace)
     shared_context = build_shared_context(
         prompt=run["prompt"],
         team_id=run.get("team_id", ""),
@@ -825,6 +852,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
         selected_mcp=selected_mcp,
         identity=identity,
     )
+    shared_context["workspace_profile"] = ws_profile
     materialized_skills = _materialize_skills(workspace, selected_skills) if selected_skills else []
     artifacts = _write_context_files(
         workspace,

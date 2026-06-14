@@ -659,7 +659,7 @@ export function EnterpriseConsole({
             </nav>
           </header>
 
-          <div className="px-5 py-6 lg:px-8">
+          <div className={tab === "dispatch" ? "flex min-h-0 flex-col px-5 py-4 lg:px-8" : "px-5 py-6 lg:px-8"}>
             {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{copy.shell.loadFailed}: {error}</div>}
 
             {tab === "dashboard" && <Dashboard data={data} summary={summary} copy={copy.dashboard} locale={locale} onTab={setRoute} onRun={openRun} />}

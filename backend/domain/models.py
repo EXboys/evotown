@@ -124,6 +124,16 @@ class WorkspaceUpdate(BaseModel):
     storage_quota_mb: int | None = Field(default=None, ge=0, le=1048576)
 
 
+class WorkspaceProfileUpdate(BaseModel):
+    agent_type: str = Field(default="", max_length=64)
+    soul: str = Field(default="", max_length=8000)
+    paradigm: str = Field(default="", max_length=8000)
+    standards: str = Field(default="", max_length=8000)
+    default_model: str = Field(default="", max_length=128)
+    default_skills: list[str] = Field(default_factory=list, max_length=32)
+    default_mcp: list[str] = Field(default_factory=list, max_length=16)
+
+
 class ClaudeAgentRunCreate(BaseModel):
     prompt: str = Field(min_length=1, max_length=32000)
     model: str = Field(default="", max_length=128)

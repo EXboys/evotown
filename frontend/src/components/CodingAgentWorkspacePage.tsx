@@ -303,7 +303,27 @@ export function CodingAgentWorkspacePage() {
   const openFile = async (path: string) => {
     if (!workspaceId) return;
     setFileLoading(path);
+    setError("");
     try {
+      if (isImageAttachmentPath(path)) {
+        const name = path.split("/").pop() || path;
+        const cached = mediaBlobUrls[path];
+        if (cached) {
+          setLightboxImage({ src: cached, alt: name });
+          return;
+        }
+        const serveUrl = `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/serve/${encodeURIComponent(path)}`;
+        const res = await adminFetch(serveUrl);
+        if (!res.ok) {
+          throw new Error(`无法加载图片 (${res.status})`);
+        }
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        setMediaBlobUrls((prev) => ({ ...prev, [path]: blobUrl }));
+        setLightboxImage({ src: blobUrl, alt: name });
+        return;
+      }
+
       const data = await adminFetch(
         `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/files?path=${encodeURIComponent(path)}`,
       ).then((res) => readJson<{ path: string; content: string; size: number; truncated: boolean }>(res));

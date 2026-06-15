@@ -16,6 +16,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
+import time
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -88,12 +90,18 @@ async def require_admin(
     key: str | None = Security(_HEADER_SCHEME),
     credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
 ) -> None:
-    """Validate bootstrap admin token or console API key with write scope."""
+    """Validate bootstrap admin token or console API key with write scope, or staff session with admin role."""
     admin_token = _get_configured_token()
     if admin_token and key and key == admin_token:
         return
     if credentials is not None and credentials.scheme.lower() == "bearer":
-        identity = _resolve_gateway_identity(credentials.credentials)
+        token = credentials.credentials
+        # Check staff session first (account + password login)
+        staff = get_staff_session(token)
+        if staff is not None and has_console_write(staff.get("scopes", [])):
+            return
+        # Fall back to API key
+        identity = _resolve_gateway_identity(token)
         if identity is not None and has_console_write(_scopes_list(identity.get("scopes"))):
             return
     if not admin_token and credentials is None:
@@ -115,7 +123,13 @@ async def require_console_session(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing bearer token.",
         )
-    session = session_from_api_key(credentials.credentials)
+    token = credentials.credentials
+    # Check staff session first
+    staff = get_staff_session(token)
+    if staff is not None:
+        return staff
+    # Fall back to API key
+    session = session_from_api_key(token)
     if session is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -133,7 +147,13 @@ async def require_console_read(
     if admin_token and key and key == admin_token:
         return {"source": "admin_token", "scopes": ["*"]}
     if credentials is not None and credentials.scheme.lower() == "bearer":
-        session = session_from_api_key(credentials.credentials)
+        token = credentials.credentials
+        # Check staff session first
+        staff = get_staff_session(token)
+        if staff is not None:
+            return staff
+        # Fall back to API key
+        session = session_from_api_key(token)
         if session is not None:
             return session
         raise HTTPException(
@@ -533,3 +553,58 @@ def validate_task_content(task: str) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Task content contains disallowed prompt-injection pattern: '{hit}'.",
         )
+
+
+# ── Staff session store (account + password login) ──────────────────
+
+# In-memory session dict: token → { account_id, account_name, role, scopes, expires_at }
+_staff_sessions: dict[str, dict[str, Any]] = {}
+
+STAFF_SESSION_TTL = int(os.environ.get("EVOTOWN_STAFF_SESSION_TTL", str(24 * 3600)))  # 24h default
+
+
+def create_staff_session(account: dict[str, Any]) -> str:
+    token = secrets.token_urlsafe(32)
+    _staff_sessions[token] = {
+        "account_id": account.get("account_id", ""),
+        "account_name": account.get("name", ""),
+        "login_name": account.get("login_name", ""),
+        "org_id": account.get("org_id", ""),
+        "role": account.get("role", "employee"),
+        "scopes": ["console.read", "console.write"] if account.get("role") == "admin" else ["console.read"],
+        "expires_at": time.time() + STAFF_SESSION_TTL,
+    }
+    return token
+
+
+def get_staff_session(token: str) -> dict[str, Any] | None:
+    session = _staff_sessions.get(token)
+    if session is None:
+        return None
+    if time.time() > session["expires_at"]:
+        _staff_sessions.pop(token, None)
+        return None
+    return session
+
+
+def destroy_staff_session(token: str) -> None:
+    _staff_sessions.pop(token, None)
+
+
+async def require_staff_session(
+    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
+) -> dict[str, Any]:
+    """Validate staff session Bearer token. Used for /agent pages."""
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing bearer token.",
+        )
+    session = get_staff_session(credentials.credentials)
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or expired staff session.",
+        )
+    return session
+

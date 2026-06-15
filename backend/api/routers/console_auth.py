@@ -4,17 +4,23 @@ from __future__ import annotations
 import os
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Security, status
 from fastapi.responses import RedirectResponse
+from fastapi.security import HTTPAuthorizationCredentials
 
 from core.auth import (
     DEFAULT_CONSOLE_KEY_SCOPES,
+    _BEARER_SCHEME,
+    create_staff_session,
+    destroy_staff_session,
     require_console_session,
+    require_staff_session,
     session_from_api_key,
 )
-from domain.models import ConsoleLogin, ConsoleRegister, OidcExchange
+from domain.models import ConsoleLogin, ConsoleRegister, OidcExchange, StaffLogin
 from infra import accounts as accounts_store
 from infra import oidc as oidc_store
+from infra import workspaces as workspaces_store
 
 router = APIRouter(prefix="/api/v1/auth", tags=["console-auth"])
 
@@ -80,6 +86,57 @@ async def login_console(body: ConsoleLogin):
             detail="Invalid API key or missing console scope.",
         )
     return {"authenticated": True, "session": _session_payload(session)}
+
+
+@router.post("/staff-login")
+async def staff_login(body: StaffLogin):
+    account = accounts_store.lookup_by_login(body.login_name.strip())
+    if account is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid login name or password.",
+        )
+    if not accounts_store.verify_password(body.password, account.get("password_hash", "")):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid login name or password.",
+        )
+    token = create_staff_session(account)
+    return {
+        "authenticated": True,
+        "session_token": token,
+        "account": {
+            "account_id": account.get("account_id"),
+            "name": account.get("name"),
+            "login_name": account.get("login_name"),
+            "org_id": account.get("org_id"),
+            "role": account.get("role", "employee"),
+        },
+    }
+
+
+@router.get("/staff-me")
+async def staff_me(session: dict = Depends(require_staff_session)):
+    return {
+        "authenticated": True,
+        "account": {
+            "account_id": session.get("account_id"),
+            "account_name": session.get("account_name"),
+            "login_name": session.get("login_name"),
+            "org_id": session.get("org_id"),
+            "role": session.get("role"),
+            "scopes": session.get("scopes"),
+        },
+    }
+
+
+@router.post("/staff-logout")
+async def staff_logout(
+    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
+):
+    if credentials is not None and credentials.scheme.lower() == "bearer":
+        destroy_staff_session(credentials.credentials)
+    return {"ok": True}
 
 
 @router.get("/me")
@@ -163,4 +220,30 @@ async def oidc_exchange(body: OidcExchange):
         "api_key": row["api_key"],
         "session": _session_payload(session),
         "warning": "Store this API key if you need CLI access. Browser session is active.",
+    }
+
+
+# ── Agent discovery for staff sessions ──────────────────────────────
+
+@router.get("/my-agents")
+async def my_agents(session: dict = Depends(require_staff_session)):
+    """Return workspaces bound to the currently logged-in staff account."""
+    account_id = session.get("account_id", "")
+    ws_list = workspaces_store.list_account_workspaces(account_id)
+    # Map to agent-like shape for frontend compatibility
+    agents = [
+        {
+            "agent_id": ws["workspace_id"],
+            "agent_name": ws["name"],
+            "agent_type": "coding-agent",
+            "workspace_path": ws.get("root_path", ""),
+            "key_prefix": "",
+            "key_status": ws.get("status", "active"),
+        }
+        for ws in ws_list
+    ]
+    return {
+        "agents": agents,
+        "account_id": account_id,
+        "account_name": session.get("account_name", ""),
     }

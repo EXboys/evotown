@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
-import { isConsoleAuthenticated } from "../hooks/useAdminToken";
+import { clearConsoleSession, isAdmin, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import type { Locale } from "../lib/i18n";
 import { LanguageToggle } from "./LanguageToggle";
 
@@ -16,6 +16,7 @@ const HEADER_COPY = {
       admin: "企业后台",
     },
     signedIn: "已登录",
+    logout: "退出登录",
     login: "登录",
     openConsole: "企业后台",
   },
@@ -30,6 +31,7 @@ const HEADER_COPY = {
       admin: "Admin Console",
     },
     signedIn: "Signed in",
+    logout: "Log out",
     login: "Log in",
     openConsole: "Admin Console",
   },
@@ -96,6 +98,7 @@ export function PublicSiteHeader({
   const { pathname } = useLocation();
   const copy = HEADER_COPY[locale];
   const signedIn = isConsoleAuthenticated();
+  const adminUser = isAdmin();
   const isMarket = variant === "market";
   const loginTo = loginReturnPath
     ? `/login?return=${encodeURIComponent(loginReturnPath)}`
@@ -119,7 +122,7 @@ export function PublicSiteHeader({
         </Link>
 
         <nav className="hidden min-w-0 flex-1 items-center justify-center gap-0.5 text-sm md:flex">
-          {NAV_ITEMS.map((item) => {
+          {(adminUser ? NAV_ITEMS : NAV_ITEMS.filter(i => i.key !== "admin")).map((item) => {
             const active = isNavActive(item, pathname);
             const label = copy.nav[item.key];
             return (
@@ -148,18 +151,23 @@ export function PublicSiteHeader({
               {copy.login}
             </Link>
           )}
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard")}
-            className="whitespace-nowrap rounded-lg bg-slate-950 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
-          >
-            {signedIn ? copy.signedIn : copy.openConsole}
-          </button>
+          {signedIn && (
+            <button
+              type="button"
+              onClick={() => {
+                clearConsoleSession();
+                navigate("/login", { replace: true });
+              }}
+              className="whitespace-nowrap rounded-lg bg-slate-950 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+            >
+              {copy.logout}
+            </button>
+          )}
         </div>
       </div>
 
       <nav className="flex gap-1 overflow-x-auto border-t border-slate-100 px-5 py-2 text-sm md:hidden">
-        {NAV_ITEMS.map((item) => {
+        {(adminUser ? NAV_ITEMS : NAV_ITEMS.filter(i => i.key !== "admin")).map((item) => {
           const active = isNavActive(item, pathname);
           return (
             <Link

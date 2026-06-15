@@ -8,7 +8,6 @@ from domain.models import (
     GatewayAccountCreate, GatewayAccountUpdate,
     GatewayApiKeyCreate, GatewayApiKeyUpdate,
     GatewayOrgCreate, GatewayOrgUpdate,
-    SetupAgentRequest,
 )
 from infra import accounts as accounts_store
 from infra import gateway as gateway_store
@@ -17,19 +16,9 @@ from infra import workspaces as workspaces_store
 router = APIRouter(prefix="/api/v1", tags=["accounts"])
 
 
-def _generate_workspace_name(account: dict, account_type: str, custom_name: str = "") -> str:
-    if custom_name.strip():
-        return custom_name.strip()
-    name = account.get("name", "")
-    if account_type == "employee":
-        return f"{name}助理"
-    return name
-
-
 def _enrich_account(account: dict) -> dict:
-    counts = accounts_store.account_key_counts([account["account_id"]])
-    stats = counts.get(account["account_id"], {"active_keys": 0, "total_keys": 0})
-    return {**account, **stats}
+    aid = account["account_id"]
+    return {**account, "agent_binding_count": workspaces_store.count_account_workspaces(aid)}
 
 
 def _enrich_key(key: dict) -> dict:
@@ -48,67 +37,24 @@ async def create_account(body: GatewayAccountCreate):
         owner_email=body.owner_email,
         notes=body.notes,
         account_type=body.account_type,
+        login_name=body.login_name,
+        password=body.password,
+        role=body.role,
     )
     return {"account": _enrich_account(account)}
-
-
-@router.post("/accounts/{account_id}/setup-agent", dependencies=[Depends(require_admin)])
-async def setup_agent(account_id: str, body: SetupAgentRequest | None = None):
-    """一键为已有账号创建 Agent 工作空间并签发 agent key。每个账号只能配置一次。"""
-    account = accounts_store.get_account(account_id)
-    if account is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
-
-    # 检查是否已配置
-    existing = workspaces_store.list_workspaces(owner_account_id=account_id)
-    if existing:
-        return {
-            "configured": True,
-            "workspace": existing[0],
-            "message": "该账号已配置 Agent 工作空间",
-        }
-
-    account_type = account.get("account_type", "employee")
-    workspace_name = _generate_workspace_name(
-        account, account_type, (body.workspace_name if body else "")
-    )
-
-    workspace = workspaces_store.create_workspace(
-        owner_account_id=account_id,
-        name=workspace_name,
-        tenant_id=account.get("org_id", ""),
-        team_id=account.get("org_id", ""),
-    )
-
-    key_record, secret = accounts_store.create_api_key(
-        account_id,
-        label=f"Agent 助理 - {workspace_name}",
-        scopes=["console.read", "agent.run"],
-    )
-
-    return {
-        "configured": False,
-        "workspace": workspace,
-        "api_key": key_record,
-        "secret": secret,
-        "warning": "Store this secret now. It will not be shown again.",
-    }
 
 
 @router.get("/accounts", dependencies=[Depends(require_admin)])
 async def list_accounts(status_filter: str | None = None, limit: int = 100):
     items = accounts_store.list_accounts(status=status_filter, limit=limit)
-    counts = accounts_store.account_key_counts([a["account_id"] for a in items])
-    # Enrich with workspace info
+    # Enrich with agent binding count
     result = []
     for a in items:
         aid = a["account_id"]
-        enriched = {**a, **counts.get(aid, {"active_keys": 0, "total_keys": 0})}
-        # Check if this account has an agent workspace
-        agent_ws = workspaces_store.list_workspaces(owner_account_id=aid)
-        if agent_ws:
-            enriched["agent_workspace_id"] = agent_ws[0]["workspace_id"]
-            enriched["agent_workspace_name"] = agent_ws[0]["name"]
+        enriched = {
+            **a,
+            "agent_binding_count": workspaces_store.count_account_workspaces(aid),
+        }
         result.append(enriched)
     return {"accounts": result}
 
@@ -136,7 +82,12 @@ async def update_account(account_id: str, body: GatewayAccountUpdate):
         status=body.status,
         notes=body.notes,
         account_type=body.account_type,
+        login_name=body.login_name,
+        role=body.role,
     )
+    # Set password separately if provided
+    if body.password:
+        accounts_store.set_password(account_id, body.password)
     return {"account": _enrich_account(account or {})}
 
 
@@ -277,3 +228,161 @@ async def delete_gateway_org(org_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return {"ok": True}
+
+
+# ── Agent management ─────────────────────────────────────────────────────────
+
+@router.post("/agents", dependencies=[Depends(require_admin)])
+async def create_agent(body: dict):
+    """Create an agent and auto-issue a key."""
+    agent_name = body.get("agent_name", "").strip()
+    if not agent_name:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_name is required")
+    agent, raw_key = accounts_store.create_agent(
+        agent_name=agent_name,
+        agent_type=body.get("agent_type", "claude-agent"),
+        workspace_path=body.get("workspace_path", ""),
+    )
+    return {
+        "agent": agent,
+        "secret": raw_key,
+        "warning": "Store this secret now. It will not be shown again. This key belongs to the agent — bind employees to this agent separately.",
+    }
+
+
+@router.get("/agents", dependencies=[Depends(require_admin)])
+async def list_agents(status_filter: str | None = None, limit: int = 100):
+    agents = accounts_store.list_agents(status=status_filter, limit=limit)
+    # Enrich with binding count
+    result = []
+    for a in agents:
+        a["binding_count"] = accounts_store.count_agent_bindings(a["agent_id"])
+        result.append(a)
+    return {"agents": result}
+
+
+@router.get("/agents/{agent_id}", dependencies=[Depends(require_admin)])
+async def get_agent(agent_id: str):
+    agent = accounts_store.get_agent(agent_id)
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent not found")
+    agent["binding_count"] = accounts_store.count_agent_bindings(agent_id)
+    agent["accounts"] = accounts_store.list_agent_accounts(agent_id)
+    return {"agent": agent}
+
+
+@router.patch("/agents/{agent_id}", dependencies=[Depends(require_admin)])
+async def update_agent(agent_id: str, body: dict):
+    if accounts_store.get_agent(agent_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent not found")
+    agent = accounts_store.update_agent(
+        agent_id,
+        agent_name=body.get("agent_name"),
+        agent_type=body.get("agent_type"),
+        workspace_path=body.get("workspace_path"),
+        status=body.get("status"),
+    )
+    return {"agent": agent}
+
+
+@router.delete("/agents/{agent_id}", dependencies=[Depends(require_admin)])
+async def delete_agent(agent_id: str):
+    if not accounts_store.delete_agent(agent_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent not found")
+    return {"ok": True}
+
+
+# ── Agent bindings ───────────────────────────────────────────────────────────
+
+@router.post("/accounts/{account_id}/bind-agent", dependencies=[Depends(require_admin)])
+async def bind_agent_to_account(account_id: str, body: dict):
+    agent_id = body.get("agent_id", "").strip()
+    if not agent_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_id is required")
+    if accounts_store.get_account(account_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
+    if accounts_store.get_agent(agent_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent not found")
+    binding = accounts_store.bind_agent(account_id, agent_id)
+    if binding is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="binding already exists")
+    return {"binding": binding}
+
+
+@router.delete("/accounts/{account_id}/bind-agent", dependencies=[Depends(require_admin)])
+async def unbind_agent_from_account(account_id: str, body: dict):
+    agent_id = body.get("agent_id", "").strip()
+    if not agent_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_id is required")
+    if not accounts_store.unbind_agent(account_id, agent_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="binding not found")
+    return {"ok": True}
+
+
+@router.get("/accounts/{account_id}/agents", dependencies=[Depends(require_admin)])
+async def list_account_agents(account_id: str):
+    if accounts_store.get_account(account_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
+    agents = accounts_store.list_account_agents(account_id)
+    return {"agents": agents}
+
+
+@router.get("/agents/{agent_id}/accounts", dependencies=[Depends(require_admin)])
+async def list_agent_accounts(agent_id: str):
+    if accounts_store.get_agent(agent_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent not found")
+    accounts = accounts_store.list_agent_accounts(agent_id)
+    return {"accounts": accounts}
+
+
+# ── Workspace bindings (M:N account ↔ workspace) ────────────────────
+
+@router.post("/accounts/{account_id}/bind-workspace", dependencies=[Depends(require_admin)])
+async def bind_workspace_to_account(account_id: str, body: dict):
+    workspace_id = body.get("workspace_id", "").strip()
+    if not workspace_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="workspace_id is required")
+    if accounts_store.get_account(account_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
+    ws = workspaces_store.get_workspace(workspace_id)
+    if ws is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="workspace not found")
+    binding = workspaces_store.bind_account_to_workspace(account_id, workspace_id)
+    if binding is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="binding already exists")
+    return {"binding": binding}
+
+
+@router.delete("/accounts/{account_id}/bind-workspace", dependencies=[Depends(require_admin)])
+async def unbind_workspace_from_account(account_id: str, body: dict):
+    workspace_id = body.get("workspace_id", "").strip()
+    if not workspace_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="workspace_id is required")
+    if not workspaces_store.unbind_account_from_workspace(account_id, workspace_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="binding not found")
+    return {"ok": True}
+
+
+@router.get("/accounts/{account_id}/workspaces", dependencies=[Depends(require_admin)])
+async def list_account_workspaces(account_id: str):
+    if accounts_store.get_account(account_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
+    ws_list = workspaces_store.list_account_workspaces(account_id)
+    return {"workspaces": ws_list}
+
+
+@router.get("/workspaces/{workspace_id}/accounts", dependencies=[Depends(require_admin)])
+async def list_workspace_accounts(workspace_id: str):
+    if workspaces_store.get_workspace(workspace_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="workspace not found")
+    accts = workspaces_store.list_workspace_accounts(workspace_id)
+    # Enrich with account names
+    result = []
+    for a in accts:
+        acc = accounts_store.get_account(a["account_id"])
+        result.append({
+            **a,
+            "account_name": acc["name"] if acc else "",
+            "login_name": acc["login_name"] if acc else "",
+        })
+    return {"accounts": result}

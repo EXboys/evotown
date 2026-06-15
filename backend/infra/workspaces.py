@@ -91,7 +91,7 @@ def _safe_name(value: str) -> str:
 
 
 def _workspace_dir(owner_account_id: str, workspace_id: str) -> Path:
-    return workspace_base_dir() / owner_account_id / workspace_id
+    return workspace_base_dir() / workspace_id
 
 
 def create_workspace(
@@ -127,7 +127,7 @@ def create_workspace(
         )
         VALUES (?, ?, ?, ?, ?, ?, 'private', 'active', ?, datetime('now'), datetime('now'))
         """,
-        (workspace_id, owner_account_id.strip(), tenant_id.strip(), team_id.strip(), resolved_name, str(root), model_policy),
+        (workspace_id, owner_account_id.strip(), tenant_id.strip(), team_id.strip(), resolved_name, workspace_id, model_policy),
     )
     conn.execute(
         """

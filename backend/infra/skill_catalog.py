@@ -100,9 +100,9 @@ def import_starter_skill(catalog_id: str, *, auto_approve: bool = True) -> dict[
         """
         INSERT INTO skills (
             skill_id, name, description, version, runtime_targets, package_url,
-            status, visibility, team_id, tags, updated_at
+            status, visibility, team_id, tags, source_type, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'company', '', ?, datetime('now'))
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'company', '', ?, 'enterprise', datetime('now'))
         ON CONFLICT(skill_id) DO UPDATE SET
             name=excluded.name,
             description=excluded.description,
@@ -111,6 +111,7 @@ def import_starter_skill(catalog_id: str, *, auto_approve: bool = True) -> dict[
             package_url=excluded.package_url,
             status=excluded.status,
             tags=excluded.tags,
+            source_type='enterprise',
             updated_at=datetime('now')
         """,
         (
@@ -331,9 +332,9 @@ def seed_starter_skills_from_catalog(conn) -> None:
             """
             INSERT INTO skills (
                 skill_id, name, description, version, runtime_targets, package_url,
-                status, visibility, team_id, tags
+                status, visibility, team_id, tags, source_type
             )
-            VALUES (?, ?, ?, ?, ?, ?, 'approved', 'company', '', ?)
+            VALUES (?, ?, ?, ?, ?, ?, 'approved', 'company', '', ?, 'enterprise')
             ON CONFLICT(skill_id) DO NOTHING
             """,
             (

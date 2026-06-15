@@ -58,8 +58,8 @@ function App() {
         <Route path="/accounts" element={<EnterpriseConsole initialTab="accounts" />} />
         <Route path="/engines" element={<EnterpriseConsole initialTab="engines" />} />
         <Route path="/dispatch" element={<EnterpriseConsole initialTab="dispatch" />} />
-        <Route path="/coding-agent" element={<EnterpriseConsole initialTab="coding" />} />
-        <Route path="/coding-agent/workspaces/:workspaceId" element={<CodingAgentWorkspacePage />} />
+        <Route path="/agent" element={<EnterpriseConsole initialTab="coding" />} />
+        <Route path="/agent/workspaces/:workspaceId" element={<CodingAgentWorkspacePage />} />
         <Route path="/runs" element={<EnterpriseConsole initialTab="runs" />} />
         <Route path="/assets" element={<EnterpriseConsole initialTab="assets" />} />
         <Route path="/policies" element={<EnterpriseConsole initialTab="policies" />} />
@@ -67,6 +67,8 @@ function App() {
         <Route path="/knowledge" element={<PublicKnowledgePage />} />
         <Route path="/console/knowledge" element={<EnterpriseConsole initialTab="knowledge" />} />
         <Route path="/console/databases" element={<EnterpriseConsole initialTab="databases" />} />
+        <Route path="/console/mcp" element={<EnterpriseConsole initialTab="mcp" />} />
+        <Route path="/console/roles" element={<EnterpriseConsole initialTab="roles" />} />
         <Route path="/costs" element={<EnterpriseConsole initialTab="costs" />} />
         <Route path="/risk" element={<EnterpriseConsole initialTab="risk" />} />
         <Route path="/arena" element={<ArenaApp />} />

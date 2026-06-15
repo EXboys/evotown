@@ -23,6 +23,7 @@ _conn: sqlite3.Connection | None = None
 
 KEY_PREFIX = "evk_"
 DEFAULT_SCOPES = ["gateway.chat"]
+GATEWAY_SCOPE_CHAT = "gateway.chat"
 CONSOLE_SCOPE_READ = "console.read"
 CONSOLE_SCOPE_WRITE = "console.write"
 WORKSPACE_SCOPE_READ = "workspace.read"
@@ -88,6 +89,25 @@ def _ensure_conn() -> sqlite3.Connection:
             created_at   TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS gateway_agents (
+            agent_id       TEXT PRIMARY KEY,
+            agent_name     TEXT NOT NULL,
+            agent_type     TEXT NOT NULL DEFAULT 'claude-agent',
+            workspace_path TEXT NOT NULL DEFAULT '',
+            key_id         TEXT NOT NULL DEFAULT '',
+            status         TEXT NOT NULL DEFAULT 'active',
+            created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS agent_bindings (
+            binding_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id  TEXT NOT NULL,
+            agent_id    TEXT NOT NULL,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (account_id) REFERENCES gateway_accounts(account_id),
+            FOREIGN KEY (agent_id) REFERENCES gateway_agents(agent_id),
+            UNIQUE(account_id, agent_id)
+        );
         """
     )
 
@@ -127,6 +147,14 @@ def _migrate_accounts_schema(conn: sqlite3.Connection) -> None:
     if "account_type" not in acct_cols:
         conn.execute("ALTER TABLE gateway_accounts ADD COLUMN account_type TEXT NOT NULL DEFAULT 'employee'")
 
+    # Phase 2: Staff login system — password + role fields
+    if "password_hash" not in acct_cols:
+        conn.execute("ALTER TABLE gateway_accounts ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''")
+    if "login_name" not in acct_cols:
+        conn.execute("ALTER TABLE gateway_accounts ADD COLUMN login_name TEXT NOT NULL DEFAULT ''")
+    if "role" not in acct_cols:
+        conn.execute("ALTER TABLE gateway_accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'employee'")
+
 
 def _seed_gateway_orgs(conn: sqlite3.Connection) -> None:
     row = conn.execute("SELECT 1 FROM gateway_orgs WHERE org_id=?", (ROOT_ORG_ID,)).fetchone()
@@ -139,6 +167,249 @@ def _seed_gateway_orgs(conn: sqlite3.Connection) -> None:
 
 def hash_api_key(raw_key: str) -> str:
     return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+
+
+# ── Password hashing (bcrypt) ──────────────────────────────────────
+
+try:
+    import bcrypt
+
+    def hash_password(password: str) -> str:
+        if not password:
+            return ""
+        return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+    def verify_password(password: str, password_hash: str) -> bool:
+        if not password or not password_hash:
+            return False
+        try:
+            return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+        except (ValueError, TypeError):
+            return False
+
+except ImportError:
+    # Fallback for environments without bcrypt
+    import warnings
+
+    def hash_password(password: str) -> str:  # type: ignore[no-redef]
+        warnings.warn("bcrypt not installed — using plain SHA-256, NOT for production")
+        if not password:
+            return ""
+        salt = secrets.token_hex(16)
+        return salt + ":" + hashlib.sha256((salt + password).encode()).hexdigest()
+
+    def verify_password(password: str, password_hash: str) -> bool:  # type: ignore[no-redef]
+        if not password or not password_hash or ":" not in password_hash:
+            return False
+        salt, h = password_hash.split(":", 1)
+        return h == hashlib.sha256((salt + password).encode()).hexdigest()
+
+
+def set_password(account_id: str, new_password: str) -> bool:
+    conn = _ensure_conn()
+    pwd_hash = hash_password(new_password) if new_password else ""
+    conn.execute(
+        "UPDATE gateway_accounts SET password_hash=?, updated_at=datetime('now') WHERE account_id=?",
+        (pwd_hash, account_id),
+    )
+    return conn.total_changes > 0
+
+
+def lookup_by_login(login_name: str) -> dict[str, Any] | None:
+    row = _ensure_conn().execute(
+        "SELECT * FROM gateway_accounts WHERE login_name=? AND status='active'",
+        (login_name.strip(),),
+    ).fetchone()
+    return _account_from_row(row) if row else None
+
+
+def get_account_by_id(account_id: str) -> dict[str, Any] | None:
+    return get_account(account_id)
+
+
+# ── Agent management ───────────────────────────────────────────────
+
+def _agent_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    return dict(row)
+
+
+def create_agent(
+    *,
+    agent_name: str,
+    agent_type: str = "claude-agent",
+    workspace_path: str = "",
+) -> tuple[dict[str, Any], str]:
+    """Create an agent and auto-issue a key. Returns (agent_record, raw_key)."""
+    conn = _ensure_conn()
+    agent_id = f"agt_{uuid.uuid4().hex[:12]}"
+
+    # Issue key for this agent
+    key_id = f"key_{uuid.uuid4().hex[:12]}"
+    raw_key = _generate_raw_key()
+    key_hash = hash_api_key(raw_key)
+    key_prefix = raw_key[:12]
+    scope_list = [GATEWAY_SCOPE_CHAT, AGENT_SCOPE_RUN]
+
+    conn.execute(
+        """
+        INSERT INTO gateway_api_keys (
+            key_id, account_id, label, key_prefix, key_hash, scopes
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (key_id, agent_id, f"agent:{agent_name}", key_prefix, key_hash,
+         json.dumps(scope_list, separators=(",", ":"))),
+    )
+
+    conn.execute(
+        """
+        INSERT INTO gateway_agents (agent_id, agent_name, agent_type, workspace_path, key_id)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (agent_id, agent_name.strip(), agent_type.strip(), workspace_path.strip(), key_id),
+    )
+
+    row = conn.execute("SELECT * FROM gateway_agents WHERE agent_id=?", (agent_id,)).fetchone()
+    return _agent_from_row(row), raw_key
+
+
+def get_agent(agent_id: str) -> dict[str, Any] | None:
+    row = _ensure_conn().execute(
+        "SELECT * FROM gateway_agents WHERE agent_id=?", (agent_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    agent = _agent_from_row(row)
+    # Attach key info
+    key_row = _ensure_conn().execute(
+        "SELECT key_prefix, status, created_at FROM gateway_api_keys WHERE key_id=?",
+        (agent["key_id"],),
+    ).fetchone()
+    if key_row:
+        agent["key_prefix"] = key_row["key_prefix"]
+        agent["key_status"] = key_row["status"]
+    return agent
+
+
+def list_agents(*, status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    conn = _ensure_conn()
+    params: list[Any] = []
+    where = ""
+    if status:
+        where = "WHERE a.status=?"
+        params.append(status)
+    params.append(max(1, min(limit, 500)))
+    rows = conn.execute(
+        f"""
+        SELECT a.*, k.key_prefix, k.status AS key_status
+        FROM gateway_agents a
+        LEFT JOIN gateway_api_keys k ON k.key_id = a.key_id
+        {where}
+        ORDER BY a.created_at DESC LIMIT ?
+        """,
+        params,
+    ).fetchall()
+    return [_agent_from_row(row) for row in rows]
+
+
+def update_agent(agent_id: str, **fields: Any) -> dict[str, Any] | None:
+    allowed = {"agent_name", "agent_type", "workspace_path", "status"}
+    updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if not updates:
+        return get_agent(agent_id)
+    sets = ", ".join(f"{k}=?" for k in updates)
+    values = list(updates.values()) + [agent_id]
+    _ensure_conn().execute(
+        f"UPDATE gateway_agents SET {sets}, updated_at=datetime('now') WHERE agent_id=?",
+        values,
+    )
+    return get_agent(agent_id)
+
+
+def delete_agent(agent_id: str) -> bool:
+    conn = _ensure_conn()
+    agent = conn.execute("SELECT key_id FROM gateway_agents WHERE agent_id=?", (agent_id,)).fetchone()
+    if agent is None:
+        return False
+    # Cascade: delete bindings, revoke key, delete agent
+    conn.execute("DELETE FROM agent_bindings WHERE agent_id=?", (agent_id,))
+    conn.execute(
+        "UPDATE gateway_api_keys SET status='revoked', revoked_at=datetime('now') WHERE key_id=?",
+        (agent["key_id"],),
+    )
+    conn.execute("DELETE FROM gateway_agents WHERE agent_id=?", (agent_id,))
+    return True
+
+
+def count_account_agents(account_id: str) -> int:
+    row = _ensure_conn().execute(
+        "SELECT COUNT(*) AS n FROM agent_bindings WHERE account_id=?",
+        (account_id,),
+    ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def count_agent_bindings(agent_id: str) -> int:
+    row = _ensure_conn().execute(
+        "SELECT COUNT(*) AS n FROM agent_bindings WHERE agent_id=?", (agent_id,)
+    ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+# ── Agent bindings ─────────────────────────────────────────────────
+
+def bind_agent(account_id: str, agent_id: str) -> dict[str, Any] | None:
+    conn = _ensure_conn()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO agent_bindings (account_id, agent_id) VALUES (?, ?)",
+            (account_id, agent_id),
+        )
+    except sqlite3.IntegrityError:
+        return None
+    row = conn.execute(
+        "SELECT * FROM agent_bindings WHERE account_id=? AND agent_id=?",
+        (account_id, agent_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def unbind_agent(account_id: str, agent_id: str) -> bool:
+    conn = _ensure_conn()
+    conn.execute(
+        "DELETE FROM agent_bindings WHERE account_id=? AND agent_id=?",
+        (account_id, agent_id),
+    )
+    return conn.total_changes > 0
+
+
+def list_account_agents(account_id: str) -> list[dict[str, Any]]:
+    rows = _ensure_conn().execute(
+        """
+        SELECT a.*, k.key_prefix, k.status AS key_status
+        FROM agent_bindings b
+        JOIN gateway_agents a ON a.agent_id = b.agent_id
+        LEFT JOIN gateway_api_keys k ON k.key_id = a.key_id
+        WHERE b.account_id=? AND a.status='active'
+        ORDER BY b.created_at DESC
+        """,
+        (account_id,),
+    ).fetchall()
+    return [_agent_from_row(row) for row in rows]
+
+
+def list_agent_accounts(agent_id: str) -> list[dict[str, Any]]:
+    rows = _ensure_conn().execute(
+        """
+        SELECT ac.account_id, ac.name, ac.login_name, ac.role, b.created_at AS bound_at
+        FROM agent_bindings b
+        JOIN gateway_accounts ac ON ac.account_id = b.account_id
+        WHERE b.agent_id=? AND ac.status='active'
+        ORDER BY b.created_at DESC
+        """,
+        (agent_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def _account_from_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -165,16 +436,22 @@ def create_account(
     owner_email: str = "",
     notes: str = "",
     account_type: str = "employee",
+    login_name: str = "",
+    password: str = "",
+    role: str = "employee",
 ) -> dict[str, Any]:
     conn = _ensure_conn()
     account_id = f"acc_{uuid.uuid4().hex[:12]}"
     resolved_org_id = (org_id or team_id).strip()
+    pwd_hash = hash_password(password) if password else ""
+    resolved_login = login_name.strip() or account_id
     conn.execute(
         """
-        INSERT INTO gateway_accounts (account_id, name, org_id, owner_email, notes, account_type)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO gateway_accounts (account_id, name, org_id, owner_email, notes, account_type, login_name, password_hash, role)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (account_id, name.strip(), resolved_org_id, owner_email.strip(), notes.strip(), account_type.strip() or "employee"),
+        (account_id, name.strip(), resolved_org_id, owner_email.strip(), notes.strip(),
+         account_type.strip() or "employee", resolved_login, pwd_hash, role.strip() or "employee"),
     )
     row = conn.execute("SELECT * FROM gateway_accounts WHERE account_id=?", (account_id,)).fetchone()
     return _account_from_row(row)
@@ -213,7 +490,7 @@ def get_account(account_id: str) -> dict[str, Any] | None:
 
 
 def update_account(account_id: str, **fields: Any) -> dict[str, Any] | None:
-    allowed = {"name", "org_id", "owner_email", "status", "notes", "account_type"}
+    allowed = {"name", "org_id", "owner_email", "status", "notes", "account_type", "login_name", "role"}
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if not updates:
         return get_account(account_id)

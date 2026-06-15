@@ -11,7 +11,7 @@ from domain.models import ClaudeAgentRunCreate, WorkspaceCreate, WorkspaceProfil
 from infra import claude_agent_runs, workspace_files, workspace_profile, workspace_uploads, workspaces
 from services import claude_code_runner
 
-router = APIRouter(prefix="/api/v1", tags=["coding-agent"])
+router = APIRouter(prefix="/api/v1", tags=["agent"])
 
 def _is_admin(identity: dict | None) -> bool:
     if not identity:
@@ -68,13 +68,22 @@ def _normalize_attachment_paths(workspace: dict, paths: list[str]) -> list[str]:
     return normalized
 
 
-@router.get("/coding-agent/options")
-async def get_coding_agent_options(identity: dict | None = Depends(require_console_read)):
+@router.get("/agent/options")
+async def get_agent_options(
+    workspace_id: str = "",
+    identity: dict | None = Depends(require_console_read),
+):
     """User-readable catalog of models, skills and MCP plugins for the workbench."""
     identity = _require_identity(identity)
     _require_scope(identity, "workspace.read", "workspace.write", "console.read", "console.write")
 
-    models = claude_code_runner.list_available_models()
+    # Determine model policy from workspace; default to 'all' if no workspace specified
+    policy = "all"
+    if workspace_id:
+        ws = workspaces.get_workspace(workspace_id)
+        if ws:
+            policy = str(ws.get("model_policy") or "all")
+    models = claude_code_runner.list_available_models(policy=policy)
 
     skills: list[dict] = []
     try:
@@ -94,29 +103,11 @@ async def get_coding_agent_options(identity: dict | None = Depends(require_conso
     except Exception:
         skills = []
 
-    databases: list[dict] = []
-    try:
-        from infra import database_registry
-
-        if _is_admin(identity):
-            conns = database_registry.list_connections(status="active")
-        else:
-            conns = database_registry.list_accessible_connections(identity)
-        for conn in conns:
-            databases.append(
-                {
-                    "id": conn.get("connection_id", ""),
-                    "name": conn.get("name", ""),
-                    "db_type": conn.get("db_type", ""),
-                    "access_mode": conn.get("access_mode", ""),
-                }
-            )
-    except Exception:
-        databases = []
+    databases: list[dict] = []  # MCP is now auto-injected from workspace policy, no manual selection
 
     return {
         "models": models,
-        "default_model": claude_code_runner.default_model_id(),
+        "default_model": claude_code_runner.default_model_id(policy=policy),
         "skills": skills,
         "mcp": databases,
     }
@@ -150,12 +141,19 @@ async def create_workspace(body: WorkspaceCreate, identity: dict | None = Depend
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="owner_account_id is required when using admin token",
         )
+    # Validate: routes_only requires at least one enabled route alias
+    if body.model_policy == "routes_only" and claude_code_runner.count_route_aliases() == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="无法创建：选择了「仅路由别名」模式，但当前没有任何已启用的路由别名。请先在网关配置中添加路由别名，或选择「全部模型」模式。",
+        )
     try:
         workspace = workspaces.create_workspace(
             owner_account_id=owner,
             name=body.name,
             tenant_id=body.tenant_id or str(identity.get("org_id") or ""),
             team_id=body.team_id or str(identity.get("team_id") or ""),
+            model_policy=body.model_policy,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
@@ -191,6 +189,12 @@ async def update_workspace(workspace_id: str, body: WorkspaceUpdate, identity: d
             status_code=status.HTTP_403_FORBIDDEN,
             detail="only an admin can reassign the workspace owner",
         )
+    # Validate: switching to routes_only requires at least one enabled route alias
+    if body.model_policy == "routes_only" and claude_code_runner.count_route_aliases() == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="无法切换：当前没有任何已启用的路由别名。请先在网关配置中添加路由别名。",
+        )
     try:
         updated = workspaces.update_workspace(
             workspace_id,
@@ -198,6 +202,7 @@ async def update_workspace(workspace_id: str, body: WorkspaceUpdate, identity: d
             status=body.status,
             owner_account_id=body.owner_account_id,
             storage_quota_mb=body.storage_quota_mb,
+            model_policy=body.model_policy,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
@@ -391,7 +396,6 @@ async def create_agent_run(workspace_id: str, body: ClaudeAgentRunCreate, identi
 
     profile = workspace_profile.get_profile(workspace)
     run_skills = list(body.skills or []) or list(profile.get("default_skills") or [])
-    run_mcp = list(body.mcp or []) or list(profile.get("default_mcp") or [])
     run_model = claude_code_runner.resolve_run_model(body.model or profile.get("default_model") or "")
 
     run = claude_agent_runs.create_run(
@@ -404,7 +408,6 @@ async def create_agent_run(workspace_id: str, body: ClaudeAgentRunCreate, identi
         signals={
             "workspace_name": workspace.get("name", ""),
             "selected_skills": run_skills,
-            "selected_mcp": run_mcp,
             "previous_run_id": body.previous_run_id,
             "attachments": attachment_paths,
         },

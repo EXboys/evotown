@@ -66,6 +66,7 @@ async def list_skills(
     tag: str | None = None,
     status_filter: str | None = None,
     query: str | None = None,
+    source_type: str | None = None,
     limit: int = 100,
 ):
     return {
@@ -75,6 +76,7 @@ async def list_skills(
             tag=tag,
             status=status_filter,
             query=query,
+            source_type=source_type,
             limit=limit,
         )
     }
@@ -145,4 +147,83 @@ async def review_skill_candidate(candidate_id: str, body: SkillCandidateReview):
     if candidate is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="candidate not found")
     return {"reviewed": True, "candidate": candidate}
+
+
+# ── New unified skill management endpoints ────────────────────────────────────
+
+from pydantic import BaseModel as _BaseModel, Field as _Field
+
+
+class DraftSkillBody(_BaseModel):
+    skill_id: str = _Field(min_length=1, max_length=128)
+    name: str = _Field(min_length=1, max_length=128)
+    description: str = _Field(default="", max_length=2000)
+    runtime_targets: list[str] = _Field(default_factory=lambda: ["openclaw", "hermes", "skilllite", "custom"])
+    team_id: str = _Field(default="", max_length=128)
+    tags: list[str] = _Field(default_factory=list)
+    source_run_id: str = _Field(default="", max_length=128)
+    source_type: str = _Field(default="enterprise", pattern=r"^(enterprise|external)$")
+
+
+@router.post("/skills/draft", dependencies=[Depends(require_admin)])
+async def create_draft_skill(body: DraftSkillBody):
+    try:
+        skill = skill_market.create_draft_skill(
+            skill_id=body.skill_id,
+            name=body.name,
+            description=body.description,
+            runtime_targets=list(body.runtime_targets),
+            team_id=body.team_id,
+            tags=list(body.tags),
+            source_run_id=body.source_run_id,
+            source_type=body.source_type,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return {"created": True, "skill": skill}
+
+
+@router.post("/skills/{skill_id}/submit", dependencies=[Depends(require_admin)])
+async def submit_skill_for_review(skill_id: str):
+    try:
+        candidate = skill_market.submit_skill_to_review(skill_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return {"submitted": True, "candidate": candidate}
+
+
+@router.get("/skills/{skill_id}", dependencies=[Depends(require_admin)])
+async def get_skill_detail(skill_id: str):
+    skill = skill_market.get_market_skill(skill_id)
+    if skill is None:
+        # Try non-market access (draft/pending/etc.)
+        skill = skill_market.get_skill(skill_id)
+        if skill is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="skill not found")
+        skill["versions"] = skill_market.list_skill_versions(skill_id)
+    skill["test_runs"] = skill_market.get_skill_test_runs(skill_id)
+    return {"skill": skill}
+
+
+class SkillTestBody(_BaseModel):
+    test_account_id: str = _Field(min_length=1, max_length=128)
+    test_prompt: str = _Field(default="", max_length=8000)
+
+
+@router.post("/skills/{skill_id}/test", dependencies=[Depends(require_admin)])
+async def trigger_skill_test(skill_id: str, body: SkillTestBody):
+    try:
+        result = skill_market.trigger_skill_test(
+            skill_id=skill_id,
+            test_account_id=body.test_account_id,
+            test_prompt=body.test_prompt,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return {"triggered": True, **result}
+
+
+@router.get("/skills/{skill_id}/test-runs", dependencies=[Depends(require_admin)])
+async def get_skill_test_runs(skill_id: str):
+    return {"skill_id": skill_id, "test_runs": skill_market.get_skill_test_runs(skill_id)}
 

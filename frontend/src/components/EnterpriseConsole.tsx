@@ -20,6 +20,8 @@ import { AssetsPanel } from "./AssetsPanel";
 import { CodingAgentPage } from "./CodingAgentPage";
 import { KnowledgePanel } from "./KnowledgePanel";
 import { DatabasePanel } from "./DatabasePanel";
+import { McpPanel } from "./McpPanel";
+import { RolePanel } from "./RolePanel";
 import { DispatchPanel } from "./DispatchPanel";
 import { DisplayTimezoneSelect } from "./DisplayTimezoneSelect";
 import { LanguageToggle } from "./LanguageToggle";
@@ -27,7 +29,7 @@ import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hook
 import { formatDateTimeShort } from "../lib/datetime";
 import { useLocale, type Locale } from "../lib/i18n";
 
-type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "costs" | "risk";
+type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "costs" | "risk";
 
 type EngineRecord = {
   engine_id: string;
@@ -177,13 +179,15 @@ const TAB_ROUTE: Record<ConsoleTab, string> = {
   accounts: "/accounts",
   engines: "/engines",
   dispatch: "/dispatch",
-  coding: "/coding-agent",
+  coding: "/agent",
   runs: "/runs",
   assets: "/assets",
   skills: "/skills",
   policies: "/policies",
   knowledge: "/console/knowledge",
   databases: "/console/databases",
+  mcp: "/console/mcp",
+  roles: "/console/roles",
   costs: "/costs",
   risk: "/risk",
 };
@@ -201,9 +205,30 @@ const NAV_ITEMS: ConsoleTab[] = [
   "policies",
   "knowledge",
   "databases",
+  "mcp",
+  "roles",
   "costs",
   "risk",
 ];
+
+type MenuGroup = {
+  id: string;
+  labelZh: string;
+  labelEn: string;
+  items: ConsoleTab[];
+  link?: string;  // 直接点击跳转的一级菜单
+};
+
+const MENU_GROUPS: MenuGroup[] = [
+  { id: "home", labelZh: "首页", labelEn: "Home", items: ["dashboard"], link: "/dashboard" },
+  { id: "agent", labelZh: "智能体中心", labelEn: "Agent Center", items: ["coding", "runs", "engines", "roles"] },
+  { id: "capability", labelZh: "能力中心", labelEn: "Capabilities", items: ["skills", "knowledge", "mcp", "databases", "dispatch"] },
+  { id: "model", labelZh: "模型管理", labelEn: "Models", items: ["gateway", "policies", "costs", "risk", "assets"] },
+  { id: "admin", labelZh: "企业管理", labelEn: "Admin", items: ["accounts"] },
+];
+
+// Flat set of tabs that belong to expandable groups (non-link groups)
+const GROUPED_TABS = new Set(MENU_GROUPS.filter(g => !g.link).flatMap(g => g.items));
 
 const CONSOLE_COPY = {
   zh: {
@@ -220,6 +245,8 @@ const CONSOLE_COPY = {
       policies: { label: "策略", desc: "Policies" },
       knowledge: { label: "知识库", desc: "Knowledge" },
       databases: { label: "数据库", desc: "Databases" },
+      mcp: { label: "MCP", desc: "MCP Services" },
+      roles: { label: "角色", desc: "Agent Roles" },
       costs: { label: "成本", desc: "Costs" },
       risk: { label: "风控", desc: "Risk" },
     },
@@ -276,6 +303,8 @@ const CONSOLE_COPY = {
       policies: { label: "Policies", desc: "Rules" },
       knowledge: { label: "Knowledge", desc: "Sources" },
       databases: { label: "Databases", desc: "MCP access" },
+      mcp: { label: "MCP", desc: "Services" },
+      roles: { label: "Roles", desc: "Agent Roles" },
       costs: { label: "Costs", desc: "Usage" },
       risk: { label: "Risk", desc: "Events" },
     },
@@ -425,6 +454,20 @@ export function EnterpriseConsole({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sessionName, setSessionName] = useState("");
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+  // Auto-expand the group containing the active tab
+  useEffect(() => {
+    const activeGroup = MENU_GROUPS.find(g => !g.link && g.items.includes(tab));
+    if (activeGroup) {
+      setExpandedGroups(prev => {
+        if (prev.has(activeGroup.id)) return prev;
+        const next = new Set(prev);
+        next.add(activeGroup.id);
+        return next;
+      });
+    }
+  }, [tab]);
 
   useEffect(() => {
     if (!isConsoleAuthenticated()) {
@@ -564,19 +607,84 @@ export function EnterpriseConsole({
               </span>
             </button>
           </div>
-          <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-3 py-4 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.2)_transparent]">
-            {NAV_ITEMS.map((item) => (
-              <button
-                key={item}
-                onClick={() => setRoute(item)}
-                className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm transition ${
-                  tab === item ? "bg-white text-slate-950" : "text-slate-300 hover:bg-white/10 hover:text-white"
-                }`}
-              >
-                <span className="font-medium">{copy.nav[item].label}</span>
-                <span className={`text-xs ${tab === item ? "text-slate-500" : "text-slate-500"}`}>{copy.nav[item].desc}</span>
-              </button>
-            ))}
+          <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-3 py-3 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
+            {MENU_GROUPS.map((group) => {
+              const groupLabel = locale === "zh" ? group.labelZh : group.labelEn;
+              const isExpanded = expandedGroups.has(group.id);
+              const activeInGroup = group.items.some(item => tab === item);
+
+              // Link group: single clickable item (首页)
+              if (group.link) {
+                return (
+                  <button
+                    key={group.id}
+                    onClick={() => navigate(group.link!)}
+                    className={`group flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
+                      tab === group.items[0]
+                        ? "bg-white/12 text-white shadow-sm ring-1 ring-white/10"
+                        : "text-slate-300 hover:bg-white/8 hover:text-white"
+                    }`}
+                  >
+                    <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/10 text-xs">🏠</span>
+                    {groupLabel}
+                  </button>
+                );
+              }
+
+              // Expandable group
+              const icons: Record<string, string> = { agent: "🤖", capability: "🧩", model: "🧠", admin: "⚙️" };
+              return (
+                <div key={group.id} className="pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExpandedGroups(prev => {
+                        const next = new Set(prev);
+                        if (next.has(group.id)) next.delete(group.id);
+                        else next.add(group.id);
+                        return next;
+                      });
+                    }}
+                    className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+                      activeInGroup && !isExpanded
+                        ? "text-white/80 hover:text-white hover:bg-white/8"
+                        : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                    }`}
+                  >
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white/5 text-xs">
+                      {icons[group.id] || "📂"}
+                    </span>
+                    <span className="flex-1 text-left">{groupLabel}</span>
+                    <svg
+                      className={`h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform duration-200 ${isExpanded ? "rotate-90" : ""}`}
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                  <div
+                    className={`ml-2 mt-0.5 space-y-0.5 overflow-hidden border-l border-white/10 pl-4 transition-all duration-200 ${
+                      isExpanded ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
+                    }`}
+                  >
+                    {group.items.map((item) => (
+                      <button
+                        key={item}
+                        onClick={() => setRoute(item)}
+                        className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-all ${
+                          tab === item
+                            ? "bg-white/12 text-white shadow-sm ring-1 ring-white/10"
+                            : "text-slate-300 hover:bg-white/6 hover:text-white"
+                        }`}
+                      >
+                        <span className={`h-1.5 w-1.5 rounded-full ${tab === item ? "bg-sky-400" : "bg-slate-600"}`} />
+                        {copy.nav[item].label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </nav>
           <div className="shrink-0 space-y-2 border-t border-white/10 p-4">
             <DisplayTimezoneSelect layout="card" tone="dark" />
@@ -674,6 +782,8 @@ export function EnterpriseConsole({
             {tab === "policies" && <PoliciesPanel locale={locale} />}
             {tab === "knowledge" && <KnowledgePanel locale={locale} />}
             {tab === "databases" && <DatabasePanel locale={locale} />}
+            {tab === "mcp" && <McpPanel locale={locale} />}
+            {tab === "roles" && <RolePanel locale={locale} />}
             {tab === "costs" && <Costs cost={data.cost} />}
             {tab === "risk" && (
               <Risks

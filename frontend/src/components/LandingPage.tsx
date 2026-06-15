@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 
 import { PublicSiteHeader } from "./PublicSiteHeader";
 import { useLocale } from "../lib/i18n";
+import { adminFetch, isConsoleAuthenticated } from "../hooks/useAdminToken";
+import { formatDateTimeShort } from "../lib/datetime";
 
 const MODULE_META = [
   { path: "/arena", accent: "from-blue-600 to-cyan-500" },
@@ -115,6 +117,8 @@ export function LandingPage() {
   const { locale, setLocale } = useLocale();
   const copy = COPY[locale];
   const [latestChronicle, setLatestChronicle] = useState<{ preview: string; chapter_label: string; virtual_date: string } | null>(null);
+  const [workspaces, setWorkspaces] = useState<Array<{ workspace_id: string; name: string; status: string; model_policy?: string; updated_at: string }>>([]);
+  const [workspacesLoading, setWorkspacesLoading] = useState(false);
 
   useEffect(() => {
     fetch("/api/chronicle")
@@ -123,6 +127,17 @@ export function LandingPage() {
         if (Array.isArray(d) && d.length > 0) setLatestChronicle(d[0]);
       })
       .catch(() => {});
+  }, []);
+
+  // 已登录用户加载自己的智能体（工作区）
+  useEffect(() => {
+    if (!isConsoleAuthenticated()) return;
+    setWorkspacesLoading(true);
+    adminFetch("/api/v1/workspaces?include_all=false&limit=50")
+      .then((r) => r.json())
+      .then((d) => setWorkspaces((d.workspaces || []) as typeof workspaces))
+      .catch(() => setWorkspaces([]))
+      .finally(() => setWorkspacesLoading(false));
   }, []);
 
   return (
@@ -180,6 +195,57 @@ export function LandingPage() {
             </div>
           </div>
         </section>
+
+        {/* 我的智能体 */}
+        {isConsoleAuthenticated() && (
+          <section className="mt-16">
+            <h2 className="text-lg font-semibold text-slate-950">我的智能体</h2>
+            <p className="mt-1 text-sm text-slate-500">你可以访问的智能体工作区</p>
+            <div className="mt-5">
+              {workspacesLoading ? (
+                <div className="py-8 text-center text-sm text-slate-400">加载中…</div>
+              ) : workspaces.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center shadow-sm">
+                  <p className="text-sm text-slate-500">暂无可用智能体</p>
+                  <p className="mt-1 text-xs text-slate-400">联系管理员为您添加可用智能体</p>
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {workspaces.map((ws) => (
+                    <button
+                      key={ws.workspace_id}
+                      type="button"
+                      onClick={() => navigate(`/agent/workspaces/${encodeURIComponent(ws.workspace_id)}`)}
+                      className="group rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="font-medium text-slate-950 truncate">{ws.name}</h3>
+                        {ws.status === "archived" && (
+                          <span className="shrink-0 rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">已归档</span>
+                        )}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                        {ws.model_policy && (
+                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                            ws.model_policy === "routes_only"
+                              ? "border-amber-200 bg-amber-50 text-amber-700"
+                              : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          }`}>
+                            {ws.model_policy === "routes_only" ? "路由模式" : "全部模型"}
+                          </span>
+                        )}
+                        <span>更新于 {formatDateTimeShort(ws.updated_at)}</span>
+                      </div>
+                      <span className="mt-4 inline-flex text-sm font-medium text-blue-600 group-hover:text-blue-500">
+                        进入工作区 →
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         <section className="mt-16 grid gap-4 md:grid-cols-3">
           {copy.modules.map((mod, index) => (

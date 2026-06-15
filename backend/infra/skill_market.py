@@ -65,6 +65,7 @@ def _ensure_conn() -> sqlite3.Connection:
             team_id         TEXT NOT NULL DEFAULT '',
             tags            TEXT NOT NULL DEFAULT '[]',
             source_run_id   TEXT NOT NULL DEFAULT '',
+            source_type     TEXT NOT NULL DEFAULT 'enterprise',
             created_at      TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -156,6 +157,8 @@ def _migrate_skills_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE skills ADD COLUMN download_count INTEGER NOT NULL DEFAULT 0")
     if "package_signature" not in cols:
         conn.execute("ALTER TABLE skills ADD COLUMN package_signature TEXT NOT NULL DEFAULT ''")
+    if "source_type" not in cols:
+        conn.execute("ALTER TABLE skills ADD COLUMN source_type TEXT NOT NULL DEFAULT 'enterprise'")
 
 
 def _json_dumps(value: Any) -> str:
@@ -501,6 +504,7 @@ def list_skills(
     tag: str | None = None,
     status: str | None = None,
     query: str | None = None,
+    source_type: str | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     clauses: list[str] = []
@@ -511,6 +515,9 @@ def list_skills(
     if status:
         clauses.append("status=?")
         params.append(status)
+    if source_type:
+        clauses.append("source_type=?")
+        params.append(source_type)
     if query:
         clauses.append("(lower(name) LIKE ? OR lower(description) LIKE ?)")
         q = f"%{query.lower()}%"
@@ -545,9 +552,9 @@ def upload_skill_package(body: SkillPackageUpload) -> dict[str, Any]:
         INSERT INTO skills (
             skill_id, name, description, version, runtime_targets, package_url,
             package_sha256, package_signature, package_bytes, status, visibility, team_id, tags,
-            source_run_id, readme, dependencies, updated_at
+            source_run_id, readme, dependencies, source_type, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, datetime('now'))
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, 'external', datetime('now'))
         ON CONFLICT(skill_id) DO UPDATE SET
             name=excluded.name,
             description=excluded.description,
@@ -564,6 +571,7 @@ def upload_skill_package(body: SkillPackageUpload) -> dict[str, Any]:
             source_run_id=excluded.source_run_id,
             readme=excluded.readme,
             dependencies=excluded.dependencies,
+            source_type='external',
             updated_at=datetime('now')
         """,
         (
@@ -836,9 +844,9 @@ def _promote_candidate(conn: sqlite3.Connection, candidate: dict[str, Any]) -> N
         """
         INSERT INTO skills (
             skill_id, name, description, version, runtime_targets, package_url,
-            status, visibility, team_id, tags, source_run_id, updated_at
+            status, visibility, team_id, tags, source_run_id, source_type, updated_at
         )
-        VALUES (?, ?, ?, '0.1.0', ?, ?, 'approved', ?, ?, ?, ?, datetime('now'))
+        VALUES (?, ?, ?, '0.1.0', ?, ?, 'approved', ?, ?, ?, ?, 'enterprise', datetime('now'))
         ON CONFLICT(skill_id) DO UPDATE SET
             name=excluded.name,
             description=excluded.description,
@@ -847,6 +855,7 @@ def _promote_candidate(conn: sqlite3.Connection, candidate: dict[str, Any]) -> N
             visibility=excluded.visibility,
             team_id=excluded.team_id,
             source_run_id=excluded.source_run_id,
+            source_type='enterprise',
             updated_at=datetime('now')
         """,
         (
@@ -865,3 +874,210 @@ def _promote_candidate(conn: sqlite3.Connection, candidate: dict[str, Any]) -> N
         ),
     )
 
+
+# ── Skill management: draft / submit / extract / test ────────────────────────
+
+def create_draft_skill(
+    *,
+    skill_id: str,
+    name: str,
+    description: str = "",
+    runtime_targets: list[str] | None = None,
+    team_id: str = "",
+    tags: list[str] | None = None,
+    source_run_id: str = "",
+    source_type: str = "enterprise",
+) -> dict[str, Any]:
+    """Create a skill in draft status for later review."""
+    conn = _ensure_conn()
+    targets = runtime_targets or ["openclaw", "hermes", "skilllite", "custom"]
+    tag_list = tags or []
+    package_url = f"builtin://skills/{_safe_skill_id(skill_id)}"
+    conn.execute(
+        """
+        INSERT INTO skills (
+            skill_id, name, description, version, runtime_targets, package_url,
+            status, visibility, team_id, tags, source_run_id, source_type
+        )
+        VALUES (?, ?, ?, '0.1.0', ?, ?, 'draft', 'team', ?, ?, ?, ?)
+        ON CONFLICT(skill_id) DO UPDATE SET
+            name=excluded.name,
+            description=excluded.description,
+            runtime_targets=excluded.runtime_targets,
+            status='draft',
+            visibility='team',
+            tags=excluded.tags,
+            source_run_id=excluded.source_run_id,
+            source_type=excluded.source_type,
+            updated_at=datetime('now')
+        """,
+        (
+            skill_id,
+            name,
+            description,
+            _json_dumps(targets),
+            package_url,
+            team_id,
+            _json_dumps(tag_list),
+            source_run_id,
+            source_type,
+        ),
+    )
+    return get_skill(skill_id) or {"skill_id": skill_id}
+
+
+def submit_skill_to_review(skill_id: str, *, engine_id: str = "evotown-admin") -> dict[str, Any]:
+    """Submit a draft skill for review by creating a candidate record."""
+    skill = get_skill(skill_id)
+    if skill is None:
+        raise ValueError(f"skill not found: {skill_id}")
+    if skill.get("status") not in ("draft", "rejected"):
+        raise ValueError(f"skill must be in draft or rejected status, got: {skill.get('status')}")
+
+    from domain.models import SkillCandidateCreate
+
+    candidate_id = f"review_{skill_id}"[:128]
+    body = SkillCandidateCreate(
+        candidate_id=candidate_id,
+        source_run_id=str(skill.get("source_run_id") or ""),
+        tenant_id="",
+        team_id=str(skill.get("team_id") or ""),
+        agent_id="",
+        engine_id=engine_id,
+        runtime_target="skilllite",  # type: ignore[arg-type]
+        name=str(skill["name"]),
+        description=str(skill.get("description") or ""),
+        package_url=str(skill.get("package_url") or ""),
+        inline_manifest={"skill_id": skill_id, "name": skill["name"]},
+        signals={"submitted_from": "draft"},
+    )
+
+    # Update skill status to pending
+    conn = _ensure_conn()
+    conn.execute(
+        "UPDATE skills SET status='pending', updated_at=datetime('now') WHERE skill_id=?",
+        (skill_id,),
+    )
+
+    candidate, created = create_candidate(body)
+    return candidate
+
+
+# ── Test trigger ─────────────────────────────────────────────────────────────
+
+def trigger_skill_test(
+    *,
+    skill_id: str,
+    test_account_id: str,
+    test_prompt: str = "",
+    team_id: str = "",
+) -> dict[str, Any]:
+    """Assign a skill to a test account and trigger a Coding Agent run to test it."""
+    from infra import account_skills as acct_skills
+    from infra import accounts as accounts_store
+    from infra import claude_agent_runs, workspaces
+
+    skill = get_skill(skill_id)
+    if skill is None:
+        raise ValueError(f"skill not found: {skill_id}")
+
+    # Ensure test account exists
+    account = accounts_store.get_account(test_account_id)
+    workspace_id: str = ""
+    if account is None:
+        raise ValueError(f"test account not found: {test_account_id}")
+
+    # Assign the skill to the test account
+    current_skills = acct_skills.list_for_account(test_account_id)
+    if skill_id not in current_skills:
+        acct_skills.assign(test_account_id, [skill_id] + current_skills)
+
+    # Find a workspace for the test account
+    ws_list = workspaces.list_workspaces(owner_account_id=test_account_id, limit=1)
+    if not ws_list:
+        raise ValueError(f"no workspace found for test account: {test_account_id}")
+    workspace = ws_list[0]
+    workspace_id = workspace["workspace_id"]
+
+    # Build test prompt
+    skill_name = skill.get("name", skill_id)
+    skill_desc = skill.get("description", "")
+    prompt = test_prompt or (
+        f"请使用技能 {skill_name} ({skill_id}) 完成以下测试任务：\n"
+        f"技能描述：{skill_desc}\n"
+        f"请验证该技能是否可以正常加载和运行，并展示运行结果。"
+    )
+
+    # Create the agent run
+    run_id = claude_agent_runs.create_run(
+        workspace_id=workspace_id,
+        prompt=prompt,
+        account_id=test_account_id,
+        team_id=team_id,
+        model="",
+    )
+    run = claude_agent_runs.get_run(run_id)
+    if run is None:
+        raise RuntimeError("failed to create test run")
+
+    # Record the test association
+    conn = _ensure_conn()
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS skill_test_runs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            skill_id    TEXT NOT NULL,
+            run_id      TEXT NOT NULL,
+            test_prompt TEXT NOT NULL DEFAULT '',
+            created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO skill_test_runs (skill_id, run_id, test_prompt) VALUES (?, ?, ?)",
+        (skill_id, run_id, prompt),
+    )
+
+    return {
+        "skill_id": skill_id,
+        "run_id": run_id,
+        "test_prompt": prompt,
+        "workspace_id": workspace_id,
+        "account_id": test_account_id,
+    }
+
+
+def get_skill_test_runs(skill_id: str) -> list[dict[str, Any]]:
+    """Get test run history for a skill."""
+    conn = _ensure_conn()
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS skill_test_runs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            skill_id    TEXT NOT NULL,
+            run_id      TEXT NOT NULL,
+            test_prompt TEXT NOT NULL DEFAULT '',
+            created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    rows = conn.execute(
+        "SELECT * FROM skill_test_runs WHERE skill_id=? ORDER BY created_at DESC LIMIT 50",
+        (skill_id,),
+    ).fetchall()
+    from infra import claude_agent_runs
+
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        run = claude_agent_runs.get_run(item["run_id"])
+        if run:
+            item["run_status"] = run.get("status")
+            item["run_result"] = str(run.get("result_summary") or run.get("log_excerpt") or "")[:2000]
+            item["run_created_at"] = run.get("created_at")
+        else:
+            item["run_status"] = "unknown"
+            item["run_result"] = ""
+            item["run_created_at"] = item.get("created_at")
+        results.append(item)
+    return results

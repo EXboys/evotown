@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { adminFetch, getAdminToken } from "../hooks/useAdminToken";
 import { formatDateTimeShort } from "../lib/datetime";
 import type { Locale } from "../lib/i18n";
+import { GatewayDrawer } from "./gateway/GatewayDrawer";
+import { SkillsAssignmentPanel } from "./SkillsAssignmentPanel";
 
 type Workspace = {
   workspace_id: string;
@@ -14,11 +16,11 @@ type Workspace = {
   root_path: string;
   status: "active" | "archived";
   storage_quota_mb?: number;
+  model_policy?: string;
   created_at: string;
   updated_at: string;
 };
 
-type Account = { account_id: string; name?: string; owner_email?: string };
 type Viewer = { is_admin: boolean; account_id: string };
 
 type AgentRun = {
@@ -40,27 +42,27 @@ const STATUS_META: Record<AgentRun["status"], { label: string; className: string
 
 const COPY = {
   zh: {
-    eyebrow: "Coding Agent",
-    title: "中心托管 Claude Coding Agent",
-    subtitle: "为每个账号创建私有沙盒 workspace，统一注入公共 skills 与知识库上下文。",
+    eyebrow: "智能体",
+    title: "中心托管 Claude 智能体",
+    subtitle: "为每个账号创建私有智能体空间，统一注入公共 skills 与知识库上下文。",
     refresh: "刷新",
-    newWorkspace: "新建 Workspace",
-    workspaceName: "Workspace 名称",
+    newWorkspace: "新建智能体",
+    workspaceName: "智能体名称",
     create: "创建",
     cancel: "取消",
     open: "打开工作台",
-    statWorkspaces: "Workspaces",
+    statWorkspaces: "智能体",
     statActive: "进行中的任务",
     statTotalRuns: "累计运行",
     recentActivity: "最近活动",
     noRuns: "暂无运行",
-    empty: "还没有 workspace，点右上角「新建 Workspace」创建你的第一个私有沙盒。",
+    empty: "还没有智能体，点右上角「新建智能体」创建你的第一个私有智能体空间。",
     dryRunHint: "未配置 EVOTOWN_CLAUDE_CODE_COMMAND 时，后端执行 dry-run 并写入 .evotown 上下文文件。",
     updated: "更新于",
     edit: "设置",
-    editWorkspace: "编辑 Workspace",
+    editWorkspace: "编辑智能体",
     owner: "绑定账号",
-    ownerHint: "把这个私有空间分配给某个账号（仅管理员）。",
+    ownerHint: "把这个智能体绑定给指定账号（仅管理员）。",
     ownerReadonly: "当前绑定账号（仅管理员可重新分配）。",
     quota: "空间配额 (MB)",
     quotaHint: "0 表示不限制。仅管理员可修改。",
@@ -134,16 +136,18 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
   const [message, setMessage] = useState("");
   const [creating, setCreating] = useState(false);
   const [workspaceName, setWorkspaceName] = useState("Personal Sandbox");
-  const [workspaceOwner, setWorkspaceOwner] = useState("");
+  const [createPolicy, setCreatePolicy] = useState<"all" | "routes_only">("routes_only");
   const [showArchived, setShowArchived] = useState(false);
 
   const [viewer, setViewer] = useState<Viewer>({ is_admin: Boolean(getAdminToken()), account_id: "" });
-  const [accounts, setAccounts] = useState<Account[]>([]);
 
   const [editing, setEditing] = useState<Workspace | null>(null);
   const [editName, setEditName] = useState("");
-  const [editOwner, setEditOwner] = useState("");
   const [editQuota, setEditQuota] = useState("0");
+  const [editPolicy, setEditPolicy] = useState<"all" | "routes_only">("all");
+  const [skillsWsId, setSkillsWsId] = useState<string | null>(null);
+  const [skillsWsName, setSkillsWsName] = useState("");
+  const [editMembers, setEditMembers] = useState<Array<{ account_id: string; account_name?: string; login_name?: string; role: string; bound_at: string }>>([]);
 
   const isAdmin = viewer.is_admin || Boolean(getAdminToken());
 
@@ -195,23 +199,6 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showArchived]);
 
-  // 管理员加载账号列表，用于"绑定账号"下拉。
-  useEffect(() => {
-    if (!isAdmin) return;
-    let cancelled = false;
-    void adminFetch("/api/v1/accounts?limit=200")
-      .then((res) => readJson<{ accounts?: Account[] }>(res))
-      .then((data) => {
-        if (!cancelled) setAccounts(data.accounts || []);
-      })
-      .catch(() => {
-        if (!cancelled) setAccounts([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isAdmin]);
-
   const createWorkspace = async () => {
     if (!workspaceName.trim()) return;
     setBusy(true);
@@ -219,9 +206,9 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
     try {
       const data = await adminFetch("/api/v1/workspaces", {
         method: "POST",
-        body: JSON.stringify({ name: workspaceName, ...(workspaceOwner ? { owner_account_id: workspaceOwner } : {}) }),
+        body: JSON.stringify({ name: workspaceName, model_policy: createPolicy }),
       }).then((res) => readJson<{ workspace: Workspace }>(res));
-      window.location.assign(`/coding-agent/workspaces/${encodeURIComponent(data.workspace.workspace_id)}`);
+      window.location.assign(`/agent/workspaces/${encodeURIComponent(data.workspace.workspace_id)}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "创建失败");
       setBusy(false);
@@ -231,9 +218,14 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
   const openEdit = (workspace: Workspace) => {
     setEditing(workspace);
     setEditName(workspace.name);
-    setEditOwner(workspace.owner_account_id);
     setEditQuota(String(workspace.storage_quota_mb ?? 0));
+    setEditPolicy((workspace.model_policy as "all" | "routes_only") || "all");
+    setEditMembers([]);
     setMessage("");
+    adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspace.workspace_id)}/accounts`)
+      .then(r => r.json())
+      .then(d => setEditMembers((d as { accounts?: Array<{ account_id: string; role: string; bound_at: string }> }).accounts ?? []))
+      .catch(() => {});
   };
 
   const patchWorkspace = async (payload: Record<string, unknown>) => {
@@ -260,14 +252,15 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
     if (!editing) return;
     const payload: Record<string, unknown> = {};
     if (editName.trim() && editName.trim() !== editing.name) payload.name = editName.trim();
-    if (isAdmin && editOwner.trim() && editOwner.trim() !== editing.owner_account_id) {
-      payload.owner_account_id = editOwner.trim();
-    }
     if (isAdmin) {
       const quota = Number(editQuota);
       if (Number.isFinite(quota) && quota >= 0 && quota !== (editing.storage_quota_mb ?? 0)) {
         payload.storage_quota_mb = quota;
       }
+    }
+    const currentPolicy = (editing.model_policy as string) || "all";
+    if (editPolicy !== currentPolicy) {
+      payload.model_policy = editPolicy;
     }
     void patchWorkspace(payload);
   };
@@ -307,10 +300,10 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
             </button>
             <button
               type="button"
-              onClick={() => { setWorkspaceOwner(""); setCreating(true); }}
+              onClick={() => { setCreating(true); }}
               className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow-sm hover:bg-indigo-50"
             >
-              ＋ 新建助理
+              ＋ 新建智能体
             </button>
           </div>
         </div>
@@ -354,11 +347,11 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
             return (
               <a
                 key={workspace.workspace_id}
-                href={`/coding-agent/workspaces/${encodeURIComponent(workspace.workspace_id)}`}
+                href={`/agent/workspaces/${encodeURIComponent(workspace.workspace_id)}`}
                 onClick={(event) => {
                   if (event.metaKey || event.ctrlKey || event.button === 1) return;
                   event.preventDefault();
-                  navigate(`/coding-agent/workspaces/${encodeURIComponent(workspace.workspace_id)}`);
+                  navigate(`/agent/workspaces/${encodeURIComponent(workspace.workspace_id)}`);
                 }}
                 className={`group flex flex-col rounded-2xl border bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md ${
                   archived ? "border-slate-200 opacity-70" : "border-slate-200"
@@ -385,6 +378,19 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
                       className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500 hover:bg-slate-50 hover:text-slate-800"
                     >
                       ⚙
+                    </button>
+                    <button
+                      type="button"
+                      title="技能下发"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setSkillsWsId(workspace.workspace_id);
+                        setSkillsWsName(workspace.name);
+                      }}
+                      className="rounded-lg border border-purple-200 bg-purple-50 px-2 py-1 text-xs text-purple-600 hover:bg-purple-100"
+                    >
+                      技能下发
                     </button>
                   </div>
                 </div>
@@ -437,7 +443,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
             onClick={() => setCreating(true)}
             className="mt-5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
           >
-            ＋ 新建助理
+            ＋ 新建智能体
           </button>
         </div>
       )}
@@ -454,7 +460,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
             className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="text-lg font-semibold text-slate-900">新建助理</div>
+            <div className="text-lg font-semibold text-slate-900">新建智能体</div>
             <p className="mt-1 text-sm text-slate-500">{copy.subtitle}</p>
             <label className="mt-5 block text-sm font-medium text-slate-700">{copy.workspaceName}</label>
             <input
@@ -467,31 +473,36 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
               className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
             {isAdmin && (
-              <label className="mt-4 block text-sm font-medium text-slate-700">
-                绑定账号
-                {accounts.length ? (
-                  <select
-                    value={workspaceOwner}
-                    onChange={(e) => setWorkspaceOwner(e.target.value)}
-                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-                  >
-                    <option value="">选择账号…</option>
-                    {accounts.map((account) => (
-                      <option key={account.account_id} value={account.account_id}>
-                        {account.name ? `${account.name} · ${account.account_id}` : account.account_id}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    value={workspaceOwner}
-                    onChange={(e) => setWorkspaceOwner(e.target.value)}
-                    placeholder="account_id"
-                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-                  />
-                )}
-                <p className="mt-1 text-xs text-slate-400">把这个助理绑定给指定账号（不选则绑定自己）</p>
-              </label>
+              <>
+                <label className="mt-4 block text-sm font-medium text-slate-700">模型策略</label>
+                <div className="mt-2 flex gap-3">
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50">
+                    <input
+                      type="radio"
+                      name="createPolicy"
+                      value="routes_only"
+                      checked={createPolicy === "routes_only"}
+                      onChange={() => setCreatePolicy("routes_only")}
+                      className="accent-indigo-600"
+                    />
+                    <span>仅路由别名</span>
+                  </label>
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50">
+                    <input
+                      type="radio"
+                      name="createPolicy"
+                      value="all"
+                      checked={createPolicy === "all"}
+                      onChange={() => setCreatePolicy("all")}
+                      className="accent-indigo-600"
+                    />
+                    <span>全部模型</span>
+                  </label>
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  「仅路由别名」模式下用户只能选择网关路由别名；「全部模型」允许直接选择上游模型
+                </p>
+              </>
             )}
             <div className="mt-6 flex justify-end gap-2">
               <button
@@ -537,44 +548,23 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
               className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
 
-            <label className="mt-4 block text-sm font-medium text-slate-700">{copy.owner}</label>
-            {isAdmin ? (
-              <>
-                {accounts.length ? (
-                  <select
-                    value={editOwner}
-                    onChange={(event) => setEditOwner(event.target.value)}
-                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-                  >
-                    {!accounts.some((a) => a.account_id === editOwner) && (
-                      <option value={editOwner}>{editOwner || copy.selectAccount}</option>
-                    )}
-                    {accounts.map((account) => (
-                      <option key={account.account_id} value={account.account_id}>
-                        {account.name ? `${account.name} · ${account.account_id}` : account.account_id}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    value={editOwner}
-                    onChange={(event) => setEditOwner(event.target.value)}
-                    placeholder="account_id"
-                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-                  />
-                )}
-                <p className="mt-1 text-xs text-slate-400">{copy.ownerHint}</p>
-              </>
-            ) : (
-              <>
-                <input
-                  value={editOwner}
-                  disabled
-                  className="mt-2 w-full cursor-not-allowed rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500"
-                />
-                <p className="mt-1 text-xs text-slate-400">{copy.ownerReadonly}</p>
-              </>
-            )}
+            <div className="mt-4">
+              <label className="text-sm font-medium text-slate-700">
+                已绑定员工 ({editMembers.length})
+              </label>
+              {editMembers.length === 0 ? (
+                <p className="mt-2 text-xs text-slate-400">暂无绑定，在账号管理中关联</p>
+              ) : (
+                <div className="mt-2 max-h-44 space-y-1 overflow-y-auto rounded-xl border border-slate-200 p-2">
+                  {editMembers.map((m) => (
+                    <div key={m.account_id} className="flex items-center rounded-lg bg-slate-50 px-3 py-2 text-xs">
+                      <span className="text-slate-700">{m.account_name || m.account_id}</span>
+                      {m.login_name && <span className="ml-2 text-slate-400">{m.login_name}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <label className="mt-4 block text-sm font-medium text-slate-700">{copy.quota}</label>
             <input
@@ -588,6 +578,39 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
               }`}
             />
             <p className="mt-1 text-xs text-slate-400">{copy.quotaHint}</p>
+
+            {isAdmin && (
+              <>
+                <label className="mt-4 block text-sm font-medium text-slate-700">模型策略</label>
+                <div className="mt-2 flex gap-3">
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50">
+                    <input
+                      type="radio"
+                      name="editPolicy"
+                      value="routes_only"
+                      checked={editPolicy === "routes_only"}
+                      onChange={() => setEditPolicy("routes_only")}
+                      className="accent-indigo-600"
+                    />
+                    <span>仅路由别名</span>
+                  </label>
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50">
+                    <input
+                      type="radio"
+                      name="editPolicy"
+                      value="all"
+                      checked={editPolicy === "all"}
+                      onChange={() => setEditPolicy("all")}
+                      className="accent-indigo-600"
+                    />
+                    <span>全部模型</span>
+                  </label>
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  切换模式后，用户在智能体工作台中的模型选择器将只显示对应范围内的模型
+                </p>
+              </>
+            )}
 
             <div className="mt-6 flex items-center justify-between gap-2">
               <button
@@ -623,6 +646,19 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
             </div>
           </div>
         </div>
+      )}
+
+      {/* Skills drawer */}
+      {skillsWsId && (
+        <GatewayDrawer
+          open={true}
+          title={`技能下发 · ${skillsWsName}`}
+          onClose={() => { setSkillsWsId(null); setSkillsWsName(""); }}>
+          <SkillsAssignmentPanel
+            accountId={skillsWsId}
+            accountName={skillsWsName}
+          />
+        </GatewayDrawer>
       )}
     </div>
   );

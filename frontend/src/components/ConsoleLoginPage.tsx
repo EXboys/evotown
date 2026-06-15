@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
-import { isConsoleAuthenticated, setConsoleApiKey } from "../hooks/useAdminToken";
+import { isConsoleAuthenticated, setConsoleApiKey, setStaffRole, setStaffToken } from "../hooks/useAdminToken";
 
 type RegistrationStatus = {
   public_registration_allowed?: boolean;
@@ -42,9 +42,11 @@ function formatApiDetail(detail: unknown, fallback: string): string {
 export function ConsoleLoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const returnTo = searchParams.get("return") || "/dashboard";
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const returnTo = searchParams.get("return") || "/";
+  const [mode, setMode] = useState<"login" | "staff" | "register">("staff");
   const [apiKey, setApiKey] = useState("");
+  const [loginName, setLoginName] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
   const [registerForm, setRegisterForm] = useState({ name: "", owner_email: "", org_id: "" });
   const [registrationAllowed, setRegistrationAllowed] = useState(true);
   const [oidcEnabled, setOidcEnabled] = useState(false);
@@ -133,6 +135,43 @@ export function ConsoleLoginPage() {
     }
   };
 
+  const submitStaffLogin = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!loginName.trim() || !loginPassword) {
+      setError("请填写登录名和密码。");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch("/api/v1/auth/staff-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ login_name: loginName.trim(), password: loginPassword }),
+      });
+      const data = await res.json() as {
+        session_token?: string;
+        account?: { name?: string; role?: string };
+        detail?: unknown;
+      };
+      if (!res.ok) {
+        throw new Error(formatApiDetail(data.detail, `登录失败 (${res.status})`));
+      }
+      if (!data.session_token) {
+        throw new Error("登录成功但未返回 session。");
+      }
+      setStaffToken(data.session_token);
+      setStaffRole(data.account?.role ?? "");
+      setMessage(`已登录：${data.account?.name ?? loginName}`);
+      navigate(returnTo, { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "登录失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submitRegister = async (event: FormEvent) => {
     event.preventDefault();
     if (!registerForm.name.trim()) {
@@ -176,17 +215,28 @@ export function ConsoleLoginPage() {
         <div className="mb-8 text-center">
           <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Evotown Console</p>
           <h1 className="mt-2 text-3xl font-semibold text-white">企业控制台登录</h1>
-          <p className="mt-2 text-sm text-slate-400">使用账号 API Key（evk_…）登录，不再弹出 Admin Token 输入框。</p>
+          <p className="mt-2 text-sm text-slate-400">
+            {mode === "staff" && "使用账号和密码登录。"}
+            {mode === "login" && "使用账号 API Key（evk_…）登录。"}
+            {mode === "register" && "注册新账号（需管理员开启）。"}
+          </p>
         </div>
 
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-xl">
           <div className="mb-6 flex rounded-xl bg-slate-950 p-1">
             <button
               type="button"
+              onClick={() => setMode("staff")}
+              className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium ${mode === "staff" ? "bg-white text-slate-950" : "text-slate-400 hover:text-white"}`}
+            >
+              账号密码
+            </button>
+            <button
+              type="button"
               onClick={() => setMode("login")}
               className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium ${mode === "login" ? "bg-white text-slate-950" : "text-slate-400 hover:text-white"}`}
             >
-              登录
+              API Key
             </button>
             <button
               type="button"
@@ -200,6 +250,48 @@ export function ConsoleLoginPage() {
 
           {message && <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">{message}</div>}
           {error && <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
+
+          {mode === "staff" && (
+            <form onSubmit={submitStaffLogin} className="space-y-4">
+              {oidcEnabled && (
+                <a
+                  href={`/api/v1/auth/oidc/start?return_to=${encodeURIComponent(returnTo)}`}
+                  className="flex w-full items-center justify-center rounded-lg border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700"
+                >
+                  企业 SSO 登录
+                </a>
+              )}
+              <label className="block text-sm">
+                <span className="mb-2 block font-medium text-slate-300">登录名</span>
+                <input
+                  type="text"
+                  value={loginName}
+                  onChange={(e) => setLoginName(e.target.value)}
+                  placeholder="admin"
+                  autoComplete="username"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-2 block font-medium text-slate-300">密码</span>
+                <input
+                  type="password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="密码"
+                  autoComplete="current-password"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={busy || !loginName.trim() || !loginPassword}
+                className="w-full rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-slate-100 disabled:opacity-50"
+              >
+                {busy ? "登录中..." : "登录"}
+              </button>
+            </form>
+          )}
 
           {mode === "login" ? (
             <form onSubmit={submitLogin} className="space-y-4">

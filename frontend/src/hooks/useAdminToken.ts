@@ -7,6 +7,7 @@
 
 const SESSION_KEY = "evotown_console_api_key";
 const LEGACY_ADMIN_KEY = "evotown_admin_token";
+const STAFF_TOKEN_KEY = "evotown_staff_token";
 
 export function getConsoleApiKey(): string {
   if (typeof window === "undefined") return "";
@@ -48,16 +49,64 @@ export function clearAdminToken(): void {
   sessionStorage.removeItem(LEGACY_ADMIN_KEY);
 }
 
+// ── Staff session token (account + password login) ──────────────────
+
+export function getStaffToken(): string {
+  if (typeof window === "undefined") return "";
+  return sessionStorage.getItem(STAFF_TOKEN_KEY)?.trim() ?? "";
+}
+
+export function setStaffToken(token: string): void {
+  if (typeof window === "undefined") return;
+  const trimmed = token.trim();
+  if (trimmed) {
+    sessionStorage.setItem(STAFF_TOKEN_KEY, trimmed);
+  } else {
+    sessionStorage.removeItem(STAFF_TOKEN_KEY);
+  }
+}
+
+const STAFF_ROLE_KEY = "evotown_staff_role";
+
+export function getStaffRole(): string {
+  if (typeof window === "undefined") return "";
+  return sessionStorage.getItem(STAFF_ROLE_KEY) ?? "";
+}
+
+export function setStaffRole(role: string): void {
+  if (typeof window === "undefined") return;
+  if (role) {
+    sessionStorage.setItem(STAFF_ROLE_KEY, role);
+  } else {
+    sessionStorage.removeItem(STAFF_ROLE_KEY);
+  }
+}
+
+export function isAdmin(): boolean {
+  return getStaffRole() === "admin";
+}
+
+export function clearStaffToken(): void {
+  if (typeof window === "undefined") return;
+  sessionStorage.removeItem(STAFF_TOKEN_KEY);
+}
+
 export function clearConsoleSession(): void {
   clearConsoleApiKey();
   clearAdminToken();
+  clearStaffToken();
+  setStaffRole("");
 }
 
 export function isConsoleAuthenticated(): boolean {
-  return Boolean(getConsoleApiKey() || getAdminToken());
+  return Boolean(getConsoleApiKey() || getAdminToken() || getStaffToken());
 }
 
 export function authHeaders(): HeadersInit {
+  const staffToken = getStaffToken();
+  if (staffToken) {
+    return { Authorization: `Bearer ${staffToken}` };
+  }
   const apiKey = getConsoleApiKey();
   if (apiKey) {
     return { Authorization: `Bearer ${apiKey}` };
@@ -81,10 +130,11 @@ export async function adminFetch(
   url: string,
   init: RequestInit = {},
 ): Promise<Response> {
+  const staffToken = getStaffToken();
   const apiKey = getConsoleApiKey();
   const adminToken = getAdminToken();
 
-  if (!apiKey && !adminToken) {
+  if (!staffToken && !apiKey && !adminToken) {
     redirectToLogin();
     return new Response(JSON.stringify({ detail: "Not authenticated" }), {
       status: 401,
@@ -93,7 +143,9 @@ export async function adminFetch(
   }
 
   const headers = new Headers(init.headers);
-  if (apiKey) {
+  if (staffToken) {
+    headers.set("Authorization", `Bearer ${staffToken}`);
+  } else if (apiKey) {
     headers.set("Authorization", `Bearer ${apiKey}`);
   } else if (adminToken) {
     headers.set("X-Admin-Token", adminToken);

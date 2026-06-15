@@ -55,8 +55,7 @@ type AgentRunEvent = {
 
 type ModelOption = { id: string; label: string; provider?: string; target?: string };
 type SkillOption = { id: string; name: string; version?: string; summary?: string };
-type McpOption = { id: string; name: string; db_type?: string; access_mode?: string };
-type AgentOptions = { models: ModelOption[]; default_model: string; skills: SkillOption[]; mcp: McpOption[] };
+type AgentOptions = { models: ModelOption[]; default_model: string; skills: SkillOption[]; mcp: Array<{ id: string; name: string; db_type?: string; access_mode?: string }> };
 
 type WorkspaceUpload = {
   path: string;
@@ -241,11 +240,9 @@ export function CodingAgentWorkspacePage() {
   const [options, setOptions] = useState<AgentOptions>({ models: [], default_model: "", skills: [], mcp: [] });
   const [model, setModel] = useState("");
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const [selectedMcp, setSelectedMcp] = useState<string[]>([]);
 
   const [modelOpen, setModelOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
-  const [mcpOpen, setMcpOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(true);
   const [detailsTab, setDetailsTab] = useState<"run" | "profile">("run");
   const [profileApplied, setProfileApplied] = useState(false);
@@ -435,7 +432,7 @@ export function CodingAgentWorkspacePage() {
 
   useEffect(() => {
     let cancelled = false;
-    void adminFetch("/api/v1/coding-agent/options")
+    void adminFetch(`/api/v1/agent/options?workspace_id=${encodeURIComponent(workspaceId)}`)
       .then((res) => readJson<AgentOptions>(res))
       .then((data) => {
         if (cancelled) return;
@@ -448,7 +445,7 @@ export function CodingAgentWorkspacePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [workspaceId]);
 
   const applyProfileDefaults = useCallback(
     (profile: WorkspaceAgentProfile) => {
@@ -457,9 +454,6 @@ export function CodingAgentWorkspacePage() {
       }
       if (profile.default_skills.length) {
         setSelectedSkills(profile.default_skills);
-      }
-      if (profile.default_mcp.length) {
-        setSelectedMcp(profile.default_mcp);
       }
     },
     [],
@@ -629,8 +623,6 @@ export function CodingAgentWorkspacePage() {
 
   const toggleSkill = (id: string) =>
     setSelectedSkills((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
-  const toggleMcp = (id: string) =>
-    setSelectedMcp((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
 
   const removePendingAttachment = (localId: string) => {
     setPendingAttachments((prev) => {
@@ -706,7 +698,6 @@ export function CodingAgentWorkspacePage() {
           prompt: sentPrompt || "请处理我上传的附件。",
           model,
           skills: selectedSkills,
-          mcp: selectedMcp,
           previous_run_id: chainPreviousRunId,
           attachments: attachmentPaths,
         }),
@@ -809,10 +800,10 @@ export function CodingAgentWorkspacePage() {
         <div className="border-b border-slate-100 p-4">
           <button
             type="button"
-            onClick={() => navigate("/coding-agent")}
+            onClick={() => navigate(-1)}
             className="mb-3 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-800"
           >
-            <span aria-hidden>←</span> 返回工作台列表
+            <span aria-hidden>←</span> 返回
           </button>
           <div className="rounded-xl border border-slate-200 bg-gradient-to-br from-indigo-50 to-white p-3">
             <div className="flex items-center gap-2">
@@ -940,7 +931,7 @@ export function CodingAgentWorkspacePage() {
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white/80 px-6 py-3 backdrop-blur">
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-slate-900">Coding Agent 工作台</div>
+            <div className="text-sm font-semibold text-slate-900">Agent 工作台</div>
             <div className="text-xs text-slate-500">
               在私有 workspace 中执行任务，自动注入公共 skills 与知识库上下文。
             </div>
@@ -1287,7 +1278,7 @@ export function CodingAgentWorkspacePage() {
         {/* 输入区 */}
         <div className="shrink-0 border-t border-slate-200 bg-white px-6 py-4">
           <div className="mx-auto max-w-3xl">
-            {(selectedSkills.length > 0 || selectedMcp.length > 0) && (
+            {(selectedSkills.length > 0) && (
               <div className="mb-2 flex flex-wrap gap-1.5">
                 {selectedSkills.map((id) => {
                   const skill = options.skills.find((item) => item.id === id);
@@ -1298,20 +1289,6 @@ export function CodingAgentWorkspacePage() {
                     >
                       🧩 {skill?.name || id}
                       <button type="button" onClick={() => toggleSkill(id)} className="text-amber-400 hover:text-amber-700">
-                        ×
-                      </button>
-                    </span>
-                  );
-                })}
-                {selectedMcp.map((id) => {
-                  const mcp = options.mcp.find((item) => item.id === id);
-                  return (
-                    <span
-                      key={`chip-mcp-${id}`}
-                      className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs text-sky-700"
-                    >
-                      🔌 {mcp?.name || id}
-                      <button type="button" onClick={() => toggleMcp(id)} className="text-sky-400 hover:text-sky-700">
                         ×
                       </button>
                     </span>
@@ -1392,7 +1369,6 @@ export function CodingAgentWorkspacePage() {
                       onClick={() => {
                         setModelOpen((value) => !value);
                         setSkillsOpen(false);
-                        setMcpOpen(false);
                       }}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                     >
@@ -1441,7 +1417,6 @@ export function CodingAgentWorkspacePage() {
                       onClick={() => {
                         setSkillsOpen((value) => !value);
                         setModelOpen(false);
-                        setMcpOpen(false);
                       }}
                       className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50 ${
                         selectedSkills.length
@@ -1493,59 +1468,6 @@ export function CodingAgentWorkspacePage() {
                     </Popover>
                   </div>
 
-                  {/* MCP 插件 */}
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMcpOpen((value) => !value);
-                        setModelOpen(false);
-                        setSkillsOpen(false);
-                      }}
-                      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50 ${
-                        selectedMcp.length
-                          ? "border-sky-200 bg-sky-50 text-sky-700"
-                          : "border-slate-200 text-slate-700"
-                      }`}
-                    >
-                      🔌 MCP{selectedMcp.length ? ` (${selectedMcp.length})` : ""}
-                    </button>
-                    <Popover open={mcpOpen} onClose={() => setMcpOpen(false)}>
-                      <div className="max-h-72 overflow-y-auto p-1">
-                        <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                          MCP / 数据连接器
-                        </div>
-                        {options.mcp.length ? (
-                          options.mcp.map((item) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => toggleMcp(item.id)}
-                              className="flex w-full items-start gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-50"
-                            >
-                              <span
-                                className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${
-                                  selectedMcp.includes(item.id)
-                                    ? "border-sky-500 bg-sky-500 text-white"
-                                    : "border-slate-300"
-                                }`}
-                              >
-                                {selectedMcp.includes(item.id) ? "✓" : ""}
-                              </span>
-                              <span className="min-w-0">
-                                <span className="block truncate font-medium text-slate-800">{item.name}</span>
-                                <span className="block truncate text-[11px] text-slate-400">
-                                  {[item.db_type, item.access_mode].filter(Boolean).join(" · ")}
-                                </span>
-                              </span>
-                            </button>
-                          ))
-                        ) : (
-                          <div className="px-3 py-3 text-xs text-slate-400">暂无可访问的 MCP 连接器。</div>
-                        )}
-                      </div>
-                    </Popover>
-                  </div>
                 </div>
 
                 <button

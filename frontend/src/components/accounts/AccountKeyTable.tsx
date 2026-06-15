@@ -1,4 +1,17 @@
-import type { GatewayApiKey } from "../GatewayAccountsPanel";
+type GatewayApiKey = {
+  key_id: string;
+  account_id: string;
+  label: string;
+  key_prefix: string;
+  scopes: string[];
+  status: "active" | "revoked";
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+  monthly_token_limit?: number;
+  monthly_cost_limit_usd?: number;
+  monthly_usage?: { total_tokens?: number; cost_usd?: number };
+};
 import { formatDateTime } from "../../lib/datetime";
 
 type AccountKeyTableProps = {

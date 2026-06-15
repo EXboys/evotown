@@ -50,6 +50,7 @@ def _ensure_conn() -> sqlite3.Connection:
             root_path         TEXT NOT NULL,
             visibility        TEXT NOT NULL DEFAULT 'private',
             status            TEXT NOT NULL DEFAULT 'active',
+            model_policy      TEXT NOT NULL DEFAULT 'all',
             created_at        TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -75,6 +76,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     cols = {row["name"] for row in conn.execute("PRAGMA table_info(workspaces)").fetchall()}
     if "storage_quota_mb" not in cols:
         conn.execute("ALTER TABLE workspaces ADD COLUMN storage_quota_mb INTEGER NOT NULL DEFAULT 0")
+    if "model_policy" not in cols:
+        conn.execute("ALTER TABLE workspaces ADD COLUMN model_policy TEXT NOT NULL DEFAULT 'all'")
 
 
 def _workspace_from_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -88,7 +91,7 @@ def _safe_name(value: str) -> str:
 
 
 def _workspace_dir(owner_account_id: str, workspace_id: str) -> Path:
-    return workspace_base_dir() / owner_account_id / workspace_id
+    return workspace_base_dir() / workspace_id
 
 
 def create_workspace(
@@ -97,9 +100,12 @@ def create_workspace(
     name: str,
     tenant_id: str = "",
     team_id: str = "",
+    model_policy: str = "routes_only",
 ) -> dict[str, Any]:
     if not owner_account_id.strip():
         raise ValueError("owner_account_id is required")
+    if model_policy not in ("all", "routes_only"):
+        raise ValueError("model_policy must be 'all' or 'routes_only'")
     workspace_id = f"ws_{uuid.uuid4().hex[:16]}"
     root = _workspace_dir(owner_account_id.strip(), workspace_id)
     root.mkdir(parents=True, exist_ok=False)
@@ -117,16 +123,16 @@ def create_workspace(
         """
         INSERT INTO workspaces (
             workspace_id, owner_account_id, tenant_id, team_id, name, root_path,
-            visibility, status, created_at, updated_at
+            visibility, status, model_policy, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, 'private', 'active', datetime('now'), datetime('now'))
+        VALUES (?, ?, ?, ?, ?, ?, 'private', 'active', ?, datetime('now'), datetime('now'))
         """,
-        (workspace_id, owner_account_id.strip(), tenant_id.strip(), team_id.strip(), resolved_name, str(root)),
+        (workspace_id, owner_account_id.strip(), tenant_id.strip(), team_id.strip(), resolved_name, workspace_id, model_policy),
     )
     conn.execute(
         """
         INSERT OR REPLACE INTO workspace_members (workspace_id, account_id, role, created_at)
-        VALUES (?, ?, 'owner', datetime('now'))
+        VALUES (?, ?, 'member', datetime('now'))
         """,
         (workspace_id, owner_account_id.strip()),
     )
@@ -177,6 +183,7 @@ def update_workspace(
     status: str | None = None,
     owner_account_id: str | None = None,
     storage_quota_mb: int | None = None,
+    model_policy: str | None = None,
 ) -> dict[str, Any] | None:
     updates: dict[str, Any] = {}
     if name is not None:
@@ -194,6 +201,10 @@ def update_workspace(
         if storage_quota_mb < 0:
             raise ValueError("storage_quota_mb cannot be negative")
         updates["storage_quota_mb"] = int(storage_quota_mb)
+    if model_policy is not None:
+        if model_policy not in ("all", "routes_only"):
+            raise ValueError("model_policy must be 'all' or 'routes_only'")
+        updates["model_policy"] = model_policy
     if not updates:
         return get_workspace(workspace_id)
 
@@ -207,14 +218,10 @@ def update_workspace(
     if "owner_account_id" in updates:
         new_owner = updates["owner_account_id"]
         conn.execute(
-            "UPDATE workspace_members SET role='member' WHERE workspace_id=? AND role='owner'",
-            (workspace_id,),
-        )
-        conn.execute(
             """
             INSERT INTO workspace_members (workspace_id, account_id, role, created_at)
-            VALUES (?, ?, 'owner', datetime('now'))
-            ON CONFLICT(workspace_id, account_id) DO UPDATE SET role='owner'
+            VALUES (?, ?, 'member', datetime('now'))
+            ON CONFLICT(workspace_id, account_id) DO UPDATE SET role='member'
             """,
             (workspace_id, new_owner),
         )
@@ -276,3 +283,72 @@ def resolve_workspace_path(workspace: dict[str, Any], relative_path: str = ".") 
     except ValueError as exc:
         raise ValueError("path escapes workspace root") from exc
     return target
+
+
+# ── Workspace ↔ Account bindings (M:N) ─────────────────────────────
+
+def _member_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    return dict(row)
+
+
+def bind_account_to_workspace(account_id: str, workspace_id: str) -> dict[str, Any] | None:
+    """Bind an account as a member of a workspace. Idempotent."""
+    conn = _ensure_conn()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO workspace_members (workspace_id, account_id, role) VALUES (?, ?, 'member')",
+            (workspace_id, account_id),
+        )
+    except sqlite3.IntegrityError:
+        return None
+    row = conn.execute(
+        "SELECT * FROM workspace_members WHERE workspace_id=? AND account_id=?",
+        (workspace_id, account_id),
+    ).fetchone()
+    return _member_from_row(row) if row else None
+
+
+def unbind_account_from_workspace(account_id: str, workspace_id: str) -> bool:
+    """Remove an account from a workspace."""
+    conn = _ensure_conn()
+    conn.execute(
+        "DELETE FROM workspace_members WHERE workspace_id=? AND account_id=?",
+        (workspace_id, account_id),
+    )
+    return conn.total_changes > 0
+
+
+def list_account_workspaces(account_id: str) -> list[dict[str, Any]]:
+    """Workspaces this account is a member of."""
+    rows = _ensure_conn().execute(
+        """
+        SELECT w.* FROM workspaces w
+        JOIN workspace_members m ON m.workspace_id = w.workspace_id
+        WHERE m.account_id=? AND w.status='active'
+        ORDER BY w.updated_at DESC
+        """,
+        (account_id,),
+    ).fetchall()
+    return [_workspace_from_row(row) for row in rows]
+
+
+def count_account_workspaces(account_id: str) -> int:
+    row = _ensure_conn().execute(
+        "SELECT COUNT(*) AS n FROM workspace_members WHERE account_id=?",
+        (account_id,),
+    ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def list_workspace_accounts(workspace_id: str) -> list[dict[str, Any]]:
+    """Accounts that are members of this workspace."""
+    rows = _ensure_conn().execute(
+        """
+        SELECT m.account_id, m.role, m.created_at AS bound_at
+        FROM workspace_members m
+        WHERE m.workspace_id=?
+        ORDER BY m.created_at DESC
+        """,
+        (workspace_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]

@@ -93,7 +93,7 @@ RunEventType = Literal[
 RiskSeverity = Literal["low", "medium", "high", "critical"]
 PolicyAction = Literal["allowed", "warned", "blocked", "needs_review"]
 RuntimeTarget = Literal["openclaw", "hermes", "skilllite", "custom"]
-SkillStatus = Literal["approved", "deprecated"]
+SkillStatus = Literal["draft", "pending", "approved", "deprecated", "rejected"]
 SkillCandidateStatus = Literal["pending", "approved", "rejected"]
 SkillVisibility = Literal["private", "team", "company"]
 
@@ -115,6 +115,7 @@ class WorkspaceCreate(BaseModel):
     owner_account_id: str = Field(default="", max_length=128)
     tenant_id: str = Field(default="", max_length=128)
     team_id: str = Field(default="", max_length=128)
+    model_policy: Literal["all", "routes_only"] = "routes_only"
 
 
 class WorkspaceUpdate(BaseModel):
@@ -122,6 +123,7 @@ class WorkspaceUpdate(BaseModel):
     status: Literal["active", "archived"] | None = None
     owner_account_id: str | None = Field(default=None, max_length=128)
     storage_quota_mb: int | None = Field(default=None, ge=0, le=1048576)
+    model_policy: Literal["all", "routes_only"] | None = None
 
 
 class WorkspaceProfileUpdate(BaseModel):
@@ -373,7 +375,10 @@ class GatewayAccountCreate(BaseModel):
     org_id: str = Field(default="", max_length=128)
     owner_email: str = Field(default="", max_length=256)
     notes: str = Field(default="", max_length=2000)
-    account_type: str = Field(default="employee", max_length=32)  # employee | department | dedicated
+    account_type: str = Field(default="employee", max_length=32)
+    login_name: str = Field(default="", max_length=128)
+    password: str = Field(default="", max_length=256)
+    role: str = Field(default="employee", max_length=32)  # admin | employee
 
 
 class GatewayAccountUpdate(BaseModel):
@@ -383,6 +388,9 @@ class GatewayAccountUpdate(BaseModel):
     account_type: str | None = Field(default=None, max_length=32)
     status: AccountStatus | None = None
     notes: str | None = Field(default=None, max_length=2000)
+    login_name: str | None = Field(default=None, max_length=128)
+    role: str | None = Field(default=None, max_length=32)
+    password: str | None = Field(default=None, max_length=256)
 
 
 class GatewayApiKeyCreate(BaseModel):
@@ -411,6 +419,11 @@ class ConsoleRegister(BaseModel):
 
 class ConsoleLogin(BaseModel):
     api_key: str = Field(min_length=8, max_length=256)
+
+
+class StaffLogin(BaseModel):
+    login_name: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=256)
 
 
 KnowledgeSourceType = Literal["feishu", "yuque", "custom", "native"]

@@ -103,25 +103,7 @@ async def get_agent_options(
     except Exception:
         skills = []
 
-    databases: list[dict] = []
-    try:
-        from infra import database_registry
-
-        if _is_admin(identity):
-            conns = database_registry.list_connections(status="active")
-        else:
-            conns = database_registry.list_accessible_connections(identity)
-        for conn in conns:
-            databases.append(
-                {
-                    "id": conn.get("connection_id", ""),
-                    "name": conn.get("name", ""),
-                    "db_type": conn.get("db_type", ""),
-                    "access_mode": conn.get("access_mode", ""),
-                }
-            )
-    except Exception:
-        databases = []
+    databases: list[dict] = []  # MCP is now auto-injected from workspace policy, no manual selection
 
     return {
         "models": models,
@@ -414,7 +396,6 @@ async def create_agent_run(workspace_id: str, body: ClaudeAgentRunCreate, identi
 
     profile = workspace_profile.get_profile(workspace)
     run_skills = list(body.skills or []) or list(profile.get("default_skills") or [])
-    run_mcp = list(body.mcp or []) or list(profile.get("default_mcp") or [])
     run_model = claude_code_runner.resolve_run_model(body.model or profile.get("default_model") or "")
 
     run = claude_agent_runs.create_run(
@@ -427,7 +408,6 @@ async def create_agent_run(workspace_id: str, body: ClaudeAgentRunCreate, identi
         signals={
             "workspace_name": workspace.get("name", ""),
             "selected_skills": run_skills,
-            "selected_mcp": run_mcp,
             "previous_run_id": body.previous_run_id,
             "attachments": attachment_paths,
         },

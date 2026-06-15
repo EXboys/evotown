@@ -53,7 +53,41 @@
 
 ---
 
-## 已确认方案
+### REQ-005: MCP 服务管理与权限体系
+
+**描述**: MCP 是 Agent 连接数据库的唯一通道。MCP 服务由后端发布，前端仅管理查看和权限设定。
+
+**已确认方向**:
+- MCP 生命周期：后端开发部署 → 注册到 evotown → 前端管理面板（只读 + 权限配置）
+- 两层权限：a. workspace 级 MCP 访问开关；b. 行级权限规则（MCP 代理层查询改写）
+- 权限绑定粒度：workspace 级别
+- 行权限规则支持变量插值：`{workspace_team_id}`, `{org_id}`, `{workspace.owner_account_id}`
+- MCP 不独立使用，由 Skill 声明 `requires_mcp` 依赖，运行时自动注入
+- 前端移除输入区 MCP 手动选择器
+- 前端新增 `/console/mcp` MCP 服务管理面板
+- MCP 前端不做创建，仅管理查看和权限设定
+
+**待确认**: MCP 注册方式（API vs 配置文件）、行权限规则引擎语法
+
+**状态**: 方案已确认，待实施
+
+---
+
+### REQ-006: Skill 开发与管理体系
+
+**描述**: Skill 是 Agent 能力的核心载体。需要建立完整的 Skill 开发、发布、管理流程。
+
+**核心问题**:
+- 当前 Skill 从市场下载 zip 包到 workspace，缺乏结构化开发体验
+- Skill 没有声明式依赖（`requires_mcp`、`requires_knowledge`）
+- 缺乏 Skill 开发 SDK/脚手架、测试环境
+- Skill 版本管理、安全审核、市场分发机制待建立
+
+**关联依赖**: REQ-005 MCP（Skill 依赖 MCP 时自动注入）
+
+**状态**: 待讨论
+
+---
 
 （暂无）
 

@@ -67,6 +67,8 @@ function App() {
         <Route path="/knowledge" element={<PublicKnowledgePage />} />
         <Route path="/console/knowledge" element={<EnterpriseConsole initialTab="knowledge" />} />
         <Route path="/console/databases" element={<EnterpriseConsole initialTab="databases" />} />
+        <Route path="/console/mcp" element={<EnterpriseConsole initialTab="mcp" />} />
+        <Route path="/console/roles" element={<EnterpriseConsole initialTab="roles" />} />
         <Route path="/costs" element={<EnterpriseConsole initialTab="costs" />} />
         <Route path="/risk" element={<EnterpriseConsole initialTab="risk" />} />
         <Route path="/arena" element={<ArenaApp />} />

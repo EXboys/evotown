@@ -15,7 +15,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from infra import claude_agent_runs, database_registry, knowledge, skill_market, workspaces
+from infra import claude_agent_runs, knowledge, skill_market, workspaces
 
 DEFAULT_MODEL = "claude-sonnet-4"
 DEFAULT_ENGINE_ID = "claude-code-hosted"
@@ -192,44 +192,33 @@ def _runner_identity(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _resolve_mcp_context(selected_mcp: list[str], identity: dict[str, Any]) -> dict[str, Any]:
-    if not selected_mcp:
+def _resolve_mcp_context(workspace_id: str) -> dict[str, Any]:
+    """Resolve MCP connections from workspace policies (auto-inject, no manual selection)."""
+    from infra import mcp_registry
+
+    policies = mcp_registry.list_policies_for_workspace(workspace_id)
+    if not policies:
         return {"selection_mode": "none", "connections": [], "tool_skill": "database-query"}
-    accessible = {
-        item["connection_id"]: item for item in database_registry.list_accessible_connections(identity)
-    }
+
     connections: list[dict[str, Any]] = []
-    for raw_id in selected_mcp:
-        connection_id = raw_id.strip()
-        if not connection_id:
-            continue
-        conn = database_registry.get_connection(connection_id)
-        if conn is None or conn.get("status") != "active":
-            continue
-        grant = accessible.get(connection_id)
-        if grant is None and not identity.get("account_id"):
-            # Admin/service context without account binding — allow active connections.
-            grant = {"permission": "admin"}
-        if grant is None:
-            continue
+    for policy in policies:
         connections.append(
             {
-                "connection_id": conn["connection_id"],
-                "name": conn["name"],
-                "db_type": conn["db_type"],
-                "mcp_server_url": conn.get("mcp_server_url", ""),
-                "access_mode": conn.get("access_mode", ""),
-                "permission": grant.get("permission", "read"),
-                "description": conn.get("description", ""),
+                "connection_id": policy["service_id"],
+                "name": policy.get("name", policy["service_id"]),
+                "db_type": policy.get("db_type", ""),
+                "mcp_server_url": policy.get("endpoint_url", ""),
+                "permission": "read",
+                "row_rules": policy.get("row_rules", []),
                 "usage": (
                     "Query via Evotown `database-query` skill: "
-                    f'{{"action":"query","connection_id":"{conn["connection_id"]}","sql":"SELECT ..."}}'
+                    f'{{"action":"query","connection_id":"{policy["service_id"]}","sql":"SELECT ..."}}'
                 ),
             }
         )
     proxy_url = os.environ.get("EVOTOWN_DB_MCP_URL", "").strip()
     return {
-        "selection_mode": "explicit",
+        "selection_mode": "auto",
         "connections": connections,
         "tool_skill": "database-query",
         "mcp_proxy_url": proxy_url,
@@ -519,13 +508,12 @@ def build_shared_context(
     prompt: str,
     team_id: str = "",
     selected_skills: list[str] | None = None,
-    selected_mcp: list[str] | None = None,
+    workspace_id: str = "",
     account_id: str = "",
-    identity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     hits = _knowledge_hits(prompt, team_id=team_id)
     skills = _filter_skill_manifest(_skill_manifest(account_id), list(selected_skills or []))
-    mcp = _resolve_mcp_context(list(selected_mcp or []), identity or {})
+    mcp = _resolve_mcp_context(workspace_id)
     return {
         "skills": skills,
         "mcp": mcp,
@@ -814,7 +802,6 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
 
     signals = run.get("signals") or {}
     selected_skills = list(signals.get("selected_skills") or [])
-    selected_mcp = list(signals.get("selected_mcp") or [])
     previous_run_id = str(signals.get("previous_run_id") or "").strip()
     attachment_paths = [str(p).strip() for p in (signals.get("attachments") or []) if str(p).strip()]
     _write_conversation_context(workspace, previous_run_id)
@@ -862,8 +849,8 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
         prompt=run["prompt"],
         team_id=run.get("team_id", ""),
         selected_skills=selected_skills,
-        selected_mcp=selected_mcp,
-        identity=identity,
+        workspace_id=workspace["workspace_id"],
+        account_id=identity.get("account_id", ""),
     )
     shared_context["workspace_profile"] = ws_profile
     materialized_skills = _materialize_skills(workspace, selected_skills) if selected_skills else []

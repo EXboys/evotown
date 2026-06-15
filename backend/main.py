@@ -53,7 +53,7 @@ from api.routers import (
     replay,
 )
 from api.routers import skill_market, skill_catalog, console_auth, market, knowledge, databases
-from api.routers import policies, assets
+from api.routers import policies, assets, mcp_services
 from api.routers import teams
 from api.routers import chronicle as chronicle_router
 from api.routers import snapshot as snapshot_router
@@ -337,6 +337,7 @@ app.include_router(monitor.router)
 app.include_router(websocket.router)
 app.include_router(replay.router)
 app.include_router(teams.router)
+app.include_router(mcp_services.router)
 app.include_router(chronicle_router.router)
 app.include_router(snapshot_router.router)
 # 兼容前端可能使用的 /api 前缀（解决 /config/experiment、/monitor/task_history、/chronicle 404）

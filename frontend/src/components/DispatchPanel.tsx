@@ -220,7 +220,7 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
   }, []);
 
   useEffect(() => {
-    adminFetch("/api/v1/coding-agent/options")
+    adminFetch("/api/v1/agent/options")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((data: { models?: ModelOption[]; default_model?: string }) => {
         const list = data.models || [];
@@ -696,7 +696,7 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
 
 function hostedWorkspacePath(engineId: string | undefined): string | null {
   if (!engineId?.startsWith("hosted-ws-")) return null;
-  return `/coding-agent/workspaces/${engineId.slice("hosted-ws-".length)}`;
+  return `/agent/workspaces/${engineId.slice("hosted-ws-".length)}`;
 }
 
 type DetailTab = "content" | "result" | "log";

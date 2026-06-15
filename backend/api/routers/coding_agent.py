@@ -11,7 +11,7 @@ from domain.models import ClaudeAgentRunCreate, WorkspaceCreate, WorkspaceProfil
 from infra import claude_agent_runs, workspace_files, workspace_profile, workspace_uploads, workspaces
 from services import claude_code_runner
 
-router = APIRouter(prefix="/api/v1", tags=["coding-agent"])
+router = APIRouter(prefix="/api/v1", tags=["agent"])
 
 def _is_admin(identity: dict | None) -> bool:
     if not identity:
@@ -68,8 +68,8 @@ def _normalize_attachment_paths(workspace: dict, paths: list[str]) -> list[str]:
     return normalized
 
 
-@router.get("/coding-agent/options")
-async def get_coding_agent_options(
+@router.get("/agent/options")
+async def get_agent_options(
     workspace_id: str = "",
     identity: dict | None = Depends(require_console_read),
 ):

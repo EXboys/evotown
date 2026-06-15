@@ -208,7 +208,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
         method: "POST",
         body: JSON.stringify({ name: workspaceName, model_policy: createPolicy }),
       }).then((res) => readJson<{ workspace: Workspace }>(res));
-      window.location.assign(`/coding-agent/workspaces/${encodeURIComponent(data.workspace.workspace_id)}`);
+      window.location.assign(`/agent/workspaces/${encodeURIComponent(data.workspace.workspace_id)}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "创建失败");
       setBusy(false);
@@ -347,11 +347,11 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
             return (
               <a
                 key={workspace.workspace_id}
-                href={`/coding-agent/workspaces/${encodeURIComponent(workspace.workspace_id)}`}
+                href={`/agent/workspaces/${encodeURIComponent(workspace.workspace_id)}`}
                 onClick={(event) => {
                   if (event.metaKey || event.ctrlKey || event.button === 1) return;
                   event.preventDefault();
-                  navigate(`/coding-agent/workspaces/${encodeURIComponent(workspace.workspace_id)}`);
+                  navigate(`/agent/workspaces/${encodeURIComponent(workspace.workspace_id)}`);
                 }}
                 className={`group flex flex-col rounded-2xl border bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md ${
                   archived ? "border-slate-200 opacity-70" : "border-slate-200"

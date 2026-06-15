@@ -177,7 +177,7 @@ const TAB_ROUTE: Record<ConsoleTab, string> = {
   accounts: "/accounts",
   engines: "/engines",
   dispatch: "/dispatch",
-  coding: "/coding-agent",
+  coding: "/agent",
   runs: "/runs",
   assets: "/assets",
   skills: "/skills",

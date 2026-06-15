@@ -435,7 +435,7 @@ export function CodingAgentWorkspacePage() {
 
   useEffect(() => {
     let cancelled = false;
-    void adminFetch(`/api/v1/coding-agent/options?workspace_id=${encodeURIComponent(workspaceId)}`)
+    void adminFetch(`/api/v1/agent/options?workspace_id=${encodeURIComponent(workspaceId)}`)
       .then((res) => readJson<AgentOptions>(res))
       .then((data) => {
         if (cancelled) return;
@@ -809,7 +809,7 @@ export function CodingAgentWorkspacePage() {
         <div className="border-b border-slate-100 p-4">
           <button
             type="button"
-            onClick={() => navigate("/coding-agent")}
+            onClick={() => navigate("/agent")}
             className="mb-3 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-800"
           >
             <span aria-hidden>←</span> 返回工作台列表
@@ -940,7 +940,7 @@ export function CodingAgentWorkspacePage() {
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white/80 px-6 py-3 backdrop-blur">
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-slate-900">Coding Agent 工作台</div>
+            <div className="text-sm font-semibold text-slate-900">Agent 工作台</div>
             <div className="text-xs text-slate-500">
               在私有 workspace 中执行任务，自动注入公共 skills 与知识库上下文。
             </div>

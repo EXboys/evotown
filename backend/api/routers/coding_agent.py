@@ -69,12 +69,21 @@ def _normalize_attachment_paths(workspace: dict, paths: list[str]) -> list[str]:
 
 
 @router.get("/coding-agent/options")
-async def get_coding_agent_options(identity: dict | None = Depends(require_console_read)):
+async def get_coding_agent_options(
+    workspace_id: str = "",
+    identity: dict | None = Depends(require_console_read),
+):
     """User-readable catalog of models, skills and MCP plugins for the workbench."""
     identity = _require_identity(identity)
     _require_scope(identity, "workspace.read", "workspace.write", "console.read", "console.write")
 
-    models = claude_code_runner.list_available_models()
+    # Determine model policy from workspace; default to 'all' if no workspace specified
+    policy = "all"
+    if workspace_id:
+        ws = workspaces.get_workspace(workspace_id)
+        if ws:
+            policy = str(ws.get("model_policy") or "all")
+    models = claude_code_runner.list_available_models(policy=policy)
 
     skills: list[dict] = []
     try:
@@ -116,7 +125,7 @@ async def get_coding_agent_options(identity: dict | None = Depends(require_conso
 
     return {
         "models": models,
-        "default_model": claude_code_runner.default_model_id(),
+        "default_model": claude_code_runner.default_model_id(policy=policy),
         "skills": skills,
         "mcp": databases,
     }
@@ -150,12 +159,19 @@ async def create_workspace(body: WorkspaceCreate, identity: dict | None = Depend
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="owner_account_id is required when using admin token",
         )
+    # Validate: routes_only requires at least one enabled route alias
+    if body.model_policy == "routes_only" and claude_code_runner.count_route_aliases() == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="无法创建：选择了「仅路由别名」模式，但当前没有任何已启用的路由别名。请先在网关配置中添加路由别名，或选择「全部模型」模式。",
+        )
     try:
         workspace = workspaces.create_workspace(
             owner_account_id=owner,
             name=body.name,
             tenant_id=body.tenant_id or str(identity.get("org_id") or ""),
             team_id=body.team_id or str(identity.get("team_id") or ""),
+            model_policy=body.model_policy,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
@@ -191,6 +207,12 @@ async def update_workspace(workspace_id: str, body: WorkspaceUpdate, identity: d
             status_code=status.HTTP_403_FORBIDDEN,
             detail="only an admin can reassign the workspace owner",
         )
+    # Validate: switching to routes_only requires at least one enabled route alias
+    if body.model_policy == "routes_only" and claude_code_runner.count_route_aliases() == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="无法切换：当前没有任何已启用的路由别名。请先在网关配置中添加路由别名。",
+        )
     try:
         updated = workspaces.update_workspace(
             workspace_id,
@@ -198,6 +220,7 @@ async def update_workspace(workspace_id: str, body: WorkspaceUpdate, identity: d
             status=body.status,
             owner_account_id=body.owner_account_id,
             storage_quota_mb=body.storage_quota_mb,
+            model_policy=body.model_policy,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc

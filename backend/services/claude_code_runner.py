@@ -28,8 +28,11 @@ FALLBACK_MODELS: list[dict[str, str]] = [
 ]
 
 
-def list_available_models() -> list[dict[str, Any]]:
-    """Gateway route aliases + upstream models, same catalog as Coding Agent workbench."""
+def list_available_models(*, policy: str = "all") -> list[dict[str, Any]]:
+    """Gateway route aliases + upstream models, same catalog as Coding Agent workbench.
+
+    policy='routes_only' returns only gateway route aliases; 'all' returns both.
+    """
     models: list[dict[str, Any]] = []
     seen: set[str] = set()
     try:
@@ -47,18 +50,19 @@ def list_available_models() -> list[dict[str, Any]]:
                         "target": route.get("target_model", ""),
                     }
                 )
-        for entry in gateway_models.list_models(enabled_only=True):
-            name = str(entry.get("model_name") or "").strip()
-            if name and name not in seen:
-                seen.add(name)
-                models.append(
-                    {
-                        "id": name,
-                        "label": name,
-                        "provider": entry.get("provider_label") or "Upstream",
-                        "target": entry.get("litellm_model", ""),
-                    }
-                )
+        if policy != "routes_only":
+            for entry in gateway_models.list_models(enabled_only=True):
+                name = str(entry.get("model_name") or "").strip()
+                if name and name not in seen:
+                    seen.add(name)
+                    models.append(
+                        {
+                            "id": name,
+                            "label": name,
+                            "provider": entry.get("provider_label") or "Upstream",
+                            "target": entry.get("litellm_model", ""),
+                        }
+                    )
     except Exception:
         models = []
     if not models:
@@ -66,9 +70,9 @@ def list_available_models() -> list[dict[str, Any]]:
     return models
 
 
-def default_model_id() -> str:
+def default_model_id(*, policy: str = "all") -> str:
     """Default hosted-agent model: Gateway catalog first, then env, then hardcoded fallback."""
-    models = list_available_models()
+    models = list_available_models(policy=policy)
     if models:
         first = str(models[0].get("id") or "").strip()
         if first:
@@ -77,6 +81,15 @@ def default_model_id() -> str:
     if env_model:
         return env_model
     return DEFAULT_MODEL
+
+
+def count_route_aliases() -> int:
+    """Return the number of enabled gateway route aliases."""
+    try:
+        from infra import gateway_routes
+        return sum(1 for _ in gateway_routes.list_routes(enabled_only=True))
+    except Exception:
+        return 0
 
 
 def resolve_run_model(explicit: str | None = None) -> str:

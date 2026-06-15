@@ -435,7 +435,7 @@ export function CodingAgentWorkspacePage() {
 
   useEffect(() => {
     let cancelled = false;
-    void adminFetch("/api/v1/coding-agent/options")
+    void adminFetch(`/api/v1/coding-agent/options?workspace_id=${encodeURIComponent(workspaceId)}`)
       .then((res) => readJson<AgentOptions>(res))
       .then((data) => {
         if (cancelled) return;
@@ -448,7 +448,7 @@ export function CodingAgentWorkspacePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [workspaceId]);
 
   const applyProfileDefaults = useCallback(
     (profile: WorkspaceAgentProfile) => {

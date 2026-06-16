@@ -17,6 +17,9 @@ type Workspace = {
   status: "active" | "archived";
   storage_quota_mb?: number;
   model_policy?: string;
+  category?: string;
+  template_id?: string;
+  template_name?: string;
   created_at: string;
   updated_at: string;
 };
@@ -137,7 +140,12 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
   const [creating, setCreating] = useState(false);
   const [workspaceName, setWorkspaceName] = useState("Personal Sandbox");
   const [createPolicy, setCreatePolicy] = useState<"all" | "routes_only">("routes_only");
+  const [createTemplateId, setCreateTemplateId] = useState("");
+  const [templates, setTemplates] = useState<{ template_id: string; name: string; category: string; description: string }[]>([]);
   const [showArchived, setShowArchived] = useState(false);
+  const [tab, setTab] = useState<"employee" | "department" | "dedicated">("employee");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"active" | "archived">("active");
 
   const [viewer, setViewer] = useState<Viewer>({ is_admin: Boolean(getAdminToken()), account_id: "" });
 
@@ -169,22 +177,23 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
   const load = async () => {
     setMessage("");
     try {
-      const base = "/api/v1/workspaces";
       const params = new URLSearchParams();
-      if (showArchived) params.set("status_filter", "");
-      // Always request include_all — backend filters by account for non-admins
       params.set("include_all", "true");
-      const qs = params.toString();
-      const url = `${base}?${qs}`;
+      params.set("status_filter", statusFilter);
+      if (tab) params.set("category", tab);
+      const url = `/api/v1/workspaces?${params.toString()}`;
       const wsData = await adminFetch(url).then((res) =>
         readJson<{ workspaces?: Workspace[]; viewer?: Viewer }>(res),
       );
-      setWorkspaces(wsData.workspaces || []);
+      const list = (wsData.workspaces || []);
+      // Filter by search on client side (name or workspace_id)
+      const filtered = search.trim()
+        ? list.filter(w =>
+            w.name.toLowerCase().includes(search.toLowerCase()) ||
+            w.workspace_id.toLowerCase().includes(search.toLowerCase()))
+        : list;
+      setWorkspaces(filtered);
       if (wsData.viewer) setViewer(wsData.viewer);
-      const runData = await adminFetch("/api/v1/agent-runs?limit=200").then((res) =>
-        readJson<{ runs?: AgentRun[] }>(res),
-      );
-      setRuns(runData.runs || []);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "加载失败");
     } finally {
@@ -194,19 +203,22 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
 
   useEffect(() => {
     void load();
-    const id = setInterval(() => void load(), 6000);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showArchived]);
+  }, [tab, search, statusFilter]);
+
+  // Load templates
+  useEffect(() => {
+    adminFetch("/api/v1/agent-templates").then(r => r.json()).then(d => setTemplates((d.templates || []) as typeof templates)).catch(() => {});
+  }, []);
 
   const createWorkspace = async () => {
-    if (!workspaceName.trim()) return;
     setBusy(true);
     setMessage("");
     try {
+      const body: Record<string, unknown> = { name: workspaceName, model_policy: createPolicy, category: tab };
+      if (createTemplateId) body.template_id = createTemplateId;
       const data = await adminFetch("/api/v1/workspaces", {
         method: "POST",
-        body: JSON.stringify({ name: workspaceName, model_policy: createPolicy }),
+        body: JSON.stringify(body),
       }).then((res) => readJson<{ workspace: Workspace }>(res));
       window.location.assign(`/agent/workspaces/${encodeURIComponent(data.workspace.workspace_id)}`);
     } catch (err) {
@@ -271,56 +283,46 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
   };
 
   return (
-    <div className="space-y-6">
-      {/* Hero */}
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-indigo-600 via-indigo-600 to-violet-600 p-6 text-white shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-2xl">
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-200">{copy.eyebrow}</div>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight">{copy.title}</h2>
-            <p className="mt-2 text-sm text-indigo-100">{copy.subtitle}</p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/20">
-              <input
-                type="checkbox"
-                checked={showArchived}
-                onChange={(event) => setShowArchived(event.target.checked)}
-                className="h-3.5 w-3.5 accent-white"
-              />
-              {copy.showArchived}
-            </label>
+    <div className="space-y-5">
+      {/* Tab + Search Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
+          {(["employee", "department", "dedicated"] as const).map((t) => (
             <button
-              type="button"
-              onClick={() => void load()}
-              disabled={loading}
-              className="rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/20 disabled:opacity-50"
+              key={t}
+              onClick={() => setTab(t)}
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                tab === t ? "bg-white text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-800"
+              }`}
             >
-              {loading ? "…" : copy.refresh}
+              {{ employee: "员工", department: "部门", dedicated: "专属" }[t]}
             </button>
-            <button
-              type="button"
-              onClick={() => { setCreating(true); }}
-              className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow-sm hover:bg-indigo-50"
-            >
-              ＋ 新建智能体
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-6 grid grid-cols-3 gap-3">
-          {[
-            { label: copy.statWorkspaces, value: stats.workspaces },
-            { label: copy.statActive, value: stats.active },
-            { label: copy.statTotalRuns, value: stats.totalRuns },
-          ].map((stat) => (
-            <div key={stat.label} className="rounded-xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur">
-              <div className="text-2xl font-semibold tabular-nums">{stat.value}</div>
-              <div className="mt-0.5 text-xs text-indigo-100">{stat.label}</div>
-            </div>
           ))}
         </div>
-      </section>
+        <div className="flex items-center gap-2">
+          <select
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as "active" | "archived")}
+          >
+            <option value="active">活动</option>
+            <option value="archived">归档</option>
+          </select>
+          <input
+            className="w-48 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            placeholder="搜索名称或 ID..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <button
+            type="button"
+            onClick={() => { setCreating(true); setWorkspaceName(""); }}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+          >
+            ＋ 新建智能体
+          </button>
+        </div>
+      </div>
 
       {message && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{message}</div>
@@ -334,16 +336,14 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
               <div className="h-10 w-10 animate-pulse rounded-lg bg-slate-200" />
               <div className="mt-4 h-4 w-2/3 animate-pulse rounded bg-slate-200" />
               <div className="mt-2 h-3 w-1/2 animate-pulse rounded bg-slate-100" />
-              <div className="mt-6 h-9 w-full animate-pulse rounded-lg bg-slate-100" />
             </div>
           ))}
         </div>
       ) : workspaces.length ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {workspaces.map((workspace) => {
-            const wsRuns = runsByWorkspace.get(workspace.workspace_id) || [];
-            const lastRun = wsRuns[0];
             const archived = workspace.status === "archived";
+            const policy = (workspace.model_policy as string) || "all";
             return (
               <a
                 key={workspace.workspace_id}
@@ -354,7 +354,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
                   navigate(`/agent/workspaces/${encodeURIComponent(workspace.workspace_id)}`);
                 }}
                 className={`group flex flex-col rounded-2xl border bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md ${
-                  archived ? "border-slate-200 opacity-70" : "border-slate-200"
+                  archived ? "border-slate-200 opacity-60" : "border-slate-200"
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -362,72 +362,36 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
                     {workspace.name.slice(0, 1).toUpperCase()}
                   </div>
                   <div className="flex items-center gap-1.5">
-                    {archived ? (
-                      <Badge className="border-slate-200 bg-slate-100 text-slate-500">{copy.archivedTag}</Badge>
-                    ) : (
-                      <Badge className="border-indigo-200 bg-indigo-50 text-indigo-700">🔒 私有</Badge>
-                    )}
+                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                      policy === "routes_only"
+                        ? "border-amber-200 bg-amber-50 text-amber-700"
+                        : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    }`}>
+                      {policy === "routes_only" ? "路由模式" : "全部模型"}
+                    </span>
                     <button
                       type="button"
-                      title={copy.edit}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        openEdit(workspace);
-                      }}
-                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500 hover:bg-slate-50 hover:text-slate-800"
-                    >
-                      ⚙
-                    </button>
-                    <button
-                      type="button"
-                      title="技能下发"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setSkillsWsId(workspace.workspace_id);
-                        setSkillsWsName(workspace.name);
-                      }}
-                      className="rounded-lg border border-purple-200 bg-purple-50 px-2 py-1 text-xs text-purple-600 hover:bg-purple-100"
-                    >
-                      技能下发
-                    </button>
+                      title="设置"
+                      onClick={(event) => { event.preventDefault(); event.stopPropagation(); openEdit(workspace); }}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"
+                    >⚙</button>
                   </div>
                 </div>
                 <div className="mt-4 truncate text-base font-semibold text-slate-900">{workspace.name}</div>
+                {workspace.template_name && <div className="mt-1 text-[11px] text-indigo-600">📋 {workspace.template_name}</div>}
                 <div className="mt-1 truncate font-mono text-xs text-slate-400">{workspace.workspace_id}</div>
-                <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-400">
-                  <span>👤</span>
-                  <span className="truncate">{workspace.owner_account_id || "—"}</span>
-                  {workspace.storage_quota_mb ? <span>· {workspace.storage_quota_mb} MB</span> : null}
+                <div className="mt-2 flex items-center gap-2 text-xs">
+                  <span className={`h-2 w-2 rounded-full ${archived ? "bg-slate-400" : "bg-emerald-500"}`} />
+                  <span className={archived ? "text-slate-400" : "text-slate-500"}>
+                    {archived ? "归档" : "活动"}
+                  </span>
                 </div>
-
-                <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
-                    {copy.recentActivity}
-                  </div>
-                  {lastRun ? (
-                    <div className="mt-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_META[lastRun.status].dot}`} />
-                        <span className="text-xs font-medium text-slate-600">{STATUS_META[lastRun.status].label}</span>
-                        <span className="ml-auto text-[11px] text-slate-400">
-                          {formatDateTimeShort(lastRun.created_at)}
-                        </span>
-                      </div>
-                      <div className="mt-1 truncate text-xs text-slate-500">{lastRun.prompt}</div>
-                    </div>
-                  ) : (
-                    <div className="mt-1.5 text-xs text-slate-400">{copy.noRuns}</div>
-                  )}
-                </div>
-
-                <div className="mt-4 flex items-center justify-between">
+                <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
                   <span className="text-[11px] text-slate-400">
-                    {copy.updated} {formatDateTimeShort(workspace.updated_at)}
+                    {formatDateTimeShort(workspace.updated_at)}
                   </span>
                   <span className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition group-hover:bg-indigo-700">
-                    {copy.open} →
+                    打开工作台 →
                   </span>
                 </div>
               </a>
@@ -437,18 +401,16 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
       ) : (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-2xl">📁</div>
-          <p className="mx-auto max-w-md text-sm text-slate-500">{copy.empty}</p>
+          <p className="mx-auto max-w-md text-sm text-slate-500">该分类下暂无智能体</p>
           <button
             type="button"
-            onClick={() => setCreating(true)}
+            onClick={() => { setCreating(true); setWorkspaceName(""); }}
             className="mt-5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
           >
             ＋ 新建智能体
           </button>
         </div>
       )}
-
-      <p className="text-xs text-slate-400">{copy.dryRunHint}</p>
 
       {/* Create modal */}
       {creating && (
@@ -472,6 +434,25 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
               }}
               className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
+            {isAdmin && tab !== "employee" && (
+              <>
+                <label className="mt-4 block text-sm font-medium text-slate-700">身份模板</label>
+                <select
+                  value={createTemplateId}
+                  onChange={(e) => setCreateTemplateId(e.target.value)}
+                  className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                >
+                  <option value="">不使用模板（自定义）</option>
+                  {templates.filter(tpl =>
+                    tab === "department" ? tpl.category === "department" : tpl.category === "personal"
+                  ).map(tpl => (
+                    <option key={tpl.template_id} value={tpl.template_id}>
+                      {tpl.name} {tpl.category === "personal" ? "(系统预设)" : ""}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-slate-400">选择模板后自动初始化智能体身份信息，创建后不可更改</p>
+              </>)}
             {isAdmin && (
               <>
                 <label className="mt-4 block text-sm font-medium text-slate-700">模型策略</label>

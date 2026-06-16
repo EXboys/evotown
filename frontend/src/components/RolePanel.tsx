@@ -4,6 +4,7 @@ import type { Locale } from "../lib/i18n";
 
 type McpRole = { role_id: string; name: string; description: string };
 type WorkspaceSimple = { workspace_id: string; name: string; status?: string };
+type SystemFunc = { func_id: string; name: string; description: string };
 
 const COPY = {
   zh: {
@@ -20,6 +21,8 @@ const COPY = {
     memberHint: "点击智能体切换绑定",
     noRoles: "暂无角色，点击「新建角色」创建。",
     saving: "保存中…",
+    functions: "功能权限",
+    functionsHint: "勾选该角色拥有的系统功能",
   },
   en: {
     title: "Agent Roles",
@@ -35,6 +38,8 @@ const COPY = {
     memberHint: "Click a workspace to toggle binding",
     noRoles: "No roles. Click 「New Role」 to create.",
     saving: "Saving…",
+    functions: "Capabilities",
+    functionsHint: "Select system functions for this role",
   },
 };
 
@@ -54,6 +59,9 @@ export function RolePanel({ locale }: { locale: Locale }) {
   const [expandedRoleId, setExpandedRoleId] = useState<string | null>(null);
   const [members, setMembers] = useState<string[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceSimple[]>([]);
+  const [allFuncs, setAllFuncs] = useState<SystemFunc[]>([]);
+  const [roleFuncs, setRoleFuncs] = useState<string[]>([]);
+  const [mcpServices, setMcpServices] = useState<Array<{ service_id: string; name: string; service_type: string; endpoint_url: string; enabled: boolean }>>([]);
 
   const load = async () => {
     setMessage("");
@@ -95,9 +103,19 @@ export function RolePanel({ locale }: { locale: Locale }) {
     if (expandedRoleId === roleId) { setExpandedRoleId(null); return; }
     setExpandedRoleId(roleId);
     try {
-      const data = await adminFetch(`/api/v1/mcp-roles/${encodeURIComponent(roleId)}/members`).then(r => r.json());
-      setMembers(data.members ?? []);
-    } catch { setMembers([]); }
+      const [mdata, fdata, sdata] = await Promise.all([
+        adminFetch(`/api/v1/mcp-roles/${encodeURIComponent(roleId)}/members`).then(r => r.json()),
+        adminFetch("/api/v1/mcp-functions").then(r => r.json()),
+        adminFetch(`/api/v1/mcp-roles/${encodeURIComponent(roleId)}/services`).then(r => r.json()),
+      ]);
+      setMembers(mdata.members ?? []);
+      setAllFuncs(fdata.functions ?? []);
+      setMcpServices(sdata.services ?? []);
+    } catch { setMembers([]); setAllFuncs([]); setMcpServices([]); }
+    try {
+      const rf = await adminFetch(`/api/v1/mcp-roles/${encodeURIComponent(roleId)}/functions`).then(r => r.json());
+      setRoleFuncs(rf.func_ids ?? []);
+    } catch { setRoleFuncs([]); }
   };
 
   const toggleMember = async (wsId: string) => {
@@ -107,6 +125,16 @@ export function RolePanel({ locale }: { locale: Locale }) {
     try {
       await adminFetch(`/api/v1/mcp-roles/${encodeURIComponent(expandedRoleId)}/members`, { method: "PUT", body: JSON.stringify({ workspace_ids: next }) });
       setMembers(next);
+    } catch (err) { setMessage(err instanceof Error ? err.message : "更新失败"); }
+  };
+
+  const toggleFunc = async (funcId: string) => {
+    if (!expandedRoleId) return;
+    const current = roleFuncs.includes(funcId);
+    const next = current ? roleFuncs.filter(id => id !== funcId) : [...roleFuncs, funcId];
+    try {
+      await adminFetch(`/api/v1/mcp-roles/${encodeURIComponent(expandedRoleId)}/functions`, { method: "PUT", body: JSON.stringify({ func_ids: next }) });
+      setRoleFuncs(next);
     } catch (err) { setMessage(err instanceof Error ? err.message : "更新失败"); }
   };
 
@@ -181,6 +209,44 @@ export function RolePanel({ locale }: { locale: Locale }) {
                       );
                     })}
                   </div>
+                  {mcpServices.length > 0 && (
+                    <>
+                      <div className="text-xs font-medium text-slate-500 mt-5 mb-3">MCP 服务</div>
+                      <div className="flex flex-wrap gap-2">
+                        {mcpServices.map(svc => (
+                          <span key={svc.service_id}
+                            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${
+                              svc.enabled ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-400"
+                            }`}
+                            title={svc.endpoint_url || svc.service_id}>
+                            {svc.name || svc.service_id}
+                            <span className="text-[9px] opacity-60">{svc.service_type}</span>
+                            {svc.enabled ? " ✓" : " ✗"}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-400">MCP 服务权限在「MCP 服务管理」中配置</p>
+                    </>
+                  )}
+                  {allFuncs.length > 0 && (
+                    <>
+                      <div className="text-xs font-medium text-slate-500 mt-5 mb-3">{copy.functions} ({roleFuncs.length}/{allFuncs.length})</div>
+                      <div className="flex flex-wrap gap-2">
+                        {allFuncs.map(fn => {
+                          const active = roleFuncs.includes(fn.func_id);
+                          return (
+                            <button key={fn.func_id} type="button"
+                              onClick={() => toggleFunc(fn.func_id)}
+                              className={`rounded-full border px-3 py-1.5 text-xs transition ${active ? "border-blue-300 bg-blue-50 text-blue-700" : "border-slate-200 text-slate-500 hover:border-slate-300"}`}
+                              title={fn.description}>
+                              {fn.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="mt-2 text-[11px] text-slate-400">{copy.functionsHint}</p>
+                    </>
+                  )}
                 </div>
               )}
             </div>

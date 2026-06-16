@@ -116,6 +116,8 @@ class WorkspaceCreate(BaseModel):
     tenant_id: str = Field(default="", max_length=128)
     team_id: str = Field(default="", max_length=128)
     model_policy: Literal["all", "routes_only"] = "routes_only"
+    category: Literal["employee", "department", "dedicated"] = "employee"
+    template_id: str = Field(default="", max_length=128)
 
 
 class WorkspaceUpdate(BaseModel):
@@ -572,12 +574,11 @@ DatabasePermission = Literal["read", "write", "admin"]
 
 
 class DatabaseConnectionCreate(BaseModel):
-    connection_id: str = Field(min_length=1, max_length=128)
+    connection_id: str = Field(default="", max_length=128)
     name: str = Field(min_length=1, max_length=128)
     db_type: DatabaseType
     tenant_id: str = Field(default="", max_length=128)
     team_id: str = Field(default="", max_length=128)
-    mcp_server_url: str = Field(default="", max_length=512)
     description: str = Field(default="", max_length=2000)
     config: dict[str, Any] = Field(default_factory=dict)
 
@@ -586,7 +587,6 @@ class DatabaseConnectionUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     tenant_id: str | None = Field(default=None, max_length=128)
     team_id: str | None = Field(default=None, max_length=128)
-    mcp_server_url: str | None = Field(default=None, max_length=512)
     status: Literal["active", "paused"] | None = None
     description: str | None = Field(default=None, max_length=2000)
     config: dict[str, Any] | None = None
@@ -601,6 +601,5 @@ class DatabaseAccessGrantCreate(BaseModel):
 
 class DatabaseConnectionTestConfig(BaseModel):
     db_type: DatabaseType
-    mcp_server_url: str = Field(default="", max_length=512)
     config: dict[str, Any] = Field(default_factory=dict)
 

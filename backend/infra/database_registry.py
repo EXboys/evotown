@@ -51,7 +51,6 @@ def _ensure_conn() -> sqlite3.Connection:
             tenant_id       TEXT NOT NULL DEFAULT '',
             team_id         TEXT NOT NULL DEFAULT '',
             config_json     TEXT NOT NULL DEFAULT '{}',
-            mcp_server_url  TEXT NOT NULL DEFAULT '',
             access_mode     TEXT NOT NULL DEFAULT 'mcp_only',
             status          TEXT NOT NULL DEFAULT 'active',
             description     TEXT NOT NULL DEFAULT '',
@@ -76,6 +75,10 @@ def _ensure_conn() -> sqlite3.Connection:
         """
     )
     _conn = conn
+    # Migration: add environment field
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(database_connections)").fetchall()}
+    if "environment" not in cols:
+        conn.execute("ALTER TABLE database_connections ADD COLUMN environment TEXT NOT NULL DEFAULT 'production'")
     return conn
 
 
@@ -109,10 +112,10 @@ def _connection_row(row: sqlite3.Row, *, include_secrets: bool = False) -> dict[
         "db_type": row["db_type"],
         "tenant_id": row["tenant_id"],
         "team_id": row["team_id"],
-        "mcp_server_url": row["mcp_server_url"],
         "access_mode": row["access_mode"],
         "status": row["status"],
         "description": row["description"],
+        "environment": row["environment"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -134,7 +137,7 @@ def _grant_row(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def list_connections(*, status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+def list_connections(*, status: str | None = None, limit: int = 100, include_secrets: bool = False) -> list[dict[str, Any]]:
     conn = _ensure_conn()
     clauses: list[str] = []
     params: list[Any] = []
@@ -147,7 +150,7 @@ def list_connections(*, status: str | None = None, limit: int = 100) -> list[dic
         f"SELECT * FROM database_connections {where} ORDER BY updated_at DESC LIMIT ?",
         params,
     ).fetchall()
-    return [_connection_row(row) for row in rows]
+    return [_connection_row(row, include_secrets=include_secrets) for row in rows]
 
 
 def get_connection(connection_id: str, *, include_secrets: bool = False) -> dict[str, Any] | None:
@@ -158,26 +161,29 @@ def get_connection(connection_id: str, *, include_secrets: bool = False) -> dict
 
 def create_connection(body: Any) -> dict[str, Any]:
     conn = _ensure_conn()
+    connection_id = str(getattr(body, "connection_id", "") or "").strip()
+    if not connection_id:
+        connection_id = f"db_{uuid.uuid4().hex[:12]}"
     config = dict(body.config)
     conn.execute(
         """
         INSERT INTO database_connections (
             connection_id, name, db_type, tenant_id, team_id,
-            config_json, mcp_server_url, access_mode, status, description
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'mcp_only', 'active', ?)
+            config_json, access_mode, status, description, environment
+        ) VALUES (?, ?, ?, ?, ?, ?, 'mcp_only', 'active', ?, ?)
         """,
         (
-            body.connection_id,
+            connection_id,
             body.name,
             body.db_type,
-            body.tenant_id,
-            body.team_id,
+            getattr(body, "tenant_id", ""),
+            getattr(body, "team_id", ""),
             json.dumps(config, ensure_ascii=False),
-            body.mcp_server_url,
-            body.description,
+            getattr(body, "description", ""),
+            getattr(body, "environment", "production"),
         ),
     )
-    return get_connection(body.connection_id) or {}
+    return get_connection(connection_id) or {}
 
 
 def update_connection(connection_id: str, body: Any) -> dict[str, Any] | None:
@@ -192,8 +198,6 @@ def update_connection(connection_id: str, body: Any) -> dict[str, Any] | None:
         fields["tenant_id"] = body.tenant_id
     if body.team_id is not None:
         fields["team_id"] = body.team_id
-    if body.mcp_server_url is not None:
-        fields["mcp_server_url"] = body.mcp_server_url
     if body.status is not None:
         fields["status"] = body.status
     if body.description is not None:
@@ -305,7 +309,6 @@ def list_accessible_connections(identity: dict[str, Any], *, limit: int = 100) -
                 "connection_id": item["connection_id"],
                 "name": item["name"],
                 "db_type": item["db_type"],
-                "mcp_server_url": item["mcp_server_url"],
                 "access_mode": item["access_mode"],
                 "permission": perm,
                 "team_id": item["team_id"],

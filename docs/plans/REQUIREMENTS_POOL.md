@@ -1,98 +1,83 @@
 # Evotown 需求池
 
-> 记录待讨论、待实现的需求。确认方案后写入方案文件（`docs/plans/`），按计划逐一实现。
+> 记录待讨论、待实现的需求。确认方案后写入方案文件，按计划逐一实现。
+
+---
+
+## 待实施
+
+### REQ-005: MCP 动态服务
+详见 `spec/mcp-dynamic-services.md`。当前进度：
+- ✅ 后端全部完成
+- ✅ 前端：维度管理页、workspace 部署按钮、智能体分类重构
+- ❌ 接口权限入口（角色/MCP 界面改版时统一讨论）
+- ❌ MCP Tools 注入 Agent（已在需求池单列）
+
+**MCP 分类体系**（已确认，待实施）：
+- `system` — 系统内置 MCP（`backend/services/mcp_system/`），项目启动自动注册，不可编辑/删除
+- `user` — 业务自定义 MCP（`mcp-services/{id}/`），智能体开发→部署
+- `external` — 外部接入 MCP，管理员手动注册 URL
+- `mcp_services.source` 字段已存在，需扩展为三值
+
+**状态**: 实施中
+
+### REQ-007: 任务看板
+基于现有「任务管理」板块升级为可视化看板。串行节点编排，按状态分列，workspace 隔离。统一 dispatch_jobs + agent_runs 为 task_nodes。
+**状态**: 方案已确认，待实施
+
+### hosted_coding 常驻实例
+workspace 保持常驻运行，空闲 1h 自动停止。依赖 `workspace.hosted` 系统功能权限控制。
+**状态**: 待实施
+
+### OA cookie 登录
+同域 cookie 自动登录，oa_bindings 表维护 employee_id 映射。
+**状态**: 待实施
 
 ---
 
 ## 待讨论
 
 ### REQ-001: Agent 执行过程实时可视化
-
-**描述**: 发起长任务时，无法判断是否正常进行。需要在运行详情面板中展示具体过程、进度、大模型中间输出。
-
-**实现方向**:
-- 后端在 `run_events` 中实时记录 Agent 中间输出（assistant text、tool_call/result）
-- 前端详情面板展示：执行步骤 + 控制台输出窗口，支持展开查看完整文本
-- 4 秒轮询，不改 Agent 逻辑
-
+发起长任务时展示具体过程、进度、大模型中间输出。后端在 run_events 中实时记录，前端 4 秒轮询展示。
 **状态**: 待确认方案
 
----
-
 ### REQ-002: Web 交互页面 — 分享功能
-
-**描述**: 用户生成的 Web 页面分享给其他账号查看。初步方案是复制文件到目标 workspace，各自独立。
-
-**实现方向**:
-- 方案 A: 文件复制（独立副本）
-- 方案 B: 分享链接 + 临时 token
-- 可二选一或组合
-
+用户生成的 Web 页面分享给其他账号。方案 A：文件复制到目标 workspace；方案 B：分享链接 + 临时 token。
 **状态**: 待讨论
-
----
 
 ### REQ-003: Agent 产出物自动归类目录
-
-**描述**: Agent 生成的下载文件放入 `workspace/downloads/`，前端静态文件放入 `workspace/dashboard/` 等，统一目录规范。
-
+Agent 产出按类型自动放入 workspace 子目录（downloads/、dashboard/ 等）。
 **状态**: 待讨论
-
----
 
 ### REQ-004: Coding Agent 工作台页面整体重设计
-
-**描述**: 重新规划整个工作台页面的布局，解决聊天区过窄、Web/图片预览空间不足、会话列表占用过多空间等问题。
-
-**候选方案**:
-- **方案 A（推荐）**: 左侧可折叠图标栏 + 聊天区全宽 + 右侧可折叠详情面板。Web/图片预览直接嵌在聊天流中，不受 max-w 限制。
-- **方案 B**: 三栏（会话列表 / 聊天区 / 持久预览面板），预览始终可见。
-- **方案 C**: 上下分栏（上聊天 / 下预览），可拖拽调整。
-
+重新规划工作台布局。方案 A（推荐）：左侧可折叠图标栏 + 聊天区全宽 + 右侧可折叠详情面板。
 **状态**: 待讨论
-
----
-
-### REQ-005: MCP 服务管理与权限体系
-
-**描述**: MCP 是 Agent 连接数据库的唯一通道。MCP 服务由后端发布，前端仅管理查看和权限设定。
-
-**已确认方向**:
-- MCP 生命周期：后端开发部署 → 注册到 evotown → 前端管理面板（只读 + 权限配置）
-- 两层权限：a. workspace 级 MCP 访问开关；b. 行级权限规则（MCP 代理层查询改写）
-- 权限绑定粒度：workspace 级别
-- 行权限规则支持变量插值：`{workspace_team_id}`, `{org_id}`, `{workspace.owner_account_id}`
-- MCP 不独立使用，由 Skill 声明 `requires_mcp` 依赖，运行时自动注入
-- 前端移除输入区 MCP 手动选择器
-- 前端新增 `/console/mcp` MCP 服务管理面板
-- MCP 前端不做创建，仅管理查看和权限设定
-
-**待确认**: MCP 注册方式（API vs 配置文件）、行权限规则引擎语法
-
-**状态**: 方案已确认，待实施
-
----
 
 ### REQ-006: Skill 开发与管理体系
+Skill 声明式依赖（requires_mcp、requires_knowledge）、SDK/脚手架、测试环境、版本管理、安全审核、市场分发。
+**状态**: 待讨论
 
-**描述**: Skill 是 Agent 能力的核心载体。需要建立完整的 Skill 开发、发布、管理流程。
-
-**核心问题**:
-- 当前 Skill 从市场下载 zip 包到 workspace，缺乏结构化开发体验
-- Skill 没有声明式依赖（`requires_mcp`、`requires_knowledge`）
-- 缺乏 Skill 开发 SDK/脚手架、测试环境
-- Skill 版本管理、安全审核、市场分发机制待建立
-
-**关联依赖**: REQ-005 MCP（Skill 依赖 MCP 时自动注入）
-
+### REQ-009: Agent 对话技能推荐弹窗
+对话中提及技能但未触发调用时，弹窗提示确认是否使用。
 **状态**: 待讨论
 
 ---
 
-（暂无）
+## 远期（暂不实施）
+
+### REQ-008: 任务节点并行
+fork 拆分多 Agent 并行处理、batch 工作池抢占消费。
+
+### REQ-010: 引擎模块功能重构
+外部 Agent 通过 API key 直连时的注册、心跳、任务分发逻辑重新设计。
 
 ---
 
 ## 已实现
 
 - Phase 1-6: Coding Agent 工作台交互区改造
+- REQ-005: MCP 角色体系 + system_functions + agent_role_functions（REQ-005 前半部分）
+- 智能体分类重构（员工/部门/专属）+ 卡片新设计
+- 门户首页"我的智能体"模块
+- 数据库模块去 mcp_server_url + database.py 自动生成
+- workspace 目录扁平化 + 中文名支持

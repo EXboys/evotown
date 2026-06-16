@@ -15,6 +15,7 @@ import {
 import { GatewayAccountsPanel } from "./GatewayAccountsPanel";
 import { GATEWAY_COPY, GatewayConsole, RecentRequestsTable } from "./GatewayConsole";
 import { SkillsConsole } from "./SkillsConsole";
+import { SkillsManagementPage } from "./SkillsManagementPage";
 import { PoliciesPanel } from "./PoliciesPanel";
 import { AssetsPanel } from "./AssetsPanel";
 import { CodingAgentPage } from "./CodingAgentPage";
@@ -22,14 +23,17 @@ import { KnowledgePanel } from "./KnowledgePanel";
 import { DatabasePanel } from "./DatabasePanel";
 import { McpPanel } from "./McpPanel";
 import { RolePanel } from "./RolePanel";
+import { AgentTemplatePanel } from "./AgentTemplatePanel";
 import { DispatchPanel } from "./DispatchPanel";
+import { FunctionListPanel } from "./FunctionListPanel";
+import { DimensionPanel } from "./DimensionPanel";
 import { DisplayTimezoneSelect } from "./DisplayTimezoneSelect";
 import { LanguageToggle } from "./LanguageToggle";
 import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import { formatDateTimeShort } from "../lib/datetime";
 import { useLocale, type Locale } from "../lib/i18n";
 
-type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "costs" | "risk";
+type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "templates" | "dimensions" | "functions" | "costs" | "risk";
 
 type EngineRecord = {
   engine_id: string;
@@ -188,6 +192,9 @@ const TAB_ROUTE: Record<ConsoleTab, string> = {
   databases: "/console/databases",
   mcp: "/console/mcp",
   roles: "/console/roles",
+  templates: "/console/templates",
+  dimensions: "/console/dimensions",
+  functions: "/console/functions",
   costs: "/costs",
   risk: "/risk",
 };
@@ -221,10 +228,10 @@ type MenuGroup = {
 
 const MENU_GROUPS: MenuGroup[] = [
   { id: "home", labelZh: "首页", labelEn: "Home", items: ["dashboard"], link: "/dashboard" },
-  { id: "agent", labelZh: "智能体中心", labelEn: "Agent Center", items: ["coding", "runs", "engines", "roles"] },
+  { id: "agent", labelZh: "智能体中心", labelEn: "Agent Center", items: ["coding", "runs", "engines", "roles", "templates"] },
   { id: "capability", labelZh: "能力中心", labelEn: "Capabilities", items: ["skills", "knowledge", "mcp", "databases", "dispatch"] },
   { id: "model", labelZh: "模型管理", labelEn: "Models", items: ["gateway", "policies", "costs", "risk", "assets"] },
-  { id: "admin", labelZh: "企业管理", labelEn: "Admin", items: ["accounts"] },
+  { id: "admin", labelZh: "系统管理", labelEn: "System", items: ["accounts", "dimensions", "functions"] },
 ];
 
 // Flat set of tabs that belong to expandable groups (non-link groups)
@@ -247,6 +254,9 @@ const CONSOLE_COPY = {
       databases: { label: "数据库", desc: "Databases" },
       mcp: { label: "MCP", desc: "MCP Services" },
       roles: { label: "角色", desc: "Agent Roles" },
+      templates: { label: "模板", desc: "Templates" },
+      dimensions: { label: "权限维度", desc: "Dimensions" },
+      functions: { label: "系统功能", desc: "Functions" },
       costs: { label: "成本", desc: "Costs" },
       risk: { label: "风控", desc: "Risk" },
     },
@@ -305,6 +315,9 @@ const CONSOLE_COPY = {
       databases: { label: "Databases", desc: "MCP access" },
       mcp: { label: "MCP", desc: "Services" },
       roles: { label: "Roles", desc: "Agent Roles" },
+      templates: { label: "Templates", desc: "Agent Templates" },
+      dimensions: { label: "Dimensions", desc: "Permission" },
+      functions: { label: "Functions", desc: "System" },
       costs: { label: "Costs", desc: "Usage" },
       risk: { label: "Risk", desc: "Events" },
     },
@@ -777,13 +790,16 @@ export function EnterpriseConsole({
             {tab === "dispatch" && <DispatchPanel engines={data.engines} onRefresh={load} />}
             {tab === "coding" && <CodingAgentPage locale={locale} initialWorkspaceId={initialWorkspaceId} />}
             {tab === "runs" && <Runs runs={data.runs} selectedRun={selectedRun} events={events} loading={eventsLoading} onRun={openRun} onAssetSubmitted={() => setRoute("assets")} />}
-            {tab === "skills" && <SkillsConsole locale={locale} />}
+            {tab === "skills" && <SkillsManagementPage />}
             {tab === "assets" && <AssetsPanel />}
             {tab === "policies" && <PoliciesPanel locale={locale} />}
             {tab === "knowledge" && <KnowledgePanel locale={locale} />}
             {tab === "databases" && <DatabasePanel locale={locale} />}
             {tab === "mcp" && <McpPanel locale={locale} />}
             {tab === "roles" && <RolePanel locale={locale} />}
+            {tab === "templates" && <AgentTemplatePanel locale={locale} />}
+            {tab === "dimensions" && <DimensionPanel locale={locale} />}
+            {tab === "functions" && <FunctionListPanel locale={locale} />}
             {tab === "costs" && <Costs cost={data.cost} />}
             {tab === "risk" && (
               <Risks

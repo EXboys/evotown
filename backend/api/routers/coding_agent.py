@@ -117,6 +117,7 @@ async def get_agent_options(
 async def list_workspaces(
     include_all: bool = False,
     status_filter: str | None = "active",
+    category: str | None = None,
     limit: int = 100,
     identity: dict | None = Depends(require_console_read),
 ):
@@ -126,7 +127,7 @@ async def list_workspaces(
     if not owner and not _is_admin(identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account-bound session required")
     return {
-        "workspaces": workspaces.list_workspaces(owner_account_id=owner, status=status_filter, limit=limit),
+        "workspaces": workspaces.list_workspaces(owner_account_id=owner, status=status_filter, category=category, limit=limit),
         "viewer": {"is_admin": _is_admin(identity), "account_id": _account_id(identity)},
     }
 
@@ -154,6 +155,8 @@ async def create_workspace(body: WorkspaceCreate, identity: dict | None = Depend
             tenant_id=body.tenant_id or str(identity.get("org_id") or ""),
             team_id=body.team_id or str(identity.get("team_id") or ""),
             model_policy=body.model_policy,
+            category=body.category,
+            template_id=body.template_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
@@ -244,6 +247,9 @@ async def update_workspace_profile(
     workspace = _load_workspace_for_identity(workspace_id, identity)
     if not _is_admin(identity) and workspace.get("owner_account_id") != _account_id(identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only the owner can update agent profile")
+    # Lock: template-bound workspace profiles can only be modified by admin
+    if workspace.get("template_id") and not _is_admin(identity):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="该智能体使用模板初始化，身份信息不可在工作区修改。请联系管理员在后台管理修改。")
     _validate_profile_text_fields(body)
     try:
         profile = workspace_profile.save_profile(workspace, body.model_dump())
@@ -264,10 +270,21 @@ async def serve_workspace_file(workspace_id: str, file_path: str, identity: dict
 
     root = workspaces.resolve_workspace_path(workspace)
     target = (root / file_path).resolve()
+    workspace_root_resolved = root.resolve()
+    source = root / file_path
 
-    # Prevent path traversal
-    if not str(target).startswith(str(root.resolve())):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="access denied")
+    # Prevent path traversal but allow symlinked directory within workspace
+    if not str(target).startswith(str(workspace_root_resolved)):
+        # Check if any parent is a symlink
+        has_sym = False
+        p = source
+        while p != workspace_root_resolved and p.parent != p:
+            p = p.parent
+            if p.is_symlink():
+                has_sym = True
+                break
+        if not has_sym:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="access denied")
 
     if not target.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="file not found")

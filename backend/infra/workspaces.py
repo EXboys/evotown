@@ -187,9 +187,15 @@ def create_workspace(
                 prefix = (tpl.get("workspace_dir_prefix") or "").strip("/")
                 dir_root = (tpl.get("workspace_dir_root") or "workspace").strip()
 
-                if dir_root == "shared":
-                    # Shared dir initialized at system startup — nothing to do here
-                    pass
+                if dir_root in ("shared", "server"):
+                    # Symlink shared server dir into workspace
+                    import os as _os2
+                    shared_dev = _os2.environ.get("MCP_SERVICES_DIR", "/app/data/mcp-services").replace("mcp-services", "mcp-dev") if "mcp-services" in _os2.environ.get("MCP_SERVICES_DIR", "") else "/app/data/mcp-dev"
+                    target = Path(shared_dev)
+                    if target.is_dir():
+                        link = root / (prefix or "mcp-dev")
+                        if not link.exists():
+                            link.symlink_to(target, target_is_directory=True)
                 else:
                     dev_dir = root / (prefix or "")
                     dev_dir.mkdir(parents=True, exist_ok=True)
@@ -397,11 +403,21 @@ def can_run_workspace(workspace: dict[str, Any] | None, identity: dict[str, Any]
 def resolve_workspace_path(workspace: dict[str, Any], relative_path: str = ".") -> Path:
     base = workspace_base_dir()
     root = (base / str(workspace["root_path"])).resolve()
-    target = (root / relative_path).resolve()
+    source = root / relative_path
+    target = source.resolve()
     try:
         target.relative_to(root)
-    except ValueError as exc:
-        raise ValueError("path escapes workspace root") from exc
+    except ValueError:
+        # Allow if any parent path is a symlink within workspace
+        has_symlink_parent = False
+        p = source
+        while p != root and p.parent != p:
+            p = p.parent
+            if p.is_symlink():
+                has_symlink_parent = True
+                break
+        if not has_symlink_parent:
+            raise ValueError("path escapes workspace root") from None
     return target
 
 

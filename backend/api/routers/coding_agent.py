@@ -270,10 +270,21 @@ async def serve_workspace_file(workspace_id: str, file_path: str, identity: dict
 
     root = workspaces.resolve_workspace_path(workspace)
     target = (root / file_path).resolve()
+    workspace_root_resolved = root.resolve()
+    source = root / file_path
 
-    # Prevent path traversal
-    if not str(target).startswith(str(root.resolve())):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="access denied")
+    # Prevent path traversal but allow symlinked directory within workspace
+    if not str(target).startswith(str(workspace_root_resolved)):
+        # Check if any parent is a symlink
+        has_sym = False
+        p = source
+        while p != workspace_root_resolved and p.parent != p:
+            p = p.parent
+            if p.is_symlink():
+                has_sym = True
+                break
+        if not has_sym:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="access denied")
 
     if not target.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="file not found")

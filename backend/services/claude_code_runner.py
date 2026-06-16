@@ -572,6 +572,11 @@ def _write_context_files(
     ]
 
     manifest: list[dict[str, Any]] = []
+    # Also write CLAUDE.md at workspace root for Claude Code native identity
+    ccm_lines = [l for l in agent_md.split("\n") if "Run ID:" not in l and "Workspace ID:" not in l and "Model:" not in l and "TASK ID:" not in l]
+    claude_md_path = root / "CLAUDE.md"
+    claude_md_path.write_text("\n".join(ccm_lines), encoding="utf-8")
+
     for relative, content in files:
         path = workspaces.resolve_workspace_path(workspace, f".evotown/{relative}")
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -823,6 +828,18 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
     prompt = _build_conversation_prompt(run["prompt"], history)
     prompt = _append_attachments_to_prompt(prompt, workspace, attachment_paths)
 
+    # Prepend identity profile to prompt so model sees it before Claude Code default identity
+    from infra import workspace_profile as _wp
+    ws_profile = _wp.get_profile(workspace)
+    if ws_profile and ws_profile.get("soul"):
+        parts = [f"[SYSTEM IDENTITY - 你的身份设定]\n{ws_profile['soul']}"]
+        if ws_profile.get("paradigm"):
+            parts.append(ws_profile["paradigm"])
+        if ws_profile.get("standards"):
+            parts.append(ws_profile["standards"])
+        identity = "\n\n".join(parts) + "\n\n-------------------\n\n"
+        prompt = identity + prompt
+
     vision_text = ""
     from services import workspace_vision
 
@@ -856,9 +873,8 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
         prompt = _append_vision_to_prompt(prompt, vision_text, image_paths)
 
     identity = _runner_identity(run)
-    from infra import workspace_profile
 
-    ws_profile = workspace_profile.get_profile(workspace)
+    ws_profile = _wp.get_profile(workspace)
     shared_context = build_shared_context(
         prompt=run["prompt"],
         team_id=run.get("team_id", ""),
@@ -1071,6 +1087,9 @@ def schedule_run(run_id: str) -> None:
             await run_claude_agent(run_id)
         except asyncio.CancelledError:
             pass
+        except Exception as exc:
+            from infra import claude_agent_runs as _car
+            _car.update_run_status(run_id, status="failed", error=str(exc), log_excerpt=str(exc)[:500])
 
     task = asyncio.create_task(_runner())
     _RUN_TASKS[run_id] = task

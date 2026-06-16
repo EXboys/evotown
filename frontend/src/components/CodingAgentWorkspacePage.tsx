@@ -157,7 +157,7 @@ export function CodingAgentWorkspacePage() {
   const [devDirPath, setDevDirPath] = useState("");
   const [devDirFiles, setDevDirFiles] = useState<Array<{ name: string; path: string; is_dir: boolean; size: number }>>([]);
   const [devDirLoading, setDevDirLoading] = useState(false);
-  const [devDirRoot, setDevDirRoot] = useState<"workspace" | "shared">("workspace");
+  const [devDirRoot, setDevDirRoot] = useState<"workspace" | "shared" | "server">("workspace");
   const [devDirPrefix, setDevDirPrefix] = useState("");
 
   useEffect(() => {
@@ -168,21 +168,26 @@ export function CodingAgentWorkspacePage() {
         if (ws.template_id) {
           adminFetch("/api/v1/agent-templates").then(r => r.json()).then(td => {
             const tpl = (td.templates || []).find((t: any) => t.template_id === ws.template_id);
-            if (tpl?.has_workspace_dir) { setDevDirRoot(tpl.workspace_dir_root as "workspace" | "shared"); setDevDirPrefix((tpl.workspace_dir_prefix || "").replace(/\/$/, "")); }
+            if (tpl?.has_workspace_dir) { setDevDirRoot(tpl.workspace_dir_root as "workspace" | "shared" | "server"); setDevDirPrefix((tpl.workspace_dir_prefix || "").replace(/\/$/, "")); }
           }).catch(() => {});
         }
       }).catch(() => {});
   }, [workspaceId]);
 
-  const hasDevFiles = devDirRoot === "shared" ? true : workspaceFiles.some((f) => /(\.py|\.js|\.ts|\.tsx|\.json|\.md)/i.test(f.path) && !f.path.startsWith(".evotown/"));
+  const hasDevFiles = (devDirRoot === "shared" || devDirRoot === "server") ? true : workspaceFiles.some((f) => /(\.py|\.js|\.ts|\.tsx|\.json|\.md)/i.test(f.path) && !f.path.startsWith(".evotown/"));
   useEffect(() => { if (hasDevFiles) setRightOpen(true); }, [hasDevFiles]);
 
   const loadDevDir = (dir: string) => {
     if (!workspaceId) return;
     setDevDirLoading(true);
-    const apiUrl = devDirRoot === "shared" ? `/api/v1/mcp-dev/files?path=${encodeURIComponent(dir)}` : `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/file-index`;
+    const apiUrl = `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/file-index`;
     adminFetch(apiUrl).then(r => readJson<{ entries?: WorkspaceFileEntry[] }>(r)).then(data => {
-      if (devDirRoot === "shared") setDevDirFiles((data.entries || []).map(e => ({ name: e.name, path: e.path, is_dir: !!e.path?.endsWith("/"), size: e.size || 0 })));
+      // Filter to dev dir only
+      const prefix = devDirPrefix ? (devDirPrefix.endsWith("/") ? devDirPrefix : devDirPrefix + "/") : "";
+      const filtered = prefix
+        ? (data.entries || []).filter((e: WorkspaceFileEntry) => e.path.startsWith(prefix))
+        : (data.entries || []);
+      setDevDirFiles(filtered.map(e => ({ name: e.path.slice(prefix.length), path: e.path, is_dir: false, size: e.size || 0 })));
       setDevDirPath(dir);
     }).catch(() => {}).finally(() => setDevDirLoading(false));
   };
@@ -754,7 +759,7 @@ export function CodingAgentWorkspacePage() {
             {devDirLoading ? <div className="space-y-2 p-2">{[0,1,2].map(i => <div key={i} className="h-4 animate-pulse rounded bg-slate-200" />)}</div>
             : devDirFiles.length > 0 ? <div className="space-y-0.5">
               {devDirFiles.map(f => (f.is_dir ? <button key={f.path} type="button" onClick={() => void loadDevDir(f.path.replace(/\/$/, ""))} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-200"><span>📁</span><span className="truncate text-slate-700">{f.name}</span></button>
-              : <button key={f.path} type="button" onClick={() => openSharedFile(f.path)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-200"><span>📄</span><span className="truncate text-slate-700">{f.name}</span><span className="shrink-0 text-[10px] text-slate-400">{formatBytes(f.size)}</span></button>))}
+              : <button key={f.path} type="button" onClick={() => void openFile(f.path)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-200"><span>📄</span><span className="truncate text-slate-700">{f.name}</span><span className="shrink-0 text-[10px] text-slate-400">{formatBytes(f.size)}</span></button>))}
             </div> : <p className="px-2 py-4 text-center text-xs text-slate-400">目录为空</p>}
           </div>
         </aside>

@@ -8,7 +8,7 @@ from typing import Any
 
 from infra import accounts as accounts_store
 
-BUILTIN_TEMPLATE_VERSION = "2.0.0"
+BUILTIN_TEMPLATE_VERSION = "2.2.0"
 """Bump this when built-in template content changes. Seeds update DB rows with matching template_id."""
 
 _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
@@ -37,7 +37,7 @@ _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
             "2. handler.py：入参/出参必须对应 manifest 的 input/output 定义\n"
             "3. 数据库连接：from database import get_{表名} 获取连接\n"
             "4. 权限过滤：用 permissions.get(\"维度名\", []) 拼 WHERE，全量权限时 key 不在 permissions 中 → 不过滤\n"
-            "5. 开发目录结构（共享）：\n"
+            "5. 开发目录结构（软链接到 server）：\n"
             "   {server}/mcp-dev/\n"
             "   ├── database.py               ← 系统生成，只读\n"
             "   ├── permissions.py            ← 系统生成，只读\n"
@@ -55,7 +55,7 @@ _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
         "default_model": "",
         "default_skills": [],
         "has_workspace_dir": True,
-        "workspace_dir_root": "shared",
+        "workspace_dir_root": "server",
         "workspace_dir_prefix": "mcp-dev/",
     },
     {

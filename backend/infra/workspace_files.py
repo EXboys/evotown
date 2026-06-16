@@ -46,27 +46,33 @@ def list_workspace_files(
     entries: list[dict[str, Any]] = []
     truncated = False
 
-    for path in sorted(scan_root.rglob("*"), key=lambda p: p.as_posix()):
-        if not path.is_file() or path.is_symlink():
-            continue
-        try:
-            rel = path.relative_to(root).as_posix()
-        except ValueError:
-            continue
-        if not _should_include(rel, include_dot=include_dot):
-            continue
-        try:
-            size = path.stat().st_size
-        except OSError:
-            size = 0
-        entries.append(
-            {
-                "path": rel,
-                "name": path.name,
-                "size": size,
-                "modified_at": _iso_mtime(path),
-            }
-        )
+    import os as _os_walk
+    for dirpath_str, _dirnames, filenames in _os_walk.walk(str(scan_root), followlinks=True):
+        dirpath = Path(dirpath_str)
+        for fname in filenames:
+            path = dirpath / fname
+            if path.is_symlink():
+                target = path.resolve()
+                if not target.is_file():
+                    continue
+            try:
+                rel = path.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if not _should_include(rel, include_dot=include_dot):
+                continue
+            try:
+                size = path.stat().st_size
+            except OSError:
+                size = 0
+            entries.append(
+                {
+                    "path": rel,
+                    "name": path.name,
+                    "size": size,
+                    "modified_at": _iso_mtime(path),
+                }
+            )
         if len(entries) >= cap:
             truncated = True
             break

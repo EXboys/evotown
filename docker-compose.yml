@@ -120,6 +120,8 @@ services:
       - ./data:/app/data
       # Agent workspace 持久化（每个账号独立沙盒，docker 重建不丢失）
       - ${EVOTOWN_WORKSPACES_HOST_DIR:-/usr/local/agent-data/workspace}:/app/data/workspaces
+      # MCP 动态服务代码持久化
+      - ${EVOTOWN_MCP_SERVICES_HOST_DIR:-/usr/local/agent-data/mcp-services}:/app/data/mcp-services
       # 录制回放持久化
       - evotown_replays:/app/replays
       # 运行日志持久化（便于宿主机直接 tail -f 或接入日志系统）

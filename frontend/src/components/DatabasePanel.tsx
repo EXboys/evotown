@@ -14,7 +14,6 @@ type DatabaseConnection = {
   db_type: DbType;
   tenant_id: string;
   team_id: string;
-  mcp_server_url: string;
   access_mode: string;
   status: "active" | "paused";
   description: string;
@@ -71,7 +70,6 @@ const COPY = {
       database: "库名",
       user: "用户名",
       password: "密码",
-      mcp: "MCP 服务地址",
       desc: "说明",
     },
     grants: "访问授权",
@@ -150,6 +148,13 @@ const COPY = {
   },
 } as const;
 
+const DB_DEFAULT_PORT: Record<DbType, string> = {
+  postgres: "5432",
+  mysql: "3306",
+  sqlite: "",
+  mssql: "1433",
+};
+
 export function DatabasePanel({ locale = "zh" }: { locale?: Locale }) {
   const copy = COPY[locale];
   const [stats, setStats] = useState<DatabaseStats | null>(null);
@@ -162,7 +167,6 @@ export function DatabasePanel({ locale = "zh" }: { locale?: Locale }) {
   const [message, setMessage] = useState("");
   const [messageOk, setMessageOk] = useState(true);
   const [createForm, setCreateForm] = useState({
-    connection_id: "",
     name: "",
     db_type: "postgres" as DbType,
     team_id: "",
@@ -171,7 +175,6 @@ export function DatabasePanel({ locale = "zh" }: { locale?: Locale }) {
     database: "",
     username: "",
     password: "",
-    mcp_server_url: "",
     description: "",
   });
   const [grantForm, setGrantForm] = useState({
@@ -209,11 +212,9 @@ export function DatabasePanel({ locale = "zh" }: { locale?: Locale }) {
     const res = await adminFetch("/api/v1/databases", {
       method: "POST",
       body: JSON.stringify({
-        connection_id: createForm.connection_id.trim(),
         name: createForm.name.trim(),
         db_type: createForm.db_type,
         team_id: createForm.team_id.trim(),
-        mcp_server_url: createForm.mcp_server_url.trim(),
         description: createForm.description.trim(),
         config: {
           host: createForm.host.trim(),
@@ -225,9 +226,11 @@ export function DatabasePanel({ locale = "zh" }: { locale?: Locale }) {
       }),
     });
     if (!res.ok) return setMessage(`${copy.createFailed}: ${res.status}`);
+    const data = await res.json().catch(() => ({} as Record<string, unknown>));
+    const conn = (data as { connection?: DatabaseConnection }).connection;
     setMessageOk(true);
-    setMessage(copy.created);
-    setCreateForm({ ...createForm, connection_id: "", name: "", database: "", password: "" });
+    setMessage(conn ? `${copy.created}: ${conn.connection_id}` : copy.created);
+    setCreateForm({ ...createForm, name: "", database: "", password: "" });
     load();
   };
 
@@ -252,6 +255,15 @@ export function DatabasePanel({ locale = "zh" }: { locale?: Locale }) {
   const deleteGrant = async (grantId: string) => {
     const res = await adminFetch(`/api/v1/databases/grants/${encodeURIComponent(grantId)}`, { method: "DELETE" });
     if (res.ok) load();
+  };
+
+  const deleteConnection = async (connectionId: string) => {
+    if (!confirm(`确定删除数据库连接 ${connectionId}？`)) return;
+    const res = await adminFetch(`/api/v1/databases/${encodeURIComponent(connectionId)}`, { method: "DELETE" });
+    if (res.ok) {
+      if (selectedId === connectionId) setSelectedId("");
+      load();
+    }
   };
 
   type TestResult = {
@@ -303,7 +315,6 @@ export function DatabasePanel({ locale = "zh" }: { locale?: Locale }) {
         method: "POST",
         body: JSON.stringify({
           db_type: createForm.db_type,
-          mcp_server_url: createForm.mcp_server_url.trim(),
           config: {
             host: createForm.host.trim(),
             port: Number(createForm.port) || undefined,
@@ -361,11 +372,11 @@ export function DatabasePanel({ locale = "zh" }: { locale?: Locale }) {
           ) : (
             <ul className="mt-4 space-y-2">
               {connections.map((conn) => (
-                <li key={conn.connection_id}>
+                <li key={conn.connection_id} className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setSelectedId(conn.connection_id)}
-                    className={`w-full rounded-xl border px-4 py-3 text-left transition ${
+                    className={`flex-1 rounded-xl border px-4 py-3 text-left transition ${
                       selectedId === conn.connection_id ? "border-slate-900 bg-slate-50" : "border-slate-200 hover:border-slate-300"
                     }`}
                   >
@@ -373,8 +384,13 @@ export function DatabasePanel({ locale = "zh" }: { locale?: Locale }) {
                     <div className="mt-1 text-xs text-slate-500">
                       {conn.connection_id} · {DB_TYPE_LABEL[conn.db_type][locale]} · {conn.status}
                     </div>
-                    {conn.mcp_server_url && <div className="mt-1 truncate font-mono text-xs text-indigo-600">{conn.mcp_server_url}</div>}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteConnection(conn.connection_id)}
+                    className="shrink-0 rounded-lg px-2 py-1 text-xs text-red-500 hover:bg-red-50"
+                    title="删除"
+                  >×</button>
                 </li>
               ))}
             </ul>
@@ -384,9 +400,8 @@ export function DatabasePanel({ locale = "zh" }: { locale?: Locale }) {
         <section className="rounded-2xl border border-slate-200 bg-white p-5">
           <h3 className="text-base font-semibold text-slate-900">{copy.addTitle}</h3>
           <div className="mt-4 grid gap-3">
-            <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder={copy.fields.id} value={createForm.connection_id} onChange={(e) => setCreateForm({ ...createForm, connection_id: e.target.value })} />
             <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder={copy.fields.name} value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} />
-            <select className="rounded-lg border border-slate-200 px-3 py-2 text-sm" value={createForm.db_type} onChange={(e) => setCreateForm({ ...createForm, db_type: e.target.value as DbType })}>
+            <select className="rounded-lg border border-slate-200 px-3 py-2 text-sm" value={createForm.db_type} onChange={(e) => { const t = e.target.value as DbType; setCreateForm({ ...createForm, db_type: t, port: DB_DEFAULT_PORT[t] }); }}>
               {(Object.keys(DB_TYPE_LABEL) as DbType[]).map((t) => (
                 <option key={t} value={t}>{DB_TYPE_LABEL[t][locale]}</option>
               ))}
@@ -398,8 +413,6 @@ export function DatabasePanel({ locale = "zh" }: { locale?: Locale }) {
             <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder={copy.fields.database} value={createForm.database} onChange={(e) => setCreateForm({ ...createForm, database: e.target.value })} />
             <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder={copy.fields.user} value={createForm.username} onChange={(e) => setCreateForm({ ...createForm, username: e.target.value })} />
             <input type="password" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder={copy.fields.password} value={createForm.password} onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })} />
-            <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder={copy.fields.mcp} value={createForm.mcp_server_url} onChange={(e) => setCreateForm({ ...createForm, mcp_server_url: e.target.value })} />
-            <p className="text-xs text-slate-500">{copy.mcpHint}</p>
             <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder={copy.fields.desc} value={createForm.description} onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })} />
             <div className="flex flex-wrap gap-2">
               <button type="button" disabled={testing} onClick={testDraftConnection} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">

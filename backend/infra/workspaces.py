@@ -51,6 +51,7 @@ def _ensure_conn() -> sqlite3.Connection:
             visibility        TEXT NOT NULL DEFAULT 'private',
             status            TEXT NOT NULL DEFAULT 'active',
             model_policy      TEXT NOT NULL DEFAULT 'all',
+            category          TEXT NOT NULL DEFAULT 'employee',
             created_at        TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -78,6 +79,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE workspaces ADD COLUMN storage_quota_mb INTEGER NOT NULL DEFAULT 0")
     if "model_policy" not in cols:
         conn.execute("ALTER TABLE workspaces ADD COLUMN model_policy TEXT NOT NULL DEFAULT 'all'")
+    if "category" not in cols:
+        conn.execute("ALTER TABLE workspaces ADD COLUMN category TEXT NOT NULL DEFAULT 'employee'")
 
 
 def _workspace_from_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -85,8 +88,10 @@ def _workspace_from_row(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def _safe_name(value: str) -> str:
-    name = re.sub(r"[^a-zA-Z0-9._ -]+", "-", value.strip())
-    name = re.sub(r"\s+", " ", name).strip(" .-")
+    # Allow Unicode letters, digits, spaces, dots, underscores, hyphens
+    # Filter out path-dangerous chars: / \ : * ? " < > | \x00
+    name = re.sub(r"[/\\:*?\"<>|]+", "-", value.strip())
+    name = re.sub(r"\s+", " ", name).strip()
     return name[:80] or "Personal Sandbox"
 
 
@@ -101,6 +106,7 @@ def create_workspace(
     tenant_id: str = "",
     team_id: str = "",
     model_policy: str = "routes_only",
+    category: str = "employee",
 ) -> dict[str, Any]:
     if not owner_account_id.strip():
         raise ValueError("owner_account_id is required")
@@ -123,11 +129,11 @@ def create_workspace(
         """
         INSERT INTO workspaces (
             workspace_id, owner_account_id, tenant_id, team_id, name, root_path,
-            visibility, status, model_policy, created_at, updated_at
+            visibility, status, model_policy, category, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, 'private', 'active', ?, datetime('now'), datetime('now'))
+        VALUES (?, ?, ?, ?, ?, ?, 'private', 'active', ?, ?, datetime('now'), datetime('now'))
         """,
-        (workspace_id, owner_account_id.strip(), tenant_id.strip(), team_id.strip(), resolved_name, workspace_id, model_policy),
+        (workspace_id, owner_account_id.strip(), tenant_id.strip(), team_id.strip(), resolved_name, workspace_id, model_policy, category),
     )
     conn.execute(
         """
@@ -137,10 +143,6 @@ def create_workspace(
         (workspace_id, owner_account_id.strip()),
     )
     workspace = get_workspace(workspace_id) or {}
-    if workspace:
-        from infra import hosted_workspace_engines
-
-        hosted_workspace_engines.register_workspace_engine(workspace)
     return workspace
 
 
@@ -148,6 +150,7 @@ def list_workspaces(
     *,
     owner_account_id: str | None = None,
     status: str | None = WORKSPACE_STATUS_ACTIVE,
+    category: str | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     conn = _ensure_conn()
@@ -159,6 +162,9 @@ def list_workspaces(
     if status:
         where.append("status=?")
         params.append(status)
+    if category:
+        where.append("category=?")
+        params.append(category)
     params.append(max(1, min(limit, 500)))
     clause = "WHERE " + " AND ".join(where) if where else ""
     rows = conn.execute(
@@ -226,10 +232,6 @@ def update_workspace(
             (workspace_id, new_owner),
         )
     workspace = get_workspace(workspace_id)
-    if workspace is not None:
-        from infra import hosted_workspace_engines
-
-        hosted_workspace_engines.sync_workspace_engine(workspace)
     return workspace
 
 

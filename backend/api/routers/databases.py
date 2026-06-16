@@ -66,7 +66,6 @@ async def list_accessible_databases(
                     "connection_id": item["connection_id"],
                     "name": item["name"],
                     "db_type": item["db_type"],
-                    "mcp_server_url": item["mcp_server_url"],
                     "access_mode": item["access_mode"],
                     "permission": "admin",
                     "team_id": item["team_id"],
@@ -123,9 +122,16 @@ async def get_managed_connection(connection_id: str, _session: dict | None = Dep
 
 @router.post("", dependencies=[Depends(require_admin)])
 async def create_database_connection(body: DatabaseConnectionCreate):
-    if database_registry.get_connection(body.connection_id):
+    cid = (body.connection_id or "").strip()
+    if cid and database_registry.get_connection(cid):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="connection_id already exists")
     connection = database_registry.create_connection(body)
+    # 自动生成 database.py
+    try:
+        from services.mcp_codegen import regenerate_database
+        regenerate_database()
+    except Exception:
+        pass
     return {"created": True, "connection": connection}
 
 
@@ -134,6 +140,11 @@ async def update_database_connection(connection_id: str, body: DatabaseConnectio
     connection = database_registry.update_connection(connection_id, body)
     if connection is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="connection not found")
+    try:
+        from services.mcp_codegen import regenerate_database
+        regenerate_database()
+    except Exception:
+        pass
     return {"updated": True, "connection": connection}
 
 
@@ -141,6 +152,11 @@ async def update_database_connection(connection_id: str, body: DatabaseConnectio
 async def delete_database_connection(connection_id: str):
     if not database_registry.delete_connection(connection_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="connection not found")
+    try:
+        from services.mcp_codegen import regenerate_database
+        regenerate_database()
+    except Exception:
+        pass
     return {"deleted": True}
 
 
@@ -172,9 +188,8 @@ async def delete_database_grant(grant_id: str):
 
 def _build_test_result(connection: dict) -> dict:
     db_result = database_connect.test_database_connection(connection)
-    mcp_result = database_connect.test_mcp_proxy_url(str(connection.get("mcp_server_url") or ""))
-    ok = db_result.get("ok") is True and (mcp_result.get("ok") is not False)
-    return {"ok": ok, "database": db_result, "mcp_proxy": mcp_result}
+    ok = db_result.get("ok") is True
+    return {"ok": ok, "database": db_result}
 
 
 @router.post("/test-config", dependencies=[Depends(require_admin)])
@@ -182,7 +197,6 @@ async def test_database_config(body: DatabaseConnectionTestConfig):
     """Admin: test draft connection settings before save."""
     connection = {
         "db_type": body.db_type,
-        "mcp_server_url": body.mcp_server_url,
         "config": body.config,
     }
     return _build_test_result(connection)

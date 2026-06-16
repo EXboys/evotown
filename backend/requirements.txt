@@ -16,3 +16,6 @@ tiktoken>=0.5.0
 claude-agent-sdk>=0.2.93
 # Auth — password hashing
 bcrypt>=4.0
+# Database drivers (testing + MCP dynamic services)
+pymysql>=1.1
+psycopg[binary]>=3.2

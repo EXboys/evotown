@@ -555,17 +555,17 @@ def validate_task_content(task: str) -> None:
         )
 
 
-# ── Staff session store (account + password login) ──────────────────
-
-# In-memory session dict: token → { account_id, account_name, role, scopes, expires_at }
-_staff_sessions: dict[str, dict[str, Any]] = {}
+# ── Staff session store (account + password login, SQLite-backed) ────
 
 STAFF_SESSION_TTL = int(os.environ.get("EVOTOWN_STAFF_SESSION_TTL", str(24 * 3600)))  # 24h default
 
 
 def create_staff_session(account: dict[str, Any]) -> str:
+    from infra import accounts as accounts_store
+
     token = secrets.token_urlsafe(32)
-    _staff_sessions[token] = {
+    session: dict[str, Any] = {
+        "token": token,
         "account_id": account.get("account_id", ""),
         "account_name": account.get("name", ""),
         "login_name": account.get("login_name", ""),
@@ -574,21 +574,20 @@ def create_staff_session(account: dict[str, Any]) -> str:
         "scopes": ["console.read", "console.write"] if account.get("role") == "admin" else ["console.read"],
         "expires_at": time.time() + STAFF_SESSION_TTL,
     }
+    accounts_store.save_staff_session(session)
     return token
 
 
 def get_staff_session(token: str) -> dict[str, Any] | None:
-    session = _staff_sessions.get(token)
-    if session is None:
-        return None
-    if time.time() > session["expires_at"]:
-        _staff_sessions.pop(token, None)
-        return None
-    return session
+    from infra import accounts as accounts_store
+
+    return accounts_store.load_staff_session(token)
 
 
 def destroy_staff_session(token: str) -> None:
-    _staff_sessions.pop(token, None)
+    from infra import accounts as accounts_store
+
+    accounts_store.destroy_staff_session(token)
 
 
 async def require_staff_session(

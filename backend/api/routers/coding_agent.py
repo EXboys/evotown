@@ -117,6 +117,7 @@ async def get_agent_options(
 async def list_workspaces(
     include_all: bool = False,
     status_filter: str | None = "active",
+    category: str | None = None,
     limit: int = 100,
     identity: dict | None = Depends(require_console_read),
 ):
@@ -126,7 +127,7 @@ async def list_workspaces(
     if not owner and not _is_admin(identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account-bound session required")
     return {
-        "workspaces": workspaces.list_workspaces(owner_account_id=owner, status=status_filter, limit=limit),
+        "workspaces": workspaces.list_workspaces(owner_account_id=owner, status=status_filter, category=category, limit=limit),
         "viewer": {"is_admin": _is_admin(identity), "account_id": _account_id(identity)},
     }
 
@@ -154,6 +155,7 @@ async def create_workspace(body: WorkspaceCreate, identity: dict | None = Depend
             tenant_id=body.tenant_id or str(identity.get("org_id") or ""),
             team_id=body.team_id or str(identity.get("team_id") or ""),
             model_policy=body.model_policy,
+            category=body.category,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc

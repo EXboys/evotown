@@ -108,6 +108,18 @@ def _ensure_conn() -> sqlite3.Connection:
             FOREIGN KEY (agent_id) REFERENCES gateway_agents(agent_id),
             UNIQUE(account_id, agent_id)
         );
+        CREATE TABLE IF NOT EXISTS staff_sessions (
+            token         TEXT PRIMARY KEY,
+            account_id    TEXT NOT NULL,
+            account_name  TEXT NOT NULL DEFAULT '',
+            login_name    TEXT NOT NULL DEFAULT '',
+            org_id        TEXT NOT NULL DEFAULT '',
+            role          TEXT NOT NULL DEFAULT 'employee',
+            scopes        TEXT NOT NULL DEFAULT '[]',
+            expires_at    REAL NOT NULL,
+            created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_staff_sessions_account ON staff_sessions(account_id);
         """
     )
 
@@ -815,6 +827,53 @@ def gateway_org_account_count(org_id: str) -> int:
         "SELECT COUNT(*) AS n FROM gateway_accounts WHERE org_id=?", (org_id,)
     ).fetchone()
     return int(row["n"]) if row else 0
+
+
+# ── Staff Session Persistence ─────────────────────────────────────────
+
+def save_staff_session(session: dict) -> None:
+    conn = _ensure_conn()
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO staff_sessions
+            (token, account_id, account_name, login_name, org_id, role, scopes, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            session["token"],
+            session["account_id"],
+            session["account_name"],
+            session["login_name"],
+            session["org_id"],
+            session["role"],
+            json.dumps(session["scopes"]),
+            session["expires_at"],
+        ),
+    )
+
+
+def load_staff_session(token: str) -> dict | None:
+    conn = _ensure_conn()
+    row = conn.execute("SELECT * FROM staff_sessions WHERE token=?", (token,)).fetchone()
+    if row is None:
+        return None
+    import time as _time
+    if _time.time() > row["expires_at"]:
+        conn.execute("DELETE FROM staff_sessions WHERE token=?", (token,))
+        return None
+    return {
+        "account_id": row["account_id"],
+        "account_name": row["account_name"],
+        "login_name": row["login_name"],
+        "org_id": row["org_id"],
+        "role": row["role"],
+        "scopes": json.loads(row["scopes"]),
+        "expires_at": row["expires_at"],
+    }
+
+
+def destroy_staff_session(token: str) -> None:
+    _ensure_conn().execute("DELETE FROM staff_sessions WHERE token=?", (token,))
 
 
 def list_accounts_by_org(org_id: str, *, limit: int = 100) -> list[dict[str, Any]]:

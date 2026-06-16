@@ -75,6 +75,10 @@ def _ensure_conn() -> sqlite3.Connection:
         """
     )
     _conn = conn
+    # Migration: add environment field
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(database_connections)").fetchall()}
+    if "environment" not in cols:
+        conn.execute("ALTER TABLE database_connections ADD COLUMN environment TEXT NOT NULL DEFAULT 'production'")
     return conn
 
 
@@ -111,6 +115,7 @@ def _connection_row(row: sqlite3.Row, *, include_secrets: bool = False) -> dict[
         "access_mode": row["access_mode"],
         "status": row["status"],
         "description": row["description"],
+        "environment": row["environment"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -132,7 +137,7 @@ def _grant_row(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def list_connections(*, status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+def list_connections(*, status: str | None = None, limit: int = 100, include_secrets: bool = False) -> list[dict[str, Any]]:
     conn = _ensure_conn()
     clauses: list[str] = []
     params: list[Any] = []
@@ -145,7 +150,7 @@ def list_connections(*, status: str | None = None, limit: int = 100) -> list[dic
         f"SELECT * FROM database_connections {where} ORDER BY updated_at DESC LIMIT ?",
         params,
     ).fetchall()
-    return [_connection_row(row) for row in rows]
+    return [_connection_row(row, include_secrets=include_secrets) for row in rows]
 
 
 def get_connection(connection_id: str, *, include_secrets: bool = False) -> dict[str, Any] | None:
@@ -164,17 +169,18 @@ def create_connection(body: Any) -> dict[str, Any]:
         """
         INSERT INTO database_connections (
             connection_id, name, db_type, tenant_id, team_id,
-            config_json, access_mode, status, description
-        ) VALUES (?, ?, ?, ?, ?, ?, 'mcp_only', 'active', ?)
+            config_json, access_mode, status, description, environment
+        ) VALUES (?, ?, ?, ?, ?, ?, 'mcp_only', 'active', ?, ?)
         """,
         (
             connection_id,
             body.name,
             body.db_type,
-            body.tenant_id,
-            body.team_id,
+            getattr(body, "tenant_id", ""),
+            getattr(body, "team_id", ""),
             json.dumps(config, ensure_ascii=False),
-            body.description,
+            getattr(body, "description", ""),
+            getattr(body, "environment", "production"),
         ),
     )
     return get_connection(connection_id) or {}

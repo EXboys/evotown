@@ -152,6 +152,48 @@ export function CodingAgentWorkspacePage() {
   const [workspaceFilesTruncated, setWorkspaceFilesTruncated] = useState(false);
   const [workspaceFilesLoading, setWorkspaceFilesLoading] = useState(false);
   const [showSystemFiles, setShowSystemFiles] = useState(false);
+
+  // Dev file browser
+  const [devDirPath, setDevDirPath] = useState("");
+  const [devDirFiles, setDevDirFiles] = useState<Array<{ name: string; path: string; is_dir: boolean; size: number }>>([]);
+  const [devDirLoading, setDevDirLoading] = useState(false);
+  const [devDirRoot, setDevDirRoot] = useState<"workspace" | "shared">("workspace");
+  const [devDirPrefix, setDevDirPrefix] = useState("");
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}`)
+      .then(r => r.json()).then(d => {
+        const ws = d.workspace || d;
+        if (ws.template_id) {
+          adminFetch("/api/v1/agent-templates").then(r => r.json()).then(td => {
+            const tpl = (td.templates || []).find((t: any) => t.template_id === ws.template_id);
+            if (tpl?.has_workspace_dir) { setDevDirRoot(tpl.workspace_dir_root as "workspace" | "shared"); setDevDirPrefix((tpl.workspace_dir_prefix || "").replace(/\/$/, "")); }
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+  }, [workspaceId]);
+
+  const hasDevFiles = devDirRoot === "shared" ? true : workspaceFiles.some((f) => /(\.py|\.js|\.ts|\.tsx|\.json|\.md)/i.test(f.path) && !f.path.startsWith(".evotown/"));
+  useEffect(() => { if (hasDevFiles) setRightOpen(true); }, [hasDevFiles]);
+
+  const loadDevDir = (dir: string) => {
+    if (!workspaceId) return;
+    setDevDirLoading(true);
+    const apiUrl = devDirRoot === "shared" ? `/api/v1/mcp-dev/files?path=${encodeURIComponent(dir)}` : `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/file-index`;
+    adminFetch(apiUrl).then(r => readJson<{ entries?: WorkspaceFileEntry[] }>(r)).then(data => {
+      if (devDirRoot === "shared") setDevDirFiles((data.entries || []).map(e => ({ name: e.name, path: e.path, is_dir: !!e.path?.endsWith("/"), size: e.size || 0 })));
+      setDevDirPath(dir);
+    }).catch(() => {}).finally(() => setDevDirLoading(false));
+  };
+  useEffect(() => { if (rightOpen && hasDevFiles && !devDirPath) void loadDevDir(""); }, [rightOpen, hasDevFiles, devDirPath]);
+
+  const openSharedFile = (path: string) => {
+    setFileLoading(path); setError("");
+    adminFetch(`/api/v1/mcp-dev/files/read?path=${encodeURIComponent(path)}`)
+      .then(res => readJson<{ path: string; content: string; size: number; truncated: boolean }>(res))
+      .then(d => setFileViewer(d)).catch(err => setError(err instanceof Error ? err.message : "无法打开文件")).finally(() => setFileLoading(""));
+  };
   const [htmlContents, setHtmlContents] = useState<Record<string, string>>({});
   const [mediaBlobUrls, setMediaBlobUrls] = useState<Record<string, string>>({});
   const [lightboxImage, setLightboxImage] = useState<LightboxImage | null>(null);
@@ -440,8 +482,6 @@ export function CodingAgentWorkspacePage() {
     if (!busy && (prompt.trim() || pendingAttachments.length)) void startRun();
   };
 
-  const hasDevFiles = workspaceFiles.some((f) => /(\.py|\.js|\.ts|\.tsx|\.json|\.md|SKILL\.md)/i.test(f.path) && !f.path.startsWith(".evotown/"));
-
   return (
     <div className="flex h-screen w-full bg-white text-slate-900">
       {/* ── Left toggle (when collapsed) ── */}
@@ -699,17 +739,23 @@ export function CodingAgentWorkspacePage() {
         </div>
       </main>
 
-      {/* ── Right sidebar: workspace files (conditional) ── */}
+      {/* ── Right sidebar ── */}
+      {hasDevFiles && !rightOpen && (
+        <button type="button" onClick={() => setRightOpen(true)} className="absolute right-2 top-3 z-30 flex h-8 w-8 items-center justify-center rounded-full bg-white shadow-lg ring-1 ring-slate-200 hover:bg-slate-50" title="展开工作目录"><svg className="h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
+      )}
       {hasDevFiles && rightOpen && (
         <aside className="flex w-72 shrink-0 flex-col border-l border-slate-200 bg-slate-50">
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">📂 工作目录</span>
-            <button type="button" onClick={() => setRightOpen(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-200" title="收起">
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19l7-7-7-7" /></svg>
-            </button>
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">📂 /{devDirPath || ""}</span>
+            <button type="button" onClick={() => setRightOpen(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-200" title="收起"><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19l7-7-7-7" /></svg></button>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-3 [scrollbar-width:thin]">
-            <WorkspaceFileList entries={workspaceFiles} loading={workspaceFilesLoading} truncated={workspaceFilesTruncated} showSystemFiles={showSystemFiles} onToggleSystemFiles={() => setShowSystemFiles((v) => !v)} onOpenFile={(path) => void openFile(path)} fileLoadingPath={fileLoading} />
+          <div className="min-h-0 flex-1 overflow-y-auto p-2 [scrollbar-width:thin]">
+            {devDirPath && <button type="button" onClick={() => { const parent = devDirPath.split("/").slice(0, -1).join("/") || ""; void loadDevDir(parent); }} className="w-full rounded-md px-2 py-1.5 text-left text-xs text-slate-500 hover:bg-slate-200">📁 ..</button>}
+            {devDirLoading ? <div className="space-y-2 p-2">{[0,1,2].map(i => <div key={i} className="h-4 animate-pulse rounded bg-slate-200" />)}</div>
+            : devDirFiles.length > 0 ? <div className="space-y-0.5">
+              {devDirFiles.map(f => (f.is_dir ? <button key={f.path} type="button" onClick={() => void loadDevDir(f.path.replace(/\/$/, ""))} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-200"><span>📁</span><span className="truncate text-slate-700">{f.name}</span></button>
+              : <button key={f.path} type="button" onClick={() => openSharedFile(f.path)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-200"><span>📄</span><span className="truncate text-slate-700">{f.name}</span><span className="shrink-0 text-[10px] text-slate-400">{formatBytes(f.size)}</span></button>))}
+            </div> : <p className="px-2 py-4 text-center text-xs text-slate-400">目录为空</p>}
           </div>
         </aside>
       )}

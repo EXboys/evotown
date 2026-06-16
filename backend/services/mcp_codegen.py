@@ -57,65 +57,72 @@ def regenerate_permissions() -> None:
 
 
 def regenerate_database() -> None:
-    """Regenerate database.py with connection functions for all active database_connections."""
+    """Regenerate database.py for dev & prod environments based on connection environment field."""
     from infra import database_registry
-    conns = database_registry.list_connections(status="active")
+    conns = database_registry.list_connections(status="active", include_secrets=True)
     _ensure_dir()
 
-    lines = [
-        "# Auto-generated from database_connections. Do not edit manually.",
-        f"# {len(conns)} active connections.",
-        "",
-    ]
+    dev_dir = Path(os.environ.get("EVOTOWN_MCP_DEV_DIR", "/app/data/mcp-dev"))
+    dev_dir.mkdir(parents=True, exist_ok=True)
 
-    db_types_seen: set[str] = set()
-    for c in conns:
-        db_types_seen.add(c.get("db_type", ""))
+    # Separate by environment
+    dev_conns = [c for c in conns if c.get("environment") in ("development", "both")]
+    prod_conns = [c for c in conns if c.get("environment") in ("production", "both","")]
 
-    if "postgres" in db_types_seen:
-        lines.append("import psycopg")
-    if "mysql" in db_types_seen:
-        lines.append("import pymysql")
-    if "sqlite" in db_types_seen:
-        lines.append("import sqlite3")
-    lines.append("")
+    for target_dir, target_conns in [(dev_dir, dev_conns), (MCP_SERVICES_DIR, prod_conns)]:
+        lines = [
+            "# Auto-generated from database_connections. Do not edit manually.",
+            f"# {len(target_conns)} active connections in this environment.",
+            "",
+        ]
+        db_types_seen: set[str] = set()
+        for c in target_conns:
+            db_types_seen.add(c.get("db_type", ""))
 
-    for c in conns:
-        name = c.get("name", c["connection_id"])
-        safe_name = name.lower().replace(" ", "_").replace("-", "_")
-        db_type = c.get("db_type", "")
-        config = c.get("config", {})
-
-        lines.append(f"def get_{safe_name}():")
-        lines.append(f'    """{name} ({db_type})"""')
-
-        if db_type == "postgres":
-            host = config.get("host", "localhost")
-            port = config.get("port", 5432)
-            database = config.get("database", "")
-            user = config.get("username", "")
-            pwd = config.get("password", "")
-            lines.append(f"    import psycopg")
-            lines.append(f"    return psycopg.connect(")
-            lines.append(f'        host="{host}", port={port},')
-            lines.append(f'        dbname="{database}", user="{user}", password="{pwd}",')
-            lines.append(f"        connect_timeout=10)")
-        elif db_type == "mysql":
-            host = config.get("host", "localhost")
-            port = int(config.get("port", 3306))
-            database = config.get("database", "")
-            user = config.get("username", "")
-            pwd = config.get("password", "")
-            lines.append(f"    import pymysql")
-            lines.append(f"    return pymysql.connect(")
-            lines.append(f'        host="{host}", port={port},')
-            lines.append(f'        user="{user}", password="{pwd}",')
-            lines.append(f'        database="{database}",')
-            lines.append(f"        connect_timeout=10)")
-        elif db_type == "sqlite":
-            path = config.get("path") or config.get("database", "")
-            lines.append(f"    import sqlite3")
-            lines.append(f'    return sqlite3.connect("{path}", timeout=10)')
+        if "postgres" in db_types_seen:
+            lines.append("import psycopg")
+        if "mysql" in db_types_seen:
+            lines.append("import pymysql")
+        if "sqlite" in db_types_seen:
+            lines.append("import sqlite3")
         lines.append("")
 
-    (MCP_SERVICES_DIR / "database.py").write_text("\n".join(lines), encoding="utf-8")
+        for c in target_conns:
+            name = c.get("name", c["connection_id"])
+            safe_name = name.lower().replace(" ", "_").replace("-", "_")
+            db_type = c.get("db_type", "")
+            config = c.get("config", {})
+
+            lines.append(f"def get_{safe_name}():")
+            lines.append(f'    """{name} ({db_type})"""')
+
+            if db_type == "postgres":
+                host = config.get("host", "localhost")
+                port = config.get("port", 5432)
+                database = config.get("database", "")
+                user = config.get("username", "")
+                pwd = config.get("password", "")
+                lines.append(f"    import psycopg")
+                lines.append(f"    return psycopg.connect(")
+                lines.append(f'        host="{host}", port={port},')
+                lines.append(f'        dbname="{database}", user="{user}", password="{pwd}",')
+                lines.append(f"        connect_timeout=10)")
+            elif db_type == "mysql":
+                host = config.get("host", "localhost")
+                port = int(config.get("port", 3306))
+                database = config.get("database", "")
+                user = config.get("username", "")
+                pwd = config.get("password", "")
+                lines.append(f"    import pymysql")
+                lines.append(f"    return pymysql.connect(")
+                lines.append(f'        host="{host}", port={port},')
+                lines.append(f'        user="{user}", password="{pwd}",')
+                lines.append(f'        database="{database}",')
+                lines.append(f"        connect_timeout=10)")
+            elif db_type == "sqlite":
+                path = config.get("path") or config.get("database", "")
+                lines.append(f"    import sqlite3")
+                lines.append(f'    return sqlite3.connect("{path}", timeout=10)')
+            lines.append("")
+
+        (target_dir / "database.py").write_text("\n".join(lines), encoding="utf-8")

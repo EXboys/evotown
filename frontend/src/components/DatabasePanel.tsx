@@ -176,6 +176,7 @@ export function DatabasePanel({ locale = "zh" }: { locale?: Locale }) {
     username: "",
     password: "",
     description: "",
+    environment: "production" as "production" | "development" | "both",
   });
   const [grantForm, setGrantForm] = useState({
     principal_type: "account" as PrincipalType,
@@ -216,6 +217,7 @@ export function DatabasePanel({ locale = "zh" }: { locale?: Locale }) {
         db_type: createForm.db_type,
         team_id: createForm.team_id.trim(),
         description: createForm.description.trim(),
+        environment: createForm.environment,
         config: {
           host: createForm.host.trim(),
           port: Number(createForm.port) || undefined,
@@ -414,6 +416,11 @@ export function DatabasePanel({ locale = "zh" }: { locale?: Locale }) {
             <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder={copy.fields.user} value={createForm.username} onChange={(e) => setCreateForm({ ...createForm, username: e.target.value })} />
             <input type="password" className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder={copy.fields.password} value={createForm.password} onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })} />
             <input className="rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder={copy.fields.desc} value={createForm.description} onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })} />
+            <select className="rounded-lg border border-slate-200 px-3 py-2 text-sm" value={createForm.environment} onChange={(e) => setCreateForm({ ...createForm, environment: e.target.value as "production" | "development" | "both" })}>
+              <option value="production">生产环境</option>
+              <option value="development">开发环境</option>
+              <option value="both">通用环境</option>
+            </select>
             <div className="flex flex-wrap gap-2">
               <button type="button" disabled={testing} onClick={testDraftConnection} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
                 {testing ? copy.testing : copy.testConnection}

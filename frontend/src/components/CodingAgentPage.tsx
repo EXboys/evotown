@@ -18,6 +18,8 @@ type Workspace = {
   storage_quota_mb?: number;
   model_policy?: string;
   category?: string;
+  template_id?: string;
+  template_name?: string;
   created_at: string;
   updated_at: string;
 };
@@ -136,8 +138,10 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [creating, setCreating] = useState(false);
-  const [workspaceName, setWorkspaceName] = useState("");
+  const [workspaceName, setWorkspaceName] = useState("Personal Sandbox");
   const [createPolicy, setCreatePolicy] = useState<"all" | "routes_only">("routes_only");
+  const [createTemplateId, setCreateTemplateId] = useState("");
+  const [templates, setTemplates] = useState<{ template_id: string; name: string; category: string; description: string }[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   const [tab, setTab] = useState<"employee" | "department" | "dedicated">("employee");
   const [search, setSearch] = useState("");
@@ -201,14 +205,20 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
     void load();
   }, [tab, search, statusFilter]);
 
+  // Load templates
+  useEffect(() => {
+    adminFetch("/api/v1/agent-templates").then(r => r.json()).then(d => setTemplates((d.templates || []) as typeof templates)).catch(() => {});
+  }, []);
+
   const createWorkspace = async () => {
-    if (!workspaceName.trim()) return;
     setBusy(true);
     setMessage("");
     try {
+      const body: Record<string, unknown> = { name: workspaceName, model_policy: createPolicy, category: tab };
+      if (createTemplateId) body.template_id = createTemplateId;
       const data = await adminFetch("/api/v1/workspaces", {
         method: "POST",
-        body: JSON.stringify({ name: workspaceName, model_policy: createPolicy, category: tab }),
+        body: JSON.stringify(body),
       }).then((res) => readJson<{ workspace: Workspace }>(res));
       window.location.assign(`/agent/workspaces/${encodeURIComponent(data.workspace.workspace_id)}`);
     } catch (err) {
@@ -368,6 +378,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
                   </div>
                 </div>
                 <div className="mt-4 truncate text-base font-semibold text-slate-900">{workspace.name}</div>
+                {workspace.template_name && <div className="mt-1 text-[11px] text-indigo-600">📋 {workspace.template_name}</div>}
                 <div className="mt-1 truncate font-mono text-xs text-slate-400">{workspace.workspace_id}</div>
                 <div className="mt-2 flex items-center gap-2 text-xs">
                   <span className={`h-2 w-2 rounded-full ${archived ? "bg-slate-400" : "bg-emerald-500"}`} />
@@ -423,6 +434,25 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
               }}
               className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
+            {isAdmin && tab !== "employee" && (
+              <>
+                <label className="mt-4 block text-sm font-medium text-slate-700">身份模板</label>
+                <select
+                  value={createTemplateId}
+                  onChange={(e) => setCreateTemplateId(e.target.value)}
+                  className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                >
+                  <option value="">不使用模板（自定义）</option>
+                  {templates.filter(tpl =>
+                    tab === "department" ? tpl.category === "department" : tpl.category === "personal"
+                  ).map(tpl => (
+                    <option key={tpl.template_id} value={tpl.template_id}>
+                      {tpl.name} {tpl.category === "personal" ? "(系统预设)" : ""}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-slate-400">选择模板后自动初始化智能体身份信息，创建后不可更改</p>
+              </>)}
             {isAdmin && (
               <>
                 <label className="mt-4 block text-sm font-medium text-slate-700">模型策略</label>

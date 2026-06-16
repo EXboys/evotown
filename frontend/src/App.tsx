@@ -69,6 +69,7 @@ function App() {
         <Route path="/console/databases" element={<EnterpriseConsole initialTab="databases" />} />
         <Route path="/console/mcp" element={<EnterpriseConsole initialTab="mcp" />} />
         <Route path="/console/roles" element={<EnterpriseConsole initialTab="roles" />} />
+        <Route path="/console/templates" element={<EnterpriseConsole initialTab="templates" />} />
         <Route path="/console/dimensions" element={<EnterpriseConsole initialTab="dimensions" />} />
         <Route path="/console/functions" element={<EnterpriseConsole initialTab="functions" />} />
         <Route path="/costs" element={<EnterpriseConsole initialTab="costs" />} />

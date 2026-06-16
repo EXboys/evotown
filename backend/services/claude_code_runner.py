@@ -409,7 +409,26 @@ def _render_agent_context_md(
     skills_block = shared_context.get("skills", {})
     mcp_block = shared_context.get("mcp", {})
     root_path = workspace_root or str(workspaces.resolve_workspace_path(workspace))
-    lines = [
+    from infra import workspace_profile
+
+    profile_sections = workspace_profile.profile_context_sections(profile or {})
+    lines: list[str] = []
+
+    # Identity FIRST — strongest position to override Claude Code defaults
+    if profile and profile.get("soul"):
+        lines.extend([
+            "## ⚠️ YOUR IDENTITY — READ THIS FIRST",
+            "",
+            f"You are NOT a generic Claude Code assistant. You are: {profile.get('agent_type', '')}",
+            "",
+            profile["soul"],
+            "",
+        ])
+    if profile_sections:
+        lines.extend(profile_sections)
+
+    # Technical context
+    lines.extend([
         "# Evotown Hosted Claude Context",
         "",
         f"Run ID: `{run['run_id']}`",
@@ -420,12 +439,7 @@ def _render_agent_context_md(
         "ALL file read/write/edit/bash operations MUST use paths relative to",
         "the workspace root above. Never use absolute paths like /data/workspace/.",
         "",
-    ]
-    from infra import workspace_profile
-
-    profile_sections = workspace_profile.profile_context_sections(profile or {})
-    if profile_sections:
-        lines.extend(profile_sections)
+    ])
     lines.extend(
         [
         "## Available Skills",

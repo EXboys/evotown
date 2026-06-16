@@ -23,6 +23,7 @@ import { KnowledgePanel } from "./KnowledgePanel";
 import { DatabasePanel } from "./DatabasePanel";
 import { McpPanel } from "./McpPanel";
 import { RolePanel } from "./RolePanel";
+import { AgentTemplatePanel } from "./AgentTemplatePanel";
 import { DispatchPanel } from "./DispatchPanel";
 import { FunctionListPanel } from "./FunctionListPanel";
 import { DimensionPanel } from "./DimensionPanel";
@@ -32,7 +33,7 @@ import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hook
 import { formatDateTimeShort } from "../lib/datetime";
 import { useLocale, type Locale } from "../lib/i18n";
 
-type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "dimensions" | "functions" | "costs" | "risk";
+type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "templates" | "dimensions" | "functions" | "costs" | "risk";
 
 type EngineRecord = {
   engine_id: string;
@@ -191,6 +192,7 @@ const TAB_ROUTE: Record<ConsoleTab, string> = {
   databases: "/console/databases",
   mcp: "/console/mcp",
   roles: "/console/roles",
+  templates: "/console/templates",
   dimensions: "/console/dimensions",
   functions: "/console/functions",
   costs: "/costs",
@@ -226,7 +228,7 @@ type MenuGroup = {
 
 const MENU_GROUPS: MenuGroup[] = [
   { id: "home", labelZh: "首页", labelEn: "Home", items: ["dashboard"], link: "/dashboard" },
-  { id: "agent", labelZh: "智能体中心", labelEn: "Agent Center", items: ["coding", "runs", "engines", "roles"] },
+  { id: "agent", labelZh: "智能体中心", labelEn: "Agent Center", items: ["coding", "runs", "engines", "roles", "templates"] },
   { id: "capability", labelZh: "能力中心", labelEn: "Capabilities", items: ["skills", "knowledge", "mcp", "databases", "dispatch"] },
   { id: "model", labelZh: "模型管理", labelEn: "Models", items: ["gateway", "policies", "costs", "risk", "assets"] },
   { id: "admin", labelZh: "系统管理", labelEn: "System", items: ["accounts", "dimensions", "functions"] },
@@ -252,6 +254,7 @@ const CONSOLE_COPY = {
       databases: { label: "数据库", desc: "Databases" },
       mcp: { label: "MCP", desc: "MCP Services" },
       roles: { label: "角色", desc: "Agent Roles" },
+      templates: { label: "模板", desc: "Templates" },
       dimensions: { label: "权限维度", desc: "Dimensions" },
       functions: { label: "系统功能", desc: "Functions" },
       costs: { label: "成本", desc: "Costs" },
@@ -312,6 +315,7 @@ const CONSOLE_COPY = {
       databases: { label: "Databases", desc: "MCP access" },
       mcp: { label: "MCP", desc: "Services" },
       roles: { label: "Roles", desc: "Agent Roles" },
+      templates: { label: "Templates", desc: "Agent Templates" },
       dimensions: { label: "Dimensions", desc: "Permission" },
       functions: { label: "Functions", desc: "System" },
       costs: { label: "Costs", desc: "Usage" },
@@ -793,6 +797,7 @@ export function EnterpriseConsole({
             {tab === "databases" && <DatabasePanel locale={locale} />}
             {tab === "mcp" && <McpPanel locale={locale} />}
             {tab === "roles" && <RolePanel locale={locale} />}
+            {tab === "templates" && <AgentTemplatePanel locale={locale} />}
             {tab === "dimensions" && <DimensionPanel locale={locale} />}
             {tab === "functions" && <FunctionListPanel locale={locale} />}
             {tab === "costs" && <Costs cost={data.cost} />}

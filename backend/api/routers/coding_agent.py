@@ -156,6 +156,7 @@ async def create_workspace(body: WorkspaceCreate, identity: dict | None = Depend
             team_id=body.team_id or str(identity.get("team_id") or ""),
             model_policy=body.model_policy,
             category=body.category,
+            template_id=body.template_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
@@ -246,6 +247,9 @@ async def update_workspace_profile(
     workspace = _load_workspace_for_identity(workspace_id, identity)
     if not _is_admin(identity) and workspace.get("owner_account_id") != _account_id(identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only the owner can update agent profile")
+    # Lock: template-bound workspace profiles can only be modified by admin
+    if workspace.get("template_id") and not _is_admin(identity):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="该智能体使用模板初始化，身份信息不可在工作区修改。请联系管理员在后台管理修改。")
     _validate_profile_text_fields(body)
     try:
         profile = workspace_profile.save_profile(workspace, body.model_dump())

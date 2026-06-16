@@ -81,10 +81,37 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE workspaces ADD COLUMN model_policy TEXT NOT NULL DEFAULT 'all'")
     if "category" not in cols:
         conn.execute("ALTER TABLE workspaces ADD COLUMN category TEXT NOT NULL DEFAULT 'employee'")
+    if "template_id" not in cols:
+        conn.execute("ALTER TABLE workspaces ADD COLUMN template_id TEXT NOT NULL DEFAULT ''")
 
 
 def _workspace_from_row(row: sqlite3.Row) -> dict[str, Any]:
-    return dict(row)
+    d = dict(row)
+    tid = d.get("template_id", "")
+    if tid:
+        try:
+            from infra import agent_templates as at
+            tpl = at.resolve_template(tid)
+            if tpl:
+                d["template_name"] = tpl.get("name", "")
+        except Exception:
+            pass
+    return d
+
+
+def _copy_mcp_system_files(dev_dir: Path) -> None:
+    """Copy database.py, permissions.py, publish.py from mcp-services/ to shared mcp-dev/."""
+    from pathlib import Path as _P
+    import os as _os
+
+    mcp_services = _P(_os.environ.get("MCP_SERVICES_DIR", "/app/data/mcp-services"))
+    for fname in ("database.py", "permissions.py", "publish.py"):
+        if fname == "publish.py":
+            src = _P(__file__).resolve().parent.parent / "services" / "mcp_publish_script.py"
+        else:
+            src = mcp_services / fname
+        if src.is_file():
+            (dev_dir / fname).write_bytes(src.read_bytes())
 
 
 def _safe_name(value: str) -> str:
@@ -107,11 +134,18 @@ def create_workspace(
     team_id: str = "",
     model_policy: str = "routes_only",
     category: str = "employee",
+    template_id: str = "",
 ) -> dict[str, Any]:
     if not owner_account_id.strip():
         raise ValueError("owner_account_id is required")
     if model_policy not in ("all", "routes_only"):
         raise ValueError("model_policy must be 'all' or 'routes_only'")
+    if template_id:
+        from infra import agent_templates
+
+        tpl = agent_templates.get_template(template_id)
+        if tpl is None and not template_id.startswith("builtin:"):
+            raise ValueError(f"template not found: {template_id}")
     workspace_id = f"ws_{uuid.uuid4().hex[:16]}"
     root = _workspace_dir(owner_account_id.strip(), workspace_id)
     root.mkdir(parents=True, exist_ok=False)
@@ -129,11 +163,11 @@ def create_workspace(
         """
         INSERT INTO workspaces (
             workspace_id, owner_account_id, tenant_id, team_id, name, root_path,
-            visibility, status, model_policy, category, created_at, updated_at
+            visibility, status, model_policy, category, template_id, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, 'private', 'active', ?, ?, datetime('now'), datetime('now'))
+        VALUES (?, ?, ?, ?, ?, ?, 'private', 'active', ?, ?, ?, datetime('now'), datetime('now'))
         """,
-        (workspace_id, owner_account_id.strip(), tenant_id.strip(), team_id.strip(), resolved_name, workspace_id, model_policy, category),
+        (workspace_id, owner_account_id.strip(), tenant_id.strip(), team_id.strip(), resolved_name, workspace_id, model_policy, category, template_id),
     )
     conn.execute(
         """
@@ -143,7 +177,91 @@ def create_workspace(
         (workspace_id, owner_account_id.strip()),
     )
     workspace = get_workspace(workspace_id) or {}
+    # Apply template profile on creation
+    if template_id:
+        tpl = _resolve_template(template_id)
+        if tpl:
+            _upsert_workspace_profile(workspace_id, template_id, tpl)
+            # Initialize workspace directory skeleton if template declares one
+            if tpl.get("has_workspace_dir"):
+                prefix = (tpl.get("workspace_dir_prefix") or "").strip("/")
+                dir_root = (tpl.get("workspace_dir_root") or "workspace").strip()
+
+                if dir_root == "shared":
+                    # Shared dir initialized at system startup — nothing to do here
+                    pass
+                else:
+                    dev_dir = root / (prefix or "")
+                    dev_dir.mkdir(parents=True, exist_ok=True)
+                    (dev_dir / "README.md").write_text(
+                        f"# {tpl.get('name', 'Workspace')} Development Directory\n\n"
+                        "开发目录。Agent 在此目录下创建 MCP/Skill 等代码文件。\n",
+                        encoding="utf-8",
+                    )
     return workspace
+
+
+def _resolve_template(template_id: str) -> dict[str, Any] | None:
+    """Resolve template by ID from DB."""
+    from infra import agent_templates as at
+    return at.get_template(template_id)
+
+
+def _upsert_workspace_profile(workspace_id: str, template_id: str, tpl: dict[str, Any]) -> None:
+    """Apply template fields to workspace profile (DB + disk file)."""
+    conn = _ensure_conn()
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS workspace_profiles (
+            workspace_id      TEXT PRIMARY KEY,
+            agent_type        TEXT NOT NULL DEFAULT '',
+            soul              TEXT NOT NULL DEFAULT '',
+            paradigm          TEXT NOT NULL DEFAULT '',
+            standards         TEXT NOT NULL DEFAULT '',
+            default_model     TEXT NOT NULL DEFAULT '',
+            default_skills    TEXT NOT NULL DEFAULT '[]',
+            default_mcp       TEXT NOT NULL DEFAULT '[]',
+            template_id       TEXT NOT NULL DEFAULT '',
+            updated_at        TEXT
+        );
+        """
+    )
+    import json
+
+    profile_data = {
+        "agent_type": tpl.get("name", ""),
+        "soul": tpl.get("soul", ""),
+        "paradigm": tpl.get("paradigm", ""),
+        "standards": tpl.get("standards", ""),
+        "default_model": tpl.get("default_model", ""),
+        "default_skills": tpl.get("default_skills", []),
+    }
+    conn.execute(
+        """INSERT OR REPLACE INTO workspace_profiles
+           (workspace_id, agent_type, soul, paradigm, standards, default_model, default_skills, default_mcp, template_id, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, '[]', ?, datetime('now'))""",
+        (
+            workspace_id,
+            profile_data["agent_type"],
+            profile_data["soul"],
+            profile_data["paradigm"],
+            profile_data["standards"],
+            profile_data["default_model"],
+            json.dumps(profile_data["default_skills"]),
+            template_id,
+        ),
+    )
+
+    # Also write profile file to disk so get_profile reads it
+    ws = get_workspace(workspace_id)
+    if ws:
+        ws_root = _workspace_dir(ws.get("owner_account_id", ""), workspace_id)
+        profile_path = ws_root / ".evotown" / "profile.json"
+        profile_path.parent.mkdir(parents=True, exist_ok=True)
+        profile_path.write_text(
+            json.dumps(profile_data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
 
 def list_workspaces(

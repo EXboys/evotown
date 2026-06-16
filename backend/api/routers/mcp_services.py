@@ -258,23 +258,9 @@ async def call_mcp(service_id: str, body: McpCallRequest,
                         if vals and vals[0] != "*":
                             permissions[dim] = vals
 
-    # ④ Load handler
-    try:
-        from services.mcp_loader import get_handler
-        handler = get_handler(service_id)
-    except FileNotFoundError:
-        return {"ok": False, "data": None, "error": f"handler not deployed: {service_id}"}
-    except Exception as e:
-        return {"ok": False, "data": None, "error": f"handler load error: {e}"}
-
-    # ⑤ Execute
-    try:
-        result = handler.process(body.args, permissions)
-    except Exception as e:
-        return {"ok": False, "data": None, "error": str(e)}
-
-    # ⑥ Wrap
-    return {"ok": True, "data": result, "error": None}
+    # ④ Invoke with version injection
+    from services.mcp_loader import invoke_mcp
+    return invoke_mcp(service_id, body.args, permissions)
 
 
 def _parse_dim_values(where: str) -> list[str]:

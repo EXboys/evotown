@@ -53,7 +53,7 @@ from api.routers import (
     replay,
 )
 from api.routers import skill_market, skill_catalog, console_auth, market, knowledge, databases
-from api.routers import policies, assets, mcp_services
+from api.routers import policies, assets, mcp_services, agent_templates, mcp_dev_files
 from api.routers import teams
 from api.routers import chronicle as chronicle_router
 from api.routers import snapshot as snapshot_router
@@ -237,8 +237,16 @@ async def lifespan(app: FastAPI):
     _chronicle_task = asyncio.create_task(_chronicle_loop())
     _hosted_dispatch_task = asyncio.create_task(hosted_dispatch_loop())
     from services.claude_code_runner import stale_run_watchdog_loop
+    from pathlib import Path as _P_import
+    import os as _os_import
 
     _claude_watchdog_task = asyncio.create_task(stale_run_watchdog_loop())
+
+    # Ensure shared MCP dev directory on startup
+    from infra.workspaces import _copy_mcp_system_files
+    _dev_dir = _P_import(_os_import.environ.get("EVOTOWN_MCP_DEV_DIR", "/app/data/mcp-dev"))
+    _dev_dir.mkdir(parents=True, exist_ok=True)
+    _copy_mcp_system_files(_dev_dir)
     # 注意：内存看门狗在 ProcessManager 内部自动启动（spawn 时调用 _start_memory_watchdog）
 
     yield
@@ -330,6 +338,8 @@ app.include_router(websocket.router)
 app.include_router(replay.router)
 app.include_router(teams.router)
 app.include_router(mcp_services.router)
+app.include_router(agent_templates.router)
+app.include_router(mcp_dev_files.router)
 app.include_router(chronicle_router.router)
 app.include_router(snapshot_router.router)
 # 兼容前端可能使用的 /api 前缀（解决 /config/experiment、/monitor/task_history、/chronicle 404）

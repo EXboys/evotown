@@ -143,7 +143,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
   const [createTemplateId, setCreateTemplateId] = useState("");
   const [templates, setTemplates] = useState<{ template_id: string; name: string; category: string; description: string }[]>([]);
   const [showArchived, setShowArchived] = useState(false);
-  const [tab, setTab] = useState<"employee" | "department" | "dedicated">("employee");
+  const [tab, setTab] = useState<"employee" | "department" | "dedicated">("dedicated");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"active" | "archived">("active");
 
@@ -287,7 +287,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
       {/* Tab + Search Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
-          {(["employee", "department", "dedicated"] as const).map((t) => (
+          {(["dedicated", "department", "employee"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}

@@ -34,9 +34,17 @@ def load_permissions_dims() -> set[str]:
 
 def regenerate_permissions() -> None:
     """Regenerate permissions.py from system_dimension_registry."""
-    from infra import mcp_registry
+    from infra import mcp_registry, database_registry
     dims = mcp_registry.list_dimensions()
     _ensure_dir()
+
+    # Build connection_id → name lookup
+    conn_map: dict[str, str] = {}
+    try:
+        for c in database_registry.list_connections():
+            conn_map[c["connection_id"]] = c.get("name", c["connection_id"])
+    except Exception:
+        pass
 
     lines = [
         "# Auto-generated from system_dimension_registry. Do not edit manually.",
@@ -45,15 +53,23 @@ def regenerate_permissions() -> None:
         "DIMENSIONS = {",
     ]
     for d in dims:
-        lines.append(f'    "{d["dim_id"]}": {{')
+        key = d.get("code") or d["dim_id"]
+        db_ref = d.get("db_name") or conn_map.get(d["db_connection_id"], d["db_connection_id"])
+        lines.append(f'    "{key}": {{')
         lines.append(f'        "label": "{d["label"]}",')
-        lines.append(f'        "source_table": "{d["db_connection_id"]}.{d["table_name"]}",')
+        lines.append(f'        "source_table": "{db_ref}.{d["table_name"]}",')
         lines.append(f'        "source_column": "{d["column_name"]}",')
         lines.append(f'    }},')
     lines.append("}")
     lines.append("")
 
-    (MCP_SERVICES_DIR / "permissions.py").write_text("\n".join(lines), encoding="utf-8")
+    content = "\n".join(lines) + "\n"
+    (MCP_SERVICES_DIR / "permissions.py").write_text(content, encoding="utf-8")
+
+    # Also write to mcp-dev for development environment
+    dev_dir = Path(os.environ.get("EVOTOWN_MCP_DEV_DIR", "/app/data/mcp-dev"))
+    dev_dir.mkdir(parents=True, exist_ok=True)
+    (dev_dir / "permissions.py").write_text(content, encoding="utf-8")
 
 
 def regenerate_database() -> None:
@@ -67,7 +83,7 @@ def regenerate_database() -> None:
 
     # Separate by environment
     dev_conns = [c for c in conns if c.get("environment") in ("development", "both")]
-    prod_conns = [c for c in conns if c.get("environment") in ("production", "both","")]
+    prod_conns = [c for c in conns if c.get("environment") in ("production", "both", "")]
 
     for target_dir, target_conns in [(dev_dir, dev_conns), (MCP_SERVICES_DIR, prod_conns)]:
         lines = [

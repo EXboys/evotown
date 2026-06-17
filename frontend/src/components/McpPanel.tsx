@@ -1,232 +1,409 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { adminFetch } from "../hooks/useAdminToken";
 import type { Locale } from "../lib/i18n";
+
+// ── Types ──────────────────────────────────────────────────────────────────
 
 type McpService = {
   service_id: string; name: string; description: string;
   service_type: string; endpoint_url: string; db_type: string;
-  status: string; source: string; created_at: string; updated_at: string;
+  status: string; source: string; workspace_id: string;
+  created_at: string; updated_at: string;
 };
 
-type McpPolicy = {
-  policy_id: string; service_id: string; workspace_id: string;
-  enabled: number; row_rules: Array<{ table: string; where: string }>;
+type McpSource = "internal" | "external" | "system";
+
+type McpTab = { key: McpSource; label: string };
+
+const SOURCE_TABS: McpTab[] = [
+  { key: "internal", label: "内部 MCP" },
+  { key: "external", label: "外部 MCP" },
+  { key: "system", label: "系统 MCP" },
+];
+
+const SOURCE_LABELS: Record<string, string> = {
+  internal: "内部", external: "外部", system: "系统",
 };
-
-type McpRole = { role_id: string; name: string; description: string };
-
-type McpRolePolicy = {
-  policy_id: string; service_id: string; role_id: string; role_name: string;
-  enabled: number; row_rules: Array<{ table: string; where: string }>;
-  members: string[];
-};
-
-type McpStats = {
-  total_services: number; online_services: number; total_policies: number;
-  by_service_type: Record<string, number>;
-};
-
-type WorkspaceSimple = { workspace_id: string; name: string; status: string };
-type PolicyTab = "direct" | "role";
 
 const COPY = {
   zh: {
     title: "MCP 服务管理",
-    subtitle: "MCP 服务由后端发布注册，此处管理智能体访问权限和行级规则。角色在「智能体角色」页面管理。",
-    refresh: "刷新", totalServices: "已注册", onlineServices: "在线", totalPolicies: "权限策略",
-    directTab: "直接绑定", roleTab: "智能体角色",
-    workspace: "智能体", enabled: "启用",
-    rowRules: "行权限规则", addRule: "+ 添加规则",
-    tableName: "表名", whereClause: "WHERE 条件", remove: "删除",
-    save: "保存", saving: "保存中…", saved: "已保存",
-    noServices: "暂无已注册的 MCP 服务。",
-    serviceType: "类型", endpoint: "端点",
-    online: "在线", offline: "离线", error: "异常",
+    subtitle: "管理 MCP 服务注册、编辑和启停状态。",
+    refresh: "刷新",
+    search: "搜索",
+    searchPlaceholder: "名称模糊 / ID 精准",
+    add: "新增",
+    edit: "编辑",
+    delete: "删除",
+    save: "保存",
+    saving: "保存中…",
+    deleteConfirm: "确定删除此 MCP 服务？",
+    noServices: "暂无 MCP 服务",
+    name: "名称",
+    serviceId: "服务 ID",
+    description: "描述",
+    status: "状态",
+    operation: "操作",
+    source: "来源",
+    endpoint: "端点",
+    online: "在线",
+    offline: "离线",
+    createTitle: "新增 MCP 服务",
+    editTitle: "编辑 MCP 服务",
+    namePlaceholder: "MCP 服务名称",
+    descPlaceholder: "描述信息",
+    endpointPlaceholder: "https://...",
+    nameRequired: "名称不能为空",
   },
   en: {
     title: "MCP Services",
-    subtitle: "MCP services are registered by backend. Manage workspace access and row-level rules here. Roles are managed in 「Agent Roles」.",
-    refresh: "Refresh", totalServices: "Registered", onlineServices: "Online", totalPolicies: "Policies",
-    directTab: "Direct", roleTab: "Agent Roles",
-    workspace: "Workspace", enabled: "On",
-    rowRules: "Row Rules", addRule: "+ Add Rule",
-    tableName: "Table", whereClause: "WHERE clause", remove: "Remove",
-    save: "Save", saving: "Saving…", saved: "Saved",
-    noServices: "No registered MCP services.",
-    serviceType: "Type", endpoint: "Endpoint",
-    online: "Online", offline: "Offline", error: "Error",
+    subtitle: "Manage MCP service registration, editing, and status.",
+    refresh: "Refresh",
+    search: "Search",
+    searchPlaceholder: "Name fuzzy / ID exact",
+    add: "Add",
+    edit: "Edit",
+    delete: "Delete",
+    save: "Save",
+    saving: "Saving…",
+    deleteConfirm: "Delete this MCP service?",
+    noServices: "No MCP services",
+    name: "Name",
+    serviceId: "Service ID",
+    description: "Description",
+    status: "Status",
+    operation: "Actions",
+    source: "Source",
+    endpoint: "Endpoint",
+    online: "Online",
+    offline: "Offline",
+    createTitle: "Create MCP Service",
+    editTitle: "Edit MCP Service",
+    namePlaceholder: "Service name",
+    descPlaceholder: "Description",
+    endpointPlaceholder: "https://...",
+    nameRequired: "Name is required",
   },
 };
 
+// ── Component ──────────────────────────────────────────────────────────────
+
 export function McpPanel({ locale }: { locale: Locale }) {
   const copy = COPY[locale];
+  const [tab, setTab] = useState<McpSource>("internal");
   const [services, setServices] = useState<McpService[]>([]);
-  const [stats, setStats] = useState<McpStats>({ total_services: 0, online_services: 0, total_policies: 0, by_service_type: {} });
   const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [policyTab, setPolicyTab] = useState<PolicyTab>("direct");
-
-  const [policies, setPolicies] = useState<McpPolicy[]>([]);
-  const [directLocal, setDirectLocal] = useState<Record<string, { enabled: boolean; row_rules: Array<{ table: string; where: string }> }>>({});
-
-  const [roles, setRoles] = useState<McpRole[]>([]);
-  const [rolePolicies, setRolePolicies] = useState<McpRolePolicy[]>([]);
-  const [roleLocal, setRoleLocal] = useState<Record<string, { enabled: boolean; row_rules: Array<{ table: string; where: string }> }>>({});
-
-  const [policiesLoading, setPoliciesLoading] = useState(false);
-  const [workspaces, setWorkspaces] = useState<WorkspaceSimple[]>([]);
-  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
+
+  // Drawer state
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingSvc, setEditingSvc] = useState<McpService | null>(null);
+
+  // Delete confirm
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = async () => {
     setMessage("");
+    setLoading(true);
     try {
-      const data = await adminFetch("/api/v1/mcp-services").then(r => r.json());
+      const params = new URLSearchParams({ source: tab });
+      if (search.trim()) params.set("search", search.trim());
+      const data = await adminFetch(`/api/v1/mcp-services?${params}`).then(r => r.json());
       setServices(data.services ?? []);
-      setStats(data.stats ?? { total_services: 0, online_services: 0, total_policies: 0, by_service_type: {} });
-    } catch (err) { setMessage(err instanceof Error ? err.message : "加载失败"); } finally { setLoading(false); }
+    } catch (err) { setMessage(err instanceof Error ? err.message : "加载失败"); }
+    finally { setLoading(false); }
   };
 
-  const loadDetails = async (serviceId: string) => {
-    setPoliciesLoading(true);
+  useEffect(() => { void load(); }, [tab]);
+
+  const handleSearch = (e: FormEvent) => { e.preventDefault(); void load(); };
+
+  const openCreate = () => { setEditingSvc(null); setDrawerOpen(true); };
+
+  const openEdit = (svc: McpService) => { setEditingSvc(svc); setDrawerOpen(true); };
+
+  const toggleStatus = async (svc: McpService) => {
+    const newStatus = svc.status === "online" ? "offline" : "online";
     try {
-      const data = await adminFetch(`/api/v1/mcp-services/${encodeURIComponent(serviceId)}`).then(r => r.json());
-      setPolicies(data.policies ?? []);
-      const dl: Record<string, { enabled: boolean; row_rules: Array<{ table: string; where: string }> }> = {};
-      for (const p of (data.policies ?? [])) dl[p.workspace_id] = { enabled: p.enabled === 1, row_rules: p.row_rules?.map((r: { table: string; where: string }) => ({ table: r.table, where: r.where })) ?? [] };
-      setDirectLocal(dl);
-      setRoles(data.roles ?? []);
-      setRolePolicies(data.role_policies ?? []);
-      const rl: Record<string, { enabled: boolean; row_rules: Array<{ table: string; where: string }> }> = {};
-      for (const rp of (data.role_policies ?? [])) rl[rp.role_id] = { enabled: rp.enabled === 1, row_rules: rp.row_rules?.map((r: { table: string; where: string }) => ({ table: r.table, where: r.where })) ?? [] };
-      setRoleLocal(rl);
-    } catch { setPolicies([]); setDirectLocal({}); setRoles([]); setRolePolicies([]); setRoleLocal({}); }
-    finally { setPoliciesLoading(false); }
+      await adminFetch(`/api/v1/mcp-services/${encodeURIComponent(svc.service_id)}/status`, {
+        method: "PUT",
+        body: JSON.stringify({ status: newStatus }),
+      });
+      void load();
+    } catch (err) { setMessage(err instanceof Error ? err.message : "切换失败"); }
   };
 
-  const loadWorkspaces = async () => {
+  const handleDelete = async () => {
+    if (!deletingId) return;
     try {
-      const data = await adminFetch("/api/v1/workspaces?include_all=true&status_filter=").then(r => r.json());
-      setWorkspaces((data.workspaces ?? []).filter((w: WorkspaceSimple) => w.status === "active"));
-    } catch { /* ignore */ }
+      await adminFetch(`/api/v1/mcp-services/${encodeURIComponent(deletingId)}`, { method: "DELETE" });
+      setDeletingId(null);
+      void load();
+    } catch (err) { setMessage(err instanceof Error ? err.message : "删除失败"); setDeletingId(null); }
   };
 
-  useEffect(() => { void load(); void loadWorkspaces(); }, []);
-
-  const toggleExpand = (serviceId: string) => {
-    if (expandedId === serviceId) { setExpandedId(null); return; }
-    setExpandedId(serviceId); setPolicyTab("direct"); void loadDetails(serviceId);
-  };
-
-  // Direct helpers
-  const toggleWsEnabled = (wsId: string) => setDirectLocal(p => ({ ...p, [wsId]: p[wsId] ? { ...p[wsId], enabled: !p[wsId].enabled } : { enabled: true, row_rules: [] } }));
-  const addDirectRule = (wsId: string) => setDirectLocal(p => ({ ...p, [wsId]: { ...(p[wsId] ?? { enabled: true, row_rules: [] }), row_rules: [...(p[wsId]?.row_rules ?? []), { table: "", where: "" }] } }));
-  const updateDirectRule = (wsId: string, i: number, f: "table" | "where", v: string) => setDirectLocal(p => { const c = p[wsId]; if (!c) return p; const r = [...c.row_rules]; r[i] = { ...r[i], [f]: v }; return { ...p, [wsId]: { ...c, row_rules: r } }; });
-  const removeDirectRule = (wsId: string, i: number) => setDirectLocal(p => { const c = p[wsId]; if (!c) return p; return { ...p, [wsId]: { ...c, row_rules: c.row_rules.filter((_, j) => j !== i) } }; });
-
-  // Role helpers
-  const toggleRoleEnabled = (roleId: string) => setRoleLocal(p => ({ ...p, [roleId]: p[roleId] ? { ...p[roleId], enabled: !p[roleId].enabled } : { enabled: true, row_rules: [] } }));
-  const addRoleRule = (roleId: string) => setRoleLocal(p => ({ ...p, [roleId]: { ...(p[roleId] ?? { enabled: true, row_rules: [] }), row_rules: [...(p[roleId]?.row_rules ?? []), { table: "", where: "" }] } }));
-  const updateRoleRule = (roleId: string, i: number, f: "table" | "where", v: string) => setRoleLocal(p => { const c = p[roleId]; if (!c) return p; const r = [...c.row_rules]; r[i] = { ...r[i], [f]: v }; return { ...p, [roleId]: { ...c, row_rules: r } }; });
-  const removeRoleRule = (roleId: string, i: number) => setRoleLocal(p => { const c = p[roleId]; if (!c) return p; return { ...p, [roleId]: { ...c, row_rules: c.row_rules.filter((_, j) => j !== i) } }; });
-
-  const savePolicies = async () => {
-    if (!expandedId) return; setSaving(true); setMessage("");
-    try {
-      if (policyTab === "direct") {
-        const items = Object.entries(directLocal).filter(([, v]) => v.enabled || v.row_rules.length > 0).map(([wsId, v]) => ({ workspace_id: wsId, enabled: v.enabled, row_rules: v.row_rules.filter(r => r.table.trim() || r.where.trim()) }));
-        await adminFetch(`/api/v1/mcp-services/${encodeURIComponent(expandedId)}/policies`, { method: "PUT", body: JSON.stringify({ policies: items }) });
-      } else {
-        const items = Object.entries(roleLocal).filter(([, v]) => v.enabled || v.row_rules.length > 0).map(([roleId, v]) => ({ role_id: roleId, enabled: v.enabled, row_rules: v.row_rules.filter(r => r.table.trim() || r.where.trim()) }));
-        await adminFetch(`/api/v1/mcp-services/${encodeURIComponent(expandedId)}/role-policies`, { method: "PUT", body: JSON.stringify({ policies: items }) });
-      }
-      setMessage(copy.saved); await loadDetails(expandedId);
-    } catch (err) { setMessage(err instanceof Error ? err.message : "保存失败"); } finally { setSaving(false); }
-  };
-
-  const statusDot = (s: string) => ({ online: "bg-emerald-500", error: "bg-red-500" })[s] ?? "bg-slate-400";
-  const statusLabel = (s: string) => ({ online: copy.online, offline: copy.offline, error: copy.error })[s] ?? s;
+  const canEdit = tab !== "system";
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-violet-600 to-purple-700 p-6 text-white shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl"><div className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-200">MCP</div><h2 className="mt-2 text-2xl font-semibold tracking-tight">{copy.title}</h2><p className="mt-2 text-sm text-violet-100">{copy.subtitle}</p></div>
           <button type="button" onClick={() => void load()} disabled={loading} className="rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/20 disabled:opacity-50">{loading ? "…" : copy.refresh}</button>
         </div>
-        <div className="mt-6 grid grid-cols-3 gap-3">
-          {[{ label: copy.totalServices, value: stats.total_services }, { label: copy.onlineServices, value: stats.online_services }, { label: copy.totalPolicies, value: stats.total_policies }].map(s => (
-            <div key={s.label} className="rounded-xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur"><div className="text-2xl font-semibold tabular-nums">{s.value}</div><div className="mt-0.5 text-xs text-violet-100">{s.label}</div></div>
-          ))}</div>
       </section>
 
       {message && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{message}</div>}
 
-      {loading && !services.length ? (
-        <div className="space-y-3">{[0,1].map(i => (<div key={i} className="rounded-2xl border border-slate-200 bg-white p-5"><div className="h-4 w-1/3 animate-pulse rounded bg-slate-200"/><div className="mt-2 h-3 w-2/3 animate-pulse rounded bg-slate-100"/></div>))}</div>
-      ) : services.length ? (
-        <div className="space-y-3">
-          {services.map(svc => (
-            <div key={svc.service_id} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <button type="button" onClick={() => toggleExpand(svc.service_id)} className="w-full px-5 py-4 text-left">
-                <div className="flex items-center gap-3">
-                  <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${statusDot(svc.status)}`} />
-                  <div className="min-w-0 flex-1"><div className="font-semibold text-slate-900">{svc.name}</div>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                      <span className="rounded-full border border-slate-200 px-2 py-0.5">{svc.service_type}</span>
-                      {svc.db_type && <span className="rounded-full border border-slate-200 px-2 py-0.5">{svc.db_type}</span>}
-                      <span className="font-mono text-slate-400">{svc.endpoint_url}</span>
-                    </div>
-                    {svc.description && <p className="mt-1 text-xs text-slate-400">{svc.description}</p>}
-                  </div>
-                  <span className="text-slate-400 text-sm">{expandedId === svc.service_id ? "▾" : "▸"}</span>
-                </div>
-              </button>
-              {expandedId === svc.service_id && (
-                <div className="border-t border-slate-100 px-5 py-4">
-                  <div className="flex gap-2 mb-3">
-                    <button onClick={() => setPolicyTab("direct")} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${policyTab === "direct" ? "bg-violet-100 text-violet-700" : "text-slate-500 hover:bg-slate-50"}`}>{copy.directTab}</button>
-                    <button onClick={() => setPolicyTab("role")} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${policyTab === "role" ? "bg-violet-100 text-violet-700" : "text-slate-500 hover:bg-slate-50"}`}>{copy.roleTab}</button>
-                  </div>
-                  {policiesLoading ? <div className="space-y-2">{[0,1].map(i=><div key={i} className="h-8 animate-pulse rounded bg-slate-100"/>)}</div> : (
-                    policyTab === "direct" ? (
-                      <div className="space-y-2">
-                        {workspaces.map(ws => {
-                          const l = directLocal[ws.workspace_id]; const en = l?.enabled ?? false; const r = l?.row_rules ?? [];
-                          return (<div key={ws.workspace_id} className={`rounded-lg border ${en ? "border-violet-200 bg-violet-50/50" : "border-slate-200 bg-slate-50"} p-3`}>
-                            <div className="flex items-center gap-3"><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={en} onChange={() => toggleWsEnabled(ws.workspace_id)} className="h-4 w-4 rounded accent-violet-600"/><span className="text-sm font-medium text-slate-800">{ws.name}</span></label><span className="font-mono text-[11px] text-slate-400">{ws.workspace_id.slice(0,12)}</span></div>
-                            {en && <div className="mt-3 pl-7"><div className="flex items-center justify-between mb-1.5"><span className="text-xs font-medium text-slate-500">{copy.rowRules}</span><button type="button" onClick={() => addDirectRule(ws.workspace_id)} className="text-xs text-violet-600 hover:text-violet-800">{copy.addRule}</button></div>
-                              {r.length===0 ? <p className="text-xs text-slate-400">无规则</p> : <div className="space-y-1.5">{r.map((rule,idx)=>(<div key={idx} className="flex items-center gap-1.5"><input placeholder={copy.tableName} value={rule.table} onChange={e=>updateDirectRule(ws.workspace_id,idx,"table",e.target.value)} className="w-28 rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-violet-400"/><span className="text-xs text-slate-400">WHERE</span><input placeholder={copy.whereClause} value={rule.where} onChange={e=>updateDirectRule(ws.workspace_id,idx,"where",e.target.value)} className="flex-1 rounded border border-slate-200 px-2 py-1 text-xs font-mono outline-none focus:border-violet-400"/><button type="button" onClick={()=>removeDirectRule(ws.workspace_id,idx)} className="text-xs text-red-400 hover:text-red-600">×</button></div>))}</div>}
-                            </div>}
-                          </div>);
-                        })}
-                      </div>
-                    ) : roles.length === 0 ? (
-                      <p className="text-xs text-slate-400">暂无角色。请先在「智能体角色」页面创建角色并绑定智能体。</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {roles.map(role => {
-                          const l = roleLocal[role.role_id]; const en = l?.enabled ?? false; const r = l?.row_rules ?? [];
-                          const rp = rolePolicies.find(rp => rp.role_id === role.role_id);
-                          const memberNames = (rp?.members ?? []).map(id => workspaces.find(w => w.workspace_id === id)?.name ?? id.slice(0,8)).join(", ");
-                          return (<div key={role.role_id} className={`rounded-lg border ${en ? "border-violet-200 bg-violet-50/50" : "border-slate-200 bg-slate-50"} p-3`}>
-                            <div className="flex items-center gap-3"><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={en} onChange={() => toggleRoleEnabled(role.role_id)} className="h-4 w-4 rounded accent-violet-600"/><span className="text-sm font-medium text-slate-800">{role.name}</span></label>{memberNames && <span className="text-[11px] text-slate-400 truncate max-w-[200px]">成员: {memberNames}</span>}</div>
-                            {en && <div className="mt-3 pl-7"><div className="flex items-center justify-between mb-1.5"><span className="text-xs font-medium text-slate-500">{copy.rowRules}</span><button type="button" onClick={()=>addRoleRule(role.role_id)} className="text-xs text-violet-600 hover:text-violet-800">{copy.addRule}</button></div>
-                              {r.length===0 ? <p className="text-xs text-slate-400">无规则</p> : <div className="space-y-1.5">{r.map((rule,idx)=>(<div key={idx} className="flex items-center gap-1.5"><input placeholder={copy.tableName} value={rule.table} onChange={e=>updateRoleRule(role.role_id,idx,"table",e.target.value)} className="w-28 rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-violet-400"/><span className="text-xs text-slate-400">WHERE</span><input placeholder={copy.whereClause} value={rule.where} onChange={e=>updateRoleRule(role.role_id,idx,"where",e.target.value)} className="flex-1 rounded border border-slate-200 px-2 py-1 text-xs font-mono outline-none focus:border-violet-400"/><button type="button" onClick={()=>removeRoleRule(role.role_id,idx)} className="text-xs text-red-400 hover:text-red-600">×</button></div>))}</div>}
-                            </div>}
-                          </div>);
-                        })}
-                      </div>
-                    )
-                  )}
-                  <div className="mt-4 flex justify-end"><button type="button" onClick={() => void savePolicies()} disabled={saving} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50">{saving ? copy.saving : copy.save}</button></div>
-                </div>
-              )}
-            </div>
-          ))}</div>
-      ) : (
+      {/* Tab bar + search + add */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex rounded-lg border border-slate-200 bg-white p-1">
+          {SOURCE_TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                tab === t.key ? "bg-violet-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <form onSubmit={handleSearch} className="flex items-center gap-2 flex-1 min-w-0">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={copy.searchPlaceholder}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400 w-full max-w-xs"
+          />
+          <button type="submit" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">{copy.search}</button>
+        </form>
+        {canEdit && (
+          <button onClick={openCreate} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">{copy.add}</button>
+        )}
+      </div>
+
+      {/* Table */}
+      {loading ? (
+        <div className="space-y-3">{[0, 1, 2].map(i => (<div key={i} className="rounded-xl border border-slate-200 bg-white p-4"><div className="h-4 w-1/3 animate-pulse rounded bg-slate-200" /><div className="mt-2 h-3 w-2/3 animate-pulse rounded bg-slate-100" /></div>))}</div>
+      ) : services.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center"><div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-50 text-2xl">🔌</div><p className="mx-auto max-w-md text-sm text-slate-500">{copy.noServices}</p></div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-medium uppercase text-slate-500">
+                <th className="px-4 py-3">{copy.name}</th>
+                <th className="px-4 py-3">{copy.serviceId}</th>
+                <th className="px-4 py-3">{copy.description}</th>
+                <th className="px-4 py-3">{copy.source}</th>
+                <th className="px-4 py-3">已绑定</th>
+                <th className="px-4 py-3">24h调用</th>
+                <th className="px-4 py-3">{copy.status}</th>
+                <th className="px-4 py-3">{copy.operation}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {services.map((svc) => (
+                <tr key={svc.service_id} className="hover:bg-slate-50/50">
+                  <td className="px-4 py-3 font-medium text-slate-900">{svc.name}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-slate-500">{svc.service_id}</td>
+                  <td className="px-4 py-3 max-w-[160px] truncate">{svc.description || "-"}</td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
+                      svc.source === "internal" ? "border-sky-200 bg-sky-50 text-sky-700" :
+                      svc.source === "external" ? "border-amber-200 bg-amber-50 text-amber-700" :
+                      "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    }`}>{SOURCE_LABELS[svc.source] || svc.source}</span>
+                  </td>
+                  <td className="px-4 py-3 text-center text-xs text-slate-500">{(svc as any).bound_workspaces ?? "-"}</td>
+                  <td className="px-4 py-3 text-center text-xs text-slate-500">{(svc as any).calls_24h ?? "-"}</td>
+                  <td className="px-4 py-3">
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={svc.status === "online"}
+                        onChange={() => toggleStatus(svc)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-violet-600" />
+                      <span className="ml-2 text-xs text-slate-500">{svc.status === "online" ? copy.online : copy.offline}</span>
+                    </label>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      {canEdit ? (
+                        <>
+                          <button onClick={() => openEdit(svc)} className="text-xs text-violet-600 hover:text-violet-800">{copy.edit}</button>
+                          <button onClick={() => setDeletingId(svc.service_id)} className="text-xs text-red-500 hover:text-red-700">{copy.delete}</button>
+                        </>
+                      ) : (
+                        <button onClick={() => openEdit(svc)} className="text-xs text-slate-500 hover:text-slate-700">查看</button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
+
+      {/* Drawer */}
+      {drawerOpen && (
+        <McpDrawer
+          locale={locale}
+          service={editingSvc}
+          source={tab}
+          readonly={!canEdit}
+          onClose={() => setDrawerOpen(false)}
+          onSaved={() => { setDrawerOpen(false); void load(); }}
+        />
+      )}
+
+      {/* Delete confirm */}
+      {deletingId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setDeletingId(null)} />
+          <div className="relative bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-lg font-semibold text-slate-900">{copy.delete}</h3>
+            <p className="mt-2 text-sm text-slate-600">{copy.deleteConfirm}</p>
+            <div className="mt-4 flex justify-end gap-3">
+              <button onClick={() => setDeletingId(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">取消</button>
+              <button onClick={handleDelete} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">{copy.delete}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Drawer ──────────────────────────────────────────────────────────────────
+
+function McpDrawer({
+  locale, service, source, readonly, onClose, onSaved,
+}: {
+  locale: Locale;
+  service: McpService | null;
+  source: McpSource;
+  readonly: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const copy = COPY[locale];
+  const isEditing = service !== null;
+
+  const [name, setName] = useState(service?.name || "");
+  const [description, setDescription] = useState(service?.description || "");
+  const [endpointUrl, setEndpointUrl] = useState(service?.endpoint_url || "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const canSave = name.trim().length > 0;
+
+  const handleSave = async () => {
+    if (!name.trim()) { setError(copy.nameRequired); return; }
+    setSaving(true); setError("");
+    try {
+      if (isEditing) {
+        const body: Record<string, string> = { name: name.trim(), description: description.trim() };
+        if (source === "external" || service?.source === "external") body.endpoint_url = endpointUrl.trim();
+        await adminFetch(`/api/v1/mcp-services/${encodeURIComponent(service!.service_id)}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+      } else {
+        const body: Record<string, string> = {
+          name: name.trim(), description: description.trim(), source,
+        };
+        if (source === "external") body.endpoint_url = endpointUrl.trim();
+        body.service_type = source === "external" ? "api" : "database";
+        await adminFetch("/api/v1/mcp-services", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      }
+      onSaved();
+    } catch (err) { setError(err instanceof Error ? err.message : "保存失败"); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative w-full max-w-lg bg-white border-l border-slate-200 shadow-xl flex flex-col h-full overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0">
+          <h3 className="text-sm font-semibold text-slate-900 truncate">
+            {readonly ? "查看 MCP 服务" : isEditing ? copy.editTitle : copy.createTitle}
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {isEditing && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+              <div className="flex gap-2"><span className="text-slate-400 w-16 shrink-0">服务 ID</span><code className="font-mono text-slate-800">{service!.service_id}</code></div>
+              <div className="flex gap-2 mt-1"><span className="text-slate-400 w-16 shrink-0">来源</span><span>{SOURCE_LABELS[service!.source || ""] || service?.source}</span></div>
+              {service!.workspace_id && <div className="flex gap-2 mt-1"><span className="text-slate-400 w-16 shrink-0">工作区</span><code className="font-mono text-slate-800 text-[11px]">{service!.workspace_id}</code></div>}
+            </div>
+          )}
+
+          {/* Name */}
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">{copy.name}</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={copy.namePlaceholder}
+              disabled={readonly}
+              className={`w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-violet-400 ${readonly ? "bg-slate-50 text-slate-500 border-slate-200" : "border-slate-200"}`}
+            />
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">{copy.description}</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder={copy.descPlaceholder}
+              disabled={readonly}
+              rows={3}
+              className={`w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-violet-400 resize-none ${readonly ? "bg-slate-50 text-slate-500 border-slate-200" : "border-slate-200"}`}
+            />
+          </div>
+
+          {/* Endpoint (external only) */}
+          {(source === "external" || service?.source === "external") && (
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">{copy.endpoint}</label>
+              <input
+                value={endpointUrl}
+                onChange={(e) => setEndpointUrl(e.target.value)}
+                placeholder={copy.endpointPlaceholder}
+                disabled={readonly}
+                className={`w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-violet-400 ${readonly ? "bg-slate-50 text-slate-500 border-slate-200" : "border-slate-200"}`}
+              />
+            </div>
+          )}
+
+          {error && <div className="rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-700">{error}</div>}
+        </div>
+
+        {/* Footer */}
+        {!readonly && (
+          <div className="flex items-center justify-end gap-3 px-4 py-3 border-t border-slate-200 shrink-0">
+            <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">取消</button>
+            <button onClick={handleSave} disabled={saving || !canSave} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50">{saving ? copy.saving : copy.save}</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

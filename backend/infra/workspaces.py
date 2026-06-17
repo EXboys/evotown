@@ -408,15 +408,16 @@ def resolve_workspace_path(workspace: dict[str, Any], relative_path: str = ".") 
     try:
         target.relative_to(root)
     except ValueError:
-        # Allow if any parent path is a symlink within workspace
-        has_symlink_parent = False
-        p = source
-        while p != root and p.parent != p:
-            p = p.parent
-            if p.is_symlink():
-                has_symlink_parent = True
-                break
-        if not has_symlink_parent:
+        # Allow if the path itself or any ancestor is a symlink within workspace
+        has_symlink = source.is_symlink()
+        if not has_symlink:
+            p = source
+            while p != root and p.parent != p:
+                p = p.parent
+                if p.is_symlink():
+                    has_symlink = True
+                    break
+        if not has_symlink:
             raise ValueError("path escapes workspace root") from None
     return target
 

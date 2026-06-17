@@ -148,6 +148,7 @@ export function CodingAgentWorkspacePage() {
   const [filesExpanded, setFilesExpanded] = useState(false);
   const [fileViewer, setFileViewer] = useState<{ path: string; content: string; size: number; truncated: boolean } | null>(null);
   const [fileLoading, setFileLoading] = useState("");
+  const [fileError, setFileError] = useState<{ path: string; message: string; status?: number } | null>(null);
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFileEntry[]>([]);
   const [workspaceFilesTruncated, setWorkspaceFilesTruncated] = useState(false);
   const [workspaceFilesLoading, setWorkspaceFilesLoading] = useState(false);
@@ -180,16 +181,20 @@ export function CodingAgentWorkspacePage() {
   const loadDevDir = (dir: string) => {
     if (!workspaceId) return;
     setDevDirLoading(true);
-    const apiUrl = `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/file-index`;
+    const params = new URLSearchParams();
+    if (dir) params.set("subdir", dir);
+    if (devDirPrefix) params.set("prefix", devDirPrefix);
+    const qs = params.toString();
+    const apiUrl = `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/file-index${qs ? "?" + qs : ""}`;
     adminFetch(apiUrl).then(r => readJson<{ entries?: WorkspaceFileEntry[] }>(r)).then(data => {
-      // Filter to dev dir only
-      const prefix = devDirPrefix ? (devDirPrefix.endsWith("/") ? devDirPrefix : devDirPrefix + "/") : "";
-      const filtered = prefix
-        ? (data.entries || []).filter((e: WorkspaceFileEntry) => e.path.startsWith(prefix))
-        : (data.entries || []);
-      setDevDirFiles(filtered.map(e => ({ name: e.path.slice(prefix.length), path: e.path, is_dir: false, size: e.size || 0 })));
+      setDevDirFiles((data.entries || []).map(e => ({
+        name: e.name,
+        path: e.path,
+        is_dir: e.is_dir || false,
+        size: e.size || 0,
+      })));
       setDevDirPath(dir);
-    }).catch(() => {}).finally(() => setDevDirLoading(false));
+    }).catch((err) => { console.error("loadDevDir failed", err); }).finally(() => setDevDirLoading(false));
   };
   useEffect(() => { if (rightOpen && hasDevFiles && !devDirPath) void loadDevDir(""); }, [rightOpen, hasDevFiles, devDirPath]);
 
@@ -385,16 +390,21 @@ export function CodingAgentWorkspacePage() {
         if (cached) { setLightboxImage({ src: cached, alt: name }); return; }
         const serveUrl = `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/serve/${encodeURIComponent(path)}`;
         const res = await adminFetch(serveUrl);
-        if (!res.ok) throw new Error(`无法加载图片 (${res.status})`);
+        if (!res.ok) { setFileError({ path, message: `HTTP ${res.status}`, status: res.status }); return; }
         const blob = await res.blob();
         const blobUrl = URL.createObjectURL(blob);
         setMediaBlobUrls((prev) => ({ ...prev, [path]: blobUrl }));
         setLightboxImage({ src: blobUrl, alt: name });
         return;
       }
-      const data = await adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/files?path=${encodeURIComponent(path)}`).then((res) => readJson<{ path: string; content: string; size: number; truncated: boolean }>(res));
+      const res = await adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/files?path=${encodeURIComponent(path)}`);
+      if (!res.ok) { setFileError({ path, message: `HTTP ${res.status}`, status: res.status }); return; }
+      const data = await res.json() as { path: string; content: string; size: number; truncated: boolean };
       setFileViewer(data);
-    } catch (err) { setError(err instanceof Error ? err.message : "无法打开文件"); }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "无法打开文件";
+      setFileError({ path, message: msg });
+    }
     finally { setFileLoading(""); }
   };
 
@@ -750,16 +760,22 @@ export function CodingAgentWorkspacePage() {
       )}
       {hasDevFiles && rightOpen && (
         <aside className="flex w-72 shrink-0 flex-col border-l border-slate-200 bg-slate-50">
-          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">📂 /{devDirPath || ""}</span>
+          <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2.5">
+            <div className="flex items-center gap-1 min-w-0">
+              {devDirPath ? (
+                <button type="button" onClick={() => { const parent = devDirPath.split("/").slice(0, -1).join("/"); void loadDevDir(parent); }} className="rounded p-0.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800" title="返回上一层">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                </button>
+              ) : null}
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 truncate">📂 /{devDirPath || ""}</span>
+            </div>
             <button type="button" onClick={() => setRightOpen(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-200" title="收起"><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19l7-7-7-7" /></svg></button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-2 [scrollbar-width:thin]">
-            {devDirPath && <button type="button" onClick={() => { const parent = devDirPath.split("/").slice(0, -1).join("/") || ""; void loadDevDir(parent); }} className="w-full rounded-md px-2 py-1.5 text-left text-xs text-slate-500 hover:bg-slate-200">📁 ..</button>}
             {devDirLoading ? <div className="space-y-2 p-2">{[0,1,2].map(i => <div key={i} className="h-4 animate-pulse rounded bg-slate-200" />)}</div>
             : devDirFiles.length > 0 ? <div className="space-y-0.5">
-              {devDirFiles.map(f => (f.is_dir ? <button key={f.path} type="button" onClick={() => void loadDevDir(f.path.replace(/\/$/, ""))} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-200"><span>📁</span><span className="truncate text-slate-700">{f.name}</span></button>
-              : <button key={f.path} type="button" onClick={() => void openFile(f.path)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-200"><span>📄</span><span className="truncate text-slate-700">{f.name}</span><span className="shrink-0 text-[10px] text-slate-400">{formatBytes(f.size)}</span></button>))}
+              {devDirFiles.map(f => (f.is_dir ? <button key={f.path} type="button" onClick={() => void loadDevDir((devDirPath ? devDirPath + "/" : "") + f.path.replace(/\/$/, ""))} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-200"><span>📁</span><span className="truncate text-slate-700">{f.name}</span></button>
+              : <button key={f.path} type="button" onClick={() => { const fullPath = [devDirPrefix, devDirPath, f.path].filter(Boolean).join("/"); void openFile(fullPath); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-200"><span>📄</span><span className="truncate text-slate-700">{f.name}</span><span className="shrink-0 text-[10px] text-slate-400">{formatBytes(f.size)}</span></button>))}
             </div> : <p className="px-2 py-4 text-center text-xs text-slate-400">目录为空</p>}
           </div>
         </aside>
@@ -778,6 +794,69 @@ export function CodingAgentWorkspacePage() {
         </div>
       )}
       <ImageLightbox image={lightboxImage} onClose={() => setLightboxImage(null)} />
+
+      {/* ── File error modal ── */}
+      {fileError && <FileErrorModal err={fileError} onClose={() => setFileError(null)} />}
+    </div>
+  );
+}
+
+// ── File error modal ────────────────────────────────────────────────────────
+
+const KNOWN_ERRORS: Record<number, string> = {
+  400: "请求参数错误，请联系管理员",
+  401: "未授权访问，请重新登录",
+  403: "无权限访问此文件",
+  404: "文件不存在，可能已被移动或删除",
+  413: "文件过大，无法打开",
+  500: "服务器内部错误，请稍后重试",
+  502: "网关错误，服务暂不可用",
+  503: "服务暂不可用，请稍后重试",
+};
+
+function describeError(status: number | undefined, message: string): string {
+  if (status && KNOWN_ERRORS[status]) return KNOWN_ERRORS[status];
+  const lower = message.toLowerCase();
+  if (lower.includes("failed to fetch") || lower.includes("network")) return "网络连接失败，请检查网络连接";
+  if (lower.includes("not found")) return "文件不存在，可能已被移动或删除";
+  if (lower.includes("permission") || lower.includes("forbidden")) return "权限不足，无法访问此文件";
+  if (lower.includes("timeout")) return "请求超时，请稍后重试";
+  return "";
+}
+
+function FileErrorModal({ err, onClose }: { err: { path: string; message: string; status?: number }; onClose: () => void }) {
+  const zhDesc = describeError(err.status, err.message);
+  const filename = err.path.split("/").pop() || err.path;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="relative w-full max-w-sm rounded-2xl border border-slate-200 bg-white shadow-xl p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start gap-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-semibold text-slate-900">无法打开文件</h3>
+            <p className="mt-0.5 truncate font-mono text-xs text-slate-400">{filename}</p>
+          </div>
+          <button onClick={onClose} className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">✕</button>
+        </div>
+
+        {zhDesc && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+            {zhDesc}
+          </div>
+        )}
+
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+          <p className="text-[11px] font-medium text-slate-500 mb-0.5">原始错误</p>
+          <p className="text-xs text-slate-700 font-mono break-all">{err.message}</p>
+        </div>
+
+        <div className="flex justify-end">
+          <button onClick={onClose} className="rounded-lg bg-slate-950 px-4 py-2 text-xs font-medium text-white hover:bg-slate-800">关闭</button>
+        </div>
+      </div>
     </div>
   );
 }

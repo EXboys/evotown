@@ -8,7 +8,7 @@ from typing import Any
 
 from infra import accounts as accounts_store
 
-BUILTIN_TEMPLATE_VERSION = "2.2.0"
+BUILTIN_TEMPLATE_VERSION = "2.3.0"
 """Bump this when built-in template content changes. Seeds update DB rows with matching template_id."""
 
 _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
@@ -33,24 +33,25 @@ _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
             "9. 生产环境热更新生效，其他 Agent 通过 mcp_call() 调用"
         ),
         "standards": (
-            "1. manifest.json：dimensions 只能引用已注册维度，无权限需求时留空数组\n"
-            "2. handler.py：入参/出参必须对应 manifest 的 input/output 定义\n"
-            "3. 数据库连接：from database import get_{表名} 获取连接\n"
-            "4. 权限过滤：用 permissions.get(\"维度名\", []) 拼 WHERE，全量权限时 key 不在 permissions 中 → 不过滤\n"
-            "5. 开发目录结构（软链接到 server）：\n"
+            "1. manifest.json：必须包含 description 字段，描述该 MCP 服务的用途（如「订单与客户信息的综合处理服务」），发布后 Agent 通过该字段了解服务功能\n"
+            "2. manifest.json：dimensions 只能引用已注册维度，无权限需求时留空数组\n"
+            "3. handler.py：入参/出参必须对应 manifest 的 input/output 定义\n"
+            "4. 数据库连接：from database import get_{表名} 获取连接\n"
+            "5. 权限过滤：用 permissions.get(\"维度名\", []) 拼 WHERE，全量权限时 key 不在 permissions 中 → 不过滤\n"
+            "6. 开发目录结构（软链接到 server）：\n"
             "   {server}/mcp-dev/\n"
             "   ├── database.py               ← 系统生成，只读\n"
             "   ├── permissions.py            ← 系统生成，只读\n"
             "   ├── publish.py               ← 系统生成，部署脚本\n"
             "   └── {分类}/{接口名}/           ← 你创建\n"
-            "       ├── manifest.json         ← 你生成，含 version 字段\n"
+            "       ├── manifest.json         ← 你生成，含 version/description/input/output/dimensions 字段\n"
             "       └── handler.py            ← 你生成: def process(args, permissions)\n"
-            "6. 版本号：manifest.json 中声明 version，首次 v1.0.0，更新时递增\n"
-            "7. 标准返回：{ ok: bool, data: ..., error: ..., version: \"x.y.z\" }\n"
-            "8. 部署：`python publish.py {分类}/{接口名}`，自动校验+复制+清缓存\n"
+            "7. 版本号：manifest.json 中声明 version，首次 v1.0.0，更新时递增\n"
+            "8. 标准返回：{ ok: bool, data: ..., error: ..., version: \"x.y.z\" }\n"
+            "9. 部署：`python publish.py {分类}/{接口名}`，自动校验+复制+清缓存\n"
             "   部署后生产调用 mcp_call(id, args)，权限由网关自动注入\n"
-            "9. 禁止修改 database.py、permissions.py、publish.py 等系统生成文件\n"
-            "10. 修复后重新执行 publish.py 即可热更新"
+            "10. 禁止修改 database.py、permissions.py、publish.py 等系统生成文件\n"
+            "11. 修复后重新执行 publish.py 即可热更新"
         ),
         "default_model": "",
         "default_skills": [],

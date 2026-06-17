@@ -202,6 +202,8 @@ def update_connection(connection_id: str, body: Any) -> dict[str, Any] | None:
         fields["status"] = body.status
     if body.description is not None:
         fields["description"] = body.description
+    if body.environment is not None:
+        fields["environment"] = body.environment
     if body.config is not None:
         merged = dict(existing["config"])
         merged.update(body.config)

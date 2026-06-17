@@ -29,10 +29,95 @@ class BatchPolicyUpdate(BaseModel):
 
 # ── MCP Services (admin) ───────────────────────────────────────────────
 
+class McpServiceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    description: str = ""
+    service_type: str = "api"
+    endpoint_url: str = ""
+    source: str = "external"
+
+
+class McpServiceUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    endpoint_url: str | None = None
+    source: str | None = None
+
+
+class McpStatusUpdate(BaseModel):
+    status: str = Field(min_length=1, max_length=32)
+
+
 @router.get("/mcp-services", dependencies=[Depends(require_admin)])
-async def list_mcp_services():
-    services = mcp_registry.list_services()
+async def list_mcp_services(
+    source: str | None = None,
+    search: str | None = None,
+):
+    services = mcp_registry.list_services(source=source)
+    # Client-side search: name fuzzy OR service_id exact
+    if search:
+        search_lower = search.strip().lower()
+        services = [
+            s for s in services
+            if search_lower in s.get("name", "").lower()
+            or s.get("service_id", "") == search.strip()
+        ]
+    # Attach per-service stats
+    for svc in services:
+        svc["bound_workspaces"] = mcp_registry.count_service_policies(svc["service_id"])
+        svc["calls_24h"] = mcp_registry.count_mcp_calls(svc["service_id"])
     return {"services": services, "stats": mcp_registry.registry_stats()}
+
+
+@router.post("/mcp-services")
+async def create_mcp_service(body: McpServiceCreate, _admin=Depends(require_admin)):
+    svc = mcp_registry.register_service(
+        name=body.name,
+        description=body.description,
+        service_type=body.service_type,
+        endpoint_url=body.endpoint_url,
+        source=body.source,
+    )
+    return {"service": svc}
+
+
+@router.put("/mcp-services/{service_id}")
+async def update_mcp_service(service_id: str, body: McpServiceUpdate, _admin=Depends(require_admin)):
+    try:
+        svc = mcp_registry.update_service(
+            service_id,
+            name=body.name,
+            description=body.description,
+            endpoint_url=body.endpoint_url,
+            source=body.source,
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    if svc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP service not found")
+    return {"service": svc}
+
+
+@router.put("/mcp-services/{service_id}/status")
+async def update_mcp_status(service_id: str, body: McpStatusUpdate, _admin=Depends(require_admin)):
+    try:
+        svc = mcp_registry.update_service(service_id, status=body.status)
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    if svc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP service not found")
+    return {"service": svc}
+
+
+@router.delete("/mcp-services/{service_id}")
+async def delete_mcp_service(service_id: str, _admin=Depends(require_admin)):
+    try:
+        deleted = mcp_registry.delete_service(service_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP service not found")
+    return {"deleted": True}
 
 
 @router.get("/mcp-services/{service_id}", dependencies=[Depends(require_admin)])
@@ -43,7 +128,11 @@ async def get_mcp_service(service_id: str):
     policies = mcp_registry.list_policies_for_service(service_id)
     role_policies = mcp_registry.list_role_policies_for_service(service_id)
     roles = mcp_registry.list_roles()
-    return {"service": svc, "policies": policies, "role_policies": role_policies, "roles": roles}
+    stats = {
+        "bound_workspaces": mcp_registry.count_service_policies(service_id),
+        "calls_24h": mcp_registry.count_mcp_calls(service_id),
+    }
+    return {"service": svc, "policies": policies, "role_policies": role_policies, "roles": roles, "stats": stats}
 
 
 # ── Workspace Policies (admin) ─────────────────────────────────────────
@@ -260,7 +349,12 @@ async def call_mcp(service_id: str, body: McpCallRequest,
 
     # ④ Invoke with version injection
     from services.mcp_loader import invoke_mcp
-    return invoke_mcp(service_id, body.args, permissions)
+    result = invoke_mcp(service_id, body.args, permissions)
+
+    # Record usage
+    mcp_registry.record_mcp_call(service_id)
+
+    return result
 
 
 def _parse_dim_values(where: str) -> list[str]:
@@ -321,11 +415,21 @@ async def list_mcp_tools(identity: dict | None = Depends(require_console_read)):
 # ── Dimensions (admin) ──────────────────────────────────────────────
 
 class DimensionCreate(BaseModel):
-    dim_id: str = Field(min_length=1, max_length=64)
+    dim_id: str = Field(default="", max_length=64)
     label: str = Field(min_length=1, max_length=128)
+    code: str = Field(min_length=1, max_length=64)
     db_connection_id: str = Field(min_length=1, max_length=128)
+    db_name: str = Field(default="", max_length=128)
     table_name: str = Field(min_length=1, max_length=128)
     column_name: str = Field(min_length=1, max_length=128)
+
+
+class DimensionUpdate(BaseModel):
+    label: str | None = None
+    code: str | None = None
+    db_name: str | None = None
+    table_name: str | None = None
+    column_name: str | None = None
 
 
 @router.get("/dimensions", dependencies=[Depends(require_admin)])
@@ -335,17 +439,28 @@ async def list_dimensions():
 
 @router.post("/dimensions")
 async def create_dimension(body: DimensionCreate, _admin=Depends(require_admin)):
-    dim = mcp_registry.create_dimension(
-        dim_id=body.dim_id, label=body.label,
-        db_connection_id=body.db_connection_id,
-        table_name=body.table_name, column_name=body.column_name,
-    )
-    # Auto-regenerate permissions.py
     try:
-        from services.mcp_codegen import regenerate_permissions
-        regenerate_permissions()
-    except Exception:
-        pass
+        dim = mcp_registry.create_dimension(
+            dim_id=body.dim_id, label=body.label,
+            code=body.code,
+            db_connection_id=body.db_connection_id,
+            db_name=body.db_name,
+            table_name=body.table_name, column_name=body.column_name,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _regenerate_permissions_safe()
+    return {"dimension": dim}
+
+
+@router.put("/dimensions/{dim_id}")
+async def update_dimension(dim_id: str, body: DimensionUpdate, _admin=Depends(require_admin)):
+    dim = mcp_registry.update_dimension(
+        dim_id, label=body.label, code=body.code, db_name=body.db_name, table_name=body.table_name, column_name=body.column_name,
+    )
+    if dim is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="dimension not found")
+    _regenerate_permissions_safe()
     return {"dimension": dim}
 
 
@@ -353,11 +468,7 @@ async def create_dimension(body: DimensionCreate, _admin=Depends(require_admin))
 async def delete_dimension(dim_id: str, _admin=Depends(require_admin)):
     if not mcp_registry.delete_dimension(dim_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="dimension not found")
-    try:
-        from services.mcp_codegen import regenerate_permissions
-        regenerate_permissions()
-    except Exception:
-        pass
+    _regenerate_permissions_safe()
     return {"deleted": True}
 
 
@@ -365,6 +476,57 @@ async def delete_dimension(dim_id: str, _admin=Depends(require_admin)):
 async def dimension_values(dim_id: str):
     values = mcp_registry.get_dimension_values(dim_id)
     return {"dim_id": dim_id, "values": values}
+
+
+# ── Database introspection (for dimension form cascading) ─────────
+
+@router.get("/databases/{connection_id}/names", dependencies=[Depends(require_admin)])
+async def db_names(connection_id: str):
+    try:
+        names = mcp_registry.list_db_names(connection_id)
+        return {"connection_id": connection_id, "names": names}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        import logging
+        logging.getLogger("evotown").exception("Failed to list database names for %s", connection_id)
+        raise HTTPException(status_code=500, detail="无法获取数据库列表")
+
+
+@router.get("/databases/{connection_id}/tables", dependencies=[Depends(require_admin)])
+async def db_tables(connection_id: str, database: str = ""):
+    try:
+        tables = mcp_registry.list_db_tables(connection_id, database=database)
+        return {"connection_id": connection_id, "tables": tables}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        import logging
+        logging.getLogger("evotown").exception("Failed to list tables for %s", connection_id)
+        raise HTTPException(status_code=500, detail="无法连接数据库")
+
+
+@router.get("/databases/{connection_id}/tables/{table:path}/columns", dependencies=[Depends(require_admin)])
+async def db_table_columns(connection_id: str, table: str, database: str = ""):
+    try:
+        columns = mcp_registry.list_table_columns(connection_id, table, database=database)
+        return {"connection_id": connection_id, "table": table, "columns": columns}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        import logging
+        logging.getLogger("evotown").exception("Failed to list columns for %s.%s", connection_id, table)
+        raise HTTPException(status_code=500, detail="无法获取表字段")
+
+
+def _regenerate_permissions_safe():
+    """Regenerate permissions.py, log errors instead of silently ignoring."""
+    try:
+        from services.mcp_codegen import regenerate_permissions
+        regenerate_permissions()
+    except Exception:
+        import logging
+        logging.getLogger("evotown").exception("regenerate_permissions failed")
 
 
 # ── MCP Deploy (admin) ──────────────────────────────────────────────

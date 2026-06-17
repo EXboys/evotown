@@ -350,6 +350,8 @@ async def list_workspace_file_index(
     workspace_id: str,
     include_dot: bool = False,
     limit: int = 400,
+    subdir: str = "",
+    prefix: str = "",
     identity: dict | None = Depends(require_console_read),
 ):
     """List workspace files by relative path (no absolute server paths exposed)."""
@@ -361,6 +363,8 @@ async def list_workspace_file_index(
             workspace,
             include_dot=include_dot,
             limit=limit,
+            subdir=subdir,
+            prefix=prefix,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

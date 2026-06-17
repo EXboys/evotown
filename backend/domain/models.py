@@ -589,6 +589,7 @@ class DatabaseConnectionUpdate(BaseModel):
     team_id: str | None = Field(default=None, max_length=128)
     status: Literal["active", "paused"] | None = None
     description: str | None = Field(default=None, max_length=2000)
+    environment: Literal["production", "development", "both"] | None = None
     config: dict[str, Any] | None = None
 
 

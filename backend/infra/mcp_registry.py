@@ -26,8 +26,15 @@ STATUS_ONLINE = "online"
 STATUS_OFFLINE = "offline"
 STATUS_ERROR = "error"
 
-SOURCE_MANUAL = "manual"
-SOURCE_AGENT = "agent"
+SOURCE_INTERNAL = "internal"
+SOURCE_EXTERNAL = "external"
+SOURCE_SYSTEM = "system"
+
+SOURCE_LABELS: dict[str, str] = {
+    SOURCE_INTERNAL: "内部 MCP",
+    SOURCE_EXTERNAL: "外部 MCP",
+    SOURCE_SYSTEM: "系统 MCP",
+}
 
 # ── System functions (hardcoded, not user-editable) ────────────────────
 
@@ -137,6 +144,14 @@ def _ensure_conn() -> sqlite3.Connection:
             column_name          TEXT NOT NULL,
             created_at           TEXT NOT NULL DEFAULT (datetime('now'))
         );
+
+        CREATE TABLE IF NOT EXISTS mcp_usage_log (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            service_id     TEXT NOT NULL,
+            called_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_mcp_usage_service ON mcp_usage_log(service_id);
+        CREATE INDEX IF NOT EXISTS idx_mcp_usage_time ON mcp_usage_log(called_at);
         """
     )
 
@@ -145,6 +160,12 @@ def _ensure_conn() -> sqlite3.Connection:
 
     # ── Migration: mcp_services new columns ────────────────────────
     _migrate_mcp_services_columns(conn)
+
+    # ── Migration: mcp_services source values ──────────────────────
+    _migrate_source_values(conn)
+
+    # ── Migration: dimension registry updated_at ──────────────────
+    _migrate_dimension_registry(conn)
 
     # ── Seed hardcoded system functions ───────────────────────────
     for func in SYSTEM_FUNCTIONS:
@@ -204,19 +225,39 @@ def _migrate_mcp_services_columns(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_mcp_services_workspace ON mcp_services(workspace_id)")
 
 
+def _migrate_source_values(conn: sqlite3.Connection) -> None:
+    """Migrate source: agent→internal, manual→external."""
+    conn.execute("UPDATE mcp_services SET source='internal' WHERE source='agent'")
+    conn.execute("UPDATE mcp_services SET source='external' WHERE source='manual'")
+
+
+def _migrate_dimension_registry(conn: sqlite3.Connection) -> None:
+    """Add updated_at, db_name, and code columns to system_dimension_registry if missing."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(system_dimension_registry)").fetchall()}
+    if "updated_at" not in cols:
+        conn.execute("ALTER TABLE system_dimension_registry ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))")
+    if "db_name" not in cols:
+        conn.execute("ALTER TABLE system_dimension_registry ADD COLUMN db_name TEXT NOT NULL DEFAULT ''")
+    if "code" not in cols:
+        conn.execute("ALTER TABLE system_dimension_registry ADD COLUMN code TEXT NOT NULL DEFAULT ''")
+
+
 # ── MCP Service CRUD ──────────────────────────────────────────────────
 
 def _service_from_row(row: sqlite3.Row) -> dict[str, Any]:
     return dict(row)
 
 
-def list_services(*, status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+def list_services(*, status: str | None = None, source: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
     conn = _ensure_conn()
     clauses: list[str] = []
     params: list[Any] = []
     if status:
         clauses.append("status = ?")
         params.append(status)
+    if source:
+        clauses.append("source = ?")
+        params.append(source)
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     params.append(limit)
     rows = conn.execute(
@@ -241,6 +282,7 @@ def register_service(
     service_type: str = SERVICE_TYPE_DATABASE,
     endpoint_url: str = "",
     db_type: str = "",
+    source: str = SOURCE_INTERNAL,
 ) -> dict[str, Any]:
     conn = _ensure_conn()
     sid = (service_id or f"mcp_{uuid.uuid4().hex[:12]}").strip()
@@ -248,9 +290,9 @@ def register_service(
         """
         INSERT OR REPLACE INTO mcp_services (
             service_id, name, description, service_type, endpoint_url, db_type, status, source, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'online', 'manual', datetime('now'))
+        ) VALUES (?, ?, ?, ?, ?, ?, 'online', ?, datetime('now'))
         """,
-        (sid, name.strip(), description.strip(), service_type.strip(), endpoint_url.strip(), db_type.strip()),
+        (sid, name.strip(), description.strip(), service_type.strip(), endpoint_url.strip(), db_type.strip(), source.strip()),
     )
     return get_service(sid) or {}
 
@@ -263,10 +305,23 @@ def update_service(
     endpoint_url: str | None = None,
     db_type: str | None = None,
     status: str | None = None,
+    source: str | None = None,
 ) -> dict[str, Any] | None:
     existing = get_service(service_id)
     if existing is None:
         return None
+    if existing.get("source") == SOURCE_SYSTEM:
+        if any(v is not None for v in [name, description, endpoint_url, db_type, source]):
+            raise PermissionError("系统 MCP 不可编辑")
+        # Only allow status toggle
+        if status is not None:
+            conn = _ensure_conn()
+            conn.execute(
+                "UPDATE mcp_services SET status=?, updated_at=datetime('now') WHERE service_id=?",
+                (status.strip(), service_id),
+            )
+            return get_service(service_id)
+        return existing
     updates: dict[str, Any] = {}
     if name is not None:
         updates["name"] = name.strip()
@@ -278,6 +333,8 @@ def update_service(
         updates["db_type"] = db_type.strip()
     if status is not None:
         updates["status"] = status.strip()
+    if source is not None:
+        updates["source"] = source.strip()
     if not updates:
         return existing
     conn = _ensure_conn()
@@ -290,6 +347,9 @@ def update_service(
 
 
 def delete_service(service_id: str) -> bool:
+    existing = get_service(service_id)
+    if existing and existing.get("source") == SOURCE_SYSTEM:
+        raise PermissionError("系统 MCP 不可删除")
     conn = _ensure_conn()
     cur = conn.execute("DELETE FROM mcp_services WHERE service_id=?", (service_id,))
     conn.execute("DELETE FROM mcp_workspace_policies WHERE service_id=?", (service_id,))
@@ -650,6 +710,48 @@ def registry_stats() -> dict[str, Any]:
     }
 
 
+def count_service_policies(service_id: str) -> int:
+    """Return how many workspaces are bound to this MCP service (direct + role)."""
+    conn = _ensure_conn()
+    # Direct workspace policies
+    direct = conn.execute(
+        "SELECT COUNT(*) AS c FROM mcp_workspace_policies WHERE service_id=? AND enabled=1",
+        (service_id,),
+    ).fetchone()["c"]
+    # Role-based: count unique workspaces via roles
+    role_ws = set()
+    role_rows = conn.execute(
+        "SELECT role_id FROM agent_role_mcp_policies WHERE service_id=? AND enabled=1",
+        (service_id,),
+    ).fetchall()
+    for r in role_rows:
+        members = conn.execute(
+            "SELECT workspace_id FROM agent_role_members WHERE role_id=?",
+            (r["role_id"],),
+        ).fetchall()
+        for m in members:
+            role_ws.add(m["workspace_id"])
+    return direct + len(role_ws)
+
+
+def record_mcp_call(service_id: str) -> None:
+    """Increment call counter for an MCP service (log to in-memory stats)."""
+    _ensure_conn().execute(
+        "INSERT INTO mcp_usage_log (service_id, called_at) VALUES (?, datetime('now'))",
+        (service_id,),
+    )
+
+
+def count_mcp_calls(service_id: str, *, hours: int = 24) -> int:
+    """Return number of calls to this MCP service in the last N hours."""
+    row = _ensure_conn().execute(
+        "SELECT COUNT(*) AS c FROM mcp_usage_log WHERE service_id=? "
+        "AND called_at >= datetime('now', ?)",
+        (service_id, f"-{hours} hours"),
+    ).fetchone()
+    return row["c"] if row else 0
+
+
 # ── System Dimension Registry CRUD ────────────────────────────────────
 
 def _dimension_from_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -661,14 +763,85 @@ def list_dimensions() -> list[dict[str, Any]]:
     return [_dimension_from_row(r) for r in rows]
 
 
-def create_dimension(*, dim_id: str, label: str, db_connection_id: str, table_name: str, column_name: str) -> dict[str, Any]:
+def _validate_connection(db_connection_id: str) -> dict[str, Any]:
+    """Raise ValueError if connection_id is invalid or not active."""
+    from infra import database_registry
+    db = database_registry.get_connection(db_connection_id, include_secrets=True)
+    if db is None:
+        raise ValueError(f"数据库连接不存在: {db_connection_id}")
+    if db.get("status") != "active":
+        raise ValueError(f"数据库连接未激活: {db_connection_id}")
+    return db
+
+
+def _quote_identifier(name: str, db_type: str) -> str:
+    """Quote an identifier (table/column name) per database type."""
+    if db_type == "mysql":
+        return f"`{name}`"
+    return f'"{name}"'  # SQLite / Postgres
+
+
+def _validate_code(code: str) -> str:
+    """Validate and strip dimension code. Raises ValueError if invalid."""
+    import re
+    code = code.strip()
+    if not code:
+        raise ValueError("维度编码不能为空")
+    if not re.match(r'^[a-zA-Z0-9_]+$', code):
+        raise ValueError("维度编码仅允许字母、数字、下划线")
+    if len(code) > 64:
+        raise ValueError("维度编码不能超过 64 个字符")
+    return code
+
+
+def create_dimension(*, dim_id: str = "", label: str, db_connection_id: str, table_name: str, column_name: str, db_name: str = "", code: str = "") -> dict[str, Any]:
     conn = _ensure_conn()
+    _validate_connection(db_connection_id)
+    code_val = _validate_code(code)
+    # Auto-generate dim_id if empty
+    import uuid as _uuid
+    did = dim_id.strip() if dim_id.strip() else f"dim_{_uuid.uuid4().hex[:10]}"
     conn.execute(
-        "INSERT INTO system_dimension_registry (dim_id, label, db_connection_id, table_name, column_name) VALUES (?, ?, ?, ?, ?)",
-        (dim_id.strip(), label.strip(), db_connection_id.strip(), table_name.strip(), column_name.strip()),
+        "INSERT INTO system_dimension_registry (dim_id, label, code, db_connection_id, db_name, table_name, column_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (did, label.strip(), code_val, db_connection_id.strip(), db_name.strip(), table_name.strip(), column_name.strip()),
+    )
+    row = conn.execute("SELECT * FROM system_dimension_registry WHERE dim_id=?", (did,)).fetchone()
+    return _dimension_from_row(row) if row else {}
+
+
+def update_dimension(dim_id: str, *, label: str | None = None, table_name: str | None = None, column_name: str | None = None, db_name: str | None = None, code: str | None = None) -> dict[str, Any] | None:
+    existing = _ensure_conn().execute(
+        "SELECT * FROM system_dimension_registry WHERE dim_id=?", (dim_id,)
+    ).fetchone()
+    if existing is None:
+        return None
+    updates: dict[str, Any] = {}
+    if label is not None:
+        updates["label"] = label.strip()
+    if table_name is not None:
+        updates["table_name"] = table_name.strip()
+    if column_name is not None:
+        updates["column_name"] = column_name.strip()
+    if db_name is not None:
+        updates["db_name"] = db_name.strip()
+    if code is not None:
+        code = code.strip()
+        if code:
+            import re
+            if not re.match(r'^[a-zA-Z0-9_]+$', code):
+                raise ValueError("维度编码仅允许字母、数字、下划线")
+        updates["code"] = code
+    if not updates:
+        return dict(existing)
+    conn = _ensure_conn()
+    updates["updated_at"] = "datetime('now')"
+    sets = ", ".join(f"{k}=?" if k != "updated_at" else f"{k}=datetime('now')" for k in updates)
+    conn.execute(
+        f"UPDATE system_dimension_registry SET {sets} WHERE dim_id=?",
+        (*[v for k, v in updates.items() if k != "updated_at"], dim_id),
     )
     row = conn.execute("SELECT * FROM system_dimension_registry WHERE dim_id=?", (dim_id,)).fetchone()
-    return _dimension_from_row(row) if row else {}
+    return dict(row) if row else None
 
 
 def delete_dimension(dim_id: str) -> bool:
@@ -677,57 +850,226 @@ def delete_dimension(dim_id: str) -> bool:
     return cur.rowcount > 0
 
 
+def _connect_db(db_connection_id: str, *, database: str = ""):
+    """Connect to a target database via database_registry. Returns (connection, db_type).
+
+    If `database` is provided, overrides the default database in the connection config
+    (PostgreSQL/MySQL only). For SQLite, the parameter is ignored.
+    """
+    from infra import database_registry
+    db = database_registry.get_connection(db_connection_id, include_secrets=True)
+    if db is None:
+        raise ValueError(f"数据库连接不存在: {db_connection_id}")
+    config = db.get("config", {})
+    db_type = db.get("db_type", "")
+    import sqlite3 as _sqlite3
+    if db_type == "sqlite":
+        path = config.get("path") or config.get("database", "")
+        return _sqlite3.connect(path, timeout=10), "sqlite"
+    elif db_type == "postgres":
+        import psycopg
+        host = config.get("host", "localhost")
+        port = config.get("port", 5432)
+        dbname = database or config.get("database", "postgres")
+        user = config.get("username", "")
+        pwd = config.get("password", "")
+        conninfo = f"host={host} port={port} dbname={dbname} user={user} password={pwd} connect_timeout=10"
+        return psycopg.connect(conninfo), "postgres"
+    elif db_type == "mysql":
+        import pymysql
+        host = config.get("host", "localhost")
+        port = int(config.get("port", 3306))
+        dbname = database or config.get("database", "")
+        user = config.get("username", "")
+        pwd = config.get("password", "")
+        kwargs = {"host": host, "port": port, "user": user, "password": pwd, "connect_timeout": 10}
+        if dbname:
+            kwargs["database"] = dbname
+        return pymysql.connect(**kwargs), "mysql"
+    raise ValueError(f"不支持的数据库类型: {db_type}")
+
+
+def list_db_names(db_connection_id: str) -> list[str]:
+    """List all database/schema names on the server."""
+    from infra import database_registry
+    db_cfg = database_registry.get_connection(db_connection_id, include_secrets=True)
+    if db_cfg is None:
+        raise ValueError(f"数据库连接不存在: {db_connection_id}")
+    db_type = db_cfg.get("db_type", "")
+    if db_type == "sqlite":
+        return []  # SQLite has no concept of multiple databases
+
+    config = db_cfg.get("config", {})
+    if db_type == "postgres":
+        import psycopg
+        host = config.get("host", "localhost")
+        port = config.get("port", 5432)
+        user = config.get("username", "")
+        pwd = config.get("password", "")
+        conninfo = f"host={host} port={port} dbname=postgres user={user} password={pwd} connect_timeout=10"
+        with psycopg.connect(conninfo) as pg_conn:
+            with pg_conn.cursor() as cur:
+                cur.execute("SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname")
+                return [r[0] for r in cur.fetchall()]
+    elif db_type == "mysql":
+        import pymysql
+        host = config.get("host", "localhost")
+        port = int(config.get("port", 3306))
+        user = config.get("username", "")
+        pwd = config.get("password", "")
+        my_conn = pymysql.connect(host=host, port=port, user=user, password=pwd, connect_timeout=10)
+        try:
+            with my_conn.cursor() as cur:
+                cur.execute("SHOW DATABASES")
+                rows = cur.fetchall()
+                # Filter system databases (case-insensitive)
+                sys_dbs = {"information_schema", "mysql", "performance_schema", "sys"}
+                return [r[0] for r in rows if r[0].lower() not in sys_dbs]
+        finally:
+            my_conn.close()
+    return []
+
+
+def list_db_tables(db_connection_id: str, *, database: str = "") -> list[str]:
+    """List all tables in the target database."""
+    db, db_type = _connect_db(db_connection_id, database=database)
+    try:
+        if db_type == "sqlite":
+            rows = db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()
+            return [r[0] for r in rows]
+        elif db_type == "postgres":
+            cur = db.cursor()
+            cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name")
+            result = [r[0] for r in cur.fetchall()]
+            cur.close()
+            return result
+        elif db_type == "mysql":
+            cur = db.cursor()
+            cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() ORDER BY table_name")
+            result = [r[0] for r in cur.fetchall()]
+            cur.close()
+            return result
+        return []
+    finally:
+        if db_type == "sqlite":
+            db.close()
+        elif db_type == "postgres":
+            db.close()
+        elif db_type == "mysql":
+            db.close()
+
+
+def list_table_columns(db_connection_id: str, table_name: str, *, database: str = "") -> list[str]:
+    """List all columns in a table."""
+    db, db_type = _connect_db(db_connection_id, database=database)
+    try:
+        if db_type == "sqlite":
+            rows = db.execute(f"PRAGMA table_info({table_name})").fetchall()
+            return [r[1] for r in rows]
+        elif db_type == "postgres":
+            cur = db.cursor()
+            cur.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=%s ORDER BY ordinal_position",
+                (table_name,),
+            )
+            result = [r[0] for r in cur.fetchall()]
+            cur.close()
+            return result
+        elif db_type == "mysql":
+            cur = db.cursor()
+            cur.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=%s ORDER BY ordinal_position",
+                (table_name,),
+            )
+            result = [r[0] for r in cur.fetchall()]
+            cur.close()
+            return result
+        return []
+    finally:
+        if db_type == "sqlite":
+            db.close()
+        elif db_type == "postgres":
+            db.close()
+        elif db_type == "mysql":
+            db.close()
+
+
+def _validate_table_column(db_type: str, db_conn, table_name: str, column_name: str) -> None:
+    """Raise ValueError if table or column doesn't exist in the target database."""
+    tables = []
+    if db_type == "sqlite":
+        rows = db_conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall()
+        tables = [r[0] for r in rows]
+    elif db_type == "postgres":
+        cur = db_conn.cursor()
+        cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='public'")
+        tables = [r[0] for r in cur.fetchall()]
+        cur.close()
+    elif db_type == "mysql":
+        cur = db_conn.cursor()
+        cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema=DATABASE()")
+        tables = [r[0] for r in cur.fetchall()]
+        cur.close()
+    if table_name not in tables:
+        raise ValueError(f"表不存在: {table_name}")
+
+    cols = []
+    if db_type == "sqlite":
+        rows = db_conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        cols = [r[1] for r in rows]
+    elif db_type == "postgres":
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=%s",
+            (table_name,),
+        )
+        cols = [r[0] for r in cur.fetchall()]
+        cur.close()
+    elif db_type == "mysql":
+        cur = db_conn.cursor()
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=%s",
+            (table_name,),
+        )
+        cols = [r[0] for r in cur.fetchall()]
+        cur.close()
+    if column_name not in cols:
+        raise ValueError(f"字段不存在: {table_name}.{column_name}")
+
+
 def get_dimension_values(dim_id: str) -> list[str]:
     """Query actual data values from the dimension's source table/column via database_connections."""
     dim = _ensure_conn().execute("SELECT * FROM system_dimension_registry WHERE dim_id=?", (dim_id,)).fetchone()
     if dim is None:
         return []
     try:
-        from infra import database_registry
-        conn = database_registry.get_connection(dim["db_connection_id"], include_secrets=True)
-        if conn is None:
-            return []
-        config = conn.get("config", {})
-        db_type = conn.get("db_type", "")
-
+        db_conn, db_type = _connect_db(dim["db_connection_id"])
         table = dim["table_name"]
         column = dim["column_name"]
-        sql = f"SELECT DISTINCT {column} FROM {table} ORDER BY {column} LIMIT 1000"
 
-        import sqlite3 as _sqlite3
-        if db_type == "sqlite":
-            db_conn = _sqlite3.connect(config.get("path") or config.get("database", ""), timeout=10)
-            try:
+        # Validate identifiers exist (prevents SQL injection)
+        _validate_table_column(db_type, db_conn, table, column)
+
+        q_table = _quote_identifier(table, db_type)
+        q_column = _quote_identifier(column, db_type)
+        sql = f"SELECT DISTINCT {q_column} FROM {q_table} ORDER BY {q_column} LIMIT 1000"
+
+        try:
+            if db_type == "sqlite":
                 rows = db_conn.execute(sql).fetchall()
                 return [str(r[0]) for r in rows if r[0] is not None]
-            finally:
+            else:
+                cur = db_conn.cursor()
+                cur.execute(sql)
+                result = [str(r[0]) for r in cur.fetchall() if r[0] is not None]
+                cur.close()
+                return result
+        finally:
+            if db_type == "sqlite":
                 db_conn.close()
-        elif db_type == "postgres":
-            import psycopg
-            host = config.get("host", "localhost")
-            port = config.get("port", 5432)
-            database = config.get("database", "")
-            user = config.get("username", "")
-            pwd = config.get("password", "")
-            conninfo = f"host={host} port={port} dbname={database} user={user} password={pwd} connect_timeout=10"
-            with psycopg.connect(conninfo) as pg_conn:
-                with pg_conn.cursor() as cur:
-                    cur.execute(sql)
-                    return [str(r[0]) for r in cur.fetchall() if r[0] is not None]
-        elif db_type == "mysql":
-            import pymysql
-            host = config.get("host", "localhost")
-            port = int(config.get("port", 3306))
-            database = config.get("database", "")
-            user = config.get("username", "")
-            pwd = config.get("password", "")
-            my_conn = pymysql.connect(host=host, port=port, user=user, password=pwd, database=database, connect_timeout=10)
-            try:
-                with my_conn.cursor() as cur:
-                    cur.execute(sql)
-                    return [str(r[0]) for r in cur.fetchall() if r[0] is not None]
-            finally:
-                my_conn.close()
-        return []
+            elif db_type == "postgres":
+                db_conn.close()
+            elif db_type == "mysql":
+                db_conn.close()
     except Exception:
         return []

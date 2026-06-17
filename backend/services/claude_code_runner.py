@@ -193,33 +193,76 @@ def _runner_identity(run: dict[str, Any]) -> dict[str, Any]:
 
 
 def _resolve_mcp_context(workspace_id: str) -> dict[str, Any]:
-    """Resolve MCP connections from workspace policies (auto-inject, no manual selection)."""
+    """Resolve MCP connections and tools from workspace policies (auto-inject).
+
+    Returns both legacy database connections AND generic MCP tools for all
+    service types.  Database connections still use the legacy format for
+    backward compatibility; non-database MCP services are exposed as Tool Use
+    definitions in AGENT_CONTEXT.md so the Agent knows how to call them.
+    """
     from infra import mcp_registry
 
     policies = mcp_registry.list_policies_for_workspace(workspace_id)
     if not policies:
-        return {"selection_mode": "none", "connections": [], "tool_skill": "database-query"}
+        return {"selection_mode": "none", "connections": [], "tools": [], "tool_skill": "database-query"}
 
     connections: list[dict[str, Any]] = []
+    tools: list[dict[str, Any]] = []
+    seen_tool_ids: set[str] = set()
+
     for policy in policies:
+        sid = policy["service_id"]
+        svc = mcp_registry.get_service(sid) or {}
+        service_type = str(svc.get("service_type") or "")
+
+        # Database MCP: legacy connection format
         connections.append(
             {
-                "connection_id": policy["service_id"],
-                "name": policy.get("name", policy["service_id"]),
+                "connection_id": sid,
+                "name": policy.get("name", sid),
                 "db_type": policy.get("db_type", ""),
                 "mcp_server_url": policy.get("endpoint_url", ""),
                 "permission": "read",
                 "row_rules": policy.get("row_rules", []),
                 "usage": (
                     "Query via Evotown `database-query` skill: "
-                    f'{{"action":"query","connection_id":"{policy["service_id"]}","sql":"SELECT ..."}}'
+                    f'{{"action":"query","connection_id":"{sid}","sql":"SELECT ..."}}'
                 ),
             }
         )
+
+        # Generic MCP tool for ALL services (including database)
+        if sid not in seen_tool_ids:
+            seen_tool_ids.add(sid)
+            tool_name = sid.replace("-", "_")
+            manifest_raw = str(svc.get("manifest") or "{}")
+            try:
+                manifest = json.loads(manifest_raw)
+            except (json.JSONDecodeError, TypeError):
+                manifest = {}
+
+            # Use manifest input_schema if declared, else generic fallback
+            input_schema = manifest.get("input") or {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "description": "Action to perform"},
+                    "args": {"type": "object", "description": f"Action-specific arguments for {sid}"},
+                },
+            }
+
+            tools.append({
+                "name": tool_name,
+                "description": manifest.get("description") or svc.get("description") or svc.get("name", sid),
+                "service_type": service_type,
+                "call_endpoint": f"/api/v1/mcp/{sid}",
+                "input_schema": input_schema,
+            })
+
     proxy_url = os.environ.get("EVOTOWN_DB_MCP_URL", "").strip()
     return {
         "selection_mode": "auto",
         "connections": connections,
+        "tools": tools,
         "tool_skill": "database-query",
         "mcp_proxy_url": proxy_url,
         "http_api": {
@@ -505,8 +548,8 @@ def _render_agent_context_md(
         if not isinstance(conn, dict):
             continue
         lines.append(
-            f"- `{conn.get('connection_id')}` ({conn.get('db_type')}) — "
-            f"{conn.get('name')} · permission={conn.get('permission')}"
+            f"- `{conn.get('connection_id')}` ({conn.get('db_type')}) - "
+            f"{conn.get('name')} . permission={conn.get('permission')}"
         )
         if conn.get("mcp_server_url"):
             lines.append(f"  - MCP proxy: {conn['mcp_server_url']}")
@@ -514,6 +557,36 @@ def _render_agent_context_md(
     if mcp_block.get("mcp_proxy_url"):
         lines.append(f"- Default MCP proxy base URL: `{mcp_block['mcp_proxy_url']}`")
     lines.append("")
+
+    # Generic MCP Tools section (all service types)
+    tool_specs = mcp_block.get("tools") or []
+    if tool_specs:
+        lines.extend([
+            "## Available MCP Tools",
+            "",
+            "The following MCP services are available to you as tools.",
+            "Call them with curl POST to the endpoint shown.",
+            "The `input_schema` shows the required JSON body format.",
+            "",
+        ])
+        for t in tool_specs:
+            safe_name = t['name']
+            lines.append(f"### {safe_name}")
+            lines.append(f"- Description: {t['description']}")
+            lines.append(f"- Type: {t.get('service_type', 'api')}")
+            lines.append(f"- Endpoint: POST {t['call_endpoint']}")
+            # Render input_schema as JSON
+            input_schema = t.get('input_schema', {})
+            if input_schema:
+                import json as _json_inline
+                schema_str = _json_inline.dumps(input_schema, ensure_ascii=False)
+                if len(schema_str) <= 500:
+                    lines.append(f"- Input Schema: `{schema_str}`")
+                else:
+                    lines.append(f"- Input Schema: `{schema_str[:500]}...`")
+            lines.append("")
+    lines.append("")
+
     return "\n".join(lines)
 
 
@@ -903,6 +976,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
             "skills": len(shared_context.get("skills", {}).get("skills", [])),
             "materialized_skills": len(materialized_skills),
             "mcp_connections": len(shared_context.get("mcp", {}).get("connections", [])),
+            "mcp_tools": len(shared_context.get("mcp", {}).get("tools", [])),
             "knowledge_results": len(shared_context.get("knowledge", {}).get("results", [])),
         },
     )

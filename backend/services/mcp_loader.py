@@ -2,7 +2,7 @@
 
 Service ID format: "{category}/{service_name}"  (two-layer path)
 Prod dir:  mcp-services/{category}/{service_name}/handler.py
-Dev dir:   {workspace}/mcp-dev/{category}/{service_name}/handler.py
+Dev dir:   mcp-dev/{category}/{service_name}/handler.py
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 MCP_SERVICES_DIR = Path(os.environ.get("MCP_SERVICES_DIR", "/app/data/mcp-services"))
+MCP_DEV_DIR = Path(os.environ.get("MCP_DEV_DIR", "/app/data/mcp-dev"))
 _handler_cache: dict[str, tuple[float, Any]] = {}
 
 
@@ -27,14 +28,14 @@ def _manifest_path(service_id: str) -> Path:
     return MCP_SERVICES_DIR / service_id / "manifest.json"
 
 
-def _dev_handler_path(service_id: str, workspace_root: str) -> Path:
-    """Dev handler path: {workspace}/mcp-dev/{category}/{service_name}/handler.py"""
-    return Path(workspace_root) / "mcp-dev" / service_id / "handler.py"
+def _dev_handler_path(service_id: str) -> Path:
+    """Dev handler path: mcp-dev/{category}/{service_name}/handler.py"""
+    return MCP_DEV_DIR / service_id / "handler.py"
 
 
-def _dev_manifest_path(service_id: str, workspace_root: str) -> Path:
+def _dev_manifest_path(service_id: str) -> Path:
     """Dev manifest path."""
-    return Path(workspace_root) / "mcp-dev" / service_id / "manifest.json"
+    return MCP_DEV_DIR / service_id / "manifest.json"
 
 
 def _load_version(manifest_path: str | Path) -> str:
@@ -95,19 +96,17 @@ def invoke_mcp(service_id: str, args: dict, permissions: dict) -> dict[str, Any]
         return {"ok": False, "data": None, "error": str(exc), "version": "0.0.0"}
 
 
-def invoke_mcp_dev(service_id: str, args: dict, permissions: dict, workspace_root: str = "") -> dict[str, Any]:
-    """Dev invoke: load from {workspace}/mcp-dev/{category}/{name}/handler.py."""
-    if not workspace_root:
-        raise ValueError("workspace_root is required for dev call")
+def invoke_mcp_dev(service_id: str, args: dict, permissions: dict) -> dict[str, Any]:
+    """Dev invoke: load from mcp-dev/{category}/{name}/handler.py."""
 
-    handler_path = _dev_handler_path(service_id, workspace_root)
+    handler_path = _dev_handler_path(service_id)
     if not handler_path.is_file():
         return {"ok": False, "data": None, "error": f"dev handler not found: {handler_path}", "version": "0.0.0"}
 
     try:
         module = _load_module_from_path(handler_path, f"dev:{service_id}")
         result = module.process(args, permissions)
-        version = _load_version(_dev_manifest_path(service_id, workspace_root))
+        version = _load_version(_dev_manifest_path(service_id))
         return {"ok": True, "data": result, "error": None, "version": version}
     except Exception as exc:
         return {"ok": False, "data": None, "error": str(exc), "version": "0.0.0"}

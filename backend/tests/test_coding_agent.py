@@ -348,7 +348,7 @@ class CodingAgentApiTest(unittest.TestCase):
             ),
             patch("services.claude_agent_sdk_runner.sdk_available", return_value=True),
         ):
-            self.assertEqual(claude_code_runner._execution_backend(), "sdk")  # noqa: SLF001
+            self.assertEqual(claude_code_runner._execution_backend("claude"), "sdk")  # noqa: SLF001
             env = claude_agent_sdk_runner.gateway_sdk_env()
 
         self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://backend:8000/api/gateway/anthropic")
@@ -493,6 +493,73 @@ class CodingAgentApiTest(unittest.TestCase):
             json={"prompt": "bad path", "model": "claude-test", "attachments": ["../README.md"]},
         )
         self.assertEqual(invalid.status_code, 400)
+
+    def test_workspace_profile_runtime_engine(self) -> None:
+        client = self._client()
+        _alice, alice_key = self._account_key("Alice")
+        create_ws = client.post(
+            "/api/v1/workspaces",
+            headers={"Authorization": f"Bearer {alice_key}"},
+            json={"name": "Runtime Sandbox"},
+        )
+        ws_id = create_ws.json()["workspace"]["workspace_id"]
+
+        save = client.put(
+            f"/api/v1/workspaces/{ws_id}/profile",
+            headers={"Authorization": f"Bearer {alice_key}"},
+            json={"runtime_engine": "codex", "default_model": "gpt-test"},
+        )
+        self.assertEqual(save.status_code, 200)
+        self.assertEqual(save.json()["profile"]["runtime_engine"], "codex")
+
+        options = client.get(
+            f"/api/v1/agent/options?workspace_id={ws_id}",
+            headers={"Authorization": f"Bearer {alice_key}"},
+        )
+        self.assertEqual(options.status_code, 200)
+        engines = {item["id"] for item in options.json()["runtime_engines"]}
+        self.assertEqual(engines, {"claude", "codex"})
+
+    def test_codex_runtime_dry_run_when_sdk_unavailable(self) -> None:
+        from infra import workspaces
+        from services import claude_code_runner
+
+        client = self._client()
+        _alice, alice_key = self._account_key("Alice")
+        create_ws = client.post(
+            "/api/v1/workspaces",
+            headers={"Authorization": f"Bearer {alice_key}"},
+            json={"name": "Codex Dry Run"},
+        )
+        workspace = create_ws.json()["workspace"]
+        ws_id = workspace["workspace_id"]
+        client.put(
+            f"/api/v1/workspaces/{ws_id}/profile",
+            headers={"Authorization": f"Bearer {alice_key}"},
+            json={"runtime_engine": "codex"},
+        )
+
+        with patch("services.claude_code_runner.schedule_run", lambda run_id: None):
+            create_run = client.post(
+                f"/api/v1/workspaces/{ws_id}/runs",
+                headers={"Authorization": f"Bearer {alice_key}"},
+                json={"prompt": "Plan a refactor."},
+            )
+            run_id = create_run.json()["run"]["run_id"]
+            self.assertEqual(create_run.json()["run"]["signals"]["runtime_engine"], "codex")
+
+        with (
+            patch.dict(os.environ, {"EVOTOWN_CODEX_EXECUTION_MODE": "dry-run"}, clear=False),
+            patch("services.codex_agent_sdk_runner.sdk_available", return_value=False),
+        ):
+            updated = asyncio.run(claude_code_runner.run_claude_agent(run_id))
+
+        self.assertEqual(updated["status"], "succeeded")
+        self.assertEqual(updated["signals"]["runtime_engine"], "codex")
+        self.assertEqual(updated["signals"]["engine_id"], "codex-sdk-hosted")
+        self.assertIn("Dry-run completed (Codex)", updated["result_summary"])
+        profile_md = workspaces.resolve_workspace_path(workspace) / ".evotown" / "AGENT_PROFILE.md"
+        self.assertIn("codex", profile_md.read_text(encoding="utf-8"))
 
 
 class ClaudeRunModelResolveTest(unittest.TestCase):

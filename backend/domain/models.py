@@ -130,6 +130,7 @@ class WorkspaceUpdate(BaseModel):
 
 class WorkspaceProfileUpdate(BaseModel):
     agent_type: str = Field(default="", max_length=64)
+    runtime_engine: Literal["claude", "codex"] = "claude"
     soul: str = Field(default="", max_length=8000)
     paradigm: str = Field(default="", max_length=8000)
     standards: str = Field(default="", max_length=8000)

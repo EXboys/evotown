@@ -10,6 +10,7 @@ import {
 
 export type WorkspaceAgentProfile = {
   agent_type: string;
+  runtime_engine: "claude" | "codex";
   soul: string;
   paradigm: string;
   standards: string;
@@ -34,6 +35,7 @@ type Props = {
 
 const EMPTY_PROFILE: WorkspaceAgentProfile = {
   agent_type: "",
+  runtime_engine: "claude",
   soul: "",
   paradigm: "",
   standards: "",
@@ -125,6 +127,7 @@ export function WorkspaceAgentProfilePanel({
         readJson<{ profile?: WorkspaceAgentProfile }>(res),
       );
       let next = { ...EMPTY_PROFILE, ...(data.profile || {}) };
+      next.runtime_engine = next.runtime_engine === "codex" ? "codex" : "claude";
       if (profileNeedsPresetFill(next)) {
         next = mergePresetIntoProfile(next, next.agent_type, skillIdSet);
         setTemplateHint(`已自动补全「${presetLabelForType(next.agent_type)}」模板内容`);
@@ -313,6 +316,25 @@ export function WorkspaceAgentProfilePanel({
             setDirty(true);
           }}
         />
+      </label>
+
+      <label className="block text-xs">
+        <span className="mb-1 block font-medium text-slate-700">Runtime 引擎</span>
+        <select
+          className="w-full rounded-lg border border-slate-200 px-2.5 py-2 text-sm"
+          value={profile.runtime_engine}
+          onChange={(e) => {
+            const runtime_engine = e.target.value === "codex" ? "codex" : "claude";
+            setProfile((prev) => ({ ...prev, runtime_engine }));
+            setDirty(true);
+          }}
+        >
+          <option value="claude">Claude Agent SDK</option>
+          <option value="codex">Codex SDK</option>
+        </select>
+        <span className="mt-1 block text-[11px] text-slate-400">
+          每个智能体可独立选择执行引擎；切换后下次运行生效。
+        </span>
       </label>
 
       <label className="block text-xs">

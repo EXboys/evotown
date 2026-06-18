@@ -422,7 +422,7 @@ function TestModal({ skillId, onClose, onDone }: { skillId: string; onClose: () 
     try {
       const res = await adminFetch(`/api/v1/skills/${encodeURIComponent(skillId)}/test`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ test_account_id: accountId, test_prompt: prompt }) });
       const data = await res.json();
-      setResult(`测试已触发！Run ID: ${data.run_id}\n工作区: ${data.workspace_id}\n前往 Coding Agent 页查看运行结果。`);
+      setResult(`测试已触发！Run ID: ${data.run_id}\n工作区: ${data.agent_id}\n前往 Coding Agent 页查看运行结果。`);
       onDone("测试任务已下发");
     } catch (err) { setError(err instanceof Error ? err.message : "测试失败"); }
     finally { setLoading(false); }

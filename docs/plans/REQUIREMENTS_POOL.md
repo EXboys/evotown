@@ -269,8 +269,8 @@ Agent 调用 MCP 时，后端需要知道是哪个 Agent 在调用，并基于 A
 3. `call_mcp`: token → agent_id → roles → agent_role_dimensions → permissions
 4. `call_mcp`: run_id → account_id → 审计日志（记录触发员工）
 
-**关联需求**: REQ-015、REQ-016
-**状态**: 方案讨论中，015+016 之后实施
+**关联需求**: REQ-015（已完成）、REQ-016（实施中）
+**状态**: 方案已确认，待实施（016 完成后实施）
 
 ---
 

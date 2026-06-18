@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from core.auth import require_admin, require_console_read
-from infra import mcp_registry, workspaces
+from infra import mcp_registry, agents
 
 router = APIRouter(prefix="/api/v1", tags=["mcp"])
 
@@ -19,7 +19,7 @@ class McpPolicyUpdate(BaseModel):
 
 
 class BatchPolicyItem(BaseModel):
-    workspace_id: str
+    agent_id: str
     enabled: bool = True
     row_rules: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -64,7 +64,7 @@ async def list_mcp_services(
         ]
     # Attach per-service stats
     for svc in services:
-        svc["bound_workspaces"] = mcp_registry.count_service_policies(svc["service_id"])
+        svc["bound_agents"] = mcp_registry.count_service_policies(svc["service_id"])
         svc["calls_24h"] = mcp_registry.count_mcp_calls(svc["service_id"])
     return {"services": services, "stats": mcp_registry.registry_stats()}
 
@@ -128,7 +128,7 @@ async def get_mcp_service(service_id: str):
     role_policies = mcp_registry.list_role_policies_for_service(service_id)
     roles = mcp_registry.list_roles()
     stats = {
-        "bound_workspaces": mcp_registry.count_service_policies(service_id),
+        "bound_agents": mcp_registry.count_service_policies(service_id),
         "calls_24h": mcp_registry.count_mcp_calls(service_id),
     }
     return {"service": svc, "policies": policies, "role_policies": role_policies, "roles": roles, "stats": stats}
@@ -150,11 +150,11 @@ async def update_service_policies(service_id: str, body: BatchPolicyUpdate, _adm
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP service not found")
     created: list[dict[str, Any]] = []
     for item in body.policies:
-        if not workspaces.get_workspace(item.workspace_id):
+        if not agents.get_agent(item.agent_id):
             continue
         policy = mcp_registry.set_policy(
             service_id,
-            item.workspace_id,
+            item.agent_id,
             enabled=item.enabled,
             row_rules=item.row_rules,
         )
@@ -162,9 +162,9 @@ async def update_service_policies(service_id: str, body: BatchPolicyUpdate, _adm
     return {"service_id": service_id, "policies": created}
 
 
-@router.delete("/mcp-services/{service_id}/policies/{workspace_id}")
-async def delete_service_policy(service_id: str, workspace_id: str, _admin=Depends(require_admin)):
-    deleted = mcp_registry.delete_policy(service_id, workspace_id)
+@router.delete("/mcp-services/{service_id}/policies/{agent_id}")
+async def delete_service_policy(service_id: str, agent_id: str, _admin=Depends(require_admin)):
+    deleted = mcp_registry.delete_policy(service_id, agent_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="policy not found")
     return {"deleted": True}
@@ -172,14 +172,14 @@ async def delete_service_policy(service_id: str, workspace_id: str, _admin=Depen
 
 # ── Agent runtime (no admin required) ──────────────────────────────────
 
-@router.get("/workspaces/{workspace_id}/mcp")
-async def get_workspace_mcp(workspace_id: str):
+@router.get("/agents/{agent_id}/mcp")
+async def get_workspace_mcp(agent_id: str):
     """Called by Agent runtime to get MCP connections for a workspace."""
-    workspace = workspaces.get_workspace(workspace_id)
-    if workspace is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="workspace not found")
-    connections = mcp_registry.list_policies_for_workspace(workspace_id)
-    return {"workspace_id": workspace_id, "mcp": connections}
+    workspace = agents.get_agent(agent_id)
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent not found")
+    connections = mcp_registry.list_policies_for_agent(agent_id)
+    return {"agent_id": agent_id, "mcp": connections}
 
 
 # ── Role CRUD (admin) ───────────────────────────────────────────────────
@@ -195,7 +195,7 @@ class RoleUpdate(BaseModel):
 
 
 class RoleMembersUpdate(BaseModel):
-    workspace_ids: list[str] = Field(default_factory=list)
+    agent_ids: list[str] = Field(default_factory=list)
 
 
 class RolePolicyBatchItem(BaseModel):
@@ -258,7 +258,7 @@ async def get_role_members(role_id: str):
 async def set_role_members(role_id: str, body: RoleMembersUpdate, _admin=Depends(require_admin)):
     if mcp_registry.get_role(role_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="role not found")
-    members = mcp_registry.set_role_members(role_id, body.workspace_ids)
+    members = mcp_registry.set_role_members(role_id, body.agent_ids)
     return {"role_id": role_id, "members": members}
 
 
@@ -382,12 +382,12 @@ async def call_mcp(service_id: str, body: McpCallRequest,
     """Agent calls a deployed MCP service."""
     import json as _json
 
-    # ① Token → workspace_id
+    # ① Token → agent_id
     identity = identity or {}
-    workspace_id = str(identity.get("account_id") or "")
+    agent_id = str(identity.get("account_id") or "")
     scopes = identity.get("scopes") or []
-    if not workspace_id:
-        raise HTTPException(status_code=401, detail="无法解析 workspace_id")
+    if not agent_id:
+        raise HTTPException(status_code=401, detail="无法解析 agent_id")
 
     # ② service → dimensions
     svc = mcp_registry.get_service(service_id)
@@ -399,7 +399,7 @@ async def call_mcp(service_id: str, body: McpCallRequest,
         declared_dims = []
     permissions: dict[str, list[str]] = {}
     if declared_dims:
-        policies = mcp_registry.list_policies_for_workspace(workspace_id)
+        policies = mcp_registry.list_policies_for_agent(agent_id)
         for p in policies:
             rules = p.get("row_rules", [])
             for rule in rules:
@@ -445,13 +445,13 @@ def _parse_dim_values(where: str) -> list[str]:
 async def list_mcp_tools(identity: dict | None = Depends(require_console_read)):
     """Return MCP tools in Anthropic Tool Use format for the caller's workspace."""
     identity = identity or {}
-    workspace_id = str(identity.get("account_id") or "")
+    agent_id = str(identity.get("account_id") or "")
     scopes = identity.get("scopes") or []
-    if not workspace_id:
-        raise HTTPException(status_code=401, detail="无法解析 workspace_id")
+    if not agent_id:
+        raise HTTPException(status_code=401, detail="无法解析 agent_id")
 
     import json as _json
-    policies = mcp_registry.list_policies_for_workspace(workspace_id)
+    policies = mcp_registry.list_policies_for_agent(agent_id)
     tools: list[dict[str, Any]] = []
     seen: set[str] = set()
 
@@ -599,7 +599,7 @@ def _regenerate_permissions_safe():
 
 class McpDeployRequest(BaseModel):
     service_id: str = Field(min_length=1, max_length=64)
-    workspace_id: str = Field(min_length=1, max_length=128)
+    agent_id: str = Field(min_length=1, max_length=128)
 
 
 @router.post("/mcp-deploy")
@@ -609,16 +609,16 @@ async def deploy_mcp(body: McpDeployRequest, _admin=Depends(require_admin)):
     if not re.match(r'^[a-z0-9_-]+$', body.service_id):
         raise HTTPException(status_code=400, detail="service_id 仅允许 a-z 0-9 - _")
 
-    ws = workspaces.get_workspace(body.workspace_id)
+    ws = agents.get_agent(body.agent_id)
     if ws is None:
-        raise HTTPException(status_code=404, detail="workspace not found")
+        raise HTTPException(status_code=404, detail="agent not found")
 
     import json as _json
     from pathlib import Path
-    from infra import workspaces as _ws
+    from infra import agents as _ws
 
     # Source: workspace .evotown/
-    ws_root = _ws.resolve_workspace_path(ws)
+    ws_root = _ws.resolve_agent_path(ws)
     manifest_path = ws_root / ".evotown" / "mcp_manifest.json"
     handler_path = ws_root / ".evotown" / "mcp_handler.py"
 
@@ -673,11 +673,11 @@ async def deploy_mcp(body: McpDeployRequest, _admin=Depends(require_admin)):
         name=manifest.get("name", body.service_id),
         description=manifest.get("description", ""),
     )
-    # Update manifest + workspace_id
+    # Update manifest + agent_id
     conn = mcp_registry._ensure_conn()
     conn.execute(
-        "UPDATE mcp_services SET manifest=?, workspace_id=?, status='online' WHERE service_id=?",
-        (_json.dumps(manifest, ensure_ascii=False), body.workspace_id, body.service_id),
+        "UPDATE mcp_services SET manifest=?, agent_id=?, status='online' WHERE service_id=?",
+        (_json.dumps(manifest, ensure_ascii=False), body.agent_id, body.service_id),
     )
 
     # Regenerate database.py

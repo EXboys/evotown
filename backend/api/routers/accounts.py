@@ -11,14 +11,14 @@ from domain.models import (
 )
 from infra import accounts as accounts_store
 from infra import gateway as gateway_store
-from infra import workspaces as workspaces_store
+from infra import agents as agents_store
 
 router = APIRouter(prefix="/api/v1", tags=["accounts"])
 
 
 def _enrich_account(account: dict) -> dict:
     aid = account["account_id"]
-    return {**account, "agent_binding_count": workspaces_store.count_account_workspaces(aid)}
+    return {**account, "agent_binding_count": agents_store.count_account_agents(aid)}
 
 
 def _enrich_key(key: dict) -> dict:
@@ -53,7 +53,7 @@ async def list_accounts(status_filter: str | None = None, limit: int = 100):
         aid = a["account_id"]
         enriched = {
             **a,
-            "agent_binding_count": workspaces_store.count_account_workspaces(aid),
+            "agent_binding_count": agents_store.count_account_agents(aid),
         }
         result.append(enriched)
     return {"accounts": result}
@@ -230,152 +230,48 @@ async def delete_gateway_org(org_id: str):
     return {"ok": True}
 
 
-# ── Agent management ─────────────────────────────────────────────────────────
-
-@router.post("/agents", dependencies=[Depends(require_admin)])
-async def create_agent(body: dict):
-    """Create an agent and auto-issue a key."""
-    agent_name = body.get("agent_name", "").strip()
-    if not agent_name:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_name is required")
-    agent, raw_key = accounts_store.create_agent(
-        agent_name=agent_name,
-        agent_type=body.get("agent_type", "claude-agent"),
-        workspace_path=body.get("workspace_path", ""),
-    )
-    return {
-        "agent": agent,
-        "secret": raw_key,
-        "warning": "Store this secret now. It will not be shown again. This key belongs to the agent — bind employees to this agent separately.",
-    }
-
-
-@router.get("/agents", dependencies=[Depends(require_admin)])
-async def list_agents(status_filter: str | None = None, limit: int = 100):
-    agents = accounts_store.list_agents(status=status_filter, limit=limit)
-    # Enrich with binding count
-    result = []
-    for a in agents:
-        a["binding_count"] = accounts_store.count_agent_bindings(a["agent_id"])
-        result.append(a)
-    return {"agents": result}
-
-
-@router.get("/agents/{agent_id}", dependencies=[Depends(require_admin)])
-async def get_agent(agent_id: str):
-    agent = accounts_store.get_agent(agent_id)
-    if agent is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent not found")
-    agent["binding_count"] = accounts_store.count_agent_bindings(agent_id)
-    agent["accounts"] = accounts_store.list_agent_accounts(agent_id)
-    return {"agent": agent}
-
-
-@router.patch("/agents/{agent_id}", dependencies=[Depends(require_admin)])
-async def update_agent(agent_id: str, body: dict):
-    if accounts_store.get_agent(agent_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent not found")
-    agent = accounts_store.update_agent(
-        agent_id,
-        agent_name=body.get("agent_name"),
-        agent_type=body.get("agent_type"),
-        workspace_path=body.get("workspace_path"),
-        status=body.get("status"),
-    )
-    return {"agent": agent}
-
-
-@router.delete("/agents/{agent_id}", dependencies=[Depends(require_admin)])
-async def delete_agent(agent_id: str):
-    if not accounts_store.delete_agent(agent_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent not found")
-    return {"ok": True}
-
-
-# ── Agent bindings ───────────────────────────────────────────────────────────
+# ── Agent bindings (M:N account ↔ agent) ────────────────────────────
 
 @router.post("/accounts/{account_id}/bind-agent", dependencies=[Depends(require_admin)])
-async def bind_agent_to_account(account_id: str, body: dict):
-    agent_id = body.get("agent_id", "").strip()
+async def bind_agent_to_account_via_workspace(account_id: str, body: dict):
+    agent_id = body.get("agent_id", body.get("workspace_id", "")).strip()
     if not agent_id:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_id is required")
     if accounts_store.get_account(account_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
-    if accounts_store.get_agent(agent_id) is None:
+    ag = agents_store.get_agent(agent_id)
+    if ag is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent not found")
-    binding = accounts_store.bind_agent(account_id, agent_id)
+    binding = agents_store.bind_account_to_agent(account_id, agent_id)
     if binding is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="binding already exists")
     return {"binding": binding}
 
 
 @router.delete("/accounts/{account_id}/bind-agent", dependencies=[Depends(require_admin)])
-async def unbind_agent_from_account(account_id: str, body: dict):
-    agent_id = body.get("agent_id", "").strip()
+async def unbind_agent_from_account_via_workspace(account_id: str, body: dict):
+    agent_id = body.get("agent_id", body.get("workspace_id", "")).strip()
     if not agent_id:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_id is required")
-    if not accounts_store.unbind_agent(account_id, agent_id):
+    if not agents_store.unbind_account_from_agent(account_id, agent_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="binding not found")
     return {"ok": True}
 
 
 @router.get("/accounts/{account_id}/agents", dependencies=[Depends(require_admin)])
-async def list_account_agents(account_id: str):
+async def list_account_agents_via_workspace(account_id: str):
     if accounts_store.get_account(account_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
-    agents = accounts_store.list_account_agents(account_id)
-    return {"agents": agents}
+    ag_list = agents_store.list_account_agents(account_id)
+    return {"agents": ag_list}
 
 
 @router.get("/agents/{agent_id}/accounts", dependencies=[Depends(require_admin)])
-async def list_agent_accounts(agent_id: str):
-    if accounts_store.get_agent(agent_id) is None:
+async def list_agent_accounts_via_workspace(agent_id: str):
+    ag = agents_store.get_agent(agent_id)
+    if ag is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent not found")
-    accounts = accounts_store.list_agent_accounts(agent_id)
-    return {"accounts": accounts}
-
-
-# ── Workspace bindings (M:N account ↔ workspace) ────────────────────
-
-@router.post("/accounts/{account_id}/bind-workspace", dependencies=[Depends(require_admin)])
-async def bind_workspace_to_account(account_id: str, body: dict):
-    workspace_id = body.get("workspace_id", "").strip()
-    if not workspace_id:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="workspace_id is required")
-    if accounts_store.get_account(account_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
-    ws = workspaces_store.get_workspace(workspace_id)
-    if ws is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="workspace not found")
-    binding = workspaces_store.bind_account_to_workspace(account_id, workspace_id)
-    if binding is None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="binding already exists")
-    return {"binding": binding}
-
-
-@router.delete("/accounts/{account_id}/bind-workspace", dependencies=[Depends(require_admin)])
-async def unbind_workspace_from_account(account_id: str, body: dict):
-    workspace_id = body.get("workspace_id", "").strip()
-    if not workspace_id:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="workspace_id is required")
-    if not workspaces_store.unbind_account_from_workspace(account_id, workspace_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="binding not found")
-    return {"ok": True}
-
-
-@router.get("/accounts/{account_id}/workspaces", dependencies=[Depends(require_admin)])
-async def list_account_workspaces(account_id: str):
-    if accounts_store.get_account(account_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
-    ws_list = workspaces_store.list_account_workspaces(account_id)
-    return {"workspaces": ws_list}
-
-
-@router.get("/workspaces/{workspace_id}/accounts", dependencies=[Depends(require_admin)])
-async def list_workspace_accounts(workspace_id: str):
-    if workspaces_store.get_workspace(workspace_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="workspace not found")
-    accts = workspaces_store.list_workspace_accounts(workspace_id)
+    accts = agents_store.list_agent_accounts(agent_id)
     # Enrich with account names
     result = []
     for a in accts:

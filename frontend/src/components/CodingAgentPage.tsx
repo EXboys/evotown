@@ -7,8 +7,8 @@ import type { Locale } from "../lib/i18n";
 import { GatewayDrawer } from "./gateway/GatewayDrawer";
 import { SkillsAssignmentPanel } from "./SkillsAssignmentPanel";
 
-type Workspace = {
-  workspace_id: string;
+type Agent = {
+  agent_id: string;
   owner_account_id: string;
   tenant_id?: string;
   team_id?: string;
@@ -28,7 +28,7 @@ type Viewer = { is_admin: boolean; account_id: string };
 
 type AgentRun = {
   run_id: string;
-  workspace_id: string;
+  agent_id: string;
   prompt: string;
   model: string;
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
@@ -49,12 +49,12 @@ const COPY = {
     title: "中心托管 Claude 智能体",
     subtitle: "为每个账号创建私有智能体空间，统一注入公共 skills 与知识库上下文。",
     refresh: "刷新",
-    newWorkspace: "新建智能体",
-    workspaceName: "智能体名称",
+    newAgent: "新建智能体",
+    agentName: "智能体名称",
     create: "创建",
     cancel: "取消",
     open: "打开工作台",
-    statWorkspaces: "智能体",
+    statAgents: "智能体",
     statActive: "进行中的任务",
     statTotalRuns: "累计运行",
     recentActivity: "最近活动",
@@ -63,7 +63,7 @@ const COPY = {
     dryRunHint: "未配置 EVOTOWN_CLAUDE_CODE_COMMAND 时，后端执行 dry-run 并写入 .evotown 上下文文件。",
     updated: "更新于",
     edit: "设置",
-    editWorkspace: "编辑智能体",
+    editAgent: "编辑智能体",
     owner: "绑定账号",
     ownerHint: "把这个智能体绑定给指定账号（仅管理员）。",
     ownerReadonly: "当前绑定账号（仅管理员可重新分配）。",
@@ -80,23 +80,23 @@ const COPY = {
   en: {
     eyebrow: "Coding Agent",
     title: "Hosted Claude Coding Agent",
-    subtitle: "Private sandbox workspaces with shared public skills and knowledge context.",
+    subtitle: "Private sandbox agents with shared public skills and knowledge context.",
     refresh: "Refresh",
-    newWorkspace: "New Workspace",
-    workspaceName: "Workspace name",
+    newAgent: "New Agent",
+    agentName: "Agent name",
     create: "Create",
     cancel: "Cancel",
-    open: "Open workspace",
-    statWorkspaces: "Workspaces",
+    open: "Open agent",
+    statAgents: "Agents",
     statActive: "Active runs",
     statTotalRuns: "Total runs",
     recentActivity: "Recent activity",
     noRuns: "No runs yet",
-    empty: "No workspace yet. Click \"New Workspace\" to create your first private sandbox.",
+    empty: "No agent yet. Click \"New Agent\" to create your first private sandbox.",
     dryRunHint: "Without EVOTOWN_CLAUDE_CODE_COMMAND, the backend performs a dry-run and writes .evotown context files.",
     updated: "Updated",
     edit: "Settings",
-    editWorkspace: "Edit workspace",
+    editAgent: "Edit agent",
     owner: "Bound account",
     ownerHint: "Assign this private space to an account (admin only).",
     ownerReadonly: "Currently bound account (admin only can reassign).",
@@ -129,16 +129,16 @@ async function readJson<T>(res: Response): Promise<T> {
   return data as T;
 }
 
-export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId?: string }) {
+export function CodingAgentPage({ locale }: { locale: Locale; initialAgentId?: string }) {
   const navigate = useNavigate();
   const copy = COPY[locale];
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [creating, setCreating] = useState(false);
-  const [workspaceName, setWorkspaceName] = useState("Personal Sandbox");
+  const [agentName, setAgentName] = useState("Personal Sandbox");
   const [createPolicy, setCreatePolicy] = useState<"all" | "routes_only">("routes_only");
   const [createTemplateId, setCreateTemplateId] = useState("");
   const [templates, setTemplates] = useState<{ template_id: string; name: string; category: string; description: string }[]>([]);
@@ -149,7 +149,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
 
   const [viewer, setViewer] = useState<Viewer>({ is_admin: Boolean(getAdminToken()), account_id: "" });
 
-  const [editing, setEditing] = useState<Workspace | null>(null);
+  const [editing, setEditing] = useState<Agent | null>(null);
   const [editName, setEditName] = useState("");
   const [editQuota, setEditQuota] = useState("0");
   const [editPolicy, setEditPolicy] = useState<"all" | "routes_only">("all");
@@ -159,20 +159,20 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
 
   const isAdmin = viewer.is_admin || Boolean(getAdminToken());
 
-  const runsByWorkspace = useMemo(() => {
+  const runsByAgent = useMemo(() => {
     const map = new Map<string, AgentRun[]>();
     for (const run of runs) {
-      const list = map.get(run.workspace_id) || [];
+      const list = map.get(run.agent_id) || [];
       list.push(run);
-      map.set(run.workspace_id, list);
+      map.set(run.agent_id, list);
     }
     return map;
   }, [runs]);
 
   const stats = useMemo(() => {
     const active = runs.filter((run) => run.status === "running" || run.status === "queued").length;
-    return { workspaces: workspaces.length, active, totalRuns: runs.length };
-  }, [workspaces, runs]);
+    return { agents: agents.length, active, totalRuns: runs.length };
+  }, [agents, runs]);
 
   const load = async () => {
     setMessage("");
@@ -181,18 +181,18 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
       params.set("include_all", "true");
       params.set("status_filter", statusFilter);
       if (tab) params.set("category", tab);
-      const url = `/api/v1/workspaces?${params.toString()}`;
+      const url = `/api/v1/agents?${params.toString()}`;
       const wsData = await adminFetch(url).then((res) =>
-        readJson<{ workspaces?: Workspace[]; viewer?: Viewer }>(res),
+        readJson<{ agents?: Agent[]; viewer?: Viewer }>(res),
       );
-      const list = (wsData.workspaces || []);
-      // Filter by search on client side (name or workspace_id)
+      const list = (wsData.agents || []);
+      // Filter by search on client side (name or agent_id)
       const filtered = search.trim()
         ? list.filter(w =>
             w.name.toLowerCase().includes(search.toLowerCase()) ||
-            w.workspace_id.toLowerCase().includes(search.toLowerCase()))
+            w.agent_id.toLowerCase().includes(search.toLowerCase()))
         : list;
-      setWorkspaces(filtered);
+      setAgents(filtered);
       if (wsData.viewer) setViewer(wsData.viewer);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "加载失败");
@@ -210,43 +210,43 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
     adminFetch("/api/v1/agent-templates").then(r => r.json()).then(d => setTemplates((d.templates || []) as typeof templates)).catch(() => {});
   }, []);
 
-  const createWorkspace = async () => {
+  const createAgent = async () => {
     setBusy(true);
     setMessage("");
     try {
-      const body: Record<string, unknown> = { name: workspaceName, model_policy: createPolicy, category: tab };
+      const body: Record<string, unknown> = { name: agentName, model_policy: createPolicy, category: tab };
       if (createTemplateId) body.template_id = createTemplateId;
-      const data = await adminFetch("/api/v1/workspaces", {
+      const data = await adminFetch("/api/v1/agents", {
         method: "POST",
         body: JSON.stringify(body),
-      }).then((res) => readJson<{ workspace: Workspace }>(res));
-      window.location.assign(`/agent/workspaces/${encodeURIComponent(data.workspace.workspace_id)}`);
+      }).then((res) => readJson<{ agent: Agent }>(res));
+      window.location.assign(`/agent/agents/${encodeURIComponent(data.agent.agent_id)}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "创建失败");
       setBusy(false);
     }
   };
 
-  const openEdit = (workspace: Workspace) => {
-    setEditing(workspace);
-    setEditName(workspace.name);
-    setEditQuota(String(workspace.storage_quota_mb ?? 0));
-    setEditPolicy((workspace.model_policy as "all" | "routes_only") || "all");
+  const openEdit = (agent: Agent) => {
+    setEditing(agent);
+    setEditName(agent.name);
+    setEditQuota(String(agent.storage_quota_mb ?? 0));
+    setEditPolicy((agent.model_policy as "all" | "routes_only") || "all");
     setEditMembers([]);
     setMessage("");
-    adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspace.workspace_id)}/accounts`)
+    adminFetch(`/api/v1/agents/${encodeURIComponent(agent.agent_id)}/accounts`)
       .then(r => r.json())
       .then(d => setEditMembers((d as { accounts?: Array<{ account_id: string; role: string; bound_at: string }> }).accounts ?? []))
       .catch(() => {});
   };
 
-  const patchWorkspace = async (payload: Record<string, unknown>) => {
+  const patchAgent = async (payload: Record<string, unknown>) => {
     if (!editing) return;
     setBusy(true);
     setMessage("");
     try {
       if (Object.keys(payload).length) {
-        await adminFetch(`/api/v1/workspaces/${encodeURIComponent(editing.workspace_id)}`, {
+        await adminFetch(`/api/v1/agents/${encodeURIComponent(editing.agent_id)}`, {
           method: "PATCH",
           body: JSON.stringify(payload),
         }).then((res) => readJson(res));
@@ -260,7 +260,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
     }
   };
 
-  const saveWorkspace = () => {
+  const saveAgent = () => {
     if (!editing) return;
     const payload: Record<string, unknown> = {};
     if (editName.trim() && editName.trim() !== editing.name) payload.name = editName.trim();
@@ -274,12 +274,12 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
     if (editPolicy !== currentPolicy) {
       payload.model_policy = editPolicy;
     }
-    void patchWorkspace(payload);
+    void patchAgent(payload);
   };
 
   const toggleArchive = () => {
     if (!editing) return;
-    void patchWorkspace({ status: editing.status === "archived" ? "active" : "archived" });
+    void patchAgent({ status: editing.status === "archived" ? "active" : "archived" });
   };
 
   return (
@@ -316,7 +316,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
           />
           <button
             type="button"
-            onClick={() => { setCreating(true); setWorkspaceName(""); }}
+            onClick={() => { setCreating(true); setAgentName(""); }}
             className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
           >
             ＋ 新建智能体
@@ -328,8 +328,8 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{message}</div>
       )}
 
-      {/* Workspace grid */}
-      {loading && !workspaces.length ? (
+      {/* Agent grid */}
+      {loading && !agents.length ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {[0, 1, 2].map((index) => (
             <div key={index} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -339,19 +339,19 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
             </div>
           ))}
         </div>
-      ) : workspaces.length ? (
+      ) : agents.length ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {workspaces.map((workspace) => {
-            const archived = workspace.status === "archived";
-            const policy = (workspace.model_policy as string) || "all";
+          {agents.map((agent) => {
+            const archived = agent.status === "archived";
+            const policy = (agent.model_policy as string) || "all";
             return (
               <a
-                key={workspace.workspace_id}
-                href={`/agent/workspaces/${encodeURIComponent(workspace.workspace_id)}`}
+                key={agent.agent_id}
+                href={`/agent/agents/${encodeURIComponent(agent.agent_id)}`}
                 onClick={(event) => {
                   if (event.metaKey || event.ctrlKey || event.button === 1) return;
                   event.preventDefault();
-                  navigate(`/agent/workspaces/${encodeURIComponent(workspace.workspace_id)}`);
+                  navigate(`/agent/agents/${encodeURIComponent(agent.agent_id)}`);
                 }}
                 className={`group flex flex-col rounded-2xl border bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md ${
                   archived ? "border-slate-200 opacity-60" : "border-slate-200"
@@ -359,7 +359,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-base font-bold text-white">
-                    {workspace.name.slice(0, 1).toUpperCase()}
+                    {agent.name.slice(0, 1).toUpperCase()}
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${
@@ -372,14 +372,14 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
                     <button
                       type="button"
                       title="设置"
-                      onClick={(event) => { event.preventDefault(); event.stopPropagation(); openEdit(workspace); }}
+                      onClick={(event) => { event.preventDefault(); event.stopPropagation(); openEdit(agent); }}
                       className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"
                     >⚙</button>
                   </div>
                 </div>
-                <div className="mt-4 truncate text-base font-semibold text-slate-900">{workspace.name}</div>
-                {workspace.template_name && <div className="mt-1 text-[11px] text-indigo-600">📋 {workspace.template_name}</div>}
-                <div className="mt-1 truncate font-mono text-xs text-slate-400">{workspace.workspace_id}</div>
+                <div className="mt-4 truncate text-base font-semibold text-slate-900">{agent.name}</div>
+                {agent.template_name && <div className="mt-1 text-[11px] text-indigo-600">📋 {agent.template_name}</div>}
+                <div className="mt-1 truncate font-mono text-xs text-slate-400">{agent.agent_id}</div>
                 <div className="mt-2 flex items-center gap-2 text-xs">
                   <span className={`h-2 w-2 rounded-full ${archived ? "bg-slate-400" : "bg-emerald-500"}`} />
                   <span className={archived ? "text-slate-400" : "text-slate-500"}>
@@ -388,7 +388,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
                 </div>
                 <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
                   <span className="text-[11px] text-slate-400">
-                    {formatDateTimeShort(workspace.updated_at)}
+                    {formatDateTimeShort(agent.updated_at)}
                   </span>
                   <span className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition group-hover:bg-indigo-700">
                     打开工作台 →
@@ -404,7 +404,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
           <p className="mx-auto max-w-md text-sm text-slate-500">该分类下暂无智能体</p>
           <button
             type="button"
-            onClick={() => { setCreating(true); setWorkspaceName(""); }}
+            onClick={() => { setCreating(true); setAgentName(""); }}
             className="mt-5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
           >
             ＋ 新建智能体
@@ -424,13 +424,13 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
           >
             <div className="text-lg font-semibold text-slate-900">新建智能体</div>
             <p className="mt-1 text-sm text-slate-500">{copy.subtitle}</p>
-            <label className="mt-5 block text-sm font-medium text-slate-700">{copy.workspaceName}</label>
+            <label className="mt-5 block text-sm font-medium text-slate-700">{copy.agentName}</label>
             <input
               autoFocus
-              value={workspaceName}
-              onChange={(event) => setWorkspaceName(event.target.value)}
+              value={agentName}
+              onChange={(event) => setAgentName(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") void createWorkspace();
+                if (event.key === "Enter") void createAgent();
               }}
               className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
@@ -496,8 +496,8 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
               </button>
               <button
                 type="button"
-                onClick={() => void createWorkspace()}
-                disabled={busy || !workspaceName.trim()}
+                onClick={() => void createAgent()}
+                disabled={busy || !agentName.trim()}
                 className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
               >
                 {busy ? "创建中…" : copy.create}
@@ -518,11 +518,11 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between">
-              <div className="text-lg font-semibold text-slate-900">{copy.editWorkspace}</div>
-              <span className="font-mono text-[11px] text-slate-400">{editing.workspace_id}</span>
+              <div className="text-lg font-semibold text-slate-900">{copy.editAgent}</div>
+              <span className="font-mono text-[11px] text-slate-400">{editing.agent_id}</span>
             </div>
 
-            <label className="mt-5 block text-sm font-medium text-slate-700">{copy.workspaceName}</label>
+            <label className="mt-5 block text-sm font-medium text-slate-700">{copy.agentName}</label>
             <input
               value={editName}
               onChange={(event) => setEditName(event.target.value)}
@@ -617,7 +617,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialWorkspaceId
                 </button>
                 <button
                   type="button"
-                  onClick={saveWorkspace}
+                  onClick={saveAgent}
                   disabled={busy}
                   className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
                 >

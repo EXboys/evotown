@@ -14,13 +14,13 @@ import { formatDateTimeShort, formatDateTimeFull, parseEvotownTimestamp } from "
 import { formatBytes, fileMeta } from "../lib/codingAgentUtils";
 import { WorkspaceFileList, type WorkspaceFileEntry } from "./WorkspaceFileList";
 
-type Workspace = {
-  workspace_id: string; owner_account_id: string; name: string; root_path: string;
+type Agent = {
+  agent_id: string; owner_account_id: string; name: string; root_path: string;
   status: "active" | "archived"; created_at: string; updated_at: string;
 };
 
 type AgentRun = {
-  run_id: string; workspace_id: string; account_id: string; prompt: string; model: string;
+  run_id: string; agent_id: string; account_id: string; prompt: string; model: string;
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   log_excerpt?: string; result_summary?: string; error?: string;
   artifact_manifest?: Array<{ path: string; sha256: string; bytes: number }>;
@@ -28,8 +28,8 @@ type AgentRun = {
 };
 
 type AgentRunEvent = { id: number; run_id: string; event_type: string; seq: number; ts: string; payload?: Record<string, unknown> };
-type WorkspaceUpload = { path: string; filename: string; bytes: number; sha256: string; kind: "image" | "file"; content_type: string };
-type PendingAttachment = WorkspaceUpload & { localId: string; previewUrl?: string };
+type AgentUpload = { path: string; filename: string; bytes: number; sha256: string; kind: "image" | "file"; content_type: string };
+type PendingAttachment = AgentUpload & { localId: string; previewUrl?: string };
 type SkillOption = { id: string; name: string; version?: string; summary?: string };
 type KnowledgeItem = { id: string; title: string; version?: string };
 
@@ -68,7 +68,7 @@ function describeEvent(event: AgentRunEvent): { icon: string; title: string; det
   const str = (key: string) => (typeof payload[key] === "string" ? (payload[key] as string) : "");
   switch (event.event_type) {
     case "run.queued": return { icon: "🕒", title: "任务已排队", detail: str("model") ? `模型 ${str("model")}` : "等待执行资源" };
-    case "context.prepare": return { icon: "📦", title: "准备执行环境", detail: "挂载私有 workspace 与上下文" };
+    case "context.prepare": return { icon: "📦", title: "准备执行环境", detail: "挂载私有 agent 与上下文" };
     case "context.ready": {
       const skills = num("skills") ?? 0;
       const mcp = num("mcp_connections") ?? 0;
@@ -110,11 +110,11 @@ function TypingDots() {
   );
 }
 
-export function CodingAgentWorkspacePage() {
+export function CodingAgentChatPage() {
   const navigate = useNavigate();
-  const { workspaceId = "" } = useParams();
+  const { agentId = "" } = useParams();
 
-  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [agent, setAgent] = useState<Agent | null>(null);
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [selectedRunId, setSelectedRunId] = useState("");
   const [events, setEvents] = useState<AgentRunEvent[]>([]);
@@ -135,7 +135,7 @@ export function CodingAgentWorkspacePage() {
   const [leftOpen, setLeftOpen] = useState(true);
   const [expandedSection, setExpandedSection] = useState<"history" | "skills" | "knowledge" | null>(null);
   const [sessionTitles, setSessionTitles] = useState<Record<string, string>>(() => {
-    try { return JSON.parse(localStorage.getItem(`evotown-session-titles-${workspaceId}`) || "{}"); } catch { return {}; }
+    try { return JSON.parse(localStorage.getItem(`evotown-session-titles-${agentId}`) || "{}"); } catch { return {}; }
   });
   const [assignedSkills, setAssignedSkills] = useState<SkillOption[]>([]);
   const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>([]);
@@ -149,43 +149,43 @@ export function CodingAgentWorkspacePage() {
   const [fileViewer, setFileViewer] = useState<{ path: string; content: string; size: number; truncated: boolean } | null>(null);
   const [fileLoading, setFileLoading] = useState("");
   const [fileError, setFileError] = useState<{ path: string; message: string; status?: number } | null>(null);
-  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFileEntry[]>([]);
-  const [workspaceFilesTruncated, setWorkspaceFilesTruncated] = useState(false);
-  const [workspaceFilesLoading, setWorkspaceFilesLoading] = useState(false);
+  const [agentFiles, setAgentFiles] = useState<WorkspaceFileEntry[]>([]);
+  const [agentFilesTruncated, setAgentFilesTruncated] = useState(false);
+  const [agentFilesLoading, setAgentFilesLoading] = useState(false);
   const [showSystemFiles, setShowSystemFiles] = useState(false);
 
   // Dev file browser
   const [devDirPath, setDevDirPath] = useState("");
   const [devDirFiles, setDevDirFiles] = useState<Array<{ name: string; path: string; is_dir: boolean; size: number }>>([]);
   const [devDirLoading, setDevDirLoading] = useState(false);
-  const [devDirRoot, setDevDirRoot] = useState<"workspace" | "shared" | "server">("workspace");
+  const [devDirRoot, setDevDirRoot] = useState<"agent" | "shared" | "server" | "">("");
   const [devDirPrefix, setDevDirPrefix] = useState("");
 
   useEffect(() => {
-    if (!workspaceId) return;
-    adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}`)
+    if (!agentId) return;
+    adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}`)
       .then(r => r.json()).then(d => {
-        const ws = d.workspace || d;
+        const ws = d.agent || d;
         if (ws.template_id) {
           adminFetch("/api/v1/agent-templates").then(r => r.json()).then(td => {
             const tpl = (td.templates || []).find((t: any) => t.template_id === ws.template_id);
-            if (tpl?.has_workspace_dir) { setDevDirRoot(tpl.workspace_dir_root as "workspace" | "shared" | "server"); setDevDirPrefix((tpl.workspace_dir_prefix || "").replace(/\/$/, "")); }
+            if (tpl?.has_agent_dir) { setDevDirRoot(tpl.agent_dir_root as "agent" | "shared" | "server"); setDevDirPrefix((tpl.agent_dir_prefix || "").replace(/\/$/, "")); }
           }).catch(() => {});
         }
       }).catch(() => {});
-  }, [workspaceId]);
+  }, [agentId]);
 
-  const hasDevFiles = (devDirRoot === "shared" || devDirRoot === "server") ? true : workspaceFiles.some((f) => /(\.py|\.js|\.ts|\.tsx|\.json|\.md)/i.test(f.path) && !f.path.startsWith(".evotown/"));
+  const hasDevFiles = devDirRoot ? (devDirRoot === "shared" || devDirRoot === "server") ? true : agentFiles.some((f) => /(\.py|\.js|\.ts|\.tsx|\.json|\.md)/i.test(f.path) && !f.path.startsWith(".evotown/") && f.path !== "README.md") : false;
   useEffect(() => { if (hasDevFiles) setRightOpen(true); }, [hasDevFiles]);
 
   const loadDevDir = (dir: string) => {
-    if (!workspaceId) return;
+    if (!agentId) return;
     setDevDirLoading(true);
     const params = new URLSearchParams();
     if (dir) params.set("subdir", dir);
     if (devDirPrefix) params.set("prefix", devDirPrefix);
     const qs = params.toString();
-    const apiUrl = `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/file-index${qs ? "?" + qs : ""}`;
+    const apiUrl = `/api/v1/agents/${encodeURIComponent(agentId)}/file-index${qs ? "?" + qs : ""}`;
     adminFetch(apiUrl).then(r => readJson<{ entries?: WorkspaceFileEntry[] }>(r)).then(data => {
       setDevDirFiles((data.entries || []).map(e => ({
         name: e.name,
@@ -219,36 +219,36 @@ export function CodingAgentWorkspacePage() {
   }, [prompt]);
 
   // Load
-  const loadWorkspaceFiles = useCallback(async (silent: boolean = false) => {
-    if (!workspaceId) return;
-    if (!silent) setWorkspaceFilesLoading(true);
+  const loadAgentFiles = useCallback(async (silent: boolean = false) => {
+    if (!agentId) return;
+    if (!silent) setAgentFilesLoading(true);
     try {
       const data = await adminFetch(
-        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/file-index?include_dot=${showSystemFiles ? "true" : "false"}`,
+        `/api/v1/agents/${encodeURIComponent(agentId)}/file-index?include_dot=${showSystemFiles ? "true" : "false"}`,
       ).then((res) => readJson<{ entries?: WorkspaceFileEntry[]; truncated?: boolean }>(res));
-      setWorkspaceFiles(data.entries || []);
-      setWorkspaceFilesTruncated(Boolean(data.truncated));
-    } catch { if (!silent) { setWorkspaceFiles([]); setWorkspaceFilesTruncated(false); } }
-    finally { if (!silent) setWorkspaceFilesLoading(false); }
-  }, [workspaceId, showSystemFiles]);
+      setAgentFiles(data.entries || []);
+      setAgentFilesTruncated(Boolean(data.truncated));
+    } catch { if (!silent) { setAgentFiles([]); setAgentFilesTruncated(false); } }
+    finally { if (!silent) setAgentFilesLoading(false); }
+  }, [agentId, showSystemFiles]);
 
   const load = useCallback(async () => {
-    if (!workspaceId) return;
+    if (!agentId) return;
     try {
-      const wsData = await adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}`).then((res) => readJson<{ workspace: Workspace; runs?: AgentRun[] }>(res));
-      setWorkspace(wsData.workspace); setError("");
-      const runData = await adminFetch(`/api/v1/agent-runs?workspace_id=${encodeURIComponent(workspaceId)}&limit=100`).then((res) => readJson<{ runs?: AgentRun[] }>(res));
+      const wsData = await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}`).then((res) => readJson<{ agent: Agent; runs?: AgentRun[] }>(res));
+      setAgent(wsData.agent); setError("");
+      const runData = await adminFetch(`/api/v1/agent-runs?agent_id=${encodeURIComponent(agentId)}&limit=100`).then((res) => readJson<{ runs?: AgentRun[] }>(res));
       setRuns(runData.runs || []);
-      void loadWorkspaceFiles(true);
+      void loadAgentFiles(true);
       try {
-        const opts = await adminFetch(`/api/v1/agent/options?workspace_id=${encodeURIComponent(workspaceId)}`).then((res) => res.json());
+        const opts = await adminFetch(`/api/v1/agent/options?agent_id=${encodeURIComponent(agentId)}`).then((res) => res.json());
         setAssignedSkills((opts.skills || []) as SkillOption[]);
         const dm = (opts.default_model as string) || "";
         if (dm) setModel(dm);
       } catch { /* ignore */ }
     } catch (err) { setError(err instanceof Error ? err.message : "加载失败"); }
     finally { setLoading(false); }
-  }, [workspaceId, loadWorkspaceFiles]);
+  }, [agentId, loadAgentFiles]);
 
   useEffect(() => { void load(); const id = setInterval(() => void load(), 4000); return () => clearInterval(id); }, [load]);
 
@@ -297,14 +297,14 @@ export function CodingAgentWorkspacePage() {
 
   // Media
   useEffect(() => {
-    if (!workspaceId || !runChain.length) return;
+    if (!agentId || !runChain.length) return;
     let cancelled = false;
     const fetchMedia = async () => {
       for (const run of runChain) {
         for (const path of runAttachmentPaths(run)) {
           if (!isImageAttachmentPath(path)) continue;
           try {
-            const serveUrl = `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/serve/${encodeURIComponent(path)}`;
+            const serveUrl = `/api/v1/agents/${encodeURIComponent(agentId)}/serve/${encodeURIComponent(path)}`;
             const res = await adminFetch(serveUrl);
             if (cancelled) return;
             if (res.ok) {
@@ -321,7 +321,7 @@ export function CodingAgentWorkspacePage() {
           const isMedia = /\.(png|jpg|jpeg|gif|webp|svg|mp4|webm)$/i.test(a.path);
           if (!isHtml && !isMedia) continue;
           try {
-            const serveUrl = `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/serve/${encodeURIComponent(a.path)}`;
+            const serveUrl = `/api/v1/agents/${encodeURIComponent(agentId)}/serve/${encodeURIComponent(a.path)}`;
             const res = await adminFetch(serveUrl);
             if (cancelled) return;
             if (isHtml) {
@@ -339,7 +339,7 @@ export function CodingAgentWorkspacePage() {
     void fetchMedia();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, runChain.map((r) => `${runAttachmentPaths(r).join(",")}|${r.artifact_manifest?.map((a) => a.path).join(",") || ""}`).join(";")]);
+  }, [agentId, runChain.map((r) => `${runAttachmentPaths(r).join(",")}|${r.artifact_manifest?.map((a) => a.path).join(",") || ""}`).join(";")]);
 
   // Sessions
   type Session = { id: string; prompt: string; count: number; lastAt: string; lastStatus: AgentRun["status"] };
@@ -376,19 +376,19 @@ export function CodingAgentWorkspacePage() {
   const saveSessionTitle = (sessionId: string, title: string) => {
     const next = { ...sessionTitles, [sessionId]: title.trim() || "" };
     setSessionTitles(next);
-    localStorage.setItem(`evotown-session-titles-${workspaceId}`, JSON.stringify(next));
+    localStorage.setItem(`evotown-session-titles-${agentId}`, JSON.stringify(next));
   };
 
   // File viewer
   const openFile = async (path: string) => {
-    if (!workspaceId) return;
+    if (!agentId) return;
     setFileLoading(path); setError("");
     try {
       if (isImageAttachmentPath(path)) {
         const name = path.split("/").pop() || path;
         const cached = mediaBlobUrls[path];
         if (cached) { setLightboxImage({ src: cached, alt: name }); return; }
-        const serveUrl = `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/serve/${encodeURIComponent(path)}`;
+        const serveUrl = `/api/v1/agents/${encodeURIComponent(agentId)}/serve/${encodeURIComponent(path)}`;
         const res = await adminFetch(serveUrl);
         if (!res.ok) { setFileError({ path, message: `HTTP ${res.status}`, status: res.status }); return; }
         const blob = await res.blob();
@@ -397,7 +397,7 @@ export function CodingAgentWorkspacePage() {
         setLightboxImage({ src: blobUrl, alt: name });
         return;
       }
-      const res = await adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/files?path=${encodeURIComponent(path)}`);
+      const res = await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/files?path=${encodeURIComponent(path)}`);
       if (!res.ok) { setFileError({ path, message: `HTTP ${res.status}`, status: res.status }); return; }
       const data = await res.json() as { path: string; content: string; size: number; truncated: boolean };
       setFileViewer(data);
@@ -409,11 +409,11 @@ export function CodingAgentWorkspacePage() {
   };
 
   // Upload / send
-  const uploadWorkspaceFiles = async (files: File[]) => {
-    if (!workspaceId || !files.length) return [] as WorkspaceUpload[];
+  const uploadAgentFiles = async (files: File[]) => {
+    if (!agentId || !files.length) return [] as AgentUpload[];
     const form = new FormData();
     for (const file of files) form.append("files", file);
-    const data = await adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/uploads`, { method: "POST", body: form }).then((res) => readJson<{ uploads?: WorkspaceUpload[] }>(res));
+    const data = await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/uploads`, { method: "POST", body: form }).then((res) => readJson<{ uploads?: AgentUpload[] }>(res));
     return data.uploads || [];
   };
 
@@ -426,7 +426,7 @@ export function CodingAgentWorkspacePage() {
     if (tooLarge.length) { setError(`以下文件超过 10MB：${tooLarge.map((f) => f.name).join("、")}`); return; }
     setUploadingAttachments(true); setError("");
     try {
-      const uploaded = await uploadWorkspaceFiles(picked);
+      const uploaded = await uploadAgentFiles(picked);
       const next: PendingAttachment[] = uploaded.map((item, index) => {
         const source = picked[index];
         const previewUrl = item.kind === "image" && source ? URL.createObjectURL(source) : undefined;
@@ -438,13 +438,13 @@ export function CodingAgentWorkspacePage() {
   };
 
   const startRun = async () => {
-    if (!workspaceId) return;
+    if (!agentId) return;
     const sentPrompt = prompt.trim();
     const attachmentPaths = pendingAttachments.map((item) => item.path);
     if (!sentPrompt && !attachmentPaths.length) return;
     setBusy(true); setError("");
     try {
-      const data = await adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/runs`, {
+      const data = await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/runs`, {
         method: "POST",
         body: JSON.stringify({
           prompt: sentPrompt || "请处理我上传的附件。",
@@ -479,10 +479,10 @@ export function CodingAgentWorkspacePage() {
   };
 
   const deleteSession = async (sessionId: string) => {
-    if (!workspaceId) return;
+    if (!agentId) return;
     setBusy(true); setError("");
     try {
-      await adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }).then((res) => readJson(res));
+      await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }).then((res) => readJson(res));
       if (runChain[0]?.run_id === sessionId) setSelectedRunId("");
       await load();
     } catch (err) { setError(err instanceof Error ? err.message : "删除失败"); }
@@ -519,10 +519,10 @@ export function CodingAgentWorkspacePage() {
           {/* Agent card */}
           <div className="border-b border-slate-200 px-4 py-3">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-800 text-sm font-bold text-white">{(workspace?.name || "A").slice(0, 1).toUpperCase()}</div>
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-800 text-sm font-bold text-white">{(agent?.name || "A").slice(0, 1).toUpperCase()}</div>
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-slate-900">{workspace?.name || "Agent"}</div>
-                <div className="truncate font-mono text-[11px] text-slate-400">{workspaceId}</div>
+                <div className="truncate text-sm font-semibold text-slate-900">{agent?.name || "Agent"}</div>
+                <div className="truncate font-mono text-[11px] text-slate-400">{agentId}</div>
               </div>
             </div>
             <Badge className="mt-2 border-slate-200 bg-white text-slate-600">🤖 {model || "claude-sonnet-4"}</Badge>
@@ -636,7 +636,7 @@ export function CodingAgentWorkspacePage() {
                                 if (isImageAttachmentPath(path) && mediaBlobUrls[path]) {
                                   return <ClickableConversationImage key={path} src={mediaBlobUrls[path]} alt={name} onOpen={setLightboxImage} className="max-h-48 max-w-full rounded-lg border border-slate-200" />;
                                 }
-                                return <a key={path} href={`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/files?path=${encodeURIComponent(path)}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50"><span>📎</span><span className="truncate">{name}</span></a>;
+                                return <a key={path} href={`/api/v1/agents/${encodeURIComponent(agentId)}/files?path=${encodeURIComponent(path)}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50"><span>📎</span><span className="truncate">{name}</span></a>;
                               })}
                             </div>
                           ) : null}
@@ -650,7 +650,7 @@ export function CodingAgentWorkspacePage() {
                         /* Full-width HTML */
                         <div className="space-y-3">
                           {(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && /\.html?$/i.test(a.path)).map((a) => {
-                            const serveUrl = `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/serve/${encodeURIComponent(a.path)}`;
+                            const serveUrl = `/api/v1/agents/${encodeURIComponent(agentId)}/serve/${encodeURIComponent(a.path)}`;
                             return (
                               <div key={a.path} className="rounded-lg border border-slate-200 overflow-hidden">
                                 <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
@@ -705,7 +705,7 @@ export function CodingAgentWorkspacePage() {
                               <div className="mt-2 space-y-1">{events.map((ev) => { const info = describeEvent(ev); return <div key={`${ev.id}-${ev.seq}`} className="flex items-center gap-2 text-xs text-slate-400"><span>{info.icon}</span><span className="text-slate-600">{info.title}</span>{info.detail ? <span className="truncate text-slate-400">· {info.detail}</span> : null}</div>; })}</div>
                             ) : null}
                             {isLast && filesExpanded && (
-                              <div className="mt-2 space-y-1">{(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/")).map((a) => <a key={a.path} href={`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/files?path=${encodeURIComponent(a.path)}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50"><span>{fileMeta(a.path).icon}</span><span className="truncate flex-1">{a.path.split("/").pop() || a.path}</span><span className="shrink-0 text-slate-400">{formatBytes(a.bytes)}</span><span className="shrink-0 text-slate-300">↓</span></a>)}</div>
+                              <div className="mt-2 space-y-1">{(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/")).map((a) => <a key={a.path} href={`/api/v1/agents/${encodeURIComponent(agentId)}/files?path=${encodeURIComponent(a.path)}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50"><span>{fileMeta(a.path).icon}</span><span className="truncate flex-1">{a.path.split("/").pop() || a.path}</span><span className="shrink-0 text-slate-400">{formatBytes(a.bytes)}</span><span className="shrink-0 text-slate-300">↓</span></a>)}</div>
                             )}
                           </div>
                         </div>
@@ -724,7 +724,7 @@ export function CodingAgentWorkspacePage() {
               <div className="max-w-md text-center">
                 <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-800 text-2xl text-white">⌘</div>
                 <div className="text-lg font-semibold text-slate-800">开始一段新的对话</div>
-                <p className="mt-2 text-sm text-slate-500">在下方输入任务，Agent 会在该私有 workspace 中执行。</p>
+                <p className="mt-2 text-sm text-slate-500">在下方输入任务，Agent 会在该私有 agent 中执行。</p>
               </div>
             </div>
           )}

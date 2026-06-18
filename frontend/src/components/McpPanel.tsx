@@ -11,7 +11,7 @@ type McpService = {
   dimensions: string; tables: string;
   input_schema: string; output_schema: string;
   created_at: string; updated_at: string;
-  bound_workspaces?: number; calls_24h?: number;
+  bound_agents?: number; calls_24h?: number;
 };
 
 type McpVersion = {
@@ -19,7 +19,7 @@ type McpVersion = {
   version_notes: string;
   snapshot_dimensions: string; snapshot_tables: string;
   status: string;
-  submitted_by_workspace: string; submitted_by_account: string;
+  submitted_by_agent_id: string; submitted_by_account: string;
   submitted_at: string; reviewed_by: string; reviewed_at: string;
   review_comment: string;
 };
@@ -323,7 +323,7 @@ export function McpPanel({ locale }: { locale: Locale }) {
                     }`}>{SOURCE_LABELS[svc.source] || svc.source}</span>
                   </td>
                   <td className="px-4 py-3 text-center text-xs">
-                    <button onClick={() => setDetail({ type: "bindings", serviceId: svc.service_id, name: svc.name })} className="text-violet-600 hover:text-violet-800 underline cursor-pointer">{svc.bound_workspaces ?? "-"}</button>
+                    <button onClick={() => setDetail({ type: "bindings", serviceId: svc.service_id, name: svc.name })} className="text-violet-600 hover:text-violet-800 underline cursor-pointer">{svc.bound_agents ?? "-"}</button>
                   </td>
                   <td className="px-4 py-3 text-center text-xs">
                     <button onClick={() => setDetail({ type: "calls", serviceId: svc.service_id, name: svc.name })} className="text-violet-600 hover:text-violet-800 underline cursor-pointer">{svc.calls_24h ?? "-"}</button>
@@ -398,7 +398,7 @@ export function McpPanel({ locale }: { locale: Locale }) {
                     <tr key={v.version_id} className="hover:bg-slate-50/50">
                       <td className="px-3 py-1.5 text-slate-500">{v.submitted_at || "-"}</td>
                       <td className="px-3 py-1.5 font-mono text-slate-700">{v.version || "-"}</td>
-                      <td className="px-3 py-1.5 font-mono text-[10px] text-slate-400">{v.submitted_by_workspace?.slice(0, 12) || "-"}</td>
+                      <td className="px-3 py-1.5 font-mono text-[10px] text-slate-400">{v.submitted_by_agent_id?.slice(0, 12) || "-"}</td>
                       <td className="px-3 py-1.5 text-slate-500">{v.submitted_by_account || "-"}</td>
                       <td className="px-3 py-1.5">
                         <span className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium ${
@@ -550,8 +550,8 @@ function DetailDrawer({
                           </thead>
                           <tbody className="divide-y divide-slate-50">
                             {data.policies.map((p: any) => (
-                              <tr key={p.workspace_id} className="hover:bg-slate-50/50">
-                                <td className="px-3 py-1.5 font-mono text-[10px] text-slate-600">{p.workspace_id}</td>
+                              <tr key={p.agent_id} className="hover:bg-slate-50/50">
+                                <td className="px-3 py-1.5 font-mono text-[10px] text-slate-600">{p.agent_id}</td>
                                 <td className="px-3 py-1.5">
                                   <span className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium ${p.enabled ? "border-green-200 bg-green-50 text-green-700" : "border-slate-200 bg-slate-50 text-slate-500"}`}>{p.enabled ? "启用" : "禁用"}</span>
                                 </td>

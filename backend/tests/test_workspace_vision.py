@@ -24,25 +24,25 @@ class WorkspaceVisionTest(unittest.TestCase):
             clear=False,
         )
         self._env_patch.start()
-        from infra import gateway_models, workspaces
+        from infra import gateway_models, agents
 
         gateway_models._conn = None  # noqa: SLF001
-        workspaces._conn = None  # noqa: SLF001
+        agents._conn = None  # noqa: SLF001
 
     def tearDown(self) -> None:
-        from infra import gateway_models, workspaces
+        from infra import gateway_models, agents
 
         gateway_models._conn = None  # noqa: SLF001
-        workspaces._conn = None  # noqa: SLF001
+        agents._conn = None  # noqa: SLF001
         self._env_patch.stop()
         self._tmpdir.cleanup()
 
     def test_describe_workspace_images_calls_upstream(self) -> None:
-        from infra import gateway_models, workspaces
+        from infra import gateway_models, agents
         from services import workspace_vision
 
         account_id = "acc_test"
-        ws = workspaces.create_workspace(owner_account_id=account_id, name="Vision WS")
+        ws = agents.create_workspace(owner_account_id=account_id, name="Vision WS")
         gateway_models.create_model(
             model_name="qwen-vl-test",
             provider_label="qwen",
@@ -50,7 +50,7 @@ class WorkspaceVisionTest(unittest.TestCase):
             api_key="sk-test",
             litellm_model="qwen-vl-plus",
         )
-        root = workspaces.resolve_workspace_path(ws)
+        root = agents.resolve_workspace_path(ws)
         rel = "uploads/test.jpg"
         img_path = root / rel
         img_path.parent.mkdir(parents=True, exist_ok=True)

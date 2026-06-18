@@ -1,4 +1,4 @@
-"""User file uploads into private coding-agent workspaces."""
+"""User file uploads into private coding-agent agents."""
 from __future__ import annotations
 
 import hashlib
@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from infra import workspaces
+from infra import agents
 
 _UPLOAD_DIR = "uploads"
 
@@ -66,10 +66,10 @@ def _safe_filename(name: str) -> str:
 
 
 def _ensure_quota(workspace: dict[str, Any], extra_bytes: int) -> None:
-    quota_mb = int(workspace.get("storage_quota_mb") or 0)
+    quota_mb = int(agent.get("storage_quota_mb") or 0)
     if quota_mb <= 0:
         return
-    used = workspaces.workspace_usage_bytes(workspace)
+    used = agents.agent_usage_bytes(workspace)
     if used + extra_bytes > quota_mb * 1024 * 1024:
         raise ValueError("workspace storage quota exceeded")
 
@@ -95,7 +95,7 @@ def save_upload(
 
     upload_id = uuid.uuid4().hex[:12]
     relative = f"{_UPLOAD_DIR}/{upload_id}_{safe}"
-    target = workspaces.resolve_workspace_path(workspace, relative)
+    target = agents.resolve_agent_path(workspace, relative)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(content)
 

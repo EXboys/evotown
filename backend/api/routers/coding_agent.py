@@ -1,4 +1,4 @@
-"""Centrally hosted Claude Coding Agent workspaces and runs."""
+"""Centrally hosted Coding Agent agents and runs."""
 from __future__ import annotations
 
 import os
@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 
 from core.auth import check_prompt_injection, require_console_read, validate_soul_content
 from domain.models import ClaudeAgentRunCreate, WorkspaceCreate, WorkspaceProfileUpdate, WorkspaceUpdate
-from infra import claude_agent_runs, workspace_files, workspace_profile, workspace_uploads, workspaces
+from infra import claude_agent_runs, workspace_files, workspace_profile, workspace_uploads, agents
 from services import claude_code_runner
 
 router = APIRouter(prefix="/api/v1", tags=["agent"])
@@ -39,16 +39,16 @@ def _require_scope(identity: dict, *allowed: str) -> None:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"missing required scope: {' or '.join(allowed)}")
 
 
-def _load_workspace_for_identity(workspace_id: str, identity: dict) -> dict:
-    workspace = workspaces.get_workspace(workspace_id)
-    if workspace is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="workspace not found")
-    if not workspaces.can_access_workspace(workspace, identity):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="workspace access denied")
-    return workspace
+def _load_agent_for_identity(agent_id: str, identity: dict) -> dict:
+    agent = agents.get_agent(agent_id)
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent not found")
+    if not agents.can_access_agent(agent, identity):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="agent access denied")
+    return agent
 
 
-def _normalize_attachment_paths(workspace: dict, paths: list[str]) -> list[str]:
+def _normalize_attachment_paths(agent: dict, paths: list[str]) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
     for raw in paths:
@@ -58,7 +58,7 @@ def _normalize_attachment_paths(workspace: dict, paths: list[str]) -> list[str]:
         if not rel.startswith("uploads/"):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"invalid attachment path: {rel}")
         try:
-            target = workspaces.resolve_workspace_path(workspace, rel)
+            target = agents.resolve_agent_path(agent, rel)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         if not target.is_file():
@@ -70,17 +70,17 @@ def _normalize_attachment_paths(workspace: dict, paths: list[str]) -> list[str]:
 
 @router.get("/agent/options")
 async def get_agent_options(
-    workspace_id: str = "",
+    agent_id: str = "",
     identity: dict | None = Depends(require_console_read),
 ):
     """User-readable catalog of models, skills and MCP plugins for the workbench."""
     identity = _require_identity(identity)
-    _require_scope(identity, "workspace.read", "workspace.write", "console.read", "console.write")
+    _require_scope(identity, "agent.read", "agent.write", "console.read", "console.write")
 
-    # Determine model policy from workspace; default to 'all' if no workspace specified
+    # Determine model policy from workspace; default to 'all' if no agent specified
     policy = "all"
-    if workspace_id:
-        ws = workspaces.get_workspace(workspace_id)
+    if agent_id:
+        ws = agents.get_agent(agent_id)
         if ws:
             policy = str(ws.get("model_policy") or "all")
     models = claude_code_runner.list_available_models(policy=policy)
@@ -103,7 +103,7 @@ async def get_agent_options(
     except Exception:
         skills = []
 
-    databases: list[dict] = []  # MCP is now auto-injected from workspace policy, no manual selection
+    databases: list[dict] = []  # MCP is now auto-injected from agent policy, no manual selection
 
     return {
         "models": models,
@@ -113,8 +113,8 @@ async def get_agent_options(
     }
 
 
-@router.get("/workspaces")
-async def list_workspaces(
+@router.get("/agents")
+async def list_agents(
     include_all: bool = False,
     status_filter: str | None = "active",
     category: str | None = None,
@@ -122,20 +122,20 @@ async def list_workspaces(
     identity: dict | None = Depends(require_console_read),
 ):
     identity = _require_identity(identity)
-    _require_scope(identity, "workspace.read", "workspace.write", "console.read", "console.write")
+    _require_scope(identity, "agent.read", "agent.write", "console.read", "console.write")
     owner = None if include_all and _is_admin(identity) else _account_id(identity)
     if not owner and not _is_admin(identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account-bound session required")
     return {
-        "workspaces": workspaces.list_workspaces(owner_account_id=owner, status=status_filter, category=category, limit=limit),
+        "agents": agents.list_agents(owner_account_id=owner, status=status_filter, category=category, limit=limit),
         "viewer": {"is_admin": _is_admin(identity), "account_id": _account_id(identity)},
     }
 
 
-@router.post("/workspaces")
-async def create_workspace(body: WorkspaceCreate, identity: dict | None = Depends(require_console_read)):
+@router.post("/agents")
+async def create_agent(body: WorkspaceCreate, identity: dict | None = Depends(require_console_read)):
     identity = _require_identity(identity)
-    _require_scope(identity, "workspace.write", "console.write")
+    _require_scope(identity, "agent.write", "console.write")
     owner = body.owner_account_id.strip() if _is_admin(identity) and body.owner_account_id.strip() else _account_id(identity)
     if not owner:
         raise HTTPException(
@@ -149,7 +149,7 @@ async def create_workspace(body: WorkspaceCreate, identity: dict | None = Depend
             detail="无法创建：选择了「仅路由别名」模式，但当前没有任何已启用的路由别名。请先在网关配置中添加路由别名，或选择「全部模型」模式。",
         )
     try:
-        workspace = workspaces.create_workspace(
+        agent = agents.create_agent(
             owner_account_id=owner,
             name=body.name,
             tenant_id=body.tenant_id or str(identity.get("org_id") or ""),
@@ -160,37 +160,37 @@ async def create_workspace(body: WorkspaceCreate, identity: dict | None = Depend
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    return {"workspace": workspace}
+    return {"agent": agent}
 
 
-@router.get("/workspaces/{workspace_id}")
-async def get_workspace(workspace_id: str, identity: dict | None = Depends(require_console_read)):
+@router.get("/agents/{agent_id}")
+async def get_agent(agent_id: str, identity: dict | None = Depends(require_console_read)):
     identity = _require_identity(identity)
-    _require_scope(identity, "workspace.read", "workspace.write", "console.read", "console.write")
-    workspace = _load_workspace_for_identity(workspace_id, identity)
+    _require_scope(identity, "agent.read", "agent.write", "console.read", "console.write")
+    agent = _load_agent_for_identity(agent_id, identity)
     runs = claude_agent_runs.list_runs(
-        workspace_id=workspace_id,
+        agent_id=agent_id,
         account_id=None if _is_admin(identity) else _account_id(identity),
         limit=20,
     )
     return {
-        "workspace": {**workspace, "usage_bytes": workspaces.workspace_usage_bytes(workspace)},
+        "agent": {**agent, "usage_bytes": agents.agent_usage_bytes(agent)},
         "runs": runs,
         "viewer": {"is_admin": _is_admin(identity), "account_id": _account_id(identity)},
     }
 
 
-@router.patch("/workspaces/{workspace_id}")
-async def update_workspace(workspace_id: str, body: WorkspaceUpdate, identity: dict | None = Depends(require_console_read)):
+@router.patch("/agents/{agent_id}")
+async def update_agent(agent_id: str, body: WorkspaceUpdate, identity: dict | None = Depends(require_console_read)):
     identity = _require_identity(identity)
-    _require_scope(identity, "workspace.write", "console.write")
-    workspace = _load_workspace_for_identity(workspace_id, identity)
-    if not _is_admin(identity) and workspace.get("owner_account_id") != _account_id(identity):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only the owner can update workspace")
+    _require_scope(identity, "agent.write", "console.write")
+    agent = _load_agent_for_identity(agent_id, identity)
+    if not _is_admin(identity) and agent.get("owner_account_id") != _account_id(identity):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only the owner can update agent")
     if body.owner_account_id is not None and not _is_admin(identity):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="only an admin can reassign the workspace owner",
+            detail="only an admin can reassign the agent owner",
         )
     # Validate: switching to routes_only requires at least one enabled route alias
     if body.model_policy == "routes_only" and claude_code_runner.count_route_aliases() == 0:
@@ -199,8 +199,8 @@ async def update_workspace(workspace_id: str, body: WorkspaceUpdate, identity: d
             detail="无法切换：当前没有任何已启用的路由别名。请先在网关配置中添加路由别名。",
         )
     try:
-        updated = workspaces.update_workspace(
-            workspace_id,
+        updated = agents.update_agent(
+            agent_id,
             name=body.name,
             status=body.status,
             owner_account_id=body.owner_account_id,
@@ -209,7 +209,7 @@ async def update_workspace(workspace_id: str, body: WorkspaceUpdate, identity: d
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    return {"workspace": updated}
+    return {"agent": updated}
 
 
 def _validate_profile_text_fields(body: WorkspaceProfileUpdate) -> None:
@@ -228,27 +228,27 @@ def _validate_profile_text_fields(body: WorkspaceProfileUpdate) -> None:
             )
 
 
-@router.get("/workspaces/{workspace_id}/profile")
-async def get_workspace_profile(workspace_id: str, identity: dict | None = Depends(require_console_read)):
+@router.get("/agents/{agent_id}/profile")
+async def get_workspace_profile(agent_id: str, identity: dict | None = Depends(require_console_read)):
     identity = _require_identity(identity)
-    _require_scope(identity, "workspace.read", "workspace.write", "console.read", "console.write")
-    workspace = _load_workspace_for_identity(workspace_id, identity)
+    _require_scope(identity, "agent.read", "agent.write", "console.read", "console.write")
+    agent = _load_agent_for_identity(agent_id, identity)
     return {"profile": workspace_profile.get_profile(workspace)}
 
 
-@router.put("/workspaces/{workspace_id}/profile")
+@router.put("/agents/{agent_id}/profile")
 async def update_workspace_profile(
-    workspace_id: str,
+    agent_id: str,
     body: WorkspaceProfileUpdate,
     identity: dict | None = Depends(require_console_read),
 ):
     identity = _require_identity(identity)
-    _require_scope(identity, "workspace.write", "console.write")
-    workspace = _load_workspace_for_identity(workspace_id, identity)
-    if not _is_admin(identity) and workspace.get("owner_account_id") != _account_id(identity):
+    _require_scope(identity, "agent.write", "console.write")
+    agent = _load_agent_for_identity(agent_id, identity)
+    if not _is_admin(identity) and agent.get("owner_account_id") != _account_id(identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only the owner can update agent profile")
-    # Lock: template-bound workspace profiles can only be modified by admin
-    if workspace.get("template_id") and not _is_admin(identity):
+    # Lock: template-bound agent profiles can only be modified by admin
+    if agent.get("template_id") and not _is_admin(identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="该智能体使用模板初始化，身份信息不可在工作区修改。请联系管理员在后台管理修改。")
     _validate_profile_text_fields(body)
     try:
@@ -258,17 +258,17 @@ async def update_workspace_profile(
     return {"profile": profile}
 
 
-@router.get("/workspaces/{workspace_id}/serve/{file_path:path}")
-async def serve_workspace_file(workspace_id: str, file_path: str, identity: dict | None = Depends(require_console_read)):
-    """Serve a static file from the workspace directory (HTML, images, etc.)."""
+@router.get("/agents/{agent_id}/serve/{file_path:path}")
+async def serve_workspace_file(agent_id: str, file_path: str, identity: dict | None = Depends(require_console_read)):
+    """Serve a static file from the agent directory (HTML, images, etc.)."""
     identity = _require_identity(identity)
-    _load_workspace_for_identity(workspace_id, identity)
+    _load_agent_for_identity(agent_id, identity)
 
-    workspace = workspaces.get_workspace(workspace_id)
-    if workspace is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="workspace not found")
+    agent = agents.get_agent(agent_id)
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent not found")
 
-    root = workspaces.resolve_workspace_path(workspace)
+    root = agents.resolve_agent_path(agent)
     target = (root / file_path).resolve()
     workspace_root_resolved = root.resolve()
     source = root / file_path
@@ -314,18 +314,18 @@ async def serve_workspace_file(workspace_id: str, file_path: str, identity: dict
     return FileResponse(target, media_type=content_type)
 
 
-@router.get("/workspaces/{workspace_id}/files")
+@router.get("/agents/{agent_id}/files")
 async def read_workspace_file(
-    workspace_id: str,
+    agent_id: str,
     path: str,
     identity: dict | None = Depends(require_console_read),
 ):
-    """Read a single text file inside a workspace (path-guarded), for context preview."""
+    """Read a single text file inside a agent (path-guarded), for context preview."""
     identity = _require_identity(identity)
-    _require_scope(identity, "workspace.read", "workspace.write", "console.read", "console.write")
-    workspace = _load_workspace_for_identity(workspace_id, identity)
+    _require_scope(identity, "agent.read", "agent.write", "console.read", "console.write")
+    agent = _load_agent_for_identity(agent_id, identity)
     try:
-        target = workspaces.resolve_workspace_path(workspace, path)
+        target = agents.resolve_agent_path(agent, path)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if not target.is_file():
@@ -345,22 +345,22 @@ async def read_workspace_file(
     }
 
 
-@router.get("/workspaces/{workspace_id}/file-index")
+@router.get("/agents/{agent_id}/file-index")
 async def list_workspace_file_index(
-    workspace_id: str,
+    agent_id: str,
     include_dot: bool = False,
     limit: int = 400,
     subdir: str = "",
     prefix: str = "",
     identity: dict | None = Depends(require_console_read),
 ):
-    """List workspace files by relative path (no absolute server paths exposed)."""
+    """List agent files by relative path (no absolute server paths exposed)."""
     identity = _require_identity(identity)
-    _require_scope(identity, "workspace.read", "workspace.write", "console.read", "console.write")
-    workspace = _load_workspace_for_identity(workspace_id, identity)
+    _require_scope(identity, "agent.read", "agent.write", "console.read", "console.write")
+    agent = _load_agent_for_identity(agent_id, identity)
     try:
         payload = workspace_files.list_workspace_files(
-            workspace,
+            agent,
             include_dot=include_dot,
             limit=limit,
             subdir=subdir,
@@ -371,18 +371,18 @@ async def list_workspace_file_index(
     return payload
 
 
-@router.post("/workspaces/{workspace_id}/uploads")
+@router.post("/agents/{agent_id}/uploads")
 async def upload_workspace_files(
-    workspace_id: str,
+    agent_id: str,
     files: list[UploadFile] = File(...),
     identity: dict | None = Depends(require_console_read),
 ):
-    """Upload images/files into the workspace uploads/ directory for agent runs."""
+    """Upload images/files into the agent uploads/ directory for agent runs."""
     identity = _require_identity(identity)
-    _require_scope(identity, "workspace.write", "console.write", "agent.run")
-    workspace = _load_workspace_for_identity(workspace_id, identity)
-    if not workspaces.can_run_workspace(workspace, identity):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="upload is not allowed for this workspace")
+    _require_scope(identity, "agent.write", "console.write", "agent.run")
+    agent = _load_agent_for_identity(agent_id, identity)
+    if not agents.can_run_agent(agent, identity):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="upload is not allowed for this agent")
     if not files:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="no files provided")
 
@@ -400,34 +400,34 @@ async def upload_workspace_files(
     return {"uploads": saved}
 
 
-@router.post("/workspaces/{workspace_id}/runs")
-async def create_agent_run(workspace_id: str, body: ClaudeAgentRunCreate, identity: dict | None = Depends(require_console_read)):
+@router.post("/agents/{agent_id}/runs")
+async def create_agent_run(agent_id: str, body: ClaudeAgentRunCreate, identity: dict | None = Depends(require_console_read)):
     identity = _require_identity(identity)
     _require_scope(identity, "agent.run", "console.write")
-    workspace = _load_workspace_for_identity(workspace_id, identity)
-    if not workspaces.can_run_workspace(workspace, identity):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="agent run is not allowed for this workspace")
+    agent = _load_agent_for_identity(agent_id, identity)
+    if not agents.can_run_agent(agent, identity):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="agent run is not allowed for this agent")
 
-    account_id = _account_id(identity) or workspace["owner_account_id"]
+    account_id = _account_id(identity) or agent["owner_account_id"]
     max_active = int(os.environ.get("EVOTOWN_CLAUDE_MAX_ACTIVE_RUNS_PER_ACCOUNT", "2") or "2")
     if max_active > 0 and claude_agent_runs.active_run_count(account_id) >= max_active:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="too many active hosted agent runs")
 
-    attachment_paths = _normalize_attachment_paths(workspace, list(body.attachments or []))
+    attachment_paths = _normalize_attachment_paths(agent, list(body.attachments or []))
 
-    profile = workspace_profile.get_profile(workspace)
+    profile = workspace_profile.get_profile(agent)
     run_skills = list(body.skills or []) or list(profile.get("default_skills") or [])
     run_model = claude_code_runner.resolve_run_model(body.model or profile.get("default_model") or "")
 
     run = claude_agent_runs.create_run(
-        workspace_id=workspace_id,
+        agent_id=agent_id,
         account_id=account_id,
         prompt=body.prompt,
-        tenant_id=workspace.get("tenant_id", ""),
-        team_id=workspace.get("team_id", ""),
+        tenant_id=agent.get("tenant_id", ""),
+        team_id=agent.get("team_id", ""),
         model=run_model,
         signals={
-            "workspace_name": workspace.get("name", ""),
+            "workspace_name": agent.get("name", ""),
             "selected_skills": run_skills,
             "previous_run_id": body.previous_run_id,
             "attachments": attachment_paths,
@@ -439,18 +439,18 @@ async def create_agent_run(workspace_id: str, body: ClaudeAgentRunCreate, identi
 
 @router.get("/agent-runs")
 async def list_agent_runs(
-    workspace_id: str | None = None,
+    agent_id: str | None = None,
     status_filter: str | None = None,
     limit: int = 100,
     identity: dict | None = Depends(require_console_read),
 ):
     identity = _require_identity(identity)
-    _require_scope(identity, "agent.run", "workspace.read", "console.read", "console.write")
-    if workspace_id:
-        _load_workspace_for_identity(workspace_id, identity)
+    _require_scope(identity, "agent.run", "agent.read", "console.read", "console.write")
+    if agent_id:
+        _load_agent_for_identity(agent_id, identity)
     return {
         "runs": claude_agent_runs.list_runs(
-            workspace_id=workspace_id,
+            agent_id=agent_id,
             account_id=None if _is_admin(identity) else _account_id(identity),
             status=status_filter,
             limit=limit,
@@ -461,22 +461,22 @@ async def list_agent_runs(
 @router.get("/agent-runs/{run_id}")
 async def get_agent_run(run_id: str, identity: dict | None = Depends(require_console_read)):
     identity = _require_identity(identity)
-    _require_scope(identity, "agent.run", "workspace.read", "console.read", "console.write")
+    _require_scope(identity, "agent.run", "agent.read", "console.read", "console.write")
     run = claude_agent_runs.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
-    _load_workspace_for_identity(run["workspace_id"], identity)
+    _load_agent_for_identity(run["agent_id"], identity)
     return {"run": run}
 
 
 @router.get("/agent-runs/{run_id}/events")
 async def list_agent_run_events(run_id: str, limit: int = 500, identity: dict | None = Depends(require_console_read)):
     identity = _require_identity(identity)
-    _require_scope(identity, "agent.run", "workspace.read", "console.read", "console.write")
+    _require_scope(identity, "agent.run", "agent.read", "console.read", "console.write")
     run = claude_agent_runs.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
-    _load_workspace_for_identity(run["workspace_id"], identity)
+    _load_agent_for_identity(run["agent_id"], identity)
     return {"events": claude_agent_runs.list_events(run_id, limit=limit)}
 
 
@@ -487,7 +487,7 @@ async def cancel_agent_run(run_id: str, identity: dict | None = Depends(require_
     run = claude_agent_runs.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
-    _load_workspace_for_identity(run["workspace_id"], identity)
+    _load_agent_for_identity(run["agent_id"], identity)
     if not _is_admin(identity) and run.get("account_id") != _account_id(identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not allowed to cancel this run")
     updated = await claude_code_runner.cancel_run(run_id)
@@ -496,19 +496,19 @@ async def cancel_agent_run(run_id: str, identity: dict | None = Depends(require_
     return {"run": updated}
 
 
-@router.delete("/workspaces/{workspace_id}/sessions/{session_id}")
+@router.delete("/agents/{agent_id}/sessions/{session_id}")
 async def delete_workspace_session(
-    workspace_id: str,
+    agent_id: str,
     session_id: str,
     identity: dict | None = Depends(require_console_read),
 ):
     identity = _require_identity(identity)
-    _require_scope(identity, "console.write", "workspace.write")
-    workspace = _load_workspace_for_identity(workspace_id, identity)
-    if not _is_admin(identity) and workspace.get("owner_account_id") != _account_id(identity):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only the workspace owner can delete sessions")
+    _require_scope(identity, "console.write", "agent.write")
+    agent = _load_agent_for_identity(agent_id, identity)
+    if not _is_admin(identity) and agent.get("owner_account_id") != _account_id(identity):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only the agent owner can delete sessions")
 
-    runs = claude_agent_runs.list_runs(workspace_id=workspace_id, limit=500)
+    runs = claude_agent_runs.list_runs(agent_id=agent_id, limit=500)
     run_ids = claude_agent_runs.session_run_ids(runs, session_id)
     if not run_ids:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")

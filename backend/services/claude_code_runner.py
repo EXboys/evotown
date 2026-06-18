@@ -15,7 +15,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from infra import claude_agent_runs, knowledge, skill_market, workspaces
+from infra import claude_agent_runs, knowledge, skill_market, agents
 
 DEFAULT_MODEL = "claude-sonnet-4"
 DEFAULT_ENGINE_ID = "claude-code-hosted"
@@ -192,7 +192,7 @@ def _runner_identity(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _resolve_mcp_context(workspace_id: str) -> dict[str, Any]:
+def _resolve_mcp_context(agent_id: str) -> dict[str, Any]:
     """Resolve MCP connections and tools from workspace policies (auto-inject).
 
     Returns both legacy database connections AND generic MCP tools for all
@@ -202,7 +202,7 @@ def _resolve_mcp_context(workspace_id: str) -> dict[str, Any]:
     """
     from infra import mcp_registry
 
-    policies = mcp_registry.list_policies_for_workspace(workspace_id)
+    policies = mcp_registry.list_policies_for_agent(agent_id)
     if not policies:
         return {"selection_mode": "none", "connections": [], "tools": [], "tool_skill": "database-query"}
 
@@ -274,7 +274,7 @@ def _materialize_skill(workspace: dict[str, Any], skill_id: str) -> str | None:
     skill_id = skill_id.strip()
     if not skill_id:
         return None
-    dest = workspaces.resolve_workspace_path(workspace, f".evotown/skills/{skill_id}")
+    dest = agents.resolve_agent_path(workspace, f".evotown/skills/{skill_id}")
     if dest.exists():
         shutil.rmtree(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -362,7 +362,7 @@ def _append_attachments_to_prompt(prompt: str, workspace: dict[str, Any], attach
     ]
     for rel in attachment_paths:
         try:
-            target = workspaces.resolve_workspace_path(workspace, rel)
+            target = agents.resolve_agent_path(workspace, rel)
             size = target.stat().st_size if target.is_file() else 0
         except (OSError, ValueError):
             size = 0
@@ -429,7 +429,7 @@ def _write_conversation_context(
         lines.extend(["", "## Your previous response", "", prev_result])
     content = "\n".join(lines)
 
-    root = workspaces.resolve_workspace_path(workspace)
+    root = agents.resolve_agent_path(workspace)
     evotown_dir = root / ".evotown"
     evotown_dir.mkdir(parents=True, exist_ok=True)
     path = evotown_dir / "conversation_context.md"
@@ -448,7 +448,7 @@ def _render_agent_context_md(
 ) -> str:
     skills_block = shared_context.get("skills", {})
     mcp_block = shared_context.get("mcp", {})
-    root_path = workspace_root or str(workspaces.resolve_workspace_path(workspace))
+    root_path = workspace_root or str(agents.resolve_agent_path(workspace))
     from infra import workspace_profile
 
     profile_sections = workspace_profile.profile_context_sections(profile or {})
@@ -472,7 +472,7 @@ def _render_agent_context_md(
         "# Evotown Hosted Claude Context",
         "",
         f"Run ID: `{run['run_id']}`",
-        f"Workspace ID: `{workspace['workspace_id']}`",
+        f"Workspace ID: `{workspace['agent_id']}`",
         f"Model: `{run.get('model') or DEFAULT_MODEL}`",
         "",
         f"Workspace Root: `{root_path}`",
@@ -591,12 +591,12 @@ def build_shared_context(
     prompt: str,
     team_id: str = "",
     selected_skills: list[str] | None = None,
-    workspace_id: str = "",
+    agent_id: str = "",
     account_id: str = "",
 ) -> dict[str, Any]:
     hits = _knowledge_hits(prompt, team_id=team_id)
     skills = _filter_skill_manifest(_skill_manifest(account_id), list(selected_skills or []))
-    mcp = _resolve_mcp_context(workspace_id)
+    mcp = _resolve_mcp_context(agent_id)
     return {
         "skills": skills,
         "mcp": mcp,
@@ -621,7 +621,7 @@ def _write_context_files(
 ) -> list[dict[str, Any]]:
     from infra import workspace_profile
 
-    root = workspaces.resolve_workspace_path(workspace)
+    root = agents.resolve_agent_path(workspace)
     evotown_dir = root / ".evotown"
     evotown_dir.mkdir(parents=True, exist_ok=True)
 
@@ -647,13 +647,13 @@ def _write_context_files(
     claude_md_path.write_text("\n".join(ccm_lines), encoding="utf-8")
 
     for relative, content in files:
-        path = workspaces.resolve_workspace_path(workspace, f".evotown/{relative}")
+        path = agents.resolve_agent_path(workspace, f".evotown/{relative}")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
         manifest.append({"path": f".evotown/{relative}", "sha256": digest, "bytes": len(content.encode("utf-8"))})
 
-    profile_md = workspaces.resolve_workspace_path(workspace, workspace_profile.PROFILE_MD_RELATIVE)
+    profile_md = agents.resolve_agent_path(workspace, workspace_profile.PROFILE_MD_RELATIVE)
     if profile_md.is_file():
         profile_bytes = profile_md.read_bytes()
         manifest.append(
@@ -879,11 +879,11 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
     run = claude_agent_runs.get_run(run_id)
     if run is None:
         raise ValueError("run not found")
-    workspace = workspaces.get_workspace(run["workspace_id"])
+    workspace = agents.get_agent(run["agent_id"])
     if workspace is None:
         raise ValueError("workspace not found")
 
-    root = workspaces.resolve_workspace_path(workspace)
+    root = agents.resolve_agent_path(workspace)
     model = resolve_run_model(str(run.get("model") or ""))
     claude_agent_runs.update_run_status(run_id, status="running")
     claude_agent_runs.append_event(run_id, "context.prepare", {"workspace_root": str(root), "model": model})
@@ -948,7 +948,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
         prompt=run["prompt"],
         team_id=run.get("team_id", ""),
         selected_skills=selected_skills,
-        workspace_id=workspace["workspace_id"],
+        agent_id=workspace["agent_id"],
         account_id=identity.get("account_id", ""),
     )
     shared_context["workspace_profile"] = ws_profile
@@ -1003,7 +1003,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
             signals={
                 **(run.get("signals") or {}),
                 "engine_id": DEFAULT_ENGINE_ID,
-                "workspace_id": workspace["workspace_id"],
+                "agent_id": workspace["agent_id"],
                 "execution_backend": execution_backend,
                 "sdk_command_configured": execution_backend != "dry-run",
             },
@@ -1025,7 +1025,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
             signals={
                 **(run.get("signals") or {}),
                 "engine_id": DEFAULT_ENGINE_ID,
-                "workspace_id": workspace["workspace_id"],
+                "agent_id": workspace["agent_id"],
                 "execution_backend": execution_backend,
             },
         )
@@ -1043,7 +1043,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
             signals={
                 **(run.get("signals") or {}),
                 "engine_id": DEFAULT_ENGINE_ID,
-                "workspace_id": workspace["workspace_id"],
+                "agent_id": workspace["agent_id"],
                 "execution_backend": execution_backend,
                 "sdk_command_configured": execution_backend != "dry-run",
             },
@@ -1082,7 +1082,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
         signals={
             **(run.get("signals") or {}),
             "engine_id": DEFAULT_ENGINE_ID,
-            "workspace_id": workspace["workspace_id"],
+            "agent_id": workspace["agent_id"],
             "execution_backend": execution_backend,
             "sdk_command_configured": execution_backend != "dry-run",
             "skill_count": len(shared_context.get("skills", {}).get("skills", [])),

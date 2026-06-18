@@ -9,7 +9,7 @@ import { ConsoleLoginPage } from "./components/ConsoleLoginPage";
 import { SkillsMarketPage } from "./components/market/SkillsMarketPage";
 import { PublicKnowledgePage } from "./components/PublicKnowledgePage";
 import { EnterpriseConsole } from "./components/EnterpriseConsole";
-import { CodingAgentWorkspacePage } from "./components/CodingAgentWorkspacePage";
+import { CodingAgentChatPage } from "./components/CodingAgentChatPage";
 import { useEvotownStore } from "./store/evotownStore";
 import { initDisplayTimezoneFromServer } from "./lib/datetime";
 import { useDisplayTimezone } from "./hooks/useDisplayTimezone";
@@ -59,7 +59,7 @@ function App() {
         <Route path="/engines" element={<EnterpriseConsole initialTab="engines" />} />
         <Route path="/dispatch" element={<EnterpriseConsole initialTab="dispatch" />} />
         <Route path="/agent" element={<EnterpriseConsole initialTab="coding" />} />
-        <Route path="/agent/workspaces/:workspaceId" element={<CodingAgentWorkspacePage />} />
+        <Route path="/agent/agents/:agentId" element={<CodingAgentChatPage />} />
         <Route path="/runs" element={<EnterpriseConsole initialTab="runs" />} />
         <Route path="/assets" element={<EnterpriseConsole initialTab="assets" />} />
         <Route path="/policies" element={<EnterpriseConsole initialTab="policies" />} />

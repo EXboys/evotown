@@ -102,8 +102,8 @@ services:
       - EVOTOWN_CLAUDE_VISION_MAX_TOKENS=${EVOTOWN_CLAUDE_VISION_MAX_TOKENS:-2048}
       - EVOTOWN_CLAUDE_VISION_TIMEOUT_SEC=${EVOTOWN_CLAUDE_VISION_TIMEOUT_SEC:-120}
       - EVOTOWN_DB_MCP_URL=${EVOTOWN_DB_MCP_URL:-http://db-mcp-proxy:9100}
-      - EVOTOWN_WORKSPACES_HOST_DIR=${EVOTOWN_WORKSPACES_HOST_DIR:-/usr/local/agent-data/workspace}
-      - EVOTOWN_WORKSPACES_DIR=/app/data/workspaces
+      - EVOTOWN_AGENTS_HOST_DIR=${EVOTOWN_AGENTS_HOST_DIR:-/usr/local/agent-data/agents}
+      - EVOTOWN_AGENTS_DIR=/app/data/agents
     # 使用定制 seccomp profile，允许 bubblewrap (bwrap) 创建 user namespace，
     # 同时拦截最危险的内核级 syscall（kexec / module load / perf_event 等）。
     # 比 seccomp:unconfined 更安全：默认 ALLOW 但明确 DENY 高危操作。
@@ -118,8 +118,8 @@ services:
       # 实验数据持久化（SQLite WAL + social_log.jsonl）
       # 关键：容器重启后数据不丢失；可直接在宿主机 ./data/ 查看/备份文件
       - ./data:/app/data
-      # Agent workspace 持久化（每个账号独立沙盒，docker 重建不丢失）
-      - ${EVOTOWN_WORKSPACES_HOST_DIR:-/usr/local/agent-data/workspace}:/app/data/workspaces
+      # Agent sandbox 持久化（docker 重建不丢失）
+      - ${EVOTOWN_AGENTS_HOST_DIR:-/usr/local/agent-data/agents}:/app/data/agents
       # MCP 动态服务代码持久化
       - ${EVOTOWN_MCP_SERVICES_HOST_DIR:-/usr/local/agent-data/mcp-services}:/app/data/mcp-services
       # MCP 开发环境目录（共享）

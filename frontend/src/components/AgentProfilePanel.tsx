@@ -6,9 +6,9 @@ import {
   buildProfileFromPreset,
   presetLabelForType,
   profileNeedsPresetFill,
-} from "../lib/workspaceAgentPresets";
+} from "../lib/agentPresets";
 
-export type WorkspaceAgentProfile = {
+export type AgentAgentProfile = {
   agent_type: string;
   soul: string;
   paradigm: string;
@@ -24,15 +24,15 @@ type SkillOption = { id: string; name: string; summary?: string };
 type McpOption = { id: string; name: string; db_type?: string };
 
 type Props = {
-  workspaceId: string;
+  agentId: string;
   models: ModelOption[];
   skills: SkillOption[];
   mcp: McpOption[];
   defaultModel: string;
-  onSaved?: (profile: WorkspaceAgentProfile) => void;
+  onSaved?: (profile: AgentAgentProfile) => void;
 };
 
-const EMPTY_PROFILE: WorkspaceAgentProfile = {
+const EMPTY_PROFILE: AgentAgentProfile = {
   agent_type: "",
   soul: "",
   paradigm: "",
@@ -58,10 +58,10 @@ async function readJson<T>(res: Response): Promise<T> {
 }
 
 function mergePresetIntoProfile(
-  prev: WorkspaceAgentProfile,
+  prev: AgentAgentProfile,
   typeId: string,
   skillIds: Set<string>,
-): WorkspaceAgentProfile {
+): AgentAgentProfile {
   if (!typeId) {
     return {
       ...prev,
@@ -85,15 +85,15 @@ function mergePresetIntoProfile(
   };
 }
 
-export function WorkspaceAgentProfilePanel({
-  workspaceId,
+export function AgentAgentProfilePanel({
+  agentId,
   models,
   skills,
   mcp,
   defaultModel,
   onSaved,
 }: Props) {
-  const [profile, setProfile] = useState<WorkspaceAgentProfile>(EMPTY_PROFILE);
+  const [profile, setProfile] = useState<AgentAgentProfile>(EMPTY_PROFILE);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
@@ -103,7 +103,7 @@ export function WorkspaceAgentProfilePanel({
   const skillIdSet = useMemo(() => new Set(skills.map((item) => item.id)), [skills]);
 
   const applyTypePreset = useCallback(
-    (typeId: string, prev: WorkspaceAgentProfile) => {
+    (typeId: string, prev: AgentAgentProfile) => {
       const next = mergePresetIntoProfile(prev, typeId, skillIdSet);
       if (!typeId) {
         setTemplateHint("已切换为自定义，身份 / 范式 / 标准已清空");
@@ -118,11 +118,11 @@ export function WorkspaceAgentProfilePanel({
   );
 
   const loadProfile = useCallback(async () => {
-    if (!workspaceId) return;
+    if (!agentId) return;
     setLoading(true);
     try {
-      const data = await adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/profile`).then((res) =>
-        readJson<{ profile?: WorkspaceAgentProfile }>(res),
+      const data = await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/profile`).then((res) =>
+        readJson<{ profile?: AgentAgentProfile }>(res),
       );
       let next = { ...EMPTY_PROFILE, ...(data.profile || {}) };
       if (profileNeedsPresetFill(next)) {
@@ -140,7 +140,7 @@ export function WorkspaceAgentProfilePanel({
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, skillIdSet]);
+  }, [agentId, skillIdSet]);
 
   useEffect(() => {
     void loadProfile();
@@ -169,14 +169,14 @@ export function WorkspaceAgentProfilePanel({
   };
 
   const save = async () => {
-    if (!workspaceId) return;
+    if (!agentId) return;
     setSaving(true);
     setMessage(null);
     try {
-      const data = await adminFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/profile`, {
+      const data = await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/profile`, {
         method: "PUT",
         body: JSON.stringify(profile),
-      }).then((res) => readJson<{ profile: WorkspaceAgentProfile }>(res));
+      }).then((res) => readJson<{ profile: AgentAgentProfile }>(res));
       setProfile(data.profile);
       setDirty(false);
       setTemplateHint("");

@@ -248,7 +248,7 @@ async def lifespan(app: FastAPI):
     _claude_watchdog_task = asyncio.create_task(stale_run_watchdog_loop())
 
     # Ensure shared MCP dev directory on startup
-    from infra.workspaces import _copy_mcp_system_files
+    from infra.agents import _copy_mcp_system_files
     _dev_dir = _P_import(_os_import.environ.get("EVOTOWN_MCP_DEV_DIR", "/app/data/mcp-dev"))
     _dev_dir.mkdir(parents=True, exist_ok=True)
     _copy_mcp_system_files(_dev_dir)

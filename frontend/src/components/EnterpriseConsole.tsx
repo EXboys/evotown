@@ -438,10 +438,10 @@ function StatCard({ label, value, note }: { label: string; value: string | numbe
 
 export function EnterpriseConsole({
   initialTab = "dashboard",
-  initialWorkspaceId = "",
+  initialAgentId = "",
 }: {
   initialTab?: ConsoleTab;
-  initialWorkspaceId?: string;
+  initialAgentId?: string;
 }) {
   const navigate = useNavigate();
   const { locale, setLocale } = useLocale();
@@ -784,7 +784,7 @@ export function EnterpriseConsole({
             {tab === "accounts" && <GatewayAccountsPanel locale={locale} />}
             {tab === "engines" && <Engines engines={data.engines} runs={data.runs} violations={data.violations} />}
             {tab === "dispatch" && <DispatchPanel engines={data.engines} onRefresh={load} />}
-            {tab === "coding" && <CodingAgentPage locale={locale} initialWorkspaceId={initialWorkspaceId} />}
+            {tab === "coding" && <CodingAgentPage locale={locale} initialAgentId={initialAgentId} />}
             {tab === "runs" && <Runs runs={data.runs} selectedRun={selectedRun} events={events} loading={eventsLoading} onRun={openRun} onAssetSubmitted={() => setRoute("assets")} />}
             {tab === "skills" && <SkillsManagementPage />}
             {tab === "assets" && <AssetsPanel />}

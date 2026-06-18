@@ -54,9 +54,9 @@ _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
         ),
         "default_model": "",
         "default_skills": [],
-        "has_workspace_dir": True,
-        "workspace_dir_root": "server",
-        "workspace_dir_prefix": "mcp-dev/",
+        "has_agent_dir": True,
+        "agent_dir_root": "server",
+        "agent_dir_prefix": "mcp-dev/",
     },
     {
         "template_id": "builtin:skill-developer",
@@ -68,9 +68,9 @@ _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
         "standards": "遵循 evotown Skill 规范",
         "default_model": "",
         "default_skills": [],
-        "has_workspace_dir": True,
-        "workspace_dir_root": "workspace",
-        "workspace_dir_prefix": "skills/",
+        "has_agent_dir": True,
+        "agent_dir_root": "workspace",
+        "agent_dir_prefix": "skills/",
     },
 ]
 
@@ -89,9 +89,9 @@ def _db() -> sqlite3.Connection:
             standards             TEXT NOT NULL DEFAULT '',
             default_model         TEXT NOT NULL DEFAULT '',
             default_skills        TEXT NOT NULL DEFAULT '[]',
-            has_workspace_dir     INTEGER NOT NULL DEFAULT 0,
-            workspace_dir_root    TEXT NOT NULL DEFAULT 'workspace',
-            workspace_dir_prefix  TEXT NOT NULL DEFAULT '',
+            has_agent_dir     INTEGER NOT NULL DEFAULT 0,
+            agent_dir_root    TEXT NOT NULL DEFAULT 'workspace',
+            agent_dir_prefix  TEXT NOT NULL DEFAULT '',
             seed_version          TEXT NOT NULL DEFAULT '',
             created_at            TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
@@ -135,8 +135,8 @@ def _insert_builtin(conn: sqlite3.Connection, tpl: dict[str, Any]) -> None:
     conn.execute(
         """INSERT INTO agent_identity_templates
            (template_id, name, description, category, soul, paradigm, standards,
-            default_model, default_skills, has_workspace_dir, workspace_dir_root,
-            workspace_dir_prefix, seed_version)
+            default_model, default_skills, has_agent_dir, agent_dir_root,
+            agent_dir_prefix, seed_version)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             tpl["template_id"],
@@ -148,9 +148,9 @@ def _insert_builtin(conn: sqlite3.Connection, tpl: dict[str, Any]) -> None:
             tpl["standards"],
             tpl["default_model"],
             json.dumps(tpl.get("default_skills", [])),
-            int(tpl.get("has_workspace_dir", False)),
-            tpl.get("workspace_dir_root", "workspace"),
-            tpl.get("workspace_dir_prefix", ""),
+            int(tpl.get("has_agent_dir", False)),
+            tpl.get("agent_dir_root", "workspace"),
+            tpl.get("agent_dir_prefix", ""),
             BUILTIN_TEMPLATE_VERSION,
         ),
     )
@@ -160,16 +160,16 @@ def _update_builtin(conn: sqlite3.Connection, tpl: dict[str, Any]) -> None:
     conn.execute(
         """UPDATE agent_identity_templates SET
            name=?, description=?, category=?, soul=?, paradigm=?, standards=?,
-           default_model=?, default_skills=?, has_workspace_dir=?, workspace_dir_root=?,
-           workspace_dir_prefix=?, seed_version=?, updated_at=datetime('now')
+           default_model=?, default_skills=?, has_agent_dir=?, agent_dir_root=?,
+           agent_dir_prefix=?, seed_version=?, updated_at=datetime('now')
            WHERE template_id=?""",
         (
             tpl["name"], tpl["description"], tpl["category"],
             tpl["soul"], tpl["paradigm"], tpl["standards"],
             tpl["default_model"], json.dumps(tpl.get("default_skills", [])),
-            int(tpl.get("has_workspace_dir", False)),
-            tpl.get("workspace_dir_root", "workspace"),
-            tpl.get("workspace_dir_prefix", ""),
+            int(tpl.get("has_agent_dir", False)),
+            tpl.get("agent_dir_root", "workspace"),
+            tpl.get("agent_dir_prefix", ""),
             BUILTIN_TEMPLATE_VERSION,
             tpl["template_id"],
         ),
@@ -179,7 +179,7 @@ def _update_builtin(conn: sqlite3.Connection, tpl: dict[str, Any]) -> None:
 def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     d = dict(row)
     d["default_skills"] = json.loads(d.get("default_skills", "[]"))
-    d["has_workspace_dir"] = bool(d.get("has_workspace_dir"))
+    d["has_agent_dir"] = bool(d.get("has_agent_dir"))
     return d
 
 
@@ -209,19 +209,19 @@ def create_template(**fields: Any) -> dict[str, Any]:
     conn = _db()
     tid = fields.pop("template_id", "") or f"tpl_{uuid.uuid4().hex[:12]}"
     skills = json.dumps(fields.pop("default_skills", []), ensure_ascii=False)
-    wd = int(fields.pop("has_workspace_dir", False))
+    wd = int(fields.pop("has_agent_dir", False))
     conn.execute(
         """INSERT INTO agent_identity_templates
            (template_id, name, description, category, soul, paradigm, standards,
-            default_model, default_skills, has_workspace_dir, workspace_dir_root, workspace_dir_prefix)
+            default_model, default_skills, has_agent_dir, agent_dir_root, agent_dir_prefix)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             tid, fields.get("name", ""), fields.get("description", ""),
             fields.get("category", "department"),
             fields.get("soul", ""), fields.get("paradigm", ""), fields.get("standards", ""),
             fields.get("default_model", ""), skills, wd,
-            fields.get("workspace_dir_root", "workspace"),
-            fields.get("workspace_dir_prefix", ""),
+            fields.get("agent_dir_root", "workspace"),
+            fields.get("agent_dir_prefix", ""),
         ),
     )
     return get_template(tid) or {}
@@ -237,8 +237,8 @@ def update_template(**fields: Any) -> dict[str, Any] | None:
     conn.execute(
         """UPDATE agent_identity_templates SET
            name=?, description=?, category=?, soul=?, paradigm=?, standards=?,
-           default_model=?, default_skills=?, has_workspace_dir=?, workspace_dir_root=?,
-           workspace_dir_prefix=?, updated_at=datetime('now')
+           default_model=?, default_skills=?, has_agent_dir=?, agent_dir_root=?,
+           agent_dir_prefix=?, updated_at=datetime('now')
            WHERE template_id=?""",
         (
             fields.get("name", existing["name"]),
@@ -249,9 +249,9 @@ def update_template(**fields: Any) -> dict[str, Any] | None:
             fields.get("standards", existing.get("standards", "")),
             fields.get("default_model", existing.get("default_model", "")),
             skills,
-            int(fields.get("has_workspace_dir", existing.get("has_workspace_dir", False))),
-            fields.get("workspace_dir_root", existing.get("workspace_dir_root", "workspace")),
-            fields.get("workspace_dir_prefix", existing.get("workspace_dir_prefix", "")),
+            int(fields.get("has_agent_dir", existing.get("has_agent_dir", False))),
+            fields.get("agent_dir_root", existing.get("agent_dir_root", "workspace")),
+            fields.get("agent_dir_prefix", existing.get("agent_dir_prefix", "")),
             tid,
         ),
     )

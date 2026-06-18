@@ -1,11 +1,11 @@
-"""Persistent agent profile for hosted coding workspaces."""
+"""Persistent agent profile for hosted coding agents."""
 from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
 from typing import Any
 
-from infra import workspaces
+from infra import agents
 
 PROFILE_RELATIVE = ".evotown/profile.json"
 PROFILE_MD_RELATIVE = ".evotown/AGENT_PROFILE.md"
@@ -25,7 +25,7 @@ DEFAULT_PROFILE: dict[str, Any] = {
 
 
 def _profile_path(workspace: dict[str, Any]):
-    return workspaces.resolve_workspace_path(workspace, PROFILE_RELATIVE)
+    return agents.resolve_agent_path(workspace, PROFILE_RELATIVE)
 
 
 def get_profile(workspace: dict[str, Any]) -> dict[str, Any]:
@@ -125,7 +125,7 @@ def _write_profile_md(workspace: dict[str, Any], profile: dict[str, Any]) -> Non
     if defaults:
         lines.extend(["## Run Defaults", "", *defaults, ""])
     content = "\n".join(lines).strip() + "\n"
-    md_path = workspaces.resolve_workspace_path(workspace, PROFILE_MD_RELATIVE)
+    md_path = agents.resolve_agent_path(workspace, PROFILE_MD_RELATIVE)
     md_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.write_text(content, encoding="utf-8")
 

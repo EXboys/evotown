@@ -6,7 +6,7 @@ type AgentTemplate = {
   template_id: string; name: string; description: string; category: "department" | "personal";
   soul: string; paradigm: string; standards: string;
   default_model: string; default_skills: string[];
-  has_workspace_dir: boolean; workspace_dir_root: string; workspace_dir_prefix: string;
+  has_agent_dir: boolean; agent_dir_root: string; agent_dir_prefix: string;
   builtin?: boolean; seed_version?: string;
 };
 
@@ -92,8 +92,8 @@ const COPY = {
 const EMPTY_FORM = {
   name: "", description: "", soul: "", paradigm: "", standards: "",
   default_model: "", default_skills: [] as string[],
-  has_workspace_dir: false, workspace_dir_root: "workspace" as "workspace" | "server",
-  workspace_dir_prefix: "",
+  has_agent_dir: false, agent_dir_root: "workspace" as "workspace" | "server",
+  agent_dir_prefix: "",
 };
 
 export function AgentTemplatePanel({ locale }: { locale: Locale }) {
@@ -126,7 +126,7 @@ export function AgentTemplatePanel({ locale }: { locale: Locale }) {
   const startEdit = (tpl?: AgentTemplate) => {
     if (tpl) {
       setEditing(tpl);
-      setForm({ name: tpl.name, description: tpl.description, soul: tpl.soul, paradigm: tpl.paradigm, standards: tpl.standards, default_model: tpl.default_model, default_skills: [...tpl.default_skills], has_workspace_dir: tpl.has_workspace_dir, workspace_dir_root: tpl.workspace_dir_root as "workspace" | "server", workspace_dir_prefix: tpl.workspace_dir_prefix });
+      setForm({ name: tpl.name, description: tpl.description, soul: tpl.soul, paradigm: tpl.paradigm, standards: tpl.standards, default_model: tpl.default_model, default_skills: [...tpl.default_skills], has_agent_dir: tpl.has_agent_dir, agent_dir_root: tpl.agent_dir_root as "workspace" | "server", agent_dir_prefix: tpl.agent_dir_prefix });
     } else {
       setEditing(null);
       setForm({ ...EMPTY_FORM });
@@ -210,7 +210,7 @@ export function AgentTemplatePanel({ locale }: { locale: Locale }) {
                   <div className="flex flex-wrap gap-1.5 text-[11px] text-slate-400">
                     {tpl.default_model && <span className="rounded-md border border-slate-100 bg-slate-50 px-1.5 py-0.5">Model: {tpl.default_model}</span>}
                     {tpl.default_skills.length > 0 && <span className="rounded-md border border-slate-100 bg-slate-50 px-1.5 py-0.5">{copy.skillsCount.replace("{n}", String(tpl.default_skills.length))}</span>}
-                    {tpl.has_workspace_dir && <span className="rounded-md border border-slate-100 bg-slate-50 px-1.5 py-0.5">{copy.dirLabel.replace("{root}", tpl.workspace_dir_root === "server" ? "{server}" : tpl.workspace_dir_root === "shared" ? "{server}" : tpl.workspace_dir_root).replace("{prefix}", tpl.workspace_dir_prefix)}</span>}
+                    {tpl.has_agent_dir && <span className="rounded-md border border-slate-100 bg-slate-50 px-1.5 py-0.5">{copy.dirLabel.replace("{root}", tpl.agent_dir_root === "server" ? "{server}" : tpl.agent_dir_root === "shared" ? "{server}" : tpl.agent_dir_root).replace("{prefix}", tpl.agent_dir_prefix)}</span>}
                   </div>
                 </div>
                 {tpl.category === "department" && (
@@ -262,14 +262,14 @@ export function AgentTemplatePanel({ locale }: { locale: Locale }) {
 
               {/* Workspace dir */}
               <div className="border-t border-slate-100 pt-4"><span className="text-xs font-semibold uppercase tracking-wide text-slate-400">{copy.workspaceDir}</span></div>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={form.has_workspace_dir} onChange={(e) => setForm({ ...form, has_workspace_dir: e.target.checked })} /><span className="text-sm text-slate-700">{copy.initDir}</span></label>
-              {form.has_workspace_dir && (
+              <label className="flex items-center gap-2"><input type="checkbox" checked={form.has_agent_dir} onChange={(e) => setForm({ ...form, has_agent_dir: e.target.checked })} /><span className="text-sm text-slate-700">{copy.initDir}</span></label>
+              {form.has_agent_dir && (
                 <div className="space-y-3 rounded-lg border border-slate-100 bg-slate-50/70 p-3">
                   <div className="flex items-center gap-4">
                     <div className="text-xs text-slate-500">{copy.dirRoot}</div>
-                    {(["workspace", "server"] as const).map((r) => <label key={r} className="flex items-center gap-1.5"><input type="radio" name="dirRoot" checked={form.workspace_dir_root === r} onChange={() => setForm({ ...form, workspace_dir_root: r })} /><span className="text-sm text-slate-700">{r === "workspace" ? copy.dirRootWorkspace : copy.dirRootServer}</span></label>)}
+                    {(["workspace", "server"] as const).map((r) => <label key={r} className="flex items-center gap-1.5"><input type="radio" name="dirRoot" checked={form.agent_dir_root === r} onChange={() => setForm({ ...form, agent_dir_root: r })} /><span className="text-sm text-slate-700">{r === "workspace" ? copy.dirRootWorkspace : copy.dirRootServer}</span></label>)}
                   </div>
-                  <label className="block"><span className="mb-1 block text-xs text-slate-500">{copy.dirPrefix}</span><input className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" value={form.workspace_dir_prefix} onChange={(e) => setForm({ ...form, workspace_dir_prefix: e.target.value })} placeholder="skills/" /></label>
+                  <label className="block"><span className="mb-1 block text-xs text-slate-500">{copy.dirPrefix}</span><input className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" value={form.agent_dir_prefix} onChange={(e) => setForm({ ...form, agent_dir_prefix: e.target.value })} placeholder="skills/" /></label>
                 </div>
               )}
             </div>
@@ -299,7 +299,7 @@ export function AgentTemplatePanel({ locale }: { locale: Locale }) {
               {viewing.standards && <div><div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{copy.standards}</div><p className="whitespace-pre-wrap text-slate-700">{viewing.standards}</p></div>}
               {viewing.default_model && <div><div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{copy.defaultModel}</div><p className="text-slate-700">{viewing.default_model}</p></div>}
               {viewing.default_skills.length > 0 && <div><div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{copy.defaultSkills}</div><div className="flex flex-wrap gap-1.5">{viewing.default_skills.map(s => <span key={s} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">{s}</span>)}</div></div>}
-              {viewing.has_workspace_dir && <div><div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{copy.workspaceDir}</div><p className="text-slate-700">{copy.dirLabel.replace("{root}", viewing.workspace_dir_root === "server" ? "{server}" : viewing.workspace_dir_root === "shared" ? "{server}" : viewing.workspace_dir_root).replace("{prefix}", viewing.workspace_dir_prefix)}</p></div>}
+              {viewing.has_agent_dir && <div><div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{copy.workspaceDir}</div><p className="text-slate-700">{copy.dirLabel.replace("{root}", viewing.agent_dir_root === "server" ? "{server}" : viewing.agent_dir_root === "shared" ? "{server}" : viewing.agent_dir_root).replace("{prefix}", viewing.agent_dir_prefix)}</p></div>}
             </div>
             <div className="flex border-t border-slate-100 px-6 py-4">
               <button onClick={() => setViewing(null)} className="w-full rounded-lg border border-slate-200 py-2.5 text-sm text-slate-600 hover:bg-slate-50">{locale === "zh" ? "关闭" : "Close"}</button>

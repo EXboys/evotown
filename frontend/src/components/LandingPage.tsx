@@ -117,7 +117,7 @@ export function LandingPage() {
   const { locale, setLocale } = useLocale();
   const copy = COPY[locale];
   const [latestChronicle, setLatestChronicle] = useState<{ preview: string; chapter_label: string; virtual_date: string } | null>(null);
-  const [workspaces, setWorkspaces] = useState<Array<{ workspace_id: string; name: string; status: string; model_policy?: string; updated_at: string }>>([]);
+  const [workspaces, setWorkspaces] = useState<Array<{ agent_id: string; name: string; status: string; model_policy?: string; updated_at: string }>>([]);
   const [workspacesLoading, setWorkspacesLoading] = useState(false);
 
   useEffect(() => {
@@ -133,7 +133,7 @@ export function LandingPage() {
   useEffect(() => {
     if (!isConsoleAuthenticated()) return;
     setWorkspacesLoading(true);
-    adminFetch("/api/v1/workspaces?include_all=false&limit=50")
+    adminFetch("/api/v1/agents?include_all=false&limit=50")
       .then((r) => r.json())
       .then((d) => setWorkspaces((d.workspaces || []) as typeof workspaces))
       .catch(() => setWorkspaces([]))
@@ -213,9 +213,9 @@ export function LandingPage() {
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {workspaces.map((ws) => (
                     <button
-                      key={ws.workspace_id}
+                      key={ws.agent_id}
                       type="button"
-                      onClick={() => navigate(`/agent/workspaces/${encodeURIComponent(ws.workspace_id)}`)}
+                      onClick={() => navigate(`/agent/agents/${encodeURIComponent(ws.agent_id)}`)}
                       className="group rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
                     >
                       <div className="flex items-start justify-between gap-2">

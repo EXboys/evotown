@@ -74,18 +74,18 @@ def _ensure_conn() -> sqlite3.Connection:
         );
         CREATE INDEX IF NOT EXISTS idx_mcp_services_status ON mcp_services(status);
 
-        CREATE TABLE IF NOT EXISTS mcp_workspace_policies (
+        CREATE TABLE IF NOT EXISTS agent_mcp_policies (
             policy_id      TEXT PRIMARY KEY,
             service_id     TEXT NOT NULL,
-            workspace_id   TEXT NOT NULL,
+            agent_id   TEXT NOT NULL,
             enabled        INTEGER NOT NULL DEFAULT 1,
             row_rules      TEXT NOT NULL DEFAULT '[]',
             created_at     TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
-            UNIQUE(service_id, workspace_id)
+            UNIQUE(service_id, agent_id)
         );
-        CREATE INDEX IF NOT EXISTS idx_mcp_policies_service ON mcp_workspace_policies(service_id);
-        CREATE INDEX IF NOT EXISTS idx_mcp_policies_workspace ON mcp_workspace_policies(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_mcp_policies_service ON agent_mcp_policies(service_id);
+        CREATE INDEX IF NOT EXISTS idx_mcp_policies_workspace ON agent_mcp_policies(agent_id);
 
         CREATE TABLE IF NOT EXISTS agent_roles (
             role_id        TEXT PRIMARY KEY,
@@ -97,10 +97,10 @@ def _ensure_conn() -> sqlite3.Connection:
 
         CREATE TABLE IF NOT EXISTS agent_role_members (
             role_id        TEXT NOT NULL,
-            workspace_id   TEXT NOT NULL,
-            UNIQUE(role_id, workspace_id)
+            agent_id   TEXT NOT NULL,
+            UNIQUE(role_id, agent_id)
         );
-        CREATE INDEX IF NOT EXISTS idx_agent_role_members_ws ON agent_role_members(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_agent_role_members_ws ON agent_role_members(agent_id);
 
         CREATE TABLE IF NOT EXISTS agent_role_mcp_policies (
             policy_id      TEXT PRIMARY KEY,
@@ -142,7 +142,7 @@ def _ensure_conn() -> sqlite3.Connection:
             snapshot_input_schema   TEXT NOT NULL DEFAULT '{}',
             snapshot_output_schema  TEXT NOT NULL DEFAULT '{}',
             status                  TEXT NOT NULL DEFAULT 'pending',
-            submitted_by_workspace  TEXT NOT NULL DEFAULT '',
+            submitted_by_agent_id  TEXT NOT NULL DEFAULT '',
             submitted_by_account    TEXT NOT NULL DEFAULT '',
             submitted_at            TEXT NOT NULL DEFAULT (datetime('now')),
             reviewed_by             TEXT NOT NULL DEFAULT '',
@@ -201,20 +201,43 @@ def _migrate_tables(conn: sqlite3.Connection) -> None:
             conn.execute("ALTER TABLE mcp_role_members RENAME TO agent_role_members")
             conn.execute("ALTER TABLE mcp_role_policies RENAME TO agent_role_mcp_policies")
 
+    # Migrate mcp_workspace_policies → agent_mcp_policies and rename workspace_id → agent_id
+    if "mcp_workspace_policies" in tables:
+        old_cnt = conn.execute("SELECT COUNT(*) FROM mcp_workspace_policies").fetchone()[0]
+        new_cnt = 0
+        if "agent_mcp_policies" in tables:
+            new_cnt = conn.execute("SELECT COUNT(*) FROM agent_mcp_policies").fetchone()[0]
+        if old_cnt > 0 and new_cnt == 0:
+            conn.execute("DROP TABLE IF EXISTS agent_mcp_policies")
+            conn.execute("ALTER TABLE mcp_workspace_policies RENAME TO agent_mcp_policies")
+    
+    # Rename workspace_id → agent_id in existing tables
+    for tbl in ["agent_mcp_policies", "agent_role_members", "mcp_services"]:
+        if tbl in tables:
+            cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({tbl})").fetchall()}
+            if "workspace_id" in cols and "agent_id" not in cols:
+                conn.execute(f"ALTER TABLE {tbl} RENAME COLUMN workspace_id TO agent_id")
+    
+    # submitted_by_workspace → submitted_by_agent_id in mcp_service_versions
+    if "mcp_service_versions" in tables:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(mcp_service_versions)").fetchall()}
+        if "submitted_by_workspace" in cols and "submitted_by_agent_id" not in cols:
+            conn.execute("ALTER TABLE mcp_service_versions RENAME COLUMN submitted_by_workspace TO submitted_by_agent_id")
+
     # Ensure indexes exist
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_role_members_ws ON agent_role_members(workspace_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_role_mcp_svc ON agent_role_mcp_policies(service_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_role_mcp_role ON agent_role_mcp_policies(role_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_role_members_ws ON agent_role_members(agent_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_role_mcp_svc ON agent_mcp_policies(service_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_role_mcp_role ON agent_mcp_policies(role_id)")
 
 
 def _migrate_drop_legacy_columns(conn: sqlite3.Connection) -> None:
-    """Drop legacy columns (db_type, manifest, workspace_id, service_type) if they exist.
+    """Drop legacy columns (db_type, manifest, agent_id, service_type) if they exist.
 
     SQLite doesn't support DROP COLUMN in older versions, so we use a recreation strategy
     only if the table was created with the old schema (has 'db_type' column).
     """
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(mcp_services)").fetchall()}
-    legacy = {"db_type", "manifest", "workspace_id", "service_type"} & cols
+    legacy = {"db_type", "manifest", "agent_id", "service_type"} & cols
     if not legacy:
         return
     # Simple approach: just ignore the columns (SQLite is flexible with extra columns).
@@ -362,7 +385,7 @@ def delete_service(service_id: str) -> bool:
         raise PermissionError("系统 MCP 不可删除")
     conn = _ensure_conn()
     cur = conn.execute("DELETE FROM mcp_services WHERE service_id=?", (service_id,))
-    conn.execute("DELETE FROM mcp_workspace_policies WHERE service_id=?", (service_id,))
+    conn.execute("DELETE FROM agent_mcp_policies WHERE service_id=?", (service_id,))
     conn.execute("DELETE FROM agent_role_mcp_policies WHERE service_id=?", (service_id,))
     return cur.rowcount > 0
 
@@ -378,17 +401,17 @@ def _policy_from_row(row: sqlite3.Row) -> dict[str, Any]:
     return d
 
 
-def get_policy(service_id: str, workspace_id: str) -> dict[str, Any] | None:
+def get_policy(service_id: str, agent_id: str) -> dict[str, Any] | None:
     row = _ensure_conn().execute(
-        "SELECT * FROM mcp_workspace_policies WHERE service_id=? AND workspace_id=?",
-        (service_id, workspace_id),
+        "SELECT * FROM agent_mcp_policies WHERE service_id=? AND agent_id=?",
+        (service_id, agent_id),
     ).fetchone()
     return _policy_from_row(row) if row else None
 
 
 def list_policies_for_service(service_id: str) -> list[dict[str, Any]]:
     rows = _ensure_conn().execute(
-        "SELECT * FROM mcp_workspace_policies WHERE service_id=? ORDER BY updated_at DESC",
+        "SELECT * FROM agent_mcp_policies WHERE service_id=? ORDER BY updated_at DESC",
         (service_id,),
     ).fetchall()
     return [_policy_from_row(row) for row in rows]
@@ -396,7 +419,7 @@ def list_policies_for_service(service_id: str) -> list[dict[str, Any]]:
 
 def set_policy(
     service_id: str,
-    workspace_id: str,
+    agent_id: str,
     *,
     enabled: bool,
     row_rules: list[dict[str, Any]] | None = None,
@@ -406,23 +429,23 @@ def set_policy(
     rules_json = json.dumps(row_rules or [], ensure_ascii=False)
     conn.execute(
         """
-        INSERT INTO mcp_workspace_policies (policy_id, service_id, workspace_id, enabled, row_rules, updated_at)
+        INSERT INTO agent_mcp_policies (policy_id, service_id, agent_id, enabled, row_rules, updated_at)
         VALUES (?, ?, ?, ?, ?, datetime('now'))
-        ON CONFLICT(service_id, workspace_id) DO UPDATE SET
+        ON CONFLICT(service_id, agent_id) DO UPDATE SET
             enabled=excluded.enabled,
             row_rules=excluded.row_rules,
             updated_at=datetime('now')
         """,
-        (policy_id, service_id, workspace_id, 1 if enabled else 0, rules_json),
+        (policy_id, service_id, agent_id, 1 if enabled else 0, rules_json),
     )
-    return get_policy(service_id, workspace_id) or {}
+    return get_policy(service_id, agent_id) or {}
 
 
-def delete_policy(service_id: str, workspace_id: str) -> bool:
+def delete_policy(service_id: str, agent_id: str) -> bool:
     conn = _ensure_conn()
     cur = conn.execute(
-        "DELETE FROM mcp_workspace_policies WHERE service_id=? AND workspace_id=?",
-        (service_id, workspace_id),
+        "DELETE FROM agent_mcp_policies WHERE service_id=? AND agent_id=?",
+        (service_id, agent_id),
     )
     return cur.rowcount > 0
 
@@ -482,26 +505,26 @@ def delete_role(role_id: str) -> bool:
 
 def list_role_members(role_id: str) -> list[str]:
     rows = _ensure_conn().execute(
-        "SELECT workspace_id FROM agent_role_members WHERE role_id=? ORDER BY workspace_id",
+        "SELECT agent_id FROM agent_role_members WHERE role_id=? ORDER BY agent_id",
         (role_id,),
     ).fetchall()
-    return [r["workspace_id"] for r in rows]
+    return [r["agent_id"] for r in rows]
 
 
-def list_workspace_roles(workspace_id: str) -> list[str]:
+def list_workspace_roles(agent_id: str) -> list[str]:
     rows = _ensure_conn().execute(
-        "SELECT role_id FROM agent_role_members WHERE workspace_id=?",
-        (workspace_id,),
+        "SELECT role_id FROM agent_role_members WHERE agent_id=?",
+        (agent_id,),
     ).fetchall()
     return [r["role_id"] for r in rows]
 
 
-def set_role_members(role_id: str, workspace_ids: list[str]) -> list[str]:
+def set_role_members(role_id: str, agent_ids: list[str]) -> list[str]:
     conn = _ensure_conn()
     conn.execute("DELETE FROM agent_role_members WHERE role_id=?", (role_id,))
-    for ws_id in workspace_ids:
+    for ws_id in agent_ids:
         conn.execute(
-            "INSERT OR IGNORE INTO agent_role_members (role_id, workspace_id) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO agent_role_members (role_id, agent_id) VALUES (?, ?)",
             (role_id, ws_id.strip()),
         )
     return list_role_members(role_id)
@@ -665,7 +688,7 @@ def set_role_dimensions_batch(role_id: str, dimensions: list[dict[str, Any]]) ->
 
 # ── Merged resolution (direct + role-inherited) ────────────────────────
 
-def list_policies_for_workspace(workspace_id: str) -> list[dict[str, Any]]:
+def list_policies_for_agent(agent_id: str) -> list[dict[str, Any]]:
     """Return all MCP connections for a workspace — direct policies first, then role-inherited.
 
     Direct workspace policies take precedence over role-inherited ones for the same service.
@@ -675,10 +698,10 @@ def list_policies_for_workspace(workspace_id: str) -> list[dict[str, Any]]:
     # 1) Direct workspace policies
     direct_rows = conn.execute(
         "SELECT p.*, s.name, 'direct' AS source "
-        "FROM mcp_workspace_policies p "
+        "FROM agent_mcp_policies p "
         "JOIN mcp_services s ON s.service_id = p.service_id "
-        "WHERE p.workspace_id=? AND p.enabled=1 AND s.status='online'",
-        (workspace_id,),
+        "WHERE p.agent_id=? AND p.enabled=1 AND s.status='online'",
+        (agent_id,),
     ).fetchall()
 
     seen: set[str] = set()
@@ -693,7 +716,7 @@ def list_policies_for_workspace(workspace_id: str) -> list[dict[str, Any]]:
         result.append(d)
 
     # 2) Role-inherited policies (skip services already covered by direct)
-    role_ids = list_workspace_roles(workspace_id)
+    role_ids = list_workspace_roles(agent_id)
     if role_ids:
         placeholders = ",".join("?" * len(role_ids))
         role_rows = conn.execute(
@@ -723,7 +746,7 @@ def registry_stats() -> dict[str, Any]:
     conn = _ensure_conn()
     total = conn.execute("SELECT COUNT(*) AS c FROM mcp_services").fetchone()["c"]
     active = conn.execute("SELECT COUNT(*) AS c FROM mcp_services WHERE status='online'").fetchone()["c"]
-    policies = conn.execute("SELECT COUNT(*) AS c FROM mcp_workspace_policies").fetchone()["c"]
+    policies = conn.execute("SELECT COUNT(*) AS c FROM agent_mcp_policies").fetchone()["c"]
     by_source_rows = conn.execute(
         "SELECT source, COUNT(*) AS c FROM mcp_services GROUP BY source"
     ).fetchall()
@@ -740,7 +763,7 @@ def count_service_policies(service_id: str) -> int:
     conn = _ensure_conn()
     # Direct workspace policies
     direct = conn.execute(
-        "SELECT COUNT(*) AS c FROM mcp_workspace_policies WHERE service_id=? AND enabled=1",
+        "SELECT COUNT(*) AS c FROM agent_mcp_policies WHERE service_id=? AND enabled=1",
         (service_id,),
     ).fetchone()["c"]
     # Role-based: count unique workspaces via roles
@@ -751,11 +774,11 @@ def count_service_policies(service_id: str) -> int:
     ).fetchall()
     for r in role_rows:
         members = conn.execute(
-            "SELECT workspace_id FROM agent_role_members WHERE role_id=?",
+            "SELECT agent_id FROM agent_role_members WHERE role_id=?",
             (r["role_id"],),
         ).fetchall()
         for m in members:
-            role_ws.add(m["workspace_id"])
+            role_ws.add(m["agent_id"])
     return direct + len(role_ws)
 
 
@@ -1129,7 +1152,7 @@ def create_service_version(
     tables: list[str] | None = None,
     input_schema: dict[str, Any] | None = None,
     output_schema: dict[str, Any] | None = None,
-    submitted_by_workspace: str = "",
+    submitted_by_agent_id: str = "",
     submitted_by_account: str = "",
 ) -> dict[str, Any]:
     """Create a new service version record (pending review). Returns the created record."""
@@ -1141,7 +1164,7 @@ def create_service_version(
             version_id, service_id, version, version_notes,
             snapshot_dimensions, snapshot_tables,
             snapshot_input_schema, snapshot_output_schema,
-            status, submitted_by_workspace, submitted_by_account, submitted_at
+            status, submitted_by_agent_id, submitted_by_account, submitted_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, datetime('now'))
         """,
         (
@@ -1150,7 +1173,7 @@ def create_service_version(
             json.dumps(tables or [], ensure_ascii=False),
             json.dumps(input_schema or {}, ensure_ascii=False),
             json.dumps(output_schema or {}, ensure_ascii=False),
-            submitted_by_workspace.strip(), submitted_by_account.strip(),
+            submitted_by_agent_id.strip(), submitted_by_account.strip(),
         ),
     )
     return get_service_version(version_id) or {}

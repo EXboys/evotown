@@ -3,7 +3,7 @@ import { adminFetch } from "../hooks/useAdminToken";
 import type { Locale } from "../lib/i18n";
 
 type McpRole = { role_id: string; name: string; description: string };
-type WorkspaceSimple = { workspace_id: string; name: string; status?: string };
+type AgentSimple = { agent_id: string; name: string; status?: string };
 
 type RoleDimension = {
   dim_id: string;
@@ -63,7 +63,7 @@ const COPY = {
     deleteRole: "Delete",
     deleteConfirm: "Delete this role? Associated policies will also be removed.",
     members: "Bound Workspaces",
-    memberHint: "Click a workspace to toggle binding",
+    memberHint: "Click an agent to toggle binding",
     mcpServices: "MCP Services",
     mcpServicesHint: "MCP service permissions are configured in MCP Service Management",
     dimensions: "Data Dimensions",
@@ -115,11 +115,11 @@ function Modal({ open, onClose, children }: { open: boolean; onClose: () => void
 // ── Detail Drawer ──────────────────────────────────────────────────────────
 
 function DetailDrawer({
-  role, locale, workspaces, members, mcpServices, dimensions,
+  role, locale, agents, members, mcpServices, dimensions,
   onClose, onToggleMember, onToggleMcp, onOpenEdit, onSetDimension,
 }: {
   role: McpRole; locale: Locale;
-  workspaces: WorkspaceSimple[];
+  agents: AgentSimple[];
   members: string[];
   mcpServices: Array<{ service_id: string; name: string; endpoint_url: string; enabled: boolean }>;
   dimensions: RoleDimension[];
@@ -168,16 +168,16 @@ function DetailDrawer({
             <div className="space-y-3">
               <p className="text-[11px] text-slate-400">{copy.memberHint}</p>
               <div className="flex flex-wrap gap-2">
-                {workspaces.length === 0 ? (
-                  <p className="text-xs text-slate-400">{locale === "zh" ? "暂无可用智能体" : "No workspaces available"}</p>
+                {agents.length === 0 ? (
+                  <p className="text-xs text-slate-400">{locale === "zh" ? "暂无可用智能体" : "No agents available"}</p>
                 ) : (
-                  workspaces.map(ws => {
-                    const bound = members.includes(ws.workspace_id);
+                  agents.map(ag => {
+                    const bound = members.includes(ag.agent_id);
                     return (
-                      <button key={ws.workspace_id} type="button"
-                        onClick={() => onToggleMember(ws.workspace_id)}
+                      <button key={ag.agent_id} type="button"
+                        onClick={() => onToggleMember(ag.agent_id)}
                         className={`rounded-full border px-3 py-1.5 text-xs transition ${bound ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-slate-200 text-slate-500 hover:border-slate-300"}`}>
-                        {ws.name}
+                        {ag.name}
                       </button>
                     );
                   })
@@ -410,7 +410,7 @@ export function RolePanel({ locale }: { locale: Locale }) {
 
   const [detailRole, setDetailRole] = useState<McpRole | null>(null);
   const [members, setMembers] = useState<string[]>([]);
-  const [workspaces, setWorkspaces] = useState<WorkspaceSimple[]>([]);
+  const [agents, setAgents] = useState<AgentSimple[]>([]);
   const [mcpServices, setMcpServices] = useState<Array<{ service_id: string; name: string; endpoint_url: string; enabled: boolean }>>([]);
   const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
   const [dimensions, setDimensions] = useState<RoleDimension[]>([]);
@@ -437,14 +437,14 @@ export function RolePanel({ locale }: { locale: Locale }) {
     } finally { setLoading(false); }
   };
 
-  const loadWorkspaces = async () => {
+  const loadAgents = async () => {
     try {
-      const data = await adminFetch("/api/v1/workspaces?include_all=true&status_filter=").then(r => r.json());
-      setWorkspaces((data.workspaces ?? []).filter((w: WorkspaceSimple) => w.status === "active"));
+      const data = await adminFetch("/api/v1/agents?include_all=true&status_filter=").then(r => r.json());
+      setAgents((data.agents ?? data.workspaces ?? []).filter((w: AgentSimple) => w.status === "active"));
     } catch { /* ignore */ }
   };
 
-  useEffect(() => { void load(); void loadWorkspaces(); }, []);
+  useEffect(() => { void load(); void loadAgents(); }, []);
 
   const openNewModal = () => {
     setEditingRole(null);
@@ -509,7 +509,7 @@ export function RolePanel({ locale }: { locale: Locale }) {
     const current = members.includes(wsId);
     const next = current ? members.filter(id => id !== wsId) : [...members, wsId];
     try {
-      await adminFetch(`/api/v1/mcp-roles/${encodeURIComponent(detailRole.role_id)}/members`, { method: "PUT", body: JSON.stringify({ workspace_ids: next }) });
+      await adminFetch(`/api/v1/mcp-roles/${encodeURIComponent(detailRole.role_id)}/members`, { method: "PUT", body: JSON.stringify({ agent_ids: next }) });
       setMembers(next);
       setMemberCounts(prev => ({ ...prev, [detailRole.role_id]: next.length }));
     } catch (err) { setMessage(err instanceof Error ? err.message : "更新失败"); }
@@ -599,7 +599,7 @@ export function RolePanel({ locale }: { locale: Locale }) {
                 <tr>
                   <th className="px-3 py-2.5">{locale === "zh" ? "角色" : "Role"}</th>
                   <th className="hidden px-3 py-2.5 md:table-cell">{locale === "zh" ? "描述" : "Description"}</th>
-                  <th className="px-3 py-2.5">{locale === "zh" ? "绑定智能体" : "Workspaces"}</th>
+                  <th className="px-3 py-2.5">{locale === "zh" ? "绑定智能体" : "Agents"}</th>
                   <th className="w-28 px-3 py-2.5 text-right">{locale === "zh" ? "操作" : "Actions"}</th>
                 </tr>
               </thead>
@@ -639,7 +639,7 @@ export function RolePanel({ locale }: { locale: Locale }) {
         <DetailDrawer
           role={detailRole}
           locale={locale}
-          workspaces={workspaces}
+          agents={agents}
           members={members}
           mcpServices={mcpServices}
           dimensions={dimensions}

@@ -27,7 +27,7 @@ def process(args: dict, permissions: dict) -> dict[str, Any]:
     """Handle internal_mcp_deploy request.
 
     args: {"category": str, "name": str}
-    permissions: workspace/account context injected by gateway
+    permissions: agent/account context injected by gateway
     """
     category = (args.get("category", "") or "").strip().strip("/")
     name = (args.get("name", "") or "").strip().strip("/")
@@ -74,7 +74,7 @@ def process(args: dict, permissions: dict) -> dict[str, Any]:
         create_service_version,
     )
 
-    workspace_id = permissions.get("workspace_id", "")
+    agent_id = permissions.get("agent_id", "")
     account = permissions.get("account", "")
 
     existing = get_service(service_id)
@@ -132,7 +132,7 @@ def process(args: dict, permissions: dict) -> dict[str, Any]:
         tables=tables,
         input_schema=input_schema,
         output_schema=output_schema,
-        submitted_by_workspace=workspace_id,
+        submitted_by_agent=agent_id,
         submitted_by_account=account,
     )
 

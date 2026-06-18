@@ -696,7 +696,7 @@ export function DispatchPanel({ engines, onRefresh }: Props) {
 
 function hostedWorkspacePath(engineId: string | undefined): string | null {
   if (!engineId?.startsWith("hosted-ws-")) return null;
-  return `/agent/workspaces/${engineId.slice("hosted-ws-".length)}`;
+  return `/agent/agents/${engineId.slice("hosted-ws-".length)}`;
 }
 
 type DetailTab = "content" | "result" | "log";

@@ -17,7 +17,7 @@ from domain.models import (
     DispatchJobCreate,
     EngineHeartbeat,
 )
-from infra import engine_ingest, hosted_workspace_engines
+from infra import engine_ingest, hosted_agent_engines
 
 _LEASE_SECONDS = 300
 _ONLINE_SECONDS = 120
@@ -155,7 +155,7 @@ def _enrich_engine_row(row: sqlite3.Row) -> dict[str, Any]:
         except ValueError:
             online = False
     caps = data.get("capabilities") or {}
-    if caps.get("hosted") and hosted_workspace_engines.hosted_workspace_available(data["engine_id"]):
+    if caps.get("hosted") and hosted_agent_engines.hosted_agent_available(data["engine_id"]):
         data["online"] = True
     else:
         data["online"] = online
@@ -166,8 +166,8 @@ def _enrich_engine_row(row: sqlite3.Row) -> dict[str, Any]:
 def _validate_targets(body: DispatchJobCreate) -> None:
     if not body.target_engine_id and not body.target_team_id:
         raise ValueError("target_engine_id or target_team_id is required")
-    if body.target_engine_id and hosted_workspace_engines.is_hosted_engine(body.target_engine_id):
-        if not hosted_workspace_engines.hosted_workspace_available(body.target_engine_id):
+    if body.target_engine_id and hosted_agent_engines.is_hosted_engine(body.target_engine_id):
+        if not hosted_agent_engines.hosted_agent_available(body.target_engine_id):
             raise ValueError("target hosted coding workspace is not available")
 
 
@@ -337,7 +337,7 @@ def _requeue_stale(conn: sqlite3.Connection) -> None:
 
 
 def lease_job(engine_id: str) -> dict[str, Any] | None:
-    if hosted_workspace_engines.is_hosted_engine(engine_id):
+    if hosted_agent_engines.is_hosted_engine(engine_id):
         return None
     engine = engine_ingest.get_engine(engine_id)
     if engine is None:
@@ -390,7 +390,7 @@ def lease_job(engine_id: str) -> dict[str, Any] | None:
 
 def claim_next_hosted_job() -> dict[str, Any] | None:
     """Claim the next queued job targeted at a hosted coding workspace engine."""
-    prefix = hosted_workspace_engines.HOSTED_ENGINE_PREFIX + "%"
+    prefix = hosted_agent_engines.HOSTED_ENGINE_PREFIX + "%"
     conn = _db()
     _requeue_stale(conn)
     while True:
@@ -407,7 +407,7 @@ def claim_next_hosted_job() -> dict[str, Any] | None:
             return None
         job_id = row["job_id"]
         engine_id = row["target_engine_id"]
-        if not hosted_workspace_engines.hosted_workspace_available(engine_id):
+        if not hosted_agent_engines.hosted_agent_available(engine_id):
             fail_job(job_id, summary="target hosted coding workspace is not available")
             continue
         expires = _expires_at(_LEASE_SECONDS)

@@ -975,7 +975,7 @@ def trigger_skill_test(
     """Assign a skill to a test account and trigger a Coding Agent run to test it."""
     from infra import account_skills as acct_skills
     from infra import accounts as accounts_store
-    from infra import claude_agent_runs, workspaces
+    from infra import claude_agent_runs, agents
 
     skill = get_skill(skill_id)
     if skill is None:
@@ -993,7 +993,7 @@ def trigger_skill_test(
         acct_skills.assign(test_account_id, [skill_id] + current_skills)
 
     # Find a workspace for the test account
-    ws_list = workspaces.list_workspaces(owner_account_id=test_account_id, limit=1)
+    ws_list = agents.list_workspaces(owner_account_id=test_account_id, limit=1)
     if not ws_list:
         raise ValueError(f"no workspace found for test account: {test_account_id}")
     workspace = ws_list[0]

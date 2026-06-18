@@ -1,4 +1,4 @@
-"""Background worker: dispatch queue → hosted Coding Agent workspace runs."""
+"""Background worker: dispatch queue → hosted Coding Agent agent runs."""
 from __future__ import annotations
 
 import asyncio
@@ -6,7 +6,7 @@ import logging
 import os
 
 from domain.models import DispatchJobAck, DispatchJobComplete
-from infra import agent_dispatch, claude_agent_runs, hosted_workspace_engines, workspaces
+from infra import agent_dispatch, claude_agent_runs, hosted_agent_engines, agents
 from infra.dispatch_notify import broadcast_dispatch_job
 from services import claude_code_runner
 
@@ -37,14 +37,14 @@ async def process_next_hosted_job() -> bool:
 
     job_id = job["job_id"]
     engine_id = job["target_engine_id"]
-    workspace_id = hosted_workspace_engines.workspace_id_from_engine(engine_id)
-    if not workspace_id:
+    agent_id = hosted_agent_engines.agent_id_from_engine(engine_id)
+    if not agent_id:
         agent_dispatch.fail_job(job_id, summary="invalid hosted engine id")
         return True
 
-    workspace = workspaces.get_workspace(workspace_id)
-    if workspace is None or workspace.get("status") != workspaces.WORKSPACE_STATUS_ACTIVE:
-        failed = agent_dispatch.fail_job(job_id, summary="hosted workspace is not available")
+    agent = agents.get_agent(agent_id)
+    if agent is None or agent.get("status") != agents.AGENT_STATUS_ACTIVE:
+        failed = agent_dispatch.fail_job(job_id, summary="hosted agent is not available")
         if failed:
             broadcast_dispatch_job(failed, action="completed")
         return True
@@ -53,10 +53,10 @@ async def process_next_hosted_job() -> bool:
     if acked:
         broadcast_dispatch_job(acked, action="acked")
 
-    account_id = str(workspace.get("owner_account_id") or "")
+    account_id = str(agent.get("owner_account_id") or "")
     max_active = _max_active_runs_per_account()
     if max_active > 0 and claude_agent_runs.active_run_count(account_id) >= max_active:
-        failed = agent_dispatch.fail_job(job_id, summary="too many active hosted agent runs for workspace owner")
+        failed = agent_dispatch.fail_job(job_id, summary="too many active hosted agent runs for agent owner")
         if failed:
             broadcast_dispatch_job(failed, action="completed")
         return True
@@ -69,14 +69,14 @@ async def process_next_hosted_job() -> bool:
     mcp = list(payload.get("mcp") or [])
 
     run = claude_agent_runs.create_run(
-        workspace_id=workspace_id,
+        agent_id=agent_id,
         account_id=account_id,
         prompt=job["message"],
-        tenant_id=str(workspace.get("tenant_id") or ""),
-        team_id=str(workspace.get("team_id") or ""),
+        tenant_id=str(agent.get("tenant_id") or ""),
+        team_id=str(agent.get("team_id") or ""),
         model=model,
         signals={
-            "workspace_name": workspace.get("name", ""),
+            "agent_name": agent.get("name", ""),
             "dispatch_job_id": job_id,
             "dispatch_title": job.get("title", ""),
             "selected_skills": skills,

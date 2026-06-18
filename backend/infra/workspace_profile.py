@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from infra import workspaces
+from services.runtime_engine import DEFAULT_RUNTIME_ENGINE, normalize_runtime_engine
 
 PROFILE_RELATIVE = ".evotown/profile.json"
 PROFILE_MD_RELATIVE = ".evotown/AGENT_PROFILE.md"
@@ -15,6 +16,7 @@ AGENT_TYPE_MAX = 64
 
 DEFAULT_PROFILE: dict[str, Any] = {
     "agent_type": "",
+    "runtime_engine": DEFAULT_RUNTIME_ENGINE,
     "soul": "",
     "paradigm": "",
     "standards": "",
@@ -39,6 +41,7 @@ def get_profile(workspace: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(raw, dict):
         return {**DEFAULT_PROFILE, "updated_at": None}
     merged = {**DEFAULT_PROFILE, **raw}
+    merged["runtime_engine"] = normalize_runtime_engine(merged.get("runtime_engine"))
     merged["default_skills"] = _normalize_id_list(merged.get("default_skills"))
     merged["default_mcp"] = _normalize_id_list(merged.get("default_mcp"))
     return merged
@@ -72,6 +75,9 @@ def save_profile(workspace: dict[str, Any], payload: dict[str, Any]) -> dict[str
             "agent_type",
             payload.get("agent_type", current.get("agent_type", "")),
             max_chars=AGENT_TYPE_MAX,
+        ),
+        "runtime_engine": normalize_runtime_engine(
+            payload.get("runtime_engine", current.get("runtime_engine", DEFAULT_RUNTIME_ENGINE)),
         ),
         "soul": _validate_text_field(
             "soul",
@@ -109,6 +115,9 @@ def _write_profile_md(workspace: dict[str, Any], profile: dict[str, Any]) -> Non
     lines = ["# Agent Profile", ""]
     if profile.get("agent_type"):
         lines.extend([f"**Type:** `{profile['agent_type']}`", ""])
+    runtime_engine = str(profile.get("runtime_engine") or "").strip()
+    if runtime_engine:
+        lines.extend([f"**Runtime:** `{runtime_engine}`", ""])
     if profile.get("soul"):
         lines.extend(["## Identity (SOUL)", "", str(profile["soul"]), ""])
     if profile.get("paradigm"):
@@ -116,6 +125,8 @@ def _write_profile_md(workspace: dict[str, Any], profile: dict[str, Any]) -> Non
     if profile.get("standards"):
         lines.extend(["## Standards", "", str(profile["standards"]), ""])
     defaults: list[str] = []
+    if runtime_engine:
+        defaults.append(f"- Runtime engine: `{runtime_engine}`")
     if profile.get("default_model"):
         defaults.append(f"- Default model: `{profile['default_model']}`")
     if profile.get("default_skills"):
@@ -134,15 +145,18 @@ def profile_context_sections(profile: dict[str, Any]) -> list[str]:
     """Markdown sections to append to AGENT_CONTEXT.md."""
     sections: list[str] = []
     agent_type = str(profile.get("agent_type") or "").strip()
+    runtime_engine = str(profile.get("runtime_engine") or "").strip()
     soul = str(profile.get("soul") or "").strip()
     paradigm = str(profile.get("paradigm") or "").strip()
     standards = str(profile.get("standards") or "").strip()
-    if not any([agent_type, soul, paradigm, standards]):
+    if not any([agent_type, runtime_engine, soul, paradigm, standards]):
         return sections
 
     sections.extend(["## Agent Profile", ""])
     if agent_type:
         sections.append(f"- **Type:** `{agent_type}`")
+    if runtime_engine:
+        sections.append(f"- **Runtime engine:** `{runtime_engine}`")
     if soul or paradigm or standards:
         sections.append("- Persistent profile from console settings (`.evotown/profile.json`)")
     sections.append("")

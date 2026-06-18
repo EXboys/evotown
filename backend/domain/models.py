@@ -115,7 +115,7 @@ class WorkspaceCreate(BaseModel):
     owner_account_id: str = Field(default="", max_length=128)
     tenant_id: str = Field(default="", max_length=128)
     team_id: str = Field(default="", max_length=128)
-    model_policy: Literal["all", "routes_only"] = "routes_only"
+    model_policy: Literal["all", "routes_only"] = "all"
     category: Literal["employee", "department", "dedicated"] = "employee"
     template_id: str = Field(default="", max_length=128)
 

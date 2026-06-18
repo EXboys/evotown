@@ -132,7 +132,7 @@ def create_workspace(
     name: str,
     tenant_id: str = "",
     team_id: str = "",
-    model_policy: str = "routes_only",
+    model_policy: str = "all",
     category: str = "employee",
     template_id: str = "",
 ) -> dict[str, Any]:
@@ -204,6 +204,10 @@ def create_workspace(
                         "开发目录。Agent 在此目录下创建 MCP/Skill 等代码文件。\n",
                         encoding="utf-8",
                     )
+    if workspace:
+        from infra import hosted_workspace_engines
+
+        hosted_workspace_engines.register_workspace_engine(workspace)
     return workspace
 
 
@@ -356,6 +360,10 @@ def update_workspace(
             (workspace_id, new_owner),
         )
     workspace = get_workspace(workspace_id)
+    if workspace is not None:
+        from infra import hosted_workspace_engines
+
+        hosted_workspace_engines.sync_workspace_engine(workspace)
     return workspace
 
 

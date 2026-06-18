@@ -92,6 +92,7 @@ class CodingAgentApiTest(unittest.TestCase):
             workspaces.resolve_workspace_path(workspace, "../escape.txt")
 
     def test_workspace_profile_crud_and_run_injection(self) -> None:
+        from infra import workspaces
         from services import claude_code_runner
 
         client = self._client()
@@ -142,8 +143,9 @@ class CodingAgentApiTest(unittest.TestCase):
 
         updated = asyncio.run(claude_code_runner.run_claude_agent(run_id))
         self.assertEqual(updated["status"], "succeeded")
-        context = Path(workspace["root_path"]) / ".evotown" / "AGENT_CONTEXT.md"
-        profile_md = Path(workspace["root_path"]) / ".evotown" / "AGENT_PROFILE.md"
+        ws_root = workspaces.resolve_workspace_path(workspace)
+        context = ws_root / ".evotown" / "AGENT_CONTEXT.md"
+        profile_md = ws_root / ".evotown" / "AGENT_PROFILE.md"
         self.assertTrue(context.is_file())
         self.assertTrue(profile_md.is_file())
         text = context.read_text(encoding="utf-8")
@@ -152,6 +154,8 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertIn("conventional commits", text)
 
     def test_workspace_file_index_lists_relative_paths_only(self) -> None:
+        from infra import workspaces
+
         client = self._client()
         _alice, alice_key = self._account_key("Alice")
         create_ws = client.post(
@@ -161,7 +165,7 @@ class CodingAgentApiTest(unittest.TestCase):
         )
         workspace = create_ws.json()["workspace"]
         ws_id = workspace["workspace_id"]
-        root = Path(workspace["root_path"])
+        root = workspaces.resolve_workspace_path(workspace)
         (root / "notes.md").write_text("# hello", encoding="utf-8")
         (root / ".evotown" / "hidden.json").write_text("{}", encoding="utf-8")
 
@@ -213,9 +217,10 @@ class CodingAgentApiTest(unittest.TestCase):
 
         stored_workspace = workspaces.get_workspace(workspace["workspace_id"])
         assert stored_workspace is not None
-        context_path = Path(stored_workspace["root_path"]) / ".evotown" / "AGENT_CONTEXT.md"
-        skills_path = Path(stored_workspace["root_path"]) / ".evotown" / "skills_manifest.json"
-        knowledge_path = Path(stored_workspace["root_path"]) / ".evotown" / "knowledge_context.json"
+        ws_root = workspaces.resolve_workspace_path(stored_workspace)
+        context_path = ws_root / ".evotown" / "AGENT_CONTEXT.md"
+        skills_path = ws_root / ".evotown" / "skills_manifest.json"
+        knowledge_path = ws_root / ".evotown" / "knowledge_context.json"
         self.assertTrue(context_path.is_file())
         self.assertTrue(skills_path.is_file())
         self.assertTrue(knowledge_path.is_file())
@@ -282,7 +287,7 @@ class CodingAgentApiTest(unittest.TestCase):
 
         stored_workspace = workspaces.get_workspace(workspace["workspace_id"])
         assert stored_workspace is not None
-        root = Path(stored_workspace["root_path"])
+        root = workspaces.resolve_workspace_path(stored_workspace)
         self.assertTrue((root / ".evotown" / "mcp_context.json").is_file())
         self.assertTrue((root / ".evotown" / "skills" / "http-request" / "SKILL.md").is_file())
         mcp_payload = json.loads((root / ".evotown" / "mcp_context.json").read_text(encoding="utf-8"))

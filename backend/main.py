@@ -230,7 +230,15 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
 
+    from infra import hosted_workspace_engines
     from services.hosted_dispatch_worker import hosted_dispatch_loop
+
+    try:
+        synced = hosted_workspace_engines.sync_all_active_workspaces()
+        if synced:
+            logger.info("[hosted-dispatch] synced %d active workspace fleet engines", synced)
+    except Exception as exc:
+        logger.warning("[hosted-dispatch] workspace fleet sync failed: %s", exc)
 
     _timeout_task = asyncio.create_task(_timeout_loop())
     _checkpoint_task = asyncio.create_task(_checkpoint_loop())

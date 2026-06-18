@@ -163,11 +163,15 @@ class CodingAgentApiTest(unittest.TestCase):
             headers={"Authorization": f"Bearer {alice_key}"},
             json={"name": "Files Sandbox"},
         )
+        self.assertEqual(create_ws.status_code, 200, create_ws.text)
         workspace = create_ws.json()["workspace"]
         ws_id = workspace["workspace_id"]
         root = workspaces.resolve_workspace_path(workspace)
         (root / "notes.md").write_text("# hello", encoding="utf-8")
-        (root / ".evotown" / "hidden.json").write_text("{}", encoding="utf-8")
+        hidden = root / ".evotown" / "hidden.json"
+        hidden.parent.mkdir(parents=True, exist_ok=True)
+        hidden.write_text("{}", encoding="utf-8")
+        self.assertTrue(hidden.is_file())
 
         listed = client.get(
             f"/api/v1/workspaces/{ws_id}/file-index",
@@ -181,8 +185,9 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertFalse(any(p.startswith(".evotown/") for p in paths))
 
         with_dot = client.get(
-            f"/api/v1/workspaces/{ws_id}/file-index?include_dot=true",
+            f"/api/v1/workspaces/{ws_id}/file-index",
             headers={"Authorization": f"Bearer {alice_key}"},
+            params={"include_dot": True},
         )
         dot_paths = [item["path"] for item in with_dot.json()["entries"]]
         self.assertTrue(any(p.startswith(".evotown/") for p in dot_paths))

@@ -71,7 +71,6 @@ function App() {
         <Route path="/console/roles" element={<EnterpriseConsole initialTab="roles" />} />
         <Route path="/console/templates" element={<EnterpriseConsole initialTab="templates" />} />
         <Route path="/console/dimensions" element={<EnterpriseConsole initialTab="dimensions" />} />
-        <Route path="/console/functions" element={<EnterpriseConsole initialTab="functions" />} />
         <Route path="/costs" element={<EnterpriseConsole initialTab="costs" />} />
         <Route path="/risk" element={<EnterpriseConsole initialTab="risk" />} />
         <Route path="/arena" element={<ArenaApp />} />

@@ -18,13 +18,13 @@ _evotown_data = _backend_dir.parent / "data"
 
 _conn: sqlite3.Connection | None = None
 
-SERVICE_TYPE_DATABASE = "database"
-SERVICE_TYPE_API = "api"
-SERVICE_TYPE_FILE = "file"
-
 STATUS_ONLINE = "online"
 STATUS_OFFLINE = "offline"
 STATUS_ERROR = "error"
+STATUS_PENDING = "pending"
+STATUS_APPROVED = "approved"
+STATUS_REJECTED = "rejected"
+STATUS_DEPRECATED = "deprecated"
 
 SOURCE_INTERNAL = "internal"
 SOURCE_EXTERNAL = "external"
@@ -35,15 +35,6 @@ SOURCE_LABELS: dict[str, str] = {
     SOURCE_EXTERNAL: "外部 MCP",
     SOURCE_SYSTEM: "系统 MCP",
 }
-
-# ── System functions (hardcoded, not user-editable) ────────────────────
-
-SYSTEM_FUNCTIONS: list[dict[str, str]] = [
-    {"func_id": "mcp.access", "name": "MCP 访问权限", "description": "允许调用已注册的 MCP 服务"},
-    {"func_id": "mcp.develop", "name": "MCP 开发权限", "description": "允许开发/部署 MCP Proxy"},
-    {"func_id": "skill.publish", "name": "技能发布", "description": "允许发布技能到企业市场"},
-    {"func_id": "workspace.hosted", "name": "常驻实例", "description": "允许 workspace 保持常驻运行"},
-]
 
 
 def _data_dir() -> Path:
@@ -68,18 +59,20 @@ def _ensure_conn() -> sqlite3.Connection:
             service_id     TEXT PRIMARY KEY,
             name           TEXT NOT NULL,
             description    TEXT NOT NULL DEFAULT '',
-            service_type   TEXT NOT NULL DEFAULT 'database',
-            endpoint_url   TEXT NOT NULL DEFAULT '',
-            db_type        TEXT NOT NULL DEFAULT '',
             status         TEXT NOT NULL DEFAULT 'online',
             source         TEXT NOT NULL DEFAULT 'manual',
-            manifest       TEXT NOT NULL DEFAULT '{}',
-            workspace_id   TEXT NOT NULL DEFAULT '',
+            endpoint_url   TEXT NOT NULL DEFAULT '',
+            mcp_path       TEXT NOT NULL DEFAULT '',
+            category       TEXT NOT NULL DEFAULT '',
+            version        TEXT NOT NULL DEFAULT '',
+            dimensions     TEXT NOT NULL DEFAULT '[]',
+            tables         TEXT NOT NULL DEFAULT '[]',
+            input_schema   TEXT NOT NULL DEFAULT '{}',
+            output_schema  TEXT NOT NULL DEFAULT '{}',
             created_at     TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_mcp_services_status ON mcp_services(status);
-        CREATE INDEX IF NOT EXISTS idx_mcp_services_type ON mcp_services(service_type);
 
         CREATE TABLE IF NOT EXISTS mcp_workspace_policies (
             policy_id      TEXT PRIMARY KEY,
@@ -122,20 +115,6 @@ def _ensure_conn() -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_agent_role_mcp_svc ON agent_role_mcp_policies(service_id);
         CREATE INDEX IF NOT EXISTS idx_agent_role_mcp_role ON agent_role_mcp_policies(role_id);
 
-        CREATE TABLE IF NOT EXISTS system_functions (
-            func_id        TEXT PRIMARY KEY,
-            name           TEXT NOT NULL,
-            description    TEXT NOT NULL DEFAULT '',
-            created_at     TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
-        CREATE TABLE IF NOT EXISTS agent_role_functions (
-            role_id        TEXT NOT NULL,
-            func_id        TEXT NOT NULL,
-            UNIQUE(role_id, func_id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_agent_role_funcs_func ON agent_role_functions(func_id);
-
         CREATE TABLE IF NOT EXISTS system_dimension_registry (
             dim_id               TEXT PRIMARY KEY,
             label                TEXT NOT NULL,
@@ -152,14 +131,44 @@ def _ensure_conn() -> sqlite3.Connection:
         );
         CREATE INDEX IF NOT EXISTS idx_mcp_usage_service ON mcp_usage_log(service_id);
         CREATE INDEX IF NOT EXISTS idx_mcp_usage_time ON mcp_usage_log(called_at);
+
+        CREATE TABLE IF NOT EXISTS mcp_service_versions (
+            version_id              TEXT PRIMARY KEY,
+            service_id              TEXT NOT NULL,
+            version                 TEXT NOT NULL DEFAULT '',
+            version_notes           TEXT NOT NULL DEFAULT '',
+            snapshot_dimensions     TEXT NOT NULL DEFAULT '[]',
+            snapshot_tables         TEXT NOT NULL DEFAULT '[]',
+            snapshot_input_schema   TEXT NOT NULL DEFAULT '{}',
+            snapshot_output_schema  TEXT NOT NULL DEFAULT '{}',
+            status                  TEXT NOT NULL DEFAULT 'pending',
+            submitted_by_workspace  TEXT NOT NULL DEFAULT '',
+            submitted_by_account    TEXT NOT NULL DEFAULT '',
+            submitted_at            TEXT NOT NULL DEFAULT (datetime('now')),
+            reviewed_by             TEXT NOT NULL DEFAULT '',
+            reviewed_at             TEXT NOT NULL DEFAULT '',
+            review_comment          TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_mcp_versions_service ON mcp_service_versions(service_id);
+        CREATE INDEX IF NOT EXISTS idx_mcp_versions_status ON mcp_service_versions(status);
+
+        CREATE TABLE IF NOT EXISTS agent_role_dimensions (
+            role_id        TEXT NOT NULL,
+            dim_id         TEXT NOT NULL,
+            dim_values     TEXT NOT NULL DEFAULT '[]',
+            updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (role_id, dim_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ard_role ON agent_role_dimensions(role_id);
+        CREATE INDEX IF NOT EXISTS idx_ard_dim ON agent_role_dimensions(dim_id);
         """
     )
 
     # ── Migration: old tables → new tables ────────────────────────
     _migrate_tables(conn)
 
-    # ── Migration: mcp_services new columns ────────────────────────
-    _migrate_mcp_services_columns(conn)
+    # ── Migration: mcp_services drop legacy columns ────────────────
+    _migrate_drop_legacy_columns(conn)
 
     # ── Migration: mcp_services source values ──────────────────────
     _migrate_source_values(conn)
@@ -167,12 +176,8 @@ def _ensure_conn() -> sqlite3.Connection:
     # ── Migration: dimension registry updated_at ──────────────────
     _migrate_dimension_registry(conn)
 
-    # ── Seed hardcoded system functions ───────────────────────────
-    for func in SYSTEM_FUNCTIONS:
-        conn.execute(
-            "INSERT OR IGNORE INTO system_functions (func_id, name, description) VALUES (?, ?, ?)",
-            (func["func_id"], func["name"], func["description"]),
-        )
+    # ── Scan and register system MCP services ────────────────────
+    _scan_system_mcps(conn)
 
     _conn = conn
     return conn
@@ -192,37 +197,28 @@ def _migrate_tables(conn: sqlite3.Connection) -> None:
             conn.execute("DROP TABLE IF EXISTS agent_roles")
             conn.execute("DROP TABLE IF EXISTS agent_role_members")
             conn.execute("DROP TABLE IF EXISTS agent_role_mcp_policies")
-            conn.execute("DROP TABLE IF EXISTS agent_role_functions")
             conn.execute("ALTER TABLE mcp_roles RENAME TO agent_roles")
             conn.execute("ALTER TABLE mcp_role_members RENAME TO agent_role_members")
             conn.execute("ALTER TABLE mcp_role_policies RENAME TO agent_role_mcp_policies")
-            # Recreate tables that were dropped
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS agent_role_functions (
-                    role_id TEXT NOT NULL, func_id TEXT NOT NULL,
-                    UNIQUE(role_id, func_id))"""
-            )
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS system_functions (
-                    func_id TEXT PRIMARY KEY, name TEXT NOT NULL,
-                    description TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')))"""
-            )
 
     # Ensure indexes exist
     conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_role_members_ws ON agent_role_members(workspace_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_role_mcp_svc ON agent_role_mcp_policies(service_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_role_mcp_role ON agent_role_mcp_policies(role_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_role_funcs_func ON agent_role_functions(func_id)")
 
 
-def _migrate_mcp_services_columns(conn: sqlite3.Connection) -> None:
-    """Add manifest and workspace_id columns to mcp_services if missing."""
+def _migrate_drop_legacy_columns(conn: sqlite3.Connection) -> None:
+    """Drop legacy columns (db_type, manifest, workspace_id, service_type) if they exist.
+
+    SQLite doesn't support DROP COLUMN in older versions, so we use a recreation strategy
+    only if the table was created with the old schema (has 'db_type' column).
+    """
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(mcp_services)").fetchall()}
-    if "manifest" not in cols:
-        conn.execute("ALTER TABLE mcp_services ADD COLUMN manifest TEXT NOT NULL DEFAULT '{}'")
-    if "workspace_id" not in cols:
-        conn.execute("ALTER TABLE mcp_services ADD COLUMN workspace_id TEXT NOT NULL DEFAULT ''")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_mcp_services_workspace ON mcp_services(workspace_id)")
+    legacy = {"db_type", "manifest", "workspace_id", "service_type"} & cols
+    if not legacy:
+        return
+    # Simple approach: just ignore the columns (SQLite is flexible with extra columns).
+    # The new schema doesn't include them, but old rows still have them — harmless.
 
 
 def _migrate_source_values(conn: sqlite3.Connection) -> None:
@@ -279,20 +275,37 @@ def register_service(
     service_id: str | None = None,
     name: str,
     description: str = "",
-    service_type: str = SERVICE_TYPE_DATABASE,
     endpoint_url: str = "",
-    db_type: str = "",
     source: str = SOURCE_INTERNAL,
+    mcp_path: str = "",
+    category: str = "",
+    version: str = "",
+    dimensions: list[str] | None = None,
+    tables: list[str] | None = None,
+    input_schema: dict[str, Any] | None = None,
+    output_schema: dict[str, Any] | None = None,
+    status: str = STATUS_ONLINE,
 ) -> dict[str, Any]:
     conn = _ensure_conn()
     sid = (service_id or f"mcp_{uuid.uuid4().hex[:12]}").strip()
     conn.execute(
         """
         INSERT OR REPLACE INTO mcp_services (
-            service_id, name, description, service_type, endpoint_url, db_type, status, source, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'online', ?, datetime('now'))
+            service_id, name, description, endpoint_url,
+            status, source, mcp_path, category, version,
+            dimensions, tables, input_schema, output_schema,
+            updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         """,
-        (sid, name.strip(), description.strip(), service_type.strip(), endpoint_url.strip(), db_type.strip(), source.strip()),
+        (
+            sid, name.strip(), description.strip(), endpoint_url.strip(),
+            (status or STATUS_ONLINE).strip(), source.strip(),
+            mcp_path.strip(), category.strip(), (version or "").strip(),
+            json.dumps(dimensions or [], ensure_ascii=False),
+            json.dumps(tables or [], ensure_ascii=False),
+            json.dumps(input_schema or {}, ensure_ascii=False),
+            json.dumps(output_schema or {}, ensure_ascii=False),
+        ),
     )
     return get_service(sid) or {}
 
@@ -303,7 +316,6 @@ def update_service(
     name: str | None = None,
     description: str | None = None,
     endpoint_url: str | None = None,
-    db_type: str | None = None,
     status: str | None = None,
     source: str | None = None,
 ) -> dict[str, Any] | None:
@@ -311,7 +323,7 @@ def update_service(
     if existing is None:
         return None
     if existing.get("source") == SOURCE_SYSTEM:
-        if any(v is not None for v in [name, description, endpoint_url, db_type, source]):
+        if any(v is not None for v in [name, description, endpoint_url, source]):
             raise PermissionError("系统 MCP 不可编辑")
         # Only allow status toggle
         if status is not None:
@@ -329,8 +341,6 @@ def update_service(
         updates["description"] = description.strip()
     if endpoint_url is not None:
         updates["endpoint_url"] = endpoint_url.strip()
-    if db_type is not None:
-        updates["db_type"] = db_type.strip()
     if status is not None:
         updates["status"] = status.strip()
     if source is not None:
@@ -465,7 +475,6 @@ def delete_role(role_id: str) -> bool:
     cur = conn.execute("DELETE FROM agent_roles WHERE role_id=?", (role_id,))
     conn.execute("DELETE FROM agent_role_members WHERE role_id=?", (role_id,))
     conn.execute("DELETE FROM agent_role_mcp_policies WHERE role_id=?", (role_id,))
-    conn.execute("DELETE FROM agent_role_functions WHERE role_id=?", (role_id,))
     return cur.rowcount > 0
 
 
@@ -567,75 +576,91 @@ def delete_role_policy(service_id: str, role_id: str) -> bool:
     return cur.rowcount > 0
 
 
-# ── System Functions ───────────────────────────────────────────────────
+# ── Agent role dimensions (REQ-015) ────────────────────────────────
 
-def list_system_functions() -> list[dict[str, Any]]:
-    """Return all hardcoded system functions."""
-    rows = _ensure_conn().execute("SELECT * FROM system_functions ORDER BY func_id").fetchall()
-    return [dict(r) for r in rows]
-
-
-def list_function_assignments(func_id: str) -> list[dict[str, Any]]:
-    """For a given function, return all roles and workspaces that have it (union across roles)."""
+def get_role_dimensions(role_id: str) -> list[dict[str, Any]]:
+    """Get all dimension bindings for a role, enriched with dimension metadata."""
     conn = _ensure_conn()
     rows = conn.execute(
-        """
-        SELECT r.role_id, r.name AS role_name, m.workspace_id
-        FROM agent_role_functions f
-        JOIN agent_roles r ON r.role_id = f.role_id
-        LEFT JOIN agent_role_members m ON m.role_id = f.role_id
-        WHERE f.func_id = ?
-        ORDER BY r.name, m.workspace_id
-        """,
-        (func_id,),
-    ).fetchall()
-    # Group by role, collect workspace_ids
-    roles_map: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        rid = row["role_id"]
-        if rid not in roles_map:
-            roles_map[rid] = {"role_id": rid, "role_name": row["role_name"], "workspace_ids": []}
-        ws = row["workspace_id"]
-        if ws and ws not in roles_map[rid]["workspace_ids"]:
-            roles_map[rid]["workspace_ids"].append(ws)
-    return list(roles_map.values())
-
-
-def set_role_functions(role_id: str, func_ids: list[str]) -> list[str]:
-    """Set the function capabilities for a role. Returns the final func_id list."""
-    conn = _ensure_conn()
-    conn.execute("DELETE FROM agent_role_functions WHERE role_id=?", (role_id,))
-    valid_funcs = {r["func_id"] for r in conn.execute("SELECT func_id FROM system_functions").fetchall()}
-    for fid in func_ids:
-        fid = fid.strip()
-        if fid in valid_funcs:
-            conn.execute(
-                "INSERT OR IGNORE INTO agent_role_functions (role_id, func_id) VALUES (?, ?)",
-                (role_id, fid),
-            )
-    return list_role_functions(role_id)
-
-
-def list_role_functions(role_id: str) -> list[str]:
-    """Return func_ids assigned to a role."""
-    rows = _ensure_conn().execute(
-        "SELECT func_id FROM agent_role_functions WHERE role_id=? ORDER BY func_id",
+        """SELECT ard.dim_id, ard.dim_values, ard.updated_at,
+                  sdr.label, sdr.db_connection_id, sdr.table_name, sdr.column_name,
+                  sdr.code
+           FROM agent_role_dimensions ard
+           LEFT JOIN system_dimension_registry sdr ON ard.dim_id = sdr.dim_id
+           WHERE ard.role_id = ?""",
         (role_id,),
     ).fetchall()
-    return [r["func_id"] for r in rows]
+
+    result: list[dict[str, Any]] = []
+    for r in rows:
+        entry: dict[str, Any] = {
+            "dim_id": r["dim_id"],
+            "dim_values": json.loads(r["dim_values"]),
+            "updated_at": r["updated_at"],
+        }
+        if r["label"] is not None:
+            entry["label"] = r["label"]
+            entry["code"] = r["code"] or ""
+            entry["db_connection_id"] = r["db_connection_id"]
+            entry["table_name"] = r["table_name"]
+            entry["column_name"] = r["column_name"]
+        else:
+            entry["label"] = ""
+            entry["code"] = ""
+            entry["db_connection_id"] = ""
+            entry["table_name"] = ""
+            entry["column_name"] = ""
+        result.append(entry)
+    return result
 
 
-def list_workspace_functions(workspace_id: str) -> list[str]:
-    """Return merged func_ids from all roles a workspace belongs to (union)."""
-    role_ids = list_workspace_roles(workspace_id)
-    if not role_ids:
-        return []
-    placeholders = ",".join("?" * len(role_ids))
-    rows = _ensure_conn().execute(
-        f"SELECT DISTINCT func_id FROM agent_role_functions WHERE role_id IN ({placeholders}) ORDER BY func_id",
-        role_ids,
-    ).fetchall()
-    return [r["func_id"] for r in rows]
+def set_role_dimension(role_id: str, dim_id: str, dim_values: list[str]) -> dict[str, Any]:
+    """Upsert a single role-dimension binding. dim_values=["*"] means full access."""
+    conn = _ensure_conn()
+    values_json = json.dumps(dim_values, ensure_ascii=False)
+    conn.execute(
+        """INSERT INTO agent_role_dimensions (role_id, dim_id, dim_values, updated_at)
+           VALUES (?, ?, ?, datetime('now'))
+           ON CONFLICT(role_id, dim_id) DO UPDATE SET
+               dim_values = excluded.dim_values,
+               updated_at = excluded.updated_at""",
+        (role_id, dim_id, values_json),
+    )
+    return {"role_id": role_id, "dim_id": dim_id, "dim_values": dim_values}
+
+
+def delete_role_dimension(role_id: str, dim_id: str) -> bool:
+    """Remove a single role-dimension binding."""
+    conn = _ensure_conn()
+    cur = conn.execute(
+        "DELETE FROM agent_role_dimensions WHERE role_id=? AND dim_id=?",
+        (role_id, dim_id),
+    )
+    return cur.rowcount > 0
+
+
+def set_role_dimensions_batch(role_id: str, dimensions: list[dict[str, Any]]) -> int:
+    """Replace all dimension bindings for a role in a single transaction.
+
+    Each item: {dim_id: str, dim_values: list[str]}.
+    Returns the number of dimensions set.
+    """
+    conn = _ensure_conn()
+    conn.execute("DELETE FROM agent_role_dimensions WHERE role_id=?", (role_id,))
+    count = 0
+    for dim in dimensions:
+        dim_id = dim.get("dim_id", "")
+        dim_values = dim.get("dim_values", [])
+        if not dim_id or not isinstance(dim_values, list):
+            continue
+        values_json = json.dumps(dim_values, ensure_ascii=False)
+        conn.execute(
+            """INSERT INTO agent_role_dimensions (role_id, dim_id, dim_values, updated_at)
+               VALUES (?, ?, ?, datetime('now'))""",
+            (role_id, dim_id, values_json),
+        )
+        count += 1
+    return count
 
 
 # ── Merged resolution (direct + role-inherited) ────────────────────────
@@ -649,7 +674,7 @@ def list_policies_for_workspace(workspace_id: str) -> list[dict[str, Any]]:
 
     # 1) Direct workspace policies
     direct_rows = conn.execute(
-        "SELECT p.*, s.name, s.service_type, s.endpoint_url, s.db_type, 'direct' AS source "
+        "SELECT p.*, s.name, 'direct' AS source "
         "FROM mcp_workspace_policies p "
         "JOIN mcp_services s ON s.service_id = p.service_id "
         "WHERE p.workspace_id=? AND p.enabled=1 AND s.status='online'",
@@ -672,7 +697,7 @@ def list_policies_for_workspace(workspace_id: str) -> list[dict[str, Any]]:
     if role_ids:
         placeholders = ",".join("?" * len(role_ids))
         role_rows = conn.execute(
-            f"SELECT p.*, s.name, s.service_type, s.endpoint_url, s.db_type, r.name AS role_name, 'role' AS source "
+            f"SELECT p.*, s.name, s.name, r.name AS role_name, 'role' AS source "
             f"FROM agent_role_mcp_policies p "
             f"JOIN mcp_services s ON s.service_id = p.service_id "
             f"JOIN agent_roles r ON r.role_id = p.role_id "
@@ -699,14 +724,14 @@ def registry_stats() -> dict[str, Any]:
     total = conn.execute("SELECT COUNT(*) AS c FROM mcp_services").fetchone()["c"]
     active = conn.execute("SELECT COUNT(*) AS c FROM mcp_services WHERE status='online'").fetchone()["c"]
     policies = conn.execute("SELECT COUNT(*) AS c FROM mcp_workspace_policies").fetchone()["c"]
-    by_type_rows = conn.execute(
-        "SELECT service_type, COUNT(*) AS c FROM mcp_services GROUP BY service_type"
+    by_source_rows = conn.execute(
+        "SELECT source, COUNT(*) AS c FROM mcp_services GROUP BY source"
     ).fetchall()
     return {
         "total_services": total,
         "online_services": active,
         "total_policies": policies,
-        "by_service_type": {row["service_type"]: row["c"] for row in by_type_rows},
+        "by_source": {row["source"]: row["c"] for row in by_source_rows},
     }
 
 
@@ -752,6 +777,15 @@ def count_mcp_calls(service_id: str, *, hours: int = 24) -> int:
     return row["c"] if row else 0
 
 
+def list_mcp_calls(service_id: str, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+    """List recent MCP call records with pagination."""
+    rows = _ensure_conn().execute(
+        "SELECT * FROM mcp_usage_log WHERE service_id = ? ORDER BY called_at DESC LIMIT ? OFFSET ?",
+        (service_id, limit, offset),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 # ── System Dimension Registry CRUD ────────────────────────────────────
 
 def _dimension_from_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -761,6 +795,15 @@ def _dimension_from_row(row: sqlite3.Row) -> dict[str, Any]:
 def list_dimensions() -> list[dict[str, Any]]:
     rows = _ensure_conn().execute("SELECT * FROM system_dimension_registry ORDER BY dim_id").fetchall()
     return [_dimension_from_row(r) for r in rows]
+
+
+def get_dimension(dim_id: str) -> dict[str, Any] | None:
+    row = _ensure_conn().execute(
+        "SELECT * FROM system_dimension_registry WHERE dim_id=?", (dim_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    return _dimension_from_row(row)
 
 
 def _validate_connection(db_connection_id: str) -> dict[str, Any]:
@@ -1043,7 +1086,7 @@ def get_dimension_values(dim_id: str) -> list[str]:
     if dim is None:
         return []
     try:
-        db_conn, db_type = _connect_db(dim["db_connection_id"])
+        db_conn, db_type = _connect_db(dim["db_connection_id"], database=dim["db_name"] or "")
         table = dim["table_name"]
         column = dim["column_name"]
 
@@ -1073,3 +1116,112 @@ def get_dimension_values(dim_id: str) -> list[str]:
                 db_conn.close()
     except Exception:
         return []
+
+
+# ── MCP Service Versions CRUD ─────────────────────────────────────────
+
+def create_service_version(
+    *,
+    service_id: str,
+    version: str = "",
+    version_notes: str = "",
+    dimensions: list[str] | None = None,
+    tables: list[str] | None = None,
+    input_schema: dict[str, Any] | None = None,
+    output_schema: dict[str, Any] | None = None,
+    submitted_by_workspace: str = "",
+    submitted_by_account: str = "",
+) -> dict[str, Any]:
+    """Create a new service version record (pending review). Returns the created record."""
+    conn = _ensure_conn()
+    version_id = f"ver_{uuid.uuid4().hex[:12]}"
+    conn.execute(
+        """
+        INSERT INTO mcp_service_versions (
+            version_id, service_id, version, version_notes,
+            snapshot_dimensions, snapshot_tables,
+            snapshot_input_schema, snapshot_output_schema,
+            status, submitted_by_workspace, submitted_by_account, submitted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, datetime('now'))
+        """,
+        (
+            version_id, service_id, version.strip(), version_notes.strip(),
+            json.dumps(dimensions or [], ensure_ascii=False),
+            json.dumps(tables or [], ensure_ascii=False),
+            json.dumps(input_schema or {}, ensure_ascii=False),
+            json.dumps(output_schema or {}, ensure_ascii=False),
+            submitted_by_workspace.strip(), submitted_by_account.strip(),
+        ),
+    )
+    return get_service_version(version_id) or {}
+
+
+def get_service_version(version_id: str) -> dict[str, Any] | None:
+    row = _ensure_conn().execute(
+        "SELECT * FROM mcp_service_versions WHERE version_id = ?", (version_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def list_service_versions(service_id: str) -> list[dict[str, Any]]:
+    rows = _ensure_conn().execute(
+        "SELECT * FROM mcp_service_versions WHERE service_id = ? ORDER BY submitted_at DESC",
+        (service_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_pending_version(service_id: str) -> dict[str, Any] | None:
+    """Return the pending version for a service, if any."""
+    row = _ensure_conn().execute(
+        "SELECT * FROM mcp_service_versions WHERE service_id = ? AND status = 'pending' ORDER BY submitted_at DESC LIMIT 1",
+        (service_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def update_service_version_status(
+    version_id: str,
+    status: str,
+    *,
+    reviewed_by: str = "",
+    review_comment: str = "",
+) -> bool:
+    conn = _ensure_conn()
+    cur = conn.execute(
+        """UPDATE mcp_service_versions
+           SET status = ?, reviewed_by = ?, reviewed_at = datetime('now'), review_comment = ?
+           WHERE version_id = ?""",
+        (status.strip(), reviewed_by.strip(), review_comment.strip(), version_id),
+    )
+    return cur.rowcount > 0
+
+
+# ── System MCP scanning ──────────────────────────────────────────────
+
+def _scan_system_mcps(conn: sqlite3.Connection) -> None:
+    """Scan backend/services/mcp_system/ subdirectories, read manifest.json, INSERT into mcp_services."""
+    system_dir = _backend_dir / "services" / "mcp_system"
+    if not system_dir.is_dir():
+        return
+
+    for entry in sorted(system_dir.iterdir()):
+        if not entry.is_dir() or entry.name.startswith("_") or entry.name.startswith("."):
+            continue
+        manifest_file = entry / "manifest.json"
+        if not manifest_file.is_file():
+            continue
+        try:
+            manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        service_id = f"system-{entry.name}"
+        name = manifest.get("name", entry.name)
+        description = manifest.get("description", "")
+        version = str(manifest.get("version", "1.0.0"))
+        conn.execute(
+            """INSERT OR IGNORE INTO mcp_services (service_id, name, description, source, status, version)
+               VALUES (?, ?, ?, 'system', 'online', ?)""",
+            (service_id, name.strip(), description.strip(), version),
+        )

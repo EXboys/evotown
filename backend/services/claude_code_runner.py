@@ -213,14 +213,12 @@ def _resolve_mcp_context(workspace_id: str) -> dict[str, Any]:
     for policy in policies:
         sid = policy["service_id"]
         svc = mcp_registry.get_service(sid) or {}
-        service_type = str(svc.get("service_type") or "")
 
-        # Database MCP: legacy connection format
+        # Connection info (legacy format kept for backward compat)
         connections.append(
             {
                 "connection_id": sid,
                 "name": policy.get("name", sid),
-                "db_type": policy.get("db_type", ""),
                 "mcp_server_url": policy.get("endpoint_url", ""),
                 "permission": "read",
                 "row_rules": policy.get("row_rules", []),
@@ -231,29 +229,28 @@ def _resolve_mcp_context(workspace_id: str) -> dict[str, Any]:
             }
         )
 
-        # Generic MCP tool for ALL services (including database)
+        # Generic MCP tool for ALL services
         if sid not in seen_tool_ids:
             seen_tool_ids.add(sid)
             tool_name = sid.replace("-", "_")
-            manifest_raw = str(svc.get("manifest") or "{}")
-            try:
-                manifest = json.loads(manifest_raw)
-            except (json.JSONDecodeError, TypeError):
-                manifest = {}
 
-            # Use manifest input_schema if declared, else generic fallback
-            input_schema = manifest.get("input") or {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "description": "Action to perform"},
-                    "args": {"type": "object", "description": f"Action-specific arguments for {sid}"},
-                },
-            }
+            # Use structured input_schema from mcp_services, else generic fallback
+            try:
+                input_schema = json.loads(str(svc.get("input_schema") or "{}"))
+            except (json.JSONDecodeError, TypeError):
+                input_schema = {}
+            if not input_schema:
+                input_schema = {
+                    "type": "object",
+                    "properties": {
+                        "action": {"type": "string", "description": "Action to perform"},
+                        "args": {"type": "object", "description": f"Action-specific arguments for {sid}"},
+                    },
+                }
 
             tools.append({
                 "name": tool_name,
-                "description": manifest.get("description") or svc.get("description") or svc.get("name", sid),
-                "service_type": service_type,
+                "description": svc.get("description") or svc.get("name", sid),
                 "call_endpoint": f"/api/v1/mcp/{sid}",
                 "input_schema": input_schema,
             })
@@ -573,7 +570,6 @@ def _render_agent_context_md(
             safe_name = t['name']
             lines.append(f"### {safe_name}")
             lines.append(f"- Description: {t['description']}")
-            lines.append(f"- Type: {t.get('service_type', 'api')}")
             lines.append(f"- Endpoint: POST {t['call_endpoint']}")
             # Render input_schema as JSON
             input_schema = t.get('input_schema', {})

@@ -100,16 +100,13 @@ def _workspace_from_row(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def _copy_mcp_system_files(dev_dir: Path) -> None:
-    """Copy database.py, permissions.py, publish.py from mcp-services/ to shared mcp-dev/."""
+    """Copy database.py, permissions.py to shared mcp-dev/."""
     from pathlib import Path as _P
     import os as _os
 
     mcp_services = _P(_os.environ.get("MCP_SERVICES_DIR", "/app/data/mcp-services"))
-    for fname in ("database.py", "permissions.py", "publish.py"):
-        if fname == "publish.py":
-            src = _P(__file__).resolve().parent.parent / "services" / "mcp_publish_script.py"
-        else:
-            src = mcp_services / fname
+    for fname in ("database.py", "permissions.py"):
+        src = mcp_services / fname
         if src.is_file():
             (dev_dir / fname).write_bytes(src.read_bytes())
 

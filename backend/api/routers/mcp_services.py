@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -32,7 +33,6 @@ class BatchPolicyUpdate(BaseModel):
 class McpServiceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     description: str = ""
-    service_type: str = "api"
     endpoint_url: str = ""
     source: str = "external"
 
@@ -74,7 +74,6 @@ async def create_mcp_service(body: McpServiceCreate, _admin=Depends(require_admi
     svc = mcp_registry.register_service(
         name=body.name,
         description=body.description,
-        service_type=body.service_type,
         endpoint_url=body.endpoint_url,
         source=body.source,
     )
@@ -199,14 +198,22 @@ class RoleMembersUpdate(BaseModel):
     workspace_ids: list[str] = Field(default_factory=list)
 
 
-class RoleFunctionsUpdate(BaseModel):
-    func_ids: list[str] = Field(default_factory=list)
-
-
 class RolePolicyBatchItem(BaseModel):
     role_id: str
     enabled: bool = True
     row_rules: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class SingleRolePolicyUpdate(BaseModel):
+    enabled: bool = True
+
+
+class RoleDimensionUpdate(BaseModel):
+    dim_values: list[str] = Field(default_factory=list)
+
+
+class RoleDimensionsBatchUpdate(BaseModel):
+    dimensions: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class RolePolicyBatchUpdate(BaseModel):
@@ -280,6 +287,17 @@ async def update_service_role_policies(service_id: str, body: RolePolicyBatchUpd
     return {"service_id": service_id, "role_policies": created}
 
 
+@router.put("/mcp-services/{service_id}/role-policies/{role_id}")
+async def set_service_role_policy(service_id: str, role_id: str, body: SingleRolePolicyUpdate, _admin=Depends(require_admin)):
+    """Enable or disable a single role's MCP policy for this service."""
+    if mcp_registry.get_service(service_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP service not found")
+    if mcp_registry.get_role(role_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="role not found")
+    policy = mcp_registry.set_role_policy(service_id, role_id, enabled=body.enabled)
+    return {"service_id": service_id, "role_id": role_id, "policy": policy}
+
+
 @router.delete("/mcp-services/{service_id}/role-policies/{role_id}")
 async def delete_service_role_policy(service_id: str, role_id: str, _admin=Depends(require_admin)):
     if not mcp_registry.delete_role_policy(service_id, role_id):
@@ -299,12 +317,57 @@ async def get_role_mcp_services(role_id: str):
         result.append({
             "service_id": svc["service_id"],
             "name": svc["name"],
-            "service_type": svc["service_type"],
             "endpoint_url": svc["endpoint_url"],
             "enabled": policy["enabled"] if policy else False,
             "row_rules": policy.get("row_rules", []) if policy else [],
         })
     return {"role_id": role_id, "services": result}
+
+
+# ── Role dimensions (REQ-015) ──────────────────────────────────────
+
+@router.get("/mcp-roles/{role_id}/dimensions", dependencies=[Depends(require_admin)])
+async def get_role_dimensions(role_id: str):
+    """Get all dimension bindings for a role, enriched with metadata."""
+    if mcp_registry.get_role(role_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="role not found")
+    dims = mcp_registry.get_role_dimensions(role_id)
+    # Also include unconfigured dimensions (all registered dims not yet bound)
+    all_dims = mcp_registry.list_dimensions()
+    bound_ids = {d["dim_id"] for d in dims}
+    for d in all_dims:
+        if d["dim_id"] not in bound_ids:
+            dims.append({
+                "dim_id": d["dim_id"],
+                "label": d["label"],
+                "code": d.get("code", ""),
+                "db_connection_id": d["db_connection_id"],
+                "table_name": d["table_name"],
+                "column_name": d["column_name"],
+                "dim_values": [],
+                "updated_at": "",
+            })
+    return {"role_id": role_id, "dimensions": dims}
+
+
+@router.put("/mcp-roles/{role_id}/dimensions/{dim_id}")
+async def set_role_dimension(role_id: str, dim_id: str, body: RoleDimensionUpdate, _admin=Depends(require_admin)):
+    """Set or update a single role-dimension binding. dim_values=["*"] means full access."""
+    if mcp_registry.get_role(role_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="role not found")
+    if mcp_registry.get_dimension(dim_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="dimension not found")
+    result = mcp_registry.set_role_dimension(role_id, dim_id, body.dim_values)
+    return {"role_id": role_id, "dim_id": dim_id, "dim_values": result["dim_values"]}
+
+
+@router.put("/mcp-roles/{role_id}/dimensions")
+async def set_role_dimensions_batch(role_id: str, body: RoleDimensionsBatchUpdate, _admin=Depends(require_admin)):
+    """Replace all dimension bindings for a role."""
+    if mcp_registry.get_role(role_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="role not found")
+    count = mcp_registry.set_role_dimensions_batch(role_id, body.dimensions)
+    return {"role_id": role_id, "dimensions_set": count}
 
 
 # ── Agent Gateway: call MCP ─────────────────────────────────────────
@@ -326,14 +389,14 @@ async def call_mcp(service_id: str, body: McpCallRequest,
     if not workspace_id:
         raise HTTPException(status_code=401, detail="无法解析 workspace_id")
 
-    # ② service → manifest
+    # ② service → dimensions
     svc = mcp_registry.get_service(service_id)
     if svc is None or svc.get("status") != "online":
         raise HTTPException(status_code=404, detail="MCP service not found")
-    manifest = _json.loads(svc.get("manifest") or "{}")
-
-    # ③ 权限解析
-    declared_dims = manifest.get("dimensions", [])
+    try:
+        declared_dims = json.loads(str(svc.get("dimensions") or "[]"))
+    except (json.JSONDecodeError, TypeError):
+        declared_dims = []
     permissions: dict[str, list[str]] = {}
     if declared_dims:
         policies = mcp_registry.list_policies_for_workspace(workspace_id)
@@ -400,14 +463,17 @@ async def list_mcp_tools(identity: dict | None = Depends(require_console_read)):
         svc = mcp_registry.get_service(sid)
         if svc is None or svc.get("status") != "online":
             continue
-        manifest = _json.loads(svc.get("manifest") or "{}")
-        if not manifest:
-            continue
+        try:
+            input_schema = json.loads(str(svc.get("input_schema") or "{}"))
+        except (json.JSONDecodeError, TypeError):
+            input_schema = {}
+        if not input_schema:
+            input_schema = {"type": "object", "properties": {}}
         tool_name = sid.replace("-", "_")
         tools.append({
             "name": tool_name,
-            "description": manifest.get("description", svc.get("name", "")),
-            "input_schema": manifest.get("input", {"type": "object", "properties": {}}),
+            "description": svc.get("description") or svc.get("name", ""),
+            "input_schema": input_schema,
         })
     return {"tools": tools}
 
@@ -624,38 +690,121 @@ async def deploy_mcp(body: McpDeployRequest, _admin=Depends(require_admin)):
     return {"deployed": True, "service_id": body.service_id, "warning": warning}
 
 
-# ── System Functions (admin read-only, hardcoded data) ────────────────
+# ── MCP Review (admin) ────────────────────────────────────────────────
 
-@router.get("/mcp-functions", dependencies=[Depends(require_admin)])
-async def list_system_functions(detail: bool = False):
-    """List all system functions. With detail=true, include role/workspace assignments."""
-    funcs = mcp_registry.list_system_functions()
-    if detail:
-        result: list[dict[str, Any]] = []
-        for f in funcs:
-            assignments = mcp_registry.list_function_assignments(f["func_id"])
-            result.append({**f, "roles": assignments})
-        return {"functions": result}
-    return {"functions": funcs}
+class McpReviewRequest(BaseModel):
+    review_comment: str = ""
 
 
-@router.get("/mcp-roles/{role_id}/functions", dependencies=[Depends(require_admin)])
-async def get_role_functions(role_id: str):
-    if mcp_registry.get_role(role_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="role not found")
-    return {"role_id": role_id, "func_ids": mcp_registry.list_role_functions(role_id)}
+@router.get("/mcp-services/{service_id}/versions", dependencies=[Depends(require_admin)])
+async def list_service_versions_endpoint(service_id: str):
+    """List all version records for an MCP service."""
+    if mcp_registry.get_service(service_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP service not found")
+    versions = mcp_registry.list_service_versions(service_id)
+    return {"service_id": service_id, "versions": versions}
 
 
-@router.put("/mcp-roles/{role_id}/functions")
-async def set_role_functions(role_id: str, body: RoleFunctionsUpdate, _admin=Depends(require_admin)):
-    if mcp_registry.get_role(role_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="role not found")
-    func_ids = mcp_registry.set_role_functions(role_id, body.func_ids)
-    return {"role_id": role_id, "func_ids": func_ids}
+@router.get("/mcp-services/{service_id}/calls", dependencies=[Depends(require_admin)])
+async def list_mcp_calls(service_id: str, limit: int = 50, offset: int = 0):
+    """List recent MCP call records with pagination."""
+    if mcp_registry.get_service(service_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP service not found")
+    calls = mcp_registry.list_mcp_calls(service_id, limit=limit, offset=offset)
+    total = mcp_registry.count_mcp_calls(service_id)
+    return {"service_id": service_id, "calls": calls, "total": total, "limit": limit, "offset": offset}
 
 
-@router.get("/workspaces/{workspace_id}/functions")
-async def get_workspace_functions(workspace_id: str):
-    """Return merged func_ids for a workspace (union across all its roles)."""
-    func_ids = mcp_registry.list_workspace_functions(workspace_id)
-    return {"workspace_id": workspace_id, "func_ids": func_ids}
+@router.post("/mcp-services/{service_id}/approve", dependencies=[Depends(require_admin)])
+async def approve_mcp_service(service_id: str, body: McpReviewRequest = McpReviewRequest()):
+    """Approve pending version → copy handler to production + set online."""
+    import shutil
+    from pathlib import Path as _Path
+
+    svc = mcp_registry.get_service(service_id)
+    if svc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP service not found")
+
+    mcp_path = svc.get("mcp_path", "")
+    if not mcp_path:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="mcp_path 为空，无法部署")
+
+    pending_ver = mcp_registry.get_pending_version(service_id)
+    is_update = pending_ver is not None
+
+    # Version info: from pending version record if exists, else from service row
+    version = pending_ver.get("version", "") if is_update else svc.get("version", "")
+    dimensions = pending_ver.get("snapshot_dimensions", "[]") if is_update else svc.get("dimensions", "[]")
+    tables = pending_ver.get("snapshot_tables", "[]") if is_update else svc.get("tables", "[]")
+    input_schema = pending_ver.get("snapshot_input_schema", "{}") if is_update else svc.get("input_schema", "{}")
+    output_schema = pending_ver.get("snapshot_output_schema", "{}") if is_update else svc.get("output_schema", "{}")
+
+    # ── Copy handler.py from dev to prod ──────────────────────────
+    dev_handler = _Path("/app/data/mcp-dev") / mcp_path.strip("/") / "handler.py"
+    prod_dir = _Path("/app/data/mcp-services") / mcp_path.strip("/")
+
+    if not dev_handler.is_file():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                           detail=f"handler.py not found: {dev_handler}")
+
+    prod_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(str(dev_handler), str(prod_dir / "handler.py"))
+
+    dev_manifest = _Path("/app/data/mcp-dev") / mcp_path.strip("/") / "manifest.json"
+    if dev_manifest.is_file():
+        shutil.copy2(str(dev_manifest), str(prod_dir / "manifest.json"))
+
+    # ── Update service record to online ───────────────────────────
+    conn = mcp_registry._ensure_conn()
+    conn.execute(
+        """UPDATE mcp_services SET status='online',
+           version=?, dimensions=?, tables=?, input_schema=?, output_schema=?,
+           updated_at=datetime('now')
+           WHERE service_id=?""",
+        (version, dimensions, tables, input_schema, output_schema, service_id),
+    )
+
+    # ── Mark version as approved (if exists) ──────────────────────
+    if is_update:
+        mcp_registry.update_service_version_status(
+            pending_ver["version_id"], "approved",
+            reviewed_by="admin",
+            review_comment=body.review_comment or "",
+        )
+
+    # ── Clear mcp_loader cache ────────────────────────────────────
+    from services.mcp_loader import clear_handler_cache
+    clear_handler_cache(service_id)
+
+    return {"approved": True, "service_id": service_id,
+            "version_id": pending_ver.get("version_id", "") if is_update else "",
+            "version": version}
+
+
+@router.post("/mcp-services/{service_id}/reject", dependencies=[Depends(require_admin)])
+async def reject_mcp_service(service_id: str, body: McpReviewRequest):
+    """Reject pending version."""
+    svc = mcp_registry.get_service(service_id)
+    if svc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP service not found")
+
+    pending = mcp_registry.get_pending_version(service_id)
+    if pending is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="没有待审核的版本")
+
+    mcp_registry.update_service_version_status(
+        pending["version_id"], "rejected",
+        reviewed_by="admin",
+        review_comment=body.review_comment or "",
+    )
+
+    # If this was a first-time submission (service still pending), set service back to offline
+    if svc.get("status") == "pending":
+        conn = mcp_registry._ensure_conn()
+        conn.execute(
+            "UPDATE mcp_services SET status='offline', updated_at=datetime('now') WHERE service_id=?",
+            (service_id,),
+        )
+
+    return {"rejected": True, "service_id": service_id, "version_id": pending["version_id"]}
+

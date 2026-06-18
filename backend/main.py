@@ -72,6 +72,11 @@ from core.auth import admin_token_status, security_status  # noqa: E402
 async def lifespan(app: FastAPI):
     deps.experiment_id = get_or_create_experiment_id()
 
+    # ── Initialize MCP registry (seeds system MCPs, runs migrations) ──
+    from infra.mcp_registry import _ensure_conn
+    _ensure_conn()
+    logger.info("MCP registry initialized")
+
     # 启动 Replay 录制 session（以实验 ID 命名，重启后开新 session）
     from infra.replay import start_session as _start_replay
     _start_replay(deps.experiment_id)

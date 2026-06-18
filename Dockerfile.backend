@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # ── 单 Stage：Python backend + 从 GitHub Release 下载预编译 skilllite 二进制 ──
 FROM python:3.11-slim
 
@@ -61,4 +60,3 @@ RUN mkdir -p /root/.skilllite/arena /app/data /app/replays /app/logs
 EXPOSE 8765
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8765"]
-

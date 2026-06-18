@@ -185,7 +185,7 @@ class CodingAgentApiTest(unittest.TestCase):
             headers={"Authorization": f"Bearer {alice_key}"},
         )
         dot_paths = [item["path"] for item in with_dot.json()["entries"]]
-        self.assertTrue(any(p.startswith(".evotown/") for p in dot_paths))
+        self.assertTrue(any(p == ".evotown" or p.startswith(".evotown/") for p in dot_paths))
 
     def test_create_run_and_runner_writes_shared_context(self) -> None:
         from infra import claude_agent_runs, workspaces

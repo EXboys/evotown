@@ -9,6 +9,8 @@ type McpService = {
   service_type: string; endpoint_url: string; db_type: string;
   status: string; source: string; workspace_id: string;
   created_at: string; updated_at: string;
+  bound_workspaces?: number;
+  calls_24h?: number;
 };
 
 type McpSource = "internal" | "external" | "system";
@@ -219,8 +221,8 @@ export function McpPanel({ locale }: { locale: Locale }) {
                       "border-emerald-200 bg-emerald-50 text-emerald-700"
                     }`}>{SOURCE_LABELS[svc.source] || svc.source}</span>
                   </td>
-                  <td className="px-4 py-3 text-center text-xs text-slate-500">{(svc as any).bound_workspaces ?? "-"}</td>
-                  <td className="px-4 py-3 text-center text-xs text-slate-500">{(svc as any).calls_24h ?? "-"}</td>
+                  <td className="px-4 py-3 text-center text-xs text-slate-500">{svc.bound_workspaces ?? "-"}</td>
+                  <td className="px-4 py-3 text-center text-xs text-slate-500">{svc.calls_24h ?? "-"}</td>
                   <td className="px-4 py-3">
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input

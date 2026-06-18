@@ -509,7 +509,7 @@ def lookup_api_key(raw_key: str, *, touch_last_used: bool = False) -> dict[str, 
         """
         SELECT k.*, a.name AS account_name, a.org_id AS account_org_id, a.status AS account_status
         FROM gateway_api_keys k
-        JOIN gateway_accounts a ON a.account_id = k.account_id
+        LEFT JOIN gateway_accounts a ON a.account_id = k.account_id
         WHERE k.key_hash=?
         """,
         (key_hash,),
@@ -520,7 +520,8 @@ def lookup_api_key(raw_key: str, *, touch_last_used: bool = False) -> dict[str, 
     item = dict(row)
     if item.get("status") != "active":
         return None
-    if item.get("account_status") != "active":
+    # Agent keys have NULL account_status (k.account_id is agent_id, not in gateway_accounts)
+    if item.get("account_status") is not None and item.get("account_status") != "active":
         return None
 
     expires_at = item.get("expires_at")

@@ -132,7 +132,7 @@ def process(args: dict, permissions: dict) -> dict[str, Any]:
         tables=tables,
         input_schema=input_schema,
         output_schema=output_schema,
-        submitted_by_agent=agent_id,
+        submitted_by_agent_id=agent_id,
         submitted_by_account=account,
     )
 

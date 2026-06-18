@@ -138,6 +138,10 @@ mcp_call("internal_skill_deploy", {
 workspace 保持常驻运行，空闲 1h 自动停止。依赖 `workspace.hosted` 系统功能权限控制。
 **状态**: 待实施
 
+### 员工账号 scope 字段
+员工账号表增加 `scope` 字段，控制账号可见的数据范围（如部门、区域等）。属于账号层字段，Agent 维度不关注此字段。
+**状态**: 待讨论
+
 ### OA cookie 登录
 同域 cookie 自动登录，oa_bindings 表维护 employee_id 映射。
 **状态**: 待实施
@@ -153,7 +157,7 @@ workspace 保持常驻运行，空闲 1h 自动停止。依赖 `workspace.hosted
 
 **关联需求**: REQ-014（016 是 014 的前置基础）
 **ID 前缀**: 统一为 agt_xxx
-**状态**: 方案已确认，待实施（015 完成后动手）
+**状态**: 已完成 ✅
 
 ---
 
@@ -259,18 +263,34 @@ workspace 保持常驻运行，空闲 1h 自动停止。依赖 `workspace.hosted
 
 ### REQ-014: MCP 调用 Agent 身份识别与权限注入
 
-Agent 调用 MCP 时，后端需要知道是哪个 Agent 在调用，并基于 Agent 的身份解析权限维度值后传入 invoke_mcp。
+Agent 调用 MCP 时，后端需要知道是哪个 Agent 在调用，并基于 Agent 的身份解析权限维度值后传入 invoke_mcp。同时记录 MCP 调用审计。
 
-**前置依赖**：REQ-015（agent_role_dimensions 表）+ REQ-016（统一 agent_id）
+**前置依赖**：REQ-015（agent_role_dimensions 表）✅ + REQ-016（统一 agent_id）✅
 
-**改造链路**：
-1. Agent 启动时 env 注入专属 evk_ key（替代全局 ADMIN_TOKEN）
-2. Agent CLI 调 MCP 时带 `X-Evotown-Run-Id` header
-3. `call_mcp`: token → agent_id → roles → agent_role_dimensions → permissions
-4. `call_mcp`: run_id → account_id → 审计日志（记录触发员工）
+**现状**：MCP 调用走 HTTP（Claude Code SDK/CLI 子进程 → `POST /api/v1/mcp/{sid}`），`call_mcp` 端点已有 `token → agent_id → policies → permissions` 链路。全局 `ADMIN_TOKEN` 做 agent key，`mcp_usage_log` 仅记 service_id + 时间。
 
-**关联需求**: REQ-015（已完成）、REQ-016（实施中）
-**状态**: 方案已确认，待实施（016 完成后实施）
+**改造项**：
+
+1. **Agent 专属 key**：`gateway_sdk_env(agent_id)` 从 agents 表读 agent 自己的 evk_ key 注入子进程 env，替代全局 `EVOTOWN_CLAUDE_GATEWAY_API_KEY`（ADMIN_TOKEN）。权限解析链自然通（agent key 的 account_id = agent_id）。
+
+2. **run_id 注入 MCP URL**：run 启动时将 run_id 拼入 MCP 工具定义的 URL：
+   - CLI 模式：`call_endpoint = "/api/v1/mcp/{sid}?run_id={run_id}"`（AGENT_CONTEXT.md）
+   - SDK 模式：`.mcp.json` 中 MCP server URL 同样拼接
+   Claude Code 调 MCP 时自动携带，`call_mcp` 从 query param 读取。
+
+3. **权限解析**：不需要改——token → identity["account_id"] = agent_id → `list_policies_for_agent` → `agent_role_dimensions` → permissions → `invoke_mcp`。
+
+4. **MCP 审计**：扩展 `mcp_usage_log` 表（新增 run_id / agent_id / account_id / args / status / result 列）。`call_mcp` 通过 run_id 查 `claude_agent_runs` 获得 account_id，写入完整审计记录。一个 run 触发多次 MCP = 多条记录，通过 run_id 关联。
+
+**改造文件**：
+| 文件 | 改动 |
+|------|------|
+| `services/claude_agent_sdk_runner.py` | `gateway_sdk_env()` 加 `agent_id` 参数，从 agents 表读 key |
+| `services/claude_code_runner.py` | `_cli_subprocess_env()` 传 agent_id；`_resolve_mcp_context()` / `_render_agent_context_md()` / `_write_context_files()` 拼 run_id 到 URL |
+| `api/routers/mcp_services.py` | `call_mcp` 加 `run_id` 查询参数，审计写 mcp_usage_log |
+| `infra/mcp_registry.py` | `mcp_usage_log` 表扩列 + `record_mcp_call` 扩展 |
+
+**状态**: 方案已确认，待实施
 
 ---
 
@@ -327,6 +347,24 @@ Agent 产出按类型自动放入 workspace 子目录（downloads/、dashboard/ 
 
 ### REQ-009: Agent 对话技能推荐弹窗
 对话中提及技能但未触发调用时，弹窗提示确认是否使用。
+**状态**: 待讨论
+
+### REQ-017: Agent 运行环境隔离 — 防止绕过 MCP 权限
+
+Agent 子进程与 backend 共享同一个 Python 环境和容器，可直接 `from infra.mcp_registry import ...` 绕过 HTTP MCP 端点和权限检查。mcp03 已验证此问题——agent 在 `mcp_tools: 0` 的情况下通过直接 import registry 函数成功提交了 MCP 发版。
+
+**需讨论方案**：
+- 方案 A：子进程用独立 venv/容器，切断 Python import 路径
+- 方案 B：在 registry 关键函数入口加运行时调用者校验
+- 方案 C：限制 agent workspace 的 Python path，阻止 import backend 模块
+- 方案 D：其他
+
+**状态**: 待讨论
+
+### REQ-018: Agent run 状态判定优化 — 非致命错误不应标记为 failed
+
+当前 Claude Code CLI 返回 exit_code≠0 即判定 run 为 `failed`。但很多场景下对话本身已完成，只是工具调用未成功（如无权限调 MCP）。应区分「对话失败」和「工具调用失败」，让 run 状态反映对话是否正常完成，工具调用错误仅记录在 events 中。
+
 **状态**: 待讨论
 
 ---

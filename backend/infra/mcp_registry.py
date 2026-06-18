@@ -126,7 +126,13 @@ def _ensure_conn() -> sqlite3.Connection:
 
         CREATE TABLE IF NOT EXISTS mcp_usage_log (
             id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id         TEXT NOT NULL DEFAULT '',
+            agent_id       TEXT NOT NULL DEFAULT '',
+            account_id     TEXT NOT NULL DEFAULT '',
             service_id     TEXT NOT NULL,
+            args           TEXT NOT NULL DEFAULT '',
+            status         TEXT NOT NULL DEFAULT '',
+            result         TEXT NOT NULL DEFAULT '',
             called_at      TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_mcp_usage_service ON mcp_usage_log(service_id);
@@ -175,6 +181,9 @@ def _ensure_conn() -> sqlite3.Connection:
 
     # ── Migration: dimension registry updated_at ──────────────────
     _migrate_dimension_registry(conn)
+
+    # ── Migration: mcp_usage_log audit columns ────────────────────
+    _migrate_mcp_usage_log(conn)
 
     # ── Scan and register system MCP services ────────────────────
     _scan_system_mcps(conn)
@@ -259,6 +268,23 @@ def _migrate_dimension_registry(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE system_dimension_registry ADD COLUMN db_name TEXT NOT NULL DEFAULT ''")
     if "code" not in cols:
         conn.execute("ALTER TABLE system_dimension_registry ADD COLUMN code TEXT NOT NULL DEFAULT ''")
+
+
+def _migrate_mcp_usage_log(conn: sqlite3.Connection) -> None:
+    """Add audit columns to mcp_usage_log if missing (REQ-014)."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(mcp_usage_log)").fetchall()}
+    for col, col_def in [
+        ("run_id", "TEXT NOT NULL DEFAULT ''"),
+        ("agent_id", "TEXT NOT NULL DEFAULT ''"),
+        ("account_id", "TEXT NOT NULL DEFAULT ''"),
+        ("args", "TEXT NOT NULL DEFAULT ''"),
+        ("status", "TEXT NOT NULL DEFAULT ''"),
+        ("result", "TEXT NOT NULL DEFAULT ''"),
+    ]:
+        if col not in cols:
+            conn.execute(f"ALTER TABLE mcp_usage_log ADD COLUMN {col} {col_def}")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_mcp_usage_run ON mcp_usage_log(run_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_mcp_usage_agent ON mcp_usage_log(agent_id)")
 
 
 # ── MCP Service CRUD ──────────────────────────────────────────────────
@@ -782,11 +808,21 @@ def count_service_policies(service_id: str) -> int:
     return direct + len(role_ws)
 
 
-def record_mcp_call(service_id: str) -> None:
-    """Increment call counter for an MCP service (log to in-memory stats)."""
+def record_mcp_call(
+    service_id: str,
+    *,
+    run_id: str = "",
+    agent_id: str = "",
+    account_id: str = "",
+    args: str = "",
+    status: str = "",
+    result: str = "",
+) -> None:
+    """Record an MCP service call with full audit trail (REQ-014)."""
     _ensure_conn().execute(
-        "INSERT INTO mcp_usage_log (service_id, called_at) VALUES (?, datetime('now'))",
-        (service_id,),
+        "INSERT INTO mcp_usage_log (run_id, agent_id, account_id, service_id, args, status, result, called_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+        (run_id, agent_id, account_id, service_id, args[:500], status, result[:1000]),
     )
 
 

@@ -90,10 +90,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE agents ADD COLUMN agent_type TEXT NOT NULL DEFAULT 'coding-agent'")
     if "key_id" not in cols:
         conn.execute("ALTER TABLE agents ADD COLUMN key_id TEXT NOT NULL DEFAULT ''")
+    if "raw_key" not in cols:
+        conn.execute("ALTER TABLE agents ADD COLUMN raw_key TEXT NOT NULL DEFAULT ''")
 
 
 def _agent_from_row(row: sqlite3.Row) -> dict[str, Any]:
     d = dict(row)
+    d.pop("raw_key", None)  # never expose raw key in API responses
     tid = d.get("template_id", "")
     if tid:
         try:
@@ -104,6 +107,13 @@ def _agent_from_row(row: sqlite3.Row) -> dict[str, Any]:
         except Exception:
             pass
     return d
+
+
+def get_agent_key(agent_id: str) -> str:
+    """Return the raw API key for an agent (internal use only)."""
+    conn = _ensure_conn()
+    row = conn.execute("SELECT raw_key FROM agents WHERE agent_id=?", (agent_id,)).fetchone()
+    return str(row["raw_key"] or "") if row else ""
 
 
 def _copy_mcp_system_files(dev_dir: Path) -> None:
@@ -203,7 +213,10 @@ def create_agent(
     if not agent.get("key_id"):
         from infra import accounts as acct
         raw_key, key_id = acct.issue_agent_key(agent_id, name)
-        _ensure_conn().execute("UPDATE agents SET key_id=? WHERE agent_id=?", (key_id, agent_id))
+        _ensure_conn().execute(
+            "UPDATE agents SET key_id=?, raw_key=? WHERE agent_id=?",
+            (key_id, raw_key, agent_id),
+        )
     return agent
 
 

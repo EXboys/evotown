@@ -8,7 +8,7 @@ from typing import Any
 
 from infra import accounts as accounts_store
 
-BUILTIN_TEMPLATE_VERSION = "2.4.1"
+BUILTIN_TEMPLATE_VERSION = "2.7.0"
 """Bump this when built-in template content changes. Seeds update DB rows with matching template_id."""
 
 _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
@@ -22,17 +22,15 @@ _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
             "manifest.json（声明权限维度、入参出参）和 handler.py（业务逻辑）。"
         ),
         "paradigm": (
-            "1. 理解需求 → 确认涉及的数据表和权限维度\n"
-            "2. 查看 {server}/mcp-dev/ 下的 database.py 了解可用数据库，permissions.py 了解已注册维度\n"
-            "3. 确定 category（分类目录名）和 name（接口名）\n"
-            "   命名规范：仅允许 a-z 0-9 _ -，推荐全小写，如 shop、platform_order\n"
-            "4. 在 mcp-dev/{category}/{name}/ 下创建 manifest.json 和 handler.py"
-            "5. 检查是否已有同名 MCP → 首次用 v1.0.0，更新则 bump 版本号\n"
-            "6. 用 mcp_dev_call(service_id, args, permissions) 在开发目录调试验证\n"
-            "7. 发布：调用 mcp_call(\"internal_mcp_deploy\", {\"category\": \"实际的category\", \"name\": \"实际的name\"})\n"
-            "   将 category 和 name 替换为步骤3确定的实际值\n"
-            "8. 发布后告知用户「MCP 已提交审核，等待管理员审批」\n"
-            "9. 若返回 error「版本正在审核中」→ 告知用户等待审核完成后再提交"
+            "【发布已有 MCP — 直接调用】\n"
+            "若用户要求发布已有 MCP：直接调用 system_internal_mcp_deploy 工具\n"
+            "  args = {\"category\": \"X\", \"name\": \"Y\"}\n"
+            "  不要读 database.py / permissions.py / ls 目录\n"
+            "  一次工具调用即完成，不要反复尝试\n\n"
+            "【开发新 MCP 流程】\n"
+            "1. 在 mcp-dev/{category}/{name}/ 下创建 manifest.json + handler.py\n"
+            "2. 读取验证 → 调用 system_internal_mcp_deploy 工具发布\n"
+            "3. 告知用户结果\n"
         ),
         "standards": (
             "1. manifest.json：必须包含 description/version/dimensions/input/output 字段\n"
@@ -47,10 +45,10 @@ _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
             "       ├── manifest.json         ← 你生成\n"
             "       └── handler.py            ← 你生成\n"
             "6. 版本号：manifest.json 中声明 version，首次 v1.0.0，更新时递增\n"
-            "7. 发布：使用 mcp_call(\"internal_mcp_deploy\", {\"category\": \"...\", \"name\": \"...\"}) 提交审核\n"
+            "7. 发布：使用「可用 MCP 工具」中的 system_internal_mcp_deploy 提交审核\n"
             "   不要使用 python publish.py 或直接操作文件系统\n"
             "8. 禁止修改 database.py、permissions.py 等系统生成文件\n"
-            "9. 调试用 mcp_dev_call()，发布用 mcp_call(\"internal_mcp_deploy\", ...)"
+            "9. 验证：读取 manifest.json 和 handler.py 确认代码正确"
         ),
         "default_model": "",
         "default_skills": [],
@@ -108,6 +106,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
     cols = {row["name"] for row in conn.execute("PRAGMA table_info(agent_identity_templates)").fetchall()}
     if "seed_version" not in cols:
         conn.execute("ALTER TABLE agent_identity_templates ADD COLUMN seed_version TEXT NOT NULL DEFAULT ''")
+    # Rename legacy workspace_dir columns to agent_dir
+    if "has_workspace_dir" in cols:
+        conn.execute("ALTER TABLE agent_identity_templates RENAME COLUMN has_workspace_dir TO has_agent_dir")
+    if "workspace_dir_root" in cols:
+        conn.execute("ALTER TABLE agent_identity_templates RENAME COLUMN workspace_dir_root TO agent_dir_root")
+    if "workspace_dir_prefix" in cols:
+        conn.execute("ALTER TABLE agent_identity_templates RENAME COLUMN workspace_dir_prefix TO agent_dir_prefix")
 
 
 def _seed_builtin_templates(conn: sqlite3.Connection) -> None:

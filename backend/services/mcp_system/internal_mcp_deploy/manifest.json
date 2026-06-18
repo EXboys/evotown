@@ -3,5 +3,13 @@
   "description": "将开发中的 internal MCP 提交审核发布。首次提交创建服务记录，已有服务提交新版本等待审核。",
   "version": "1.0.0",
   "service_type": "api",
-  "system": true
+  "system": true,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "category": {"type": "string", "description": "MCP 分类目录名（如 shop）"},
+      "name": {"type": "string", "description": "MCP 名称（如 platform_order）"}
+    },
+    "required": ["category", "name"]
+  }
 }

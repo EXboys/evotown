@@ -86,6 +86,40 @@ def session_from_api_key(raw_key: str) -> dict[str, Any] | None:
     return _identity_from_record(record)
 
 
+def session_from_api_key_for_mcp(raw_key: str) -> dict[str, Any] | None:
+    """Like session_from_api_key but also accepts agent.run scope (for agent MCP calls)."""
+    record = accounts_store.lookup_api_key(raw_key, touch_last_used=True)
+    if record is None:
+        return None
+    scopes = _scopes_list(record.get("scopes"))
+    if not (has_console_read(scopes) or AGENT_SCOPE_RUN in scopes):
+        return None
+    return _identity_from_record(record)
+
+
+async def require_mcp_call(
+    key: str | None = Security(_HEADER_SCHEME),
+    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
+) -> dict[str, Any] | None:
+    """Validate agent or console key for MCP calls."""
+    admin_token = _get_configured_token()
+    if admin_token and key and key == admin_token:
+        return {"source": "admin_token", "scopes": ["*"]}
+    if credentials is not None and credentials.scheme.lower() == "bearer":
+        token = credentials.credentials
+        staff = get_staff_session(token)
+        if staff is not None:
+            return staff
+        session = session_from_api_key_for_mcp(token)
+        if session is not None:
+            return session
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid API key or missing console.read/agent.run scope.",
+        )
+    return None
+
+
 async def require_admin(
     key: str | None = Security(_HEADER_SCHEME),
     credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),

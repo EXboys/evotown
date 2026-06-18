@@ -15,7 +15,7 @@ from typing import Any
 
 MCP_SERVICES_DIR = Path(os.environ.get("MCP_SERVICES_DIR", "/app/data/mcp-services"))
 MCP_DEV_DIR = Path(os.environ.get("MCP_DEV_DIR", "/app/data/mcp-dev"))
-SYSTEM_MCP_DIR = Path(__file__).resolve().parent.parent / "mcp_system"
+SYSTEM_MCP_DIR = Path(__file__).resolve().parent / "mcp_system"
 _handler_cache: dict[str, tuple[float, Any]] = {}
 
 

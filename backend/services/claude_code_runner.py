@@ -192,7 +192,7 @@ def _runner_identity(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _resolve_mcp_context(agent_id: str) -> dict[str, Any]:
+def _resolve_mcp_context(agent_id: str, *, run_id: str = "") -> dict[str, Any]:
     """Resolve MCP connections and tools from workspace policies (auto-inject).
 
     Returns both legacy database connections AND generic MCP tools for all
@@ -215,6 +215,15 @@ def _resolve_mcp_context(agent_id: str) -> dict[str, Any]:
         svc = mcp_registry.get_service(sid) or {}
 
         # Connection info (legacy format kept for backward compat)
+        svc_type = str(svc.get("service_type") or "")
+        usage_hint = (
+            f'POST /api/v1/mcp/{sid} with args (see Available MCP Tools below)'
+            if svc_type in ("api", "system", "")
+            else (
+                "Query via Evotown `database-query` skill: "
+                f'{{"action":"query","connection_id":"{sid}","sql":"SELECT ..."}}'
+            )
+        )
         connections.append(
             {
                 "connection_id": sid,
@@ -222,10 +231,7 @@ def _resolve_mcp_context(agent_id: str) -> dict[str, Any]:
                 "mcp_server_url": policy.get("endpoint_url", ""),
                 "permission": "read",
                 "row_rules": policy.get("row_rules", []),
-                "usage": (
-                    "Query via Evotown `database-query` skill: "
-                    f'{{"action":"query","connection_id":"{sid}","sql":"SELECT ..."}}'
-                ),
+                "usage": usage_hint,
             }
         )
 
@@ -248,10 +254,13 @@ def _resolve_mcp_context(agent_id: str) -> dict[str, Any]:
                     },
                 }
 
+            call_url = f"/api/v1/mcp/{sid}"
+            if run_id:
+                call_url += f"?run_id={run_id}"
             tools.append({
                 "name": tool_name,
                 "description": svc.get("description") or svc.get("name", sid),
-                "call_endpoint": f"/api/v1/mcp/{sid}",
+                "call_endpoint": call_url,
                 "input_schema": input_schema,
             })
 
@@ -551,18 +560,18 @@ def _render_agent_context_md(
         if conn.get("mcp_server_url"):
             lines.append(f"  - MCP proxy: {conn['mcp_server_url']}")
         lines.append(f"  - {conn.get('usage', '')}")
-    if mcp_block.get("mcp_proxy_url"):
+    # Generic MCP Tools section
+    tool_specs = mcp_block.get("tools") or []
+    if mcp_block.get("mcp_proxy_url") and not tool_specs:
         lines.append(f"- Default MCP proxy base URL: `{mcp_block['mcp_proxy_url']}`")
     lines.append("")
 
-    # Generic MCP Tools section (all service types)
-    tool_specs = mcp_block.get("tools") or []
     if tool_specs:
         lines.extend([
             "## Available MCP Tools",
             "",
             "The following MCP services are available to you as tools.",
-            "Call them with curl POST to the endpoint shown.",
+            "Use your native tool_use mechanism to call them.",
             "The `input_schema` shows the required JSON body format.",
             "",
         ])
@@ -593,10 +602,11 @@ def build_shared_context(
     selected_skills: list[str] | None = None,
     agent_id: str = "",
     account_id: str = "",
+    run_id: str = "",
 ) -> dict[str, Any]:
     hits = _knowledge_hits(prompt, team_id=team_id)
     skills = _filter_skill_manifest(_skill_manifest(account_id), list(selected_skills or []))
-    mcp = _resolve_mcp_context(agent_id)
+    mcp = _resolve_mcp_context(agent_id, run_id=run_id)
     return {
         "skills": skills,
         "mcp": mcp,
@@ -665,12 +675,16 @@ def _write_context_files(
         )
 
     mcp_servers: dict[str, Any] = {}
+    run_id = str(run.get("run_id") or "")
     for conn in (shared_context.get("mcp") or {}).get("connections") or []:
         if not isinstance(conn, dict):
             continue
         url = str(conn.get("mcp_server_url") or "").strip()
         if not url:
             continue
+        if run_id:
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}run_id={run_id}"
         key = str(conn.get("connection_id") or conn.get("name") or "database")
         mcp_servers[key] = {"type": "http", "url": url}
     if mcp_servers:
@@ -827,7 +841,7 @@ def _cli_subprocess_env(*, workspace_root: Path, run: dict[str, Any], model: str
     from services import claude_agent_sdk_runner
 
     signals = run.get("signals") or {}
-    gateway_env = claude_agent_sdk_runner.gateway_sdk_env()
+    gateway_env = claude_agent_sdk_runner.gateway_sdk_env(agent_id=str(run.get("agent_id") or ""))
     api_key = gateway_env.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", "").strip()
     env: dict[str, str] = {
         **{k: str(v) for k, v in os.environ.items()},
@@ -950,6 +964,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
         selected_skills=selected_skills,
         agent_id=workspace["agent_id"],
         account_id=identity.get("account_id", ""),
+        run_id=run_id,
     )
     shared_context["workspace_profile"] = ws_profile
     materialized_skills = _materialize_skills(workspace, selected_skills) if selected_skills else []

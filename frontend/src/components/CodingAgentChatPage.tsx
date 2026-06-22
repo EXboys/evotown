@@ -17,6 +17,14 @@ import { WorkspaceFileList, type WorkspaceFileEntry } from "./WorkspaceFileList"
 type Agent = {
   agent_id: string; owner_account_id: string; name: string; root_path: string;
   status: "active" | "archived"; created_at: string; updated_at: string;
+  template_id?: string;
+};
+
+type AgentTemplateSummary = {
+  template_id: string;
+  has_agent_dir?: boolean;
+  agent_dir_root?: string;
+  agent_dir_prefix?: string;
 };
 
 type AgentRun = {
@@ -168,8 +176,13 @@ export function CodingAgentChatPage() {
         const ws = d.agent || d;
         if (ws.template_id) {
           adminFetch("/api/v1/agent-templates").then(r => r.json()).then(td => {
-            const tpl = (td.templates || []).find((t: any) => t.template_id === ws.template_id);
-            if (tpl?.has_agent_dir) { setDevDirRoot(tpl.agent_dir_root as "agent" | "shared" | "server"); setDevDirPrefix((tpl.agent_dir_prefix || "").replace(/\/$/, "")); }
+            const tpl = ((td.templates || []) as AgentTemplateSummary[]).find(
+              (t) => t.template_id === ws.template_id,
+            );
+            if (tpl?.has_agent_dir) {
+              setDevDirRoot(tpl.agent_dir_root as "agent" | "shared" | "server");
+              setDevDirPrefix((tpl.agent_dir_prefix || "").replace(/\/$/, ""));
+            }
           }).catch(() => {});
         }
       }).catch(() => {});

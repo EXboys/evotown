@@ -724,8 +724,8 @@ def _sdk_ready() -> bool:
     return bool(claude_agent_sdk_runner.sdk_available() and (direct_key or (gateway_enabled and gateway_key)))
 
 
-def _execution_backend() -> str:
-    """Resolve run backend: embedded SDK (default), external CLI, or dry-run."""
+def _claude_execution_backend() -> str:
+    """Resolve Claude run backend: embedded SDK, external CLI, or dry-run."""
     from services import claude_agent_sdk_runner
 
     mode = os.environ.get("EVOTOWN_CLAUDE_EXECUTION_MODE", "auto").strip().lower()
@@ -744,8 +744,47 @@ def _execution_backend() -> str:
     return "dry-run"
 
 
-async def _run_agent(*, workspace_root: Path, prompt: str, run: dict[str, Any], model: str) -> tuple[int, str, str]:
-    backend = _execution_backend()
+def _execution_backend(runtime_engine: str) -> str:
+    """Resolve run backend for the workspace runtime engine."""
+    from services.runtime_engine import normalize_runtime_engine
+
+    if normalize_runtime_engine(runtime_engine) == "codex":
+        from services import codex_agent_sdk_runner
+
+        return codex_agent_sdk_runner.execution_backend()
+    return _claude_execution_backend()
+
+
+async def _run_agent(
+    *,
+    workspace_root: Path,
+    prompt: str,
+    run: dict[str, Any],
+    model: str,
+    runtime_engine: str = "claude",
+) -> tuple[int, str, str]:
+    from services.runtime_engine import normalize_runtime_engine
+
+    engine = normalize_runtime_engine(runtime_engine)
+    backend = _execution_backend(engine)
+    if engine == "codex":
+        if backend == "sdk":
+            from services import codex_agent_sdk_runner
+
+            exit_code, output = await codex_agent_sdk_runner.run_agent_sdk(
+                workspace_root=workspace_root,
+                prompt=prompt,
+                model=model,
+                run=run,
+            )
+            return exit_code, output, backend
+        summary = (
+            "Dry-run completed (Codex). Install openai-codex (pip install openai-codex) and set "
+            "OPENAI_API_KEY, or enable EVOTOWN_CODEX_USE_GATEWAY with EVOTOWN_CODEX_GATEWAY_API_KEY. "
+            "Workspace context files were written under .evotown/."
+        )
+        return 0, summary, "dry-run"
+
     if backend == "sdk":
         from services import claude_agent_sdk_runner
 
@@ -885,10 +924,23 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
 
     root = agents.resolve_agent_path(workspace)
     model = resolve_run_model(str(run.get("model") or ""))
-    claude_agent_runs.update_run_status(run_id, status="running")
-    claude_agent_runs.append_event(run_id, "context.prepare", {"workspace_root": str(root), "model": model})
-
     signals = run.get("signals") or {}
+    from infra import workspace_profile as _wp
+    from services.runtime_engine import engine_id_for_runtime, normalize_runtime_engine
+
+    ws_profile = _wp.get_profile(workspace)
+    runtime_engine = normalize_runtime_engine(
+        signals.get("runtime_engine") or ws_profile.get("runtime_engine"),
+    )
+    engine_id = engine_id_for_runtime(runtime_engine)
+
+    claude_agent_runs.update_run_status(run_id, status="running")
+    claude_agent_runs.append_event(
+        run_id,
+        "context.prepare",
+        {"workspace_root": str(root), "model": model, "runtime_engine": runtime_engine},
+    )
+
     selected_skills = list(signals.get("selected_skills") or [])
     previous_run_id = str(signals.get("previous_run_id") or "").strip()
     attachment_paths = [str(p).strip() for p in (signals.get("attachments") or []) if str(p).strip()]
@@ -897,9 +949,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
     prompt = _build_conversation_prompt(run["prompt"], history)
     prompt = _append_attachments_to_prompt(prompt, workspace, attachment_paths)
 
-    # Prepend identity profile to prompt so model sees it before Claude Code default identity
-    from infra import workspace_profile as _wp
-    ws_profile = _wp.get_profile(workspace)
+    # Prepend identity profile to prompt so model sees it before runner default identity
     if ws_profile and ws_profile.get("soul"):
         parts = [f"[SYSTEM IDENTITY - 你的身份设定]\n{ws_profile['soul']}"]
         if ws_profile.get("paradigm"):
@@ -943,7 +993,6 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
 
     identity = _runner_identity(run)
 
-    ws_profile = _wp.get_profile(workspace)
     shared_context = build_shared_context(
         prompt=run["prompt"],
         team_id=run.get("team_id", ""),
@@ -985,6 +1034,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
             prompt=prompt,
             run=run,
             model=model,
+            runtime_engine=runtime_engine,
         )
         if timeout_sec > 0:
             exit_code, output, execution_backend = await asyncio.wait_for(agent_coro, timeout=timeout_sec)
@@ -1002,7 +1052,8 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
             artifact_manifest=artifacts,
             signals={
                 **(run.get("signals") or {}),
-                "engine_id": DEFAULT_ENGINE_ID,
+                "engine_id": engine_id,
+                "runtime_engine": runtime_engine,
                 "agent_id": workspace["agent_id"],
                 "execution_backend": execution_backend,
                 "sdk_command_configured": execution_backend != "dry-run",
@@ -1024,7 +1075,8 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
             artifact_manifest=artifacts,
             signals={
                 **(run.get("signals") or {}),
-                "engine_id": DEFAULT_ENGINE_ID,
+                "engine_id": engine_id,
+                "runtime_engine": runtime_engine,
                 "agent_id": workspace["agent_id"],
                 "execution_backend": execution_backend,
             },
@@ -1042,7 +1094,8 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
             artifact_manifest=artifacts,
             signals={
                 **(run.get("signals") or {}),
-                "engine_id": DEFAULT_ENGINE_ID,
+                "engine_id": engine_id,
+                "runtime_engine": runtime_engine,
                 "agent_id": workspace["agent_id"],
                 "execution_backend": execution_backend,
                 "sdk_command_configured": execution_backend != "dry-run",
@@ -1081,7 +1134,8 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
         artifact_manifest=artifacts,
         signals={
             **(run.get("signals") or {}),
-            "engine_id": DEFAULT_ENGINE_ID,
+            "engine_id": engine_id,
+            "runtime_engine": runtime_engine,
             "agent_id": workspace["agent_id"],
             "execution_backend": execution_backend,
             "sdk_command_configured": execution_backend != "dry-run",

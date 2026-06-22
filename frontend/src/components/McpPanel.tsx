@@ -329,14 +329,16 @@ export function McpPanel({ locale }: { locale: Locale }) {
                     <button onClick={() => setDetail({ type: "calls", serviceId: svc.service_id, name: svc.name })} className="text-violet-600 hover:text-violet-800 underline cursor-pointer">{svc.calls_24h ?? "-"}</button>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
-                      svc.status === "online" ? "border-green-200 bg-green-50 text-green-700" :
-                      svc.status === "pending" ? "border-amber-200 bg-amber-50 text-amber-700" :
-                      svc.status === "offline" ? "border-slate-200 bg-slate-50 text-slate-500" :
-                      svc.status === "rejected" ? "border-red-200 bg-red-50 text-red-600" :
-                      svc.status === "deprecated" ? "border-slate-300 bg-slate-50 text-slate-400" :
-                      "border-slate-200 bg-slate-50 text-slate-500"
-                    }`}>{STATUS_LABELS[svc.status] || svc.status}</span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={svc.status === "online"}
+                        onChange={() => toggleStatus(svc)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-violet-600" />
+                      <span className="ml-2 text-xs text-slate-500">{svc.status === "online" ? copy.online : copy.offline}</span>
+                    </label>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2 flex-wrap">

@@ -25,98 +25,26 @@ system MCP 启动扫描自动注册到 mcp_services 表。
 | internal MCP | Agent 调 internal_mcp_deploy 提审，管理员审核通过后 INSERT |
 | external MCP | 管理员手动注册 INSERT |
 
-**关联需求**: REQ-012、REQ-013
+**关联需求**: REQ-013
 **状态**: 方案已确认，待实施
 
 
-### REQ-012: 系统 MCP — internal_mcp_deploy + 审核流程
+### REQ-013: 技能基础设施 — skill_creator + internal_skill_deploy
 
-internal MCP 生命周期管理的完整链路。
+技能开发与发布的两个系统 MCP。详见 `docs/plans/skill-infrastructure.md`。
 
-**service_id**: `system/internal_mcp_deploy`
+**涉及**：
+- `skill_creator` MCP: create action（生成 sk_xxx + 写 DB draft + 建 workspace 骨架）
+- `internal_skill_deploy` MCP: submit（校验+提交审核）、status（查询进度）
+- 业务技能生产目录: `/app/data/custom-skills/`（审核通过后写入，下发时真实复制到 workspace）
+- 声明式依赖: SKILL.md frontmatter 增加 requires_mcp / requires_knowledge
+- 不设系统内置技能目录
+- 不动 MCP 模块
 
-**Agent 调用**：
-```
-mcp_call("internal_mcp_deploy", {
-    "category": "shop",
-    "name": "platform_order"
-})
-```
-
-**内部自动**：
-① 拼 mcp_path = /{category}/{name}，service_id = {category}_{name}
-② 读 /app/data/mcp-dev/{mcp_path}/manifest.json → 拆字段
-③ 查 mcp_services WHERE mcp_path → 首次/更新
-④ 首次 → INSERT mcp_services (status=pending)
-   更新 → INSERT mcp_service_versions (status=pending)
-
-**审核互斥**：
-- 提审前检查：SELECT FROM mcp_service_versions WHERE service_id = ? AND status = 'pending'
-- 已有 pending → 拒绝：`{ok: false, error: "版本 x.x.x 正在审核中，请等待审核完成后再提交"}`
-- 同一 MCP 同一时间只有一个版本在审核
-
-**版本策略**：
-- 版本号从 manifest.json 读取，由 Agent 控制
-- 系统不做强制递增约束
-- 被驳回后可同版本重提（新增一条记录，不覆盖），也可改 manifest 升级版本号
-
-**mcp_services 新增字段**：
-mcp_path, category, version, dimensions(JSON), tables(JSON), input_schema(JSON), output_schema(JSON)
-status 扩展：online/offline/pending/approved/rejected/deprecated
-
-**新增 mcp_service_versions 表**：
-version_id, service_id, version, version_notes,
-snapshot_dimensions, snapshot_tables, snapshot_schemas,
-status, submitted_by_workspace, submitted_by_account,
-submitted_at, reviewed_by, reviewed_at, review_comment
-
-**管理员审核**：
-- 通过 → 复制 handler.py 到 mcp-services/{mcp_path}/ + status=online + 清 mcp_loader 缓存
-- 驳回 → status=rejected + review_comment
-
-**前端改造**：
-- 表格加列：版本号、维度、分类路径
-- 操作：查看详情、审核(通过/驳回)、废弃
-- 展开「提交记录」面板：申请时间 | 版本 | 提交智能体 | 申请人 | 状态 | 审核时间 | 审核人
-- internal tab 去掉「新增」按钮
-- external tab 保留新增入口
+**两个 handler 的具体实现待讨论**（REQ-019 / REQ-020）。
 
 **关联需求**: REQ-011
-**状态**: 方案已确认，待实施
-
-
-### REQ-013: 系统 MCP — internal_skill_deploy（技能发布）
-
-技能发布申请的系统 MCP。
-
-**service_id**: system/internal_skill_deploy
-
-**调用方式**：
-```
-mcp_call("internal_skill_deploy", {
-    "category": "shop",
-    "name": "platform_order"
-})
-```
-
-**内部自动**：
-① 扫描 workspace 技能文件（SKILL.md + scripts）
-② 读技能元信息（frontmatter 等）
-③ 查系统 skill 表，同 category + name 是否存在
-④ 不存在 → INSERT（status=pending）  已存在 → INSERT 新版本记录（status=pending）
-
-**审核互斥**：
-- 提审前检查同一 skill 是否已有 pending 版本
-- 已有 pending → 拒绝，提示等待审核
-
-**功能**（两个 tool）：
-- skill_submit → 扫描 workspace 技能文件 + 写发布记录（增/改）
-- skill_status → 查询审核进度（辅助）
-
-仅进程内调用，不暴露 HTTP。
-
-**关联需求**: REQ-011
-**状态**: 方案已确认，待实施
+**状态**: 方案已确认，handler 已实现（REQ-019 / REQ-020 ✅），前端审核 UI 待实施
 
 ### REQ-007: 任务看板
 基于现有「任务管理」板块升级为可视化看板。串行节点编排，按状态分列，workspace 隔离。统一 dispatch_jobs + agent_runs 为 task_nodes。
@@ -147,7 +75,7 @@ workspace 保持常驻运行，空闲 1h 自动停止。依赖 `workspace.hosted
 **状态**: 待实施
 
 ### 技能审核 — 前端 UI（REQ-006 子需求）
-后端 skill_candidates + review API 已就绪，前端 SkillsManagementPage 需增加「审核」tab，展示待审列表 + 通过/驳回操作。
+后端 skill_candidates + review API 已就绪，前端 SkillsManagementPage 需增加「审核」tab，展示待审列表 + 通过/驳回操作。审核通过后写入 `/app/data/custom-skills/` 并触发异步下发。
 **状态**: 待实施
 
 ---
@@ -298,7 +226,7 @@ Agent 调用 MCP 时，后端需要知道是哪个 Agent 在调用，并基于 A
 
 ### REQ-001: Agent 执行过程实时可视化
 发起长任务时展示具体过程、进度、大模型中间输出。后端在 run_events 中实时记录，前端 4 秒轮询展示。
-**状态**: 待确认方案
+**状态**: 待讨论
 
 ### REQ-002: Web 交互页面 — 分享功能
 用户生成的 Web 页面分享给其他账号。方案 A：文件复制到目标 workspace；方案 B：分享链接 + 临时 token。
@@ -314,7 +242,16 @@ Agent 产出按类型自动放入 workspace 子目录（downloads/、dashboard/ 
 
 ### REQ-006: Skill 开发与管理体系
 
-六大子方向，按三阶段实施。源码摸底已完成（2026-06-17），结论如下：
+基础设施方案已确认，详见 `docs/plans/skill-infrastructure.md`。
+
+**已确认的架构决策**：
+- 两个系统 MCP: skill_creator（create）+ internal_skill_deploy（submit / status）
+- 业务技能生产目录 `/app/data/custom-skills/`（数据卷，审核通过后写入，下发时真实复制到 workspace）
+- 声明式依赖: requires_mcp / requires_knowledge
+- Git 版本管理体外 cron，不嵌入项目代码
+- 不动 MCP 模块
+
+**源码摸底（2026-06-17）**：
 
 #### 源码现状
 
@@ -329,21 +266,17 @@ Agent 产出按类型自动放入 workspace 子目录（downloads/、dashboard/ 
 
 #### 已确认方案
 
-**技能下发更新策略**：
-- 技能下发到 workspace 目录（非 CLI 调用），确保 Agent 能读写 workspace 文件
-- 下发前检查 `.evotown/skills/{id}/.skill_hash.json`：
-  - 不存在 → 首次安装，直接覆盖
-  - 存在 → 对比当前文件 SHA256 vs 记录
-    - 一致 → Agent 没改过，覆盖升级
-    - 不一致 → Agent 改过，跳过不动
-- 下发后重新计算所有文件 SHA256，写入 `.skill_hash.json`
+**技能下发策略**：
+- 审核通过 → 写入 custom-skills → 生成 .skill_hash.json → 异步复制到已绑定 agent 的 workspace
+- 下发前对比目标 workspace 的 hash，Agent 改过则跳过（skipped）
+- 管理员可通过「强制下发」跳过 hash 校验，直接覆盖
 
 **三阶段计划**：
-1. Phase 1（本次）：声明式依赖 + 下发更新策略
+1. Phase 1（本次）：基础设施（skill_creator + internal_skill_deploy + custom-skills + 下发 + 声明式依赖）
 2. Phase 2：测试沙箱 + 安全审核
 3. Phase 3：版本锁定/回滚 + 市场分发
 
-**状态**: 方案讨论中（声明式依赖已确认，待讨论具体字段格式；下发策略已确认；CLI/测试/版本/审核/市场待后续讨论）
+**状态**: 基础设施方案已确认，handler 已实现（✅），审核 API + 前端待实施
 
 ### REQ-009: Agent 对话技能推荐弹窗
 对话中提及技能但未触发调用时，弹窗提示确认是否使用。
@@ -365,7 +298,7 @@ Agent 子进程与 backend 共享同一个 Python 环境和容器，可直接 `f
 
 当前 Claude Code CLI 返回 exit_code≠0 即判定 run 为 `failed`。但很多场景下对话本身已完成，只是工具调用未成功（如无权限调 MCP）。应区分「对话失败」和「工具调用失败」，让 run 状态反映对话是否正常完成，工具调用错误仅记录在 events 中。
 
-**状态**: 待讨论
+**状态**: 已实现
 
 ---
 
@@ -379,12 +312,54 @@ fork 拆分多 Agent 并行处理、batch 工作池抢占消费。
 
 ---
 
+## 待讨论（新增）
+
+### REQ-019: skill_creator MCP handler 实现
+
+`backend/services/mcp_system/skill_creator/handler.py` 的具体实现。
+
+**create action**：
+- 入参：{category, name}（name 不做命名约束，文件系统支持的字符即可）
+- 生成 skill_id = sk_{uuid8}
+- INSERT 技能记录（name, category, status=draft, agent_id, created_at）
+- 在 workspace `skills/sk_xxx/` 下创建骨架目录（SKILL.md + scripts/ + references/）
+- SKILL.md 包含标准 frontmatter 模板（name/description/version/requires_mcp/requires_knowledge）
+- 通过 permissions 拿 agent_id → 解析 workspace 路径
+
+**关联需求**: REQ-013
+**状态**: 已实现
+
+### REQ-020: internal_skill_deploy MCP handler 实现
+
+`backend/services/mcp_system/internal_skill_deploy/handler.py` 的具体实现。
+
+**submit action**：
+- 入参：{skill_id}
+- 校验：name/description 非空、requires_mcp/requires_knowledge 格式正确
+- 校验失败 → 返回具体错误列表
+- 校验通过 → UPDATE status=pending（审核互斥：已有 pending 拒绝）
+
+**status action**：
+- 入参：{skill_id}
+- 返回：{status, review_comment}
+
+**审核通过后部署**（管理员操作，非 MCP）：
+- 复制文件到 `/app/data/custom-skills/sk_xxx/` + 设只读
+- 创建 symlink：workspace/.evotown/skills/sk_xxx → custom-skills/sk_xxx/
+
+**关联需求**: REQ-013
+**状态**: 已实现
+
+---
+
 ## 已实现
 
 - Phase 1-6: Coding Agent 工作台交互区改造
 - REQ-005: MCP 动态服务（角色体系 + system_functions + agent_role_functions + 三分类体系 + Tools 注入 + 前端 McpPanel 重写）
+- REQ-012: 系统 MCP — internal_mcp_deploy + 审核流程（handler.py + manifest.json + mcp_services 字段扩展 + mcp_service_versions 表）
 - 智能体分类重构（员工/部门/专属）+ 卡片新设计
 - 门户首页"我的智能体"模块
 - 数据库模块去 mcp_server_url + database.py 自动生成
 - workspace 目录扁平化 + 中文名支持
 - REQ-015: 角色绑定数据权限维度（agent_role_dimensions 新表 + CRUD + API + RolePanel「数据维度」tab）
+- REQ-016: Workspace/Agent 概念统一（28+ 文件重命名，跨 DB 迁移）

@@ -393,6 +393,7 @@ export function McpPanel({ locale }: { locale: Locale }) {
                     <th className="px-3 py-2">审核时间</th>
                     <th className="px-3 py-2">审核人</th>
                     <th className="px-3 py-2">备注</th>
+                    <th className="px-3 py-2 w-20">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -412,6 +413,28 @@ export function McpPanel({ locale }: { locale: Locale }) {
                       <td className="px-3 py-1.5 text-slate-500">{v.reviewed_at || "-"}</td>
                       <td className="px-3 py-1.5 text-slate-500">{v.reviewed_by || "-"}</td>
                       <td className="px-3 py-1.5 text-slate-400 max-w-[120px] truncate">{v.review_comment || "-"}</td>
+                      <td className="px-3 py-1.5">
+                        {v.status === "pending" && versionsOpen && (
+                          <div className="flex gap-1">
+                            <button onClick={async () => {
+                              try {
+                                await adminFetch(`/api/v1/mcp-services/${encodeURIComponent(versionsOpen)}/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ review_comment: "" }) });
+                                setMessage("审核通过");
+                                toggleVersions(versionsOpen);
+                              } catch (err) { setMessage(err instanceof Error ? err.message : "审核失败"); }
+                            }} className="text-[10px] text-green-600 hover:text-green-800 font-medium">{copy.approve}</button>
+                            <button onClick={async () => {
+                              const comment = window.prompt(copy.reviewPlaceholder);
+                              if (comment === null) return;
+                              try {
+                                await adminFetch(`/api/v1/mcp-services/${encodeURIComponent(versionsOpen)}/reject`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ review_comment: comment }) });
+                                setMessage("已驳回");
+                                toggleVersions(versionsOpen);
+                              } catch (err) { setMessage(err instanceof Error ? err.message : "驳回失败"); }
+                            }} className="text-[10px] text-red-500 hover:text-red-700 font-medium">{copy.reject}</button>
+                          </div>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

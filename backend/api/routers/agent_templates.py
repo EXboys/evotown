@@ -19,9 +19,9 @@ class TemplateCreate(BaseModel):
     standards: str = ""
     default_model: str = ""
     default_skills: list[str] = Field(default_factory=list)
-    has_workspace_dir: bool = False
-    workspace_dir_root: str = "workspace"
-    workspace_dir_prefix: str = ""
+    has_agent_dir: bool = False
+    agent_dir_root: str = "workspace"
+    agent_dir_prefix: str = ""
 
 
 class TemplateUpdate(BaseModel):
@@ -33,9 +33,9 @@ class TemplateUpdate(BaseModel):
     standards: str | None = None
     default_model: str | None = None
     default_skills: list[str] | None = None
-    has_workspace_dir: bool | None = None
-    workspace_dir_root: str | None = None
-    workspace_dir_prefix: str | None = None
+    has_agent_dir: bool | None = None
+    agent_dir_root: str | None = None
+    agent_dir_prefix: str | None = None
 
 
 @router.get("/agent-templates", dependencies=[Depends(require_admin)])

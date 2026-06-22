@@ -62,11 +62,17 @@ def _truthy_env(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def gateway_sdk_env() -> dict[str, str]:
+def gateway_sdk_env(*, agent_id: str = "") -> dict[str, str]:
     if not _truthy_env("EVOTOWN_CLAUDE_USE_GATEWAY"):
         return {}
     base_url = os.environ.get("EVOTOWN_CLAUDE_GATEWAY_BASE_URL", "").strip().rstrip("/")
-    api_key = os.environ.get("EVOTOWN_CLAUDE_GATEWAY_API_KEY", "").strip()
+    # Prefer agent-specific key, fall back to global ADMIN_TOKEN
+    api_key = ""
+    if agent_id:
+        from infra import agents
+        api_key = agents.get_agent_key(agent_id)
+    if not api_key:
+        api_key = os.environ.get("EVOTOWN_CLAUDE_GATEWAY_API_KEY", "").strip()
     env: dict[str, str] = {
         "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST": "1",
         "NODE_TLS_REJECT_UNAUTHORIZED": "0",
@@ -98,7 +104,7 @@ async def run_agent_sdk(
         "mcp_servers": _mcp_servers(workspace_root),
         "setting_sources": ["project"],
         "env": {
-            **gateway_sdk_env(),
+            **gateway_sdk_env(agent_id=str(run.get("agent_id") or "")),
             "EVOTOWN_AGENT_RUN_ID": str(run.get("run_id") or ""),
             "EVOTOWN_WORKSPACE_ROOT": str(workspace_root),
             "EVOTOWN_CLAUDE_MODEL": model,

@@ -4,10 +4,10 @@ from __future__ import annotations
 from typing import Any
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from core.auth import require_admin, require_console_read
+from core.auth import require_admin, require_console_read, require_mcp_call
 from infra import mcp_registry, agents
 
 router = APIRouter(prefix="/api/v1", tags=["mcp"])
@@ -378,7 +378,8 @@ class McpCallRequest(BaseModel):
 
 @router.post("/mcp/{service_id}")
 async def call_mcp(service_id: str, body: McpCallRequest,
-                    identity: dict | None = Depends(require_console_read)):
+                    run_id: str = Query(""),
+                    identity: dict | None = Depends(require_mcp_call)):
     """Agent calls a deployed MCP service."""
     import json as _json
 
@@ -410,12 +411,34 @@ async def call_mcp(service_id: str, body: McpCallRequest,
                         if vals and vals[0] != "*":
                             permissions[dim] = vals
 
+    # ③ Resolve run_id → account_id for audit
+    account_id = ""
+    if run_id:
+        from infra import claude_agent_runs
+        run = claude_agent_runs.get_run(run_id)
+        if run:
+            account_id = str(run.get("account_id") or "")
+
     # ④ Invoke with version injection
     from services.mcp_loader import invoke_mcp
+    if agent_id:
+        permissions["agent_id"] = agent_id
+    if account_id:
+        permissions["account_id"] = account_id
     result = invoke_mcp(service_id, body.args, permissions)
 
-    # Record usage
-    mcp_registry.record_mcp_call(service_id)
+    # ⑤ Record audit
+    args_summary = json.dumps(body.args, ensure_ascii=False)
+    handler_ok = result.get("ok") and (result.get("data") or {}).get("ok", True)
+    mcp_registry.record_mcp_call(
+        service_id,
+        run_id=run_id,
+        agent_id=agent_id,
+        account_id=account_id,
+        args=args_summary,
+        status="success" if handler_ok else "error",
+        result=json.dumps(result, ensure_ascii=False),
+    )
 
     return result
 
@@ -442,7 +465,7 @@ def _parse_dim_values(where: str) -> list[str]:
 # ── Agent Discovery: tools list ──────────────────────────────────────
 
 @router.get("/mcp/tools")
-async def list_mcp_tools(identity: dict | None = Depends(require_console_read)):
+async def list_mcp_tools(identity: dict | None = Depends(require_mcp_call)):
     """Return MCP tools in Anthropic Tool Use format for the caller's workspace."""
     identity = identity or {}
     agent_id = str(identity.get("account_id") or "")

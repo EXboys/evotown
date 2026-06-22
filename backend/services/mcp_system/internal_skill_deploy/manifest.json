@@ -1,0 +1,14 @@
+{
+  "name": "技能申请发布",
+  "description": "将开发中的技能提交审核。读取 workspace 中的 SKILL.md，校验后写入 skill_versions（status=pending）。",
+  "version": "1.0.0",
+  "service_type": "api",
+  "system": true,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "skill_id": {"type": "string", "description": "技能 ID（如 sk_a1b2c3d4e5f6）"}
+    },
+    "required": ["skill_id"]
+  }
+}

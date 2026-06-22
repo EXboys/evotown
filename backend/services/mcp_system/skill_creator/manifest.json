@@ -1,0 +1,15 @@
+{
+  "name": "技能创建",
+  "description": "在 workspace 中创建一个新技能，生成唯一 skill_id 和标准骨架目录。",
+  "version": "1.0.0",
+  "service_type": "api",
+  "system": true,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "category": {"type": "string", "description": "技能分类（如 shop、hr）"},
+      "name": {"type": "string", "description": "技能名称，不做字符约束，支持中文"}
+    },
+    "required": ["category", "name"]
+  }
+}

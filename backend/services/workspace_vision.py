@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from infra import gateway_models, gateway_upstream, workspaces
+from infra import gateway_models, gateway_upstream, agents
 from infra.workspace_uploads import _IMAGE_SUFFIXES
 
 _VISION_INSTRUCTION = (
@@ -119,7 +119,7 @@ async def describe_workspace_images(
 
     encoded = 0
     for rel in paths:
-        target = workspaces.resolve_workspace_path(workspace, rel)
+        target = agents.resolve_workspace_path(workspace, rel)
         if not target.is_file():
             continue
         media_type, b64 = _prepare_image_b64(target)

@@ -37,7 +37,7 @@ def _ensure_conn() -> sqlite3.Connection:
         """
         CREATE TABLE IF NOT EXISTS claude_agent_runs (
             run_id              TEXT PRIMARY KEY,
-            workspace_id        TEXT NOT NULL,
+            agent_id            TEXT NOT NULL,
             account_id          TEXT NOT NULL,
             tenant_id           TEXT NOT NULL DEFAULT '',
             team_id             TEXT NOT NULL DEFAULT '',
@@ -55,9 +55,6 @@ def _ensure_conn() -> sqlite3.Connection:
             completed_at        TEXT,
             updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_claude_agent_runs_workspace ON claude_agent_runs(workspace_id, created_at);
-        CREATE INDEX IF NOT EXISTS idx_claude_agent_runs_account ON claude_agent_runs(account_id, created_at);
-        CREATE INDEX IF NOT EXISTS idx_claude_agent_runs_status ON claude_agent_runs(status, created_at);
 
         CREATE TABLE IF NOT EXISTS claude_agent_run_events (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,6 +64,18 @@ def _ensure_conn() -> sqlite3.Connection:
             ts                  TEXT NOT NULL DEFAULT (datetime('now')),
             payload_json        TEXT NOT NULL DEFAULT '{}'
         );
+        """
+    )
+    # Migration: rename workspace_id → agent_id (must run before index creation)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(claude_agent_runs)").fetchall()}
+    if "workspace_id" in cols and "agent_id" not in cols:
+        conn.execute("ALTER TABLE claude_agent_runs RENAME COLUMN workspace_id TO agent_id")
+    # Now create indexes
+    conn.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_claude_agent_runs_agent ON claude_agent_runs(agent_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_claude_agent_runs_account ON claude_agent_runs(account_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_claude_agent_runs_status ON claude_agent_runs(status, created_at);
         CREATE INDEX IF NOT EXISTS idx_claude_agent_run_events_run ON claude_agent_run_events(run_id, seq, id);
         """
     )
@@ -100,7 +109,7 @@ def _event_from_row(row: sqlite3.Row) -> dict[str, Any]:
 
 def create_run(
     *,
-    workspace_id: str,
+    agent_id: str,
     account_id: str,
     prompt: str,
     tenant_id: str = "",
@@ -113,14 +122,14 @@ def create_run(
     conn.execute(
         """
         INSERT INTO claude_agent_runs (
-            run_id, workspace_id, account_id, tenant_id, team_id, prompt, model,
+            run_id, agent_id, account_id, tenant_id, team_id, prompt, model,
             status, engine_id, signals_json, created_at, updated_at
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', 'claude-code-hosted', ?, datetime('now'), datetime('now'))
         """,
         (
             run_id,
-            workspace_id,
+            agent_id,
             account_id,
             tenant_id,
             team_id,
@@ -129,7 +138,7 @@ def create_run(
             _json_dumps(signals or {}),
         ),
     )
-    append_event(run_id, "run.queued", {"workspace_id": workspace_id, "model": model})
+    append_event(run_id, "run.queued", {"agent_id": agent_id, "model": model})
     return get_run(run_id) or {}
 
 
@@ -143,16 +152,16 @@ def get_run(run_id: str) -> dict[str, Any] | None:
 
 def list_runs(
     *,
-    workspace_id: str | None = None,
+    agent_id: str | None = None,
     account_id: str | None = None,
     status: str | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     where: list[str] = []
     params: list[Any] = []
-    if workspace_id:
-        where.append("workspace_id=?")
-        params.append(workspace_id)
+    if agent_id:
+        where.append("agent_id=?")
+        params.append(agent_id)
     if account_id:
         where.append("account_id=?")
         params.append(account_id)

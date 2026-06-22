@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from core.auth import require_admin
-from infra import account_skills, accounts as accounts_store, workspaces
+from infra import account_skills, accounts as accounts_store, agents
 
 router = APIRouter(prefix="/api/v1", tags=["account-skills"])
 
@@ -32,11 +32,11 @@ async def scan_workspace_skills(account_id: str):
     """Scan workspace .evotown/skills/ directory for agent-created skills."""
     if accounts_store.get_account(account_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
-    ws_list = workspaces.list_workspaces(owner_account_id=account_id, limit=1)
+    ws_list = agents.list_agents(owner_account_id=account_id, limit=1)
     if not ws_list:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no workspace found for account")
     ws = ws_list[0]
-    root = workspaces.resolve_workspace_path(ws)
+    root = agents.resolve_workspace_path(ws)
     skills_dir = root / ".evotown" / "skills"
     if not skills_dir.is_dir():
         return {"account_id": account_id, "skills": [], "workspace_root": str(root)}

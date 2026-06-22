@@ -6,11 +6,22 @@ import type { Locale } from "../lib/i18n";
 
 type McpService = {
   service_id: string; name: string; description: string;
-  service_type: string; endpoint_url: string; db_type: string;
-  status: string; source: string; workspace_id: string;
+  status: string; source: string; endpoint_url: string;
+  mcp_path: string; category: string; version: string;
+  dimensions: string; tables: string;
+  input_schema: string; output_schema: string;
   created_at: string; updated_at: string;
-  bound_workspaces?: number;
-  calls_24h?: number;
+  bound_agents?: number; calls_24h?: number;
+};
+
+type McpVersion = {
+  version_id: string; service_id: string; version: string;
+  version_notes: string;
+  snapshot_dimensions: string; snapshot_tables: string;
+  status: string;
+  submitted_by_agent_id: string; submitted_by_account: string;
+  submitted_at: string; reviewed_by: string; reviewed_at: string;
+  review_comment: string;
 };
 
 type McpSource = "internal" | "external" | "system";
@@ -25,6 +36,11 @@ const SOURCE_TABS: McpTab[] = [
 
 const SOURCE_LABELS: Record<string, string> = {
   internal: "内部", external: "外部", system: "系统",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  online: "在线", offline: "离线", pending: "待审核",
+  approved: "已通过", rejected: "已驳回", deprecated: "已废弃",
 };
 
 const COPY = {
@@ -48,8 +64,17 @@ const COPY = {
     operation: "操作",
     source: "来源",
     endpoint: "端点",
+    version: "版本",
+    dimensions: "数据权限维度",
+    path: "分类路径",
     online: "在线",
     offline: "离线",
+    pending: "待审核",
+    approve: "通过",
+    reject: "驳回",
+    reviewPlaceholder: "审核备注（可选）",
+    versionHistory: "提交记录",
+    noVersions: "暂无提交记录",
     createTitle: "新增 MCP 服务",
     editTitle: "编辑 MCP 服务",
     namePlaceholder: "MCP 服务名称",
@@ -77,8 +102,17 @@ const COPY = {
     operation: "Actions",
     source: "Source",
     endpoint: "Endpoint",
+    version: "Version",
+    dimensions: "Permissions",
+    path: "Path",
     online: "Online",
     offline: "Offline",
+    pending: "Pending",
+    approve: "Approve",
+    reject: "Reject",
+    reviewPlaceholder: "Review comment (optional)",
+    versionHistory: "Version History",
+    noVersions: "No versions",
     createTitle: "Create MCP Service",
     editTitle: "Edit MCP Service",
     namePlaceholder: "Service name",
@@ -104,6 +138,18 @@ export function McpPanel({ locale }: { locale: Locale }) {
 
   // Delete confirm
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Review state
+  const [reviewingSvc, setReviewingSvc] = useState<string | null>(null);
+  const [reviewComment, setReviewComment] = useState("");
+
+  // Version history
+  const [versionsOpen, setVersionsOpen] = useState<string | null>(null);
+  const [versions, setVersions] = useState<McpVersion[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+
+  // Detail drawer (bindings / calls)
+  const [detail, setDetail] = useState<{ type: "bindings" | "calls"; serviceId: string; name: string } | null>(null);
 
   const load = async () => {
     setMessage("");
@@ -145,7 +191,58 @@ export function McpPanel({ locale }: { locale: Locale }) {
     } catch (err) { setMessage(err instanceof Error ? err.message : "删除失败"); setDeletingId(null); }
   };
 
-  const canEdit = tab !== "system";
+  const handleApprove = async (svc: McpService) => {
+    setReviewingSvc(svc.service_id);
+    setReviewComment("");
+  };
+
+  const doApprove = async () => {
+    if (!reviewingSvc) return;
+    try {
+      await adminFetch(`/api/v1/mcp-services/${encodeURIComponent(reviewingSvc)}/approve`, {
+        method: "POST",
+        body: JSON.stringify({ review_comment: reviewComment }),
+      });
+      setReviewingSvc(null);
+      void load();
+    } catch (err) { setMessage(err instanceof Error ? err.message : "审核失败"); }
+  };
+
+  const handleReject = async (svc: McpService) => {
+    setReviewingSvc(svc.service_id);
+    setReviewComment("");
+  };
+
+  const doReject = async () => {
+    if (!reviewingSvc) return;
+    try {
+      await adminFetch(`/api/v1/mcp-services/${encodeURIComponent(reviewingSvc)}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ review_comment: reviewComment }),
+      });
+      setReviewingSvc(null);
+      void load();
+    } catch (err) { setMessage(err instanceof Error ? err.message : "驳回失败"); }
+  };
+
+  const toggleVersions = async (serviceId: string) => {
+    if (versionsOpen === serviceId) { setVersionsOpen(null); return; }
+    setVersionsOpen(serviceId);
+    setVersionsLoading(true);
+    try {
+      const data = await adminFetch(`/api/v1/mcp-services/${encodeURIComponent(serviceId)}/versions`).then(r => r.json());
+      setVersions(data.versions ?? []);
+    } catch { setVersions([]); }
+    finally { setVersionsLoading(false); }
+  };
+
+  const parseDimensions = (dims: string): string => {
+    try { const arr = JSON.parse(dims); return Array.isArray(arr) ? arr.join(", ") : dims || "-"; }
+    catch { return dims || "-"; }
+  };
+
+  const showAdd = tab === "external";
+  const showReview = (svc: McpService) => tab === "internal" && svc.status === "pending";
 
   return (
     <div className="space-y-6">
@@ -183,7 +280,7 @@ export function McpPanel({ locale }: { locale: Locale }) {
           />
           <button type="submit" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">{copy.search}</button>
         </form>
-        {canEdit && (
+        {showAdd && (
           <button onClick={openCreate} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">{copy.add}</button>
         )}
       </div>
@@ -200,7 +297,9 @@ export function McpPanel({ locale }: { locale: Locale }) {
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-medium uppercase text-slate-500">
                 <th className="px-4 py-3">{copy.name}</th>
                 <th className="px-4 py-3">{copy.serviceId}</th>
-                <th className="px-4 py-3">{copy.description}</th>
+                <th className="px-4 py-3">{copy.version}</th>
+                {tab === "internal" && <th className="px-4 py-3">{copy.dimensions}</th>}
+                {tab === "internal" && <th className="px-4 py-3">{copy.path}</th>}
                 <th className="px-4 py-3">{copy.source}</th>
                 <th className="px-4 py-3">已绑定</th>
                 <th className="px-4 py-3">24h调用</th>
@@ -213,7 +312,9 @@ export function McpPanel({ locale }: { locale: Locale }) {
                 <tr key={svc.service_id} className="hover:bg-slate-50/50">
                   <td className="px-4 py-3 font-medium text-slate-900">{svc.name}</td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{svc.service_id}</td>
-                  <td className="px-4 py-3 max-w-[160px] truncate">{svc.description || "-"}</td>
+                  <td className="px-4 py-3 text-xs font-mono text-slate-500">{svc.version || "-"}</td>
+                  {tab === "internal" && <td className="px-4 py-3 max-w-[120px] truncate text-xs text-slate-500">{parseDimensions(svc.dimensions)}</td>}
+                  {tab === "internal" && <td className="px-4 py-3 font-mono text-xs text-slate-400">{svc.mcp_path || "-"}</td>}
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
                       svc.source === "internal" ? "border-sky-200 bg-sky-50 text-sky-700" :
@@ -221,8 +322,12 @@ export function McpPanel({ locale }: { locale: Locale }) {
                       "border-emerald-200 bg-emerald-50 text-emerald-700"
                     }`}>{SOURCE_LABELS[svc.source] || svc.source}</span>
                   </td>
-                  <td className="px-4 py-3 text-center text-xs text-slate-500">{svc.bound_workspaces ?? "-"}</td>
-                  <td className="px-4 py-3 text-center text-xs text-slate-500">{svc.calls_24h ?? "-"}</td>
+                  <td className="px-4 py-3 text-center text-xs">
+                    <button onClick={() => setDetail({ type: "bindings", serviceId: svc.service_id, name: svc.name })} className="text-violet-600 hover:text-violet-800 underline cursor-pointer">{svc.bound_agents ?? "-"}</button>
+                  </td>
+                  <td className="px-4 py-3 text-center text-xs">
+                    <button onClick={() => setDetail({ type: "calls", serviceId: svc.service_id, name: svc.name })} className="text-violet-600 hover:text-violet-800 underline cursor-pointer">{svc.calls_24h ?? "-"}</button>
+                  </td>
                   <td className="px-4 py-3">
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
@@ -236,14 +341,24 @@ export function McpPanel({ locale }: { locale: Locale }) {
                     </label>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      {canEdit ? (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {showReview(svc) ? (
+                        <>
+                          <button onClick={() => handleApprove(svc)} className="text-xs text-green-600 hover:text-green-800 font-medium">{copy.approve}</button>
+                          <button onClick={() => handleReject(svc)} className="text-xs text-red-500 hover:text-red-700 font-medium">{copy.reject}</button>
+                        </>
+                      ) : tab !== "system" ? (
                         <>
                           <button onClick={() => openEdit(svc)} className="text-xs text-violet-600 hover:text-violet-800">{copy.edit}</button>
                           <button onClick={() => setDeletingId(svc.service_id)} className="text-xs text-red-500 hover:text-red-700">{copy.delete}</button>
                         </>
                       ) : (
                         <button onClick={() => openEdit(svc)} className="text-xs text-slate-500 hover:text-slate-700">查看</button>
+                      )}
+                      {tab === "internal" && (
+                        <button onClick={() => toggleVersions(svc.service_id)} className="text-xs text-slate-400 hover:text-slate-600 ml-1">
+                          {versionsOpen === svc.service_id ? "▲" : "▼"}
+                        </button>
                       )}
                     </div>
                   </td>
@@ -254,13 +369,65 @@ export function McpPanel({ locale }: { locale: Locale }) {
         </div>
       )}
 
+      {/* Version History */}
+      {versionsOpen && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-semibold text-slate-800">{copy.versionHistory}</h4>
+            <button onClick={() => setVersionsOpen(null)} className="text-xs text-slate-400 hover:text-slate-600">✕</button>
+          </div>
+          {versionsLoading ? (
+            <div className="text-xs text-slate-400">加载中…</div>
+          ) : versions.length === 0 ? (
+            <div className="text-xs text-slate-400">{copy.noVersions}</div>
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-slate-100">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50 text-left text-[11px] font-medium text-slate-500">
+                    <th className="px-3 py-2">申请时间</th>
+                    <th className="px-3 py-2">版本</th>
+                    <th className="px-3 py-2">提交智能体</th>
+                    <th className="px-3 py-2">申请人</th>
+                    <th className="px-3 py-2">状态</th>
+                    <th className="px-3 py-2">审核时间</th>
+                    <th className="px-3 py-2">审核人</th>
+                    <th className="px-3 py-2">备注</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {versions.map((v) => (
+                    <tr key={v.version_id} className="hover:bg-slate-50/50">
+                      <td className="px-3 py-1.5 text-slate-500">{v.submitted_at || "-"}</td>
+                      <td className="px-3 py-1.5 font-mono text-slate-700">{v.version || "-"}</td>
+                      <td className="px-3 py-1.5 font-mono text-[10px] text-slate-400">{v.submitted_by_agent_id?.slice(0, 12) || "-"}</td>
+                      <td className="px-3 py-1.5 text-slate-500">{v.submitted_by_account || "-"}</td>
+                      <td className="px-3 py-1.5">
+                        <span className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium ${
+                          v.status === "approved" ? "border-green-200 bg-green-50 text-green-700" :
+                          v.status === "rejected" ? "border-red-200 bg-red-50 text-red-600" :
+                          "border-amber-200 bg-amber-50 text-amber-700"
+                        }`}>{STATUS_LABELS[v.status] || v.status}</span>
+                      </td>
+                      <td className="px-3 py-1.5 text-slate-500">{v.reviewed_at || "-"}</td>
+                      <td className="px-3 py-1.5 text-slate-500">{v.reviewed_by || "-"}</td>
+                      <td className="px-3 py-1.5 text-slate-400 max-w-[120px] truncate">{v.review_comment || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Drawer */}
       {drawerOpen && (
         <McpDrawer
           locale={locale}
           service={editingSvc}
           source={tab}
-          readonly={!canEdit}
+          readonly={tab === "system" || (tab === "internal" && editingSvc !== null)}
           onClose={() => setDrawerOpen(false)}
           onSaved={() => { setDrawerOpen(false); void load(); }}
         />
@@ -280,6 +447,194 @@ export function McpPanel({ locale }: { locale: Locale }) {
           </div>
         </div>
       )}
+
+      {/* Review modal */}
+      {reviewingSvc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setReviewingSvc(null)} />
+          <div className="relative bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-lg font-semibold text-slate-900">审核确认</h3>
+            <textarea
+              value={reviewComment}
+              onChange={(e) => setReviewComment(e.target.value)}
+              placeholder={copy.reviewPlaceholder}
+              rows={2}
+              className="mt-3 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400 resize-none"
+            />
+            <div className="mt-4 flex justify-end gap-3">
+              <button onClick={() => setReviewingSvc(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">取消</button>
+              <button onClick={doApprove} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700">{copy.approve}</button>
+              <button onClick={doReject} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">{copy.reject}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Detail drawer (bindings / calls) */}
+      {detail && (
+        <DetailDrawer
+          locale={locale}
+          type={detail.type}
+          serviceId={detail.serviceId}
+          name={detail.name}
+          onClose={() => setDetail(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Detail Drawer ──────────────────────────────────────────────────────────
+
+function DetailDrawer({
+  locale, type, serviceId, name, onClose,
+}: {
+  locale: Locale;
+  type: "bindings" | "calls";
+  serviceId: string;
+  name: string;
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const pageSize = 20;
+
+  useEffect(() => {
+    void loadData(0);
+  }, [serviceId, type]);
+
+  const loadData = async (p: number) => {
+    setLoading(true);
+    try {
+      if (type === "bindings") {
+        const res = await adminFetch(`/api/v1/mcp-services/${encodeURIComponent(serviceId)}`).then(r => r.json());
+        setData({ policies: res.policies || [], role_policies: res.role_policies || [] });
+      } else {
+        const offset = p * pageSize;
+        const res = await adminFetch(`/api/v1/mcp-services/${encodeURIComponent(serviceId)}/calls?limit=${pageSize}&offset=${offset}`).then(r => r.json());
+        setData(res);
+      }
+    } catch { setData(null); }
+    finally { setLoading(false); setPage(p); }
+  };
+
+  const totalPages = type === "calls" ? Math.ceil((data?.total || 0) / pageSize) : 1;
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative w-full max-w-2xl bg-white border-l border-slate-200 shadow-xl flex flex-col h-full overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0">
+          <h3 className="text-sm font-semibold text-slate-900">
+            {type === "bindings" ? `已绑定 — ${name}` : `调用记录 — ${name}`}
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <div className="text-xs text-slate-400">加载中…</div>
+          ) : type === "bindings" ? (
+            <div className="space-y-4">
+{(data?.policies?.length || data?.role_policies?.length) ? (
+                <>
+                  {data?.policies?.length > 0 && (
+                    <div>
+                      <div className="text-xs font-medium text-slate-600 mb-2">直接绑定</div>
+                      <div className="overflow-hidden rounded-lg border border-slate-100">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-slate-100 bg-slate-50 text-left text-[11px] font-medium text-slate-500">
+                              <th className="px-3 py-2">工作区 ID</th>
+                              <th className="px-3 py-2">状态</th>
+                              <th className="px-3 py-2">行权限规则</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {data.policies.map((p: any) => (
+                              <tr key={p.agent_id} className="hover:bg-slate-50/50">
+                                <td className="px-3 py-1.5 font-mono text-[10px] text-slate-600">{p.agent_id}</td>
+                                <td className="px-3 py-1.5">
+                                  <span className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium ${p.enabled ? "border-green-200 bg-green-50 text-green-700" : "border-slate-200 bg-slate-50 text-slate-500"}`}>{p.enabled ? "启用" : "禁用"}</span>
+                                </td>
+                                <td className="px-3 py-1.5 text-[10px] text-slate-400 max-w-[200px] truncate">{JSON.stringify(p.row_rules) !== "[]" ? JSON.stringify(p.row_rules) : "-"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                  {data?.role_policies?.length > 0 && (
+                    <div>
+                      <div className="text-xs font-medium text-slate-600 mb-2">角色绑定</div>
+                      <div className="overflow-hidden rounded-lg border border-slate-100">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-slate-100 bg-slate-50 text-left text-[11px] font-medium text-slate-500">
+                              <th className="px-3 py-2">角色名</th>
+                              <th className="px-3 py-2">状态</th>
+                              <th className="px-3 py-2">成员工作区</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {data.role_policies.map((p: any) => (
+                              <tr key={p.role_id} className="hover:bg-slate-50/50">
+                                <td className="px-3 py-1.5 font-medium text-slate-700">{p.role_name}</td>
+                                <td className="px-3 py-1.5">
+                                  <span className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium ${p.enabled ? "border-green-200 bg-green-50 text-green-700" : "border-slate-200 bg-slate-50 text-slate-500"}`}>{p.enabled ? "启用" : "禁用"}</span>
+                                </td>
+                                <td className="px-3 py-1.5 font-mono text-[10px] text-slate-500">{(p.members || []).join(", ") || "-"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-xs text-slate-400">暂无绑定记录</div>
+              )}
+            </div>
+          ) : (
+            <div>
+              <div className="text-xs text-slate-500 mb-3">
+                共 {data?.total || 0} 条记录，第 {page * pageSize + 1}–{Math.min((page + 1) * pageSize, data?.total || 0)} 条
+              </div>
+              {data?.calls?.length ? (
+                <div className="overflow-hidden rounded-lg border border-slate-100">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50 text-left text-[11px] font-medium text-slate-500">
+                        <th className="px-3 py-2">#</th>
+                        <th className="px-3 py-2">调用时间</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {data.calls.map((c: any, i: number) => (
+                        <tr key={c.id} className="hover:bg-slate-50/50">
+                          <td className="px-3 py-1.5 font-mono text-[10px] text-slate-400">{c.id}</td>
+                          <td className="px-3 py-1.5 text-slate-600">{c.called_at}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-xs text-slate-400">暂无调用记录</div>
+              )}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 mt-3">
+                  <button disabled={page === 0} onClick={() => loadData(page - 1)} className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-30">上一页</button>
+                  <span className="text-xs text-slate-400">{page + 1} / {totalPages}</span>
+                  <button disabled={page >= totalPages - 1} onClick={() => loadData(page + 1)} className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-30">下一页</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -323,7 +678,6 @@ function McpDrawer({
           name: name.trim(), description: description.trim(), source,
         };
         if (source === "external") body.endpoint_url = endpointUrl.trim();
-        body.service_type = source === "external" ? "api" : "database";
         await adminFetch("/api/v1/mcp-services", {
           method: "POST",
           body: JSON.stringify(body),
@@ -349,10 +703,11 @@ function McpDrawer({
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {isEditing && (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 space-y-1">
               <div className="flex gap-2"><span className="text-slate-400 w-16 shrink-0">服务 ID</span><code className="font-mono text-slate-800">{service!.service_id}</code></div>
-              <div className="flex gap-2 mt-1"><span className="text-slate-400 w-16 shrink-0">来源</span><span>{SOURCE_LABELS[service!.source || ""] || service?.source}</span></div>
-              {service!.workspace_id && <div className="flex gap-2 mt-1"><span className="text-slate-400 w-16 shrink-0">工作区</span><code className="font-mono text-slate-800 text-[11px]">{service!.workspace_id}</code></div>}
+              <div className="flex gap-2"><span className="text-slate-400 w-16 shrink-0">来源</span><span>{SOURCE_LABELS[service!.source || ""] || service?.source}</span></div>
+              {service!.version && <div className="flex gap-2"><span className="text-slate-400 w-16 shrink-0">版本</span><code className="font-mono text-slate-800">{service!.version}</code></div>}
+              {service!.mcp_path && <div className="flex gap-2"><span className="text-slate-400 w-16 shrink-0">路径</span><code className="font-mono text-slate-800 text-[11px]">{service!.mcp_path}</code></div>}
             </div>
           )}
 

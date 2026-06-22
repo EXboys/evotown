@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from infra import workspaces
+from infra import agents
 
 DEFAULT_LIMIT = 400
 
@@ -39,10 +39,10 @@ def list_workspace_files(
     Set subdir to a relative path to list contents of a subdirectory.
     Directories are included as entries with is_dir=True.
     """
-    root = workspaces.resolve_workspace_path(workspace)
+    root = agents.resolve_agent_path(workspace)
     scan_dir = root
     if prefix:
-        scan_dir = workspaces.resolve_workspace_path(workspace, prefix)
+        scan_dir = agents.resolve_agent_path(workspace, prefix)
     if subdir:
         sub = subdir.lstrip("/")
         # Guard against path traversal

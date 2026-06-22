@@ -27,7 +27,7 @@ export type GatewayAccount = {
 };
 
 type WorkspaceInfo = {
-  workspace_id: string;
+  agent_id: string;
   name: string;
   root_path: string;
   status: string;
@@ -249,7 +249,7 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
 
   const loadAllWorkspaces = useCallback(async () => {
     try {
-      const res = await adminFetch("/api/v1/workspaces?limit=500&include_all=true");
+      const res = await adminFetch("/api/v1/agents?limit=500&include_all=true");
       if (res.ok) {
         const data = await res.json() as { workspaces?: WorkspaceInfo[] };
         setAllWorkspaces(data.workspaces || []);
@@ -398,10 +398,10 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
         const newId = created.account?.account_id;
         if (newId && selectedAgentIds.size > 0) {
           for (const wsId of selectedAgentIds) {
-            await adminFetch(`/api/v1/accounts/${encodeURIComponent(newId)}/bind-workspace`, {
+            await adminFetch(`/api/v1/accounts/${encodeURIComponent(newId)}/bind-agent`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ workspace_id: wsId }),
+              body: JSON.stringify({ agent_id: wsId }),
             }).catch(() => {});
           }
         }
@@ -458,14 +458,14 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
     }
   };
 
-  const bindWorkspace = async (workspaceId: string) => {
+  const bindWorkspace = async (agentId: string) => {
     if (!selectedAccountId) return;
     setBusy(true);
     try {
-      const res = await adminFetch(`/api/v1/accounts/${encodeURIComponent(selectedAccountId)}/bind-workspace`, {
+      const res = await adminFetch(`/api/v1/accounts/${encodeURIComponent(selectedAccountId)}/bind-agent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspace_id: workspaceId }),
+        body: JSON.stringify({ agent_id: agentId }),
       });
       if (!res.ok && res.status !== 409) throw new Error(copy.messages.bindFailed);
       await loadBoundWorkspaces(selectedAccountId);
@@ -477,15 +477,15 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
     }
   };
 
-  const unbindWorkspace = async (workspaceId: string, workspaceName: string) => {
+  const unbindWorkspace = async (agentId: string, workspaceName: string) => {
     if (!selectedAccountId) return;
     if (!window.confirm(copy.messages.unbindConfirm(workspaceName))) return;
     setBusy(true);
     try {
-      const res = await adminFetch(`/api/v1/accounts/${encodeURIComponent(selectedAccountId)}/bind-workspace`, {
+      const res = await adminFetch(`/api/v1/accounts/${encodeURIComponent(selectedAccountId)}/bind-agent`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspace_id: workspaceId }),
+        body: JSON.stringify({ agent_id: agentId }),
       });
       if (!res.ok) throw new Error(copy.messages.unbindFailed);
       await loadBoundWorkspaces(selectedAccountId);
@@ -498,8 +498,8 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
   };
 
   // Filter workspaces for picker
-  const boundWsIds = new Set(boundWorkspaces.map((ws) => ws.workspace_id));
-  const pickableWorkspaces = allWorkspaces.filter((ws) => !boundWsIds.has(ws.workspace_id));
+  const boundWsIds = new Set(boundWorkspaces.map((ws) => ws.agent_id));
+  const pickableWorkspaces = allWorkspaces.filter((ws) => !boundWsIds.has(ws.agent_id));
   const filteredPickable = agentSearch
     ? pickableWorkspaces.filter((ws) => ws.name.toLowerCase().includes(agentSearch.toLowerCase()))
     : pickableWorkspaces;
@@ -760,15 +760,15 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
                         <p className="py-2 text-center text-xs text-slate-400">{copy.noAgents}</p>
                       ) : (
                         filteredPickable.map((ws) => (
-                          <button key={ws.workspace_id} type="button"
-                            onClick={() => { bindWorkspace(ws.workspace_id); setShowAgentPicker(false); setAgentSearch(""); }}
+                          <button key={ws.agent_id} type="button"
+                            onClick={() => { bindWorkspace(ws.agent_id); setShowAgentPicker(false); setAgentSearch(""); }}
                             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-white">
                             <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-800 text-[11px] font-semibold text-white">
                               {ws.name.charAt(0)}
                             </span>
                             <div className="min-w-0">
                               <p className="truncate font-medium text-slate-800">{ws.name}</p>
-                              <p className="text-xs text-slate-400">{ws.root_path || ws.workspace_id}</p>
+                              <p className="text-xs text-slate-400">{ws.root_path || ws.agent_id}</p>
                             </div>
                           </button>
                         ))
@@ -784,7 +784,7 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
                   ) : (
                     <div className="space-y-2">
                       {boundWorkspaces.map((ws) => (
-                        <div key={ws.workspace_id}
+                        <div key={ws.agent_id}
                           className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5">
                           <div className="flex items-center gap-3">
                             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-800 text-xs font-semibold text-white">
@@ -793,13 +793,13 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
                             <div>
                               <p className="text-sm font-medium text-slate-800">{ws.name}</p>
                               <p className="text-xs text-slate-400">
-                                {ws.root_path || ws.workspace_id}
+                                {ws.root_path || ws.agent_id}
                                 {ws.status ? ` · ${ws.status}` : ""}
                               </p>
                             </div>
                           </div>
                           <button type="button" disabled={busy}
-                            onClick={() => unbindWorkspace(ws.workspace_id, ws.name)}
+                            onClick={() => unbindWorkspace(ws.agent_id, ws.name)}
                             className="rounded-lg px-2 py-1 text-xs text-red-500 hover:bg-red-50">
                             {copy.unbind}
                           </button>
@@ -889,15 +889,15 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
                   <p className="py-3 text-center text-xs text-slate-400">{copy.noAgents}</p>
                 ) : (
                   allWorkspaces.map((ws) => {
-                    const checked = selectedAgentIds.has(ws.workspace_id);
+                    const checked = selectedAgentIds.has(ws.agent_id);
                     return (
-                      <label key={ws.workspace_id}
+                      <label key={ws.agent_id}
                         className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 hover:bg-slate-50">
                         <input type="checkbox" checked={checked}
                           onChange={() => {
                             const next = new Set(selectedAgentIds);
-                            if (checked) next.delete(ws.workspace_id);
-                            else next.add(ws.workspace_id);
+                            if (checked) next.delete(ws.agent_id);
+                            else next.add(ws.agent_id);
                             setSelectedAgentIds(next);
                           }}
                           className="h-4 w-4" />
@@ -906,7 +906,7 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
                         </span>
                         <div className="min-w-0">
                           <p className="truncate text-sm text-slate-800">{ws.name}</p>
-                          <p className="text-xs text-slate-400">{ws.root_path || ws.workspace_id}</p>
+                          <p className="text-xs text-slate-400">{ws.root_path || ws.agent_id}</p>
                         </div>
                       </label>
                     );

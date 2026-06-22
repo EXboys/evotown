@@ -28,22 +28,22 @@ class CodingAgentApiTest(unittest.TestCase):
             clear=False,
         )
         self._env_patch.start()
-        from infra import accounts, claude_agent_runs, knowledge, skill_market, workspaces
+        from infra import accounts, claude_agent_runs, knowledge, skill_market, agents
 
         accounts._conn = None  # noqa: SLF001
         claude_agent_runs._conn = None  # noqa: SLF001
         knowledge._conn = None  # noqa: SLF001
         skill_market._conn = None  # noqa: SLF001
-        workspaces._conn = None  # noqa: SLF001
+        agents._conn = None  # noqa: SLF001
 
     def tearDown(self) -> None:
-        from infra import accounts, claude_agent_runs, knowledge, skill_market, workspaces
+        from infra import accounts, claude_agent_runs, knowledge, skill_market, agents
 
         accounts._conn = None  # noqa: SLF001
         claude_agent_runs._conn = None  # noqa: SLF001
         knowledge._conn = None  # noqa: SLF001
         skill_market._conn = None  # noqa: SLF001
-        workspaces._conn = None  # noqa: SLF001
+        agents._conn = None  # noqa: SLF001
         self._env_patch.stop()
         self._tmpdir.cleanup()
 
@@ -67,7 +67,7 @@ class CodingAgentApiTest(unittest.TestCase):
         return account, secret
 
     def test_workspace_owner_isolation_and_path_guard(self) -> None:
-        from infra import workspaces
+        from infra import agents
 
         client = self._client()
         alice, alice_key = self._account_key("Alice")
@@ -89,10 +89,10 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertEqual(denied.status_code, 403)
 
         with self.assertRaises(ValueError):
-            workspaces.resolve_workspace_path(workspace, "../escape.txt")
+            agents.resolve_workspace_path(workspace, "../escape.txt")
 
     def test_workspace_profile_crud_and_run_injection(self) -> None:
-        from infra import workspaces
+        from infra import agents
         from services import claude_code_runner
 
         client = self._client()
@@ -143,7 +143,7 @@ class CodingAgentApiTest(unittest.TestCase):
 
         updated = asyncio.run(claude_code_runner.run_claude_agent(run_id))
         self.assertEqual(updated["status"], "succeeded")
-        ws_root = workspaces.resolve_workspace_path(workspace)
+        ws_root = agents.resolve_agent_path(workspace)
         context = ws_root / ".evotown" / "AGENT_CONTEXT.md"
         profile_md = ws_root / ".evotown" / "AGENT_PROFILE.md"
         self.assertTrue(context.is_file())
@@ -154,7 +154,7 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertIn("conventional commits", text)
 
     def test_workspace_file_index_lists_relative_paths_only(self) -> None:
-        from infra import workspaces
+        from infra import agents
 
         client = self._client()
         _alice, alice_key = self._account_key("Alice")
@@ -165,7 +165,7 @@ class CodingAgentApiTest(unittest.TestCase):
         )
         workspace = create_ws.json()["workspace"]
         ws_id = workspace["workspace_id"]
-        root = workspaces.resolve_workspace_path(workspace)
+        root = agents.resolve_agent_path(workspace)
         (root / "notes.md").write_text("# hello", encoding="utf-8")
         (root / ".evotown" / "hidden.json").write_text("{}", encoding="utf-8")
 
@@ -188,7 +188,7 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertTrue(any(p == ".evotown" or p.startswith(".evotown/") for p in dot_paths))
 
     def test_create_run_and_runner_writes_shared_context(self) -> None:
-        from infra import claude_agent_runs, workspaces
+        from infra import claude_agent_runs, agents
         from services import claude_code_runner
 
         client = self._client()
@@ -215,9 +215,9 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertEqual(updated["status"], "succeeded")
         self.assertTrue(updated["signals"]["sdk_command_configured"] is False)
 
-        stored_workspace = workspaces.get_workspace(workspace["workspace_id"])
+        stored_workspace = agents.get_workspace(workspace["workspace_id"])
         assert stored_workspace is not None
-        ws_root = workspaces.resolve_workspace_path(stored_workspace)
+        ws_root = agents.resolve_agent_path(stored_workspace)
         context_path = ws_root / ".evotown" / "AGENT_CONTEXT.md"
         skills_path = ws_root / ".evotown" / "skills_manifest.json"
         knowledge_path = ws_root / ".evotown" / "knowledge_context.json"
@@ -238,7 +238,7 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertEqual(fetched.json()["run"]["status"], "succeeded")
 
     def test_runner_injects_selected_skills_and_mcp(self) -> None:
-        from infra import claude_agent_runs, workspaces
+        from infra import claude_agent_runs, agents
         from services import claude_code_runner
 
         client = self._client()
@@ -285,9 +285,9 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertEqual(updated["signals"]["materialized_skill_count"], 1)
         self.assertEqual(updated["signals"]["mcp_connection_count"], 1)
 
-        stored_workspace = workspaces.get_workspace(workspace["workspace_id"])
+        stored_workspace = agents.get_workspace(workspace["workspace_id"])
         assert stored_workspace is not None
-        root = workspaces.resolve_workspace_path(stored_workspace)
+        root = agents.resolve_agent_path(stored_workspace)
         self.assertTrue((root / ".evotown" / "mcp_context.json").is_file())
         self.assertTrue((root / ".evotown" / "skills" / "http-request" / "SKILL.md").is_file())
         mcp_payload = json.loads((root / ".evotown" / "mcp_context.json").read_text(encoding="utf-8"))
@@ -376,11 +376,11 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertEqual(env["ANTHROPIC_API_KEY"], "evk_test")
 
     def test_cancel_run_marks_cancelled(self) -> None:
-        from infra import claude_agent_runs, workspaces
+        from infra import claude_agent_runs, agents
         from services import claude_code_runner
 
         account, secret = self._account_key("CancelUser")
-        ws = workspaces.create_workspace(owner_account_id=account["account_id"], name="Cancel WS")
+        ws = agents.create_workspace(owner_account_id=account["account_id"], name="Cancel WS")
         run = claude_agent_runs.create_run(
             workspace_id=ws["workspace_id"],
             account_id=account["account_id"],
@@ -395,10 +395,10 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertEqual(updated["status"], "cancelled")
 
     def test_list_stale_active_runs(self) -> None:
-        from infra import claude_agent_runs, workspaces
+        from infra import claude_agent_runs, agents
 
         account, _secret = self._account_key("StaleUser")
-        ws = workspaces.create_workspace(owner_account_id=account["account_id"], name="Stale WS")
+        ws = agents.create_workspace(owner_account_id=account["account_id"], name="Stale WS")
         run = claude_agent_runs.create_run(
             workspace_id=ws["workspace_id"],
             account_id=account["account_id"],
@@ -416,11 +416,11 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertTrue(any(item["run_id"] == run["run_id"] for item in stale))
 
     def test_delete_session_removes_run_chain(self) -> None:
-        from infra import claude_agent_runs, workspaces
+        from infra import claude_agent_runs, agents
 
         client = self._client()
         account, secret = self._account_key("DeleteSessionUser")
-        ws = workspaces.create_workspace(owner_account_id=account["account_id"], name="Delete WS")
+        ws = agents.create_workspace(owner_account_id=account["account_id"], name="Delete WS")
         workspace_id = ws["workspace_id"]
 
         first = client.post(
@@ -452,11 +452,11 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertIsNone(claude_agent_runs.get_run(run2))
 
     def test_upload_files_and_create_run_with_attachments(self) -> None:
-        from infra import claude_agent_runs, workspaces
+        from infra import claude_agent_runs, agents
 
         client = self._client()
         account, secret = self._account_key("UploadUser")
-        ws = workspaces.create_workspace(owner_account_id=account["account_id"], name="Upload WS")
+        ws = agents.create_workspace(owner_account_id=account["account_id"], name="Upload WS")
         workspace_id = ws["workspace_id"]
         headers = {"Authorization": f"Bearer {secret}"}
 
@@ -521,7 +521,7 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertEqual(engines, {"claude", "codex"})
 
     def test_codex_runtime_dry_run_when_sdk_unavailable(self) -> None:
-        from infra import workspaces
+        from infra import agents
         from services import claude_code_runner
 
         client = self._client()
@@ -558,7 +558,7 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertEqual(updated["signals"]["runtime_engine"], "codex")
         self.assertEqual(updated["signals"]["engine_id"], "codex-sdk-hosted")
         self.assertIn("Dry-run completed (Codex)", updated["result_summary"])
-        profile_md = workspaces.resolve_workspace_path(workspace) / ".evotown" / "AGENT_PROFILE.md"
+        profile_md = agents.resolve_agent_path(workspace) / ".evotown" / "AGENT_PROFILE.md"
         self.assertIn("codex", profile_md.read_text(encoding="utf-8"))
 
 

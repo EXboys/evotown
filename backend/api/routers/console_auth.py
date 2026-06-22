@@ -20,7 +20,7 @@ from core.auth import (
 from domain.models import ConsoleLogin, ConsoleRegister, OidcExchange, StaffLogin
 from infra import accounts as accounts_store
 from infra import oidc as oidc_store
-from infra import workspaces as workspaces_store
+from infra import agents as agents_store
 
 router = APIRouter(prefix="/api/v1/auth", tags=["console-auth"])
 
@@ -227,23 +227,11 @@ async def oidc_exchange(body: OidcExchange):
 
 @router.get("/my-agents")
 async def my_agents(session: dict = Depends(require_staff_session)):
-    """Return workspaces bound to the currently logged-in staff account."""
+    """Return agents bound to the currently logged-in staff account."""
     account_id = session.get("account_id", "")
-    ws_list = workspaces_store.list_account_workspaces(account_id)
-    # Map to agent-like shape for frontend compatibility
-    agents = [
-        {
-            "agent_id": ws["workspace_id"],
-            "agent_name": ws["name"],
-            "agent_type": "coding-agent",
-            "workspace_path": ws.get("root_path", ""),
-            "key_prefix": "",
-            "key_status": ws.get("status", "active"),
-        }
-        for ws in ws_list
-    ]
+    ag_list = agents_store.list_account_agents(account_id)
     return {
-        "agents": agents,
+        "agents": ag_list,
         "account_id": account_id,
         "account_name": session.get("account_name", ""),
     }

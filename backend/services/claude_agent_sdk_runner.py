@@ -1,4 +1,4 @@
-"""Embedded Claude Agent SDK execution for hosted coding workspaces."""
+"""Embedded Claude Agent SDK execution for hosted coding agents."""
 from __future__ import annotations
 
 import os

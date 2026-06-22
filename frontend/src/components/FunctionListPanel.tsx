@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { adminFetch } from "../hooks/useAdminToken";
 import type { Locale } from "../lib/i18n";
 
-type FuncRole = { role_id: string; role_name: string; workspace_ids: string[] };
+type FuncRole = { role_id: string; role_name: string; agent_ids: string[] };
 type SystemFunc = { func_id: string; name: string; description: string; roles: FuncRole[] };
 
 const COPY = {
@@ -64,9 +64,9 @@ export function FunctionListPanel({ locale }: { locale: Locale }) {
                     <div key={r.role_id} className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium text-sm text-slate-800">{r.role_name}</span>
-                        {r.workspace_ids.length > 0 ? (
+                        {r.agent_ids.length > 0 ? (
                           <span className="text-xs text-slate-500">
-                            → {r.workspace_ids.length} 个智能体
+                            → {r.agent_ids.length} 个智能体
                           </span>
                         ) : (
                           <span className="text-xs text-slate-400">{copy.none}</span>

@@ -72,6 +72,11 @@ from core.auth import admin_token_status, security_status  # noqa: E402
 async def lifespan(app: FastAPI):
     deps.experiment_id = get_or_create_experiment_id()
 
+    # ── Initialize MCP registry (seeds system MCPs, runs migrations) ──
+    from infra.mcp_registry import _ensure_conn
+    _ensure_conn()
+    logger.info("MCP registry initialized")
+
     # 启动 Replay 录制 session（以实验 ID 命名，重启后开新 session）
     from infra.replay import start_session as _start_replay
     _start_replay(deps.experiment_id)
@@ -230,15 +235,7 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
 
-    from infra import hosted_workspace_engines
     from services.hosted_dispatch_worker import hosted_dispatch_loop
-
-    try:
-        synced = hosted_workspace_engines.sync_all_active_workspaces()
-        if synced:
-            logger.info("[hosted-dispatch] synced %d active workspace fleet engines", synced)
-    except Exception as exc:
-        logger.warning("[hosted-dispatch] workspace fleet sync failed: %s", exc)
 
     _timeout_task = asyncio.create_task(_timeout_loop())
     _checkpoint_task = asyncio.create_task(_checkpoint_loop())
@@ -251,7 +248,7 @@ async def lifespan(app: FastAPI):
     _claude_watchdog_task = asyncio.create_task(stale_run_watchdog_loop())
 
     # Ensure shared MCP dev directory on startup
-    from infra.workspaces import _copy_mcp_system_files
+    from infra.agents import _copy_mcp_system_files
     _dev_dir = _P_import(_os_import.environ.get("EVOTOWN_MCP_DEV_DIR", "/app/data/mcp-dev"))
     _dev_dir.mkdir(parents=True, exist_ok=True)
     _copy_mcp_system_files(_dev_dir)

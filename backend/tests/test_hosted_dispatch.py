@@ -25,22 +25,22 @@ class HostedDispatchTest(unittest.TestCase):
             clear=False,
         )
         self._env_patch.start()
-        from infra import accounts, claude_agent_runs, engine_ingest, workspaces
+        from infra import accounts, claude_agent_runs, engine_ingest, agents
 
         accounts._conn = None  # noqa: SLF001
         claude_agent_runs._conn = None  # noqa: SLF001
         engine_ingest._conn = None  # noqa: SLF001
         engine_ingest._DATA_DIR = Path(self._tmpdir.name)
         engine_ingest._DB_PATH = Path(self._tmpdir.name) / "engine_ingest.db"
-        workspaces._conn = None  # noqa: SLF001
+        agents._conn = None  # noqa: SLF001
 
     def tearDown(self) -> None:
-        from infra import accounts, claude_agent_runs, engine_ingest, workspaces
+        from infra import accounts, claude_agent_runs, engine_ingest, agents
 
         accounts._conn = None  # noqa: SLF001
         claude_agent_runs._conn = None  # noqa: SLF001
         engine_ingest._conn = None  # noqa: SLF001
-        workspaces._conn = None  # noqa: SLF001
+        agents._conn = None  # noqa: SLF001
         self._env_patch.stop()
         self._tmpdir.cleanup()
 
@@ -53,10 +53,10 @@ class HostedDispatchTest(unittest.TestCase):
         return TestClient(main.app)
 
     def test_workspace_registers_fleet_engine(self) -> None:
-        from infra import hosted_workspace_engines, workspaces
+        from infra import hosted_agent_engines, agents
 
-        workspace = workspaces.create_workspace(owner_account_id="acct-1", name="Dispatch Sandbox")
-        engine_id = hosted_workspace_engines.engine_id_for_workspace(workspace["workspace_id"])
+        workspace = agents.create_workspace(owner_account_id="acct-1", name="Dispatch Sandbox")
+        engine_id = hosted_agent_engines.engine_id_for_workspace(workspace["workspace_id"])
 
         client = self._client()
         fleet = client.get("/api/v1/engines/fleet", headers={"X-Admin-Token": "test-admin"})
@@ -68,11 +68,11 @@ class HostedDispatchTest(unittest.TestCase):
         self.assertTrue(match.get("online"))
 
     def test_dispatch_job_runs_on_hosted_workspace(self) -> None:
-        from infra import hosted_workspace_engines, workspaces
+        from infra import hosted_agent_engines, agents
         from services import hosted_dispatch_worker
 
-        workspace = workspaces.create_workspace(owner_account_id="acct-dispatch", name="Job Target")
-        engine_id = hosted_workspace_engines.engine_id_for_workspace(workspace["workspace_id"])
+        workspace = agents.create_workspace(owner_account_id="acct-dispatch", name="Job Target")
+        engine_id = hosted_agent_engines.engine_id_for_workspace(workspace["workspace_id"])
 
         client = self._client()
         admin = {"X-Admin-Token": "test-admin"}
@@ -111,11 +111,11 @@ class HostedDispatchTest(unittest.TestCase):
         self.assertTrue(str(job.get("run_id") or "").startswith("car_"))
 
     def test_dispatch_payload_model_is_used(self) -> None:
-        from infra import claude_agent_runs, hosted_workspace_engines, workspaces
+        from infra import claude_agent_runs, hosted_agent_engines, agents
         from services import hosted_dispatch_worker
 
-        workspace = workspaces.create_workspace(owner_account_id="acct-model", name="Model Target")
-        engine_id = hosted_workspace_engines.engine_id_for_workspace(workspace["workspace_id"])
+        workspace = agents.create_workspace(owner_account_id="acct-model", name="Model Target")
+        engine_id = hosted_agent_engines.engine_id_for_workspace(workspace["workspace_id"])
 
         client = self._client()
         admin = {"X-Admin-Token": "test-admin"}
@@ -151,11 +151,11 @@ class HostedDispatchTest(unittest.TestCase):
         self.assertEqual(captured.get("model"), "deepseek-v4-flash")
 
     def test_archived_workspace_rejects_dispatch_target(self) -> None:
-        from infra import hosted_workspace_engines, workspaces
+        from infra import hosted_agent_engines, agents
 
-        workspace = workspaces.create_workspace(owner_account_id="acct-arch", name="Archived")
-        engine_id = hosted_workspace_engines.engine_id_for_workspace(workspace["workspace_id"])
-        workspaces.update_workspace(workspace["workspace_id"], status=workspaces.WORKSPACE_STATUS_ARCHIVED)
+        workspace = agents.create_workspace(owner_account_id="acct-arch", name="Archived")
+        engine_id = hosted_agent_engines.engine_id_for_workspace(workspace["workspace_id"])
+        agents.update_workspace(workspace["workspace_id"], status=agents.WORKSPACE_STATUS_ARCHIVED)
 
         client = self._client()
         admin = {"X-Admin-Token": "test-admin"}

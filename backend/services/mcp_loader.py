@@ -15,16 +15,27 @@ from typing import Any
 
 MCP_SERVICES_DIR = Path(os.environ.get("MCP_SERVICES_DIR", "/app/data/mcp-services"))
 MCP_DEV_DIR = Path(os.environ.get("MCP_DEV_DIR", "/app/data/mcp-dev"))
+SYSTEM_MCP_DIR = Path(__file__).resolve().parent.parent / "mcp_system"
 _handler_cache: dict[str, tuple[float, Any]] = {}
 
 
 def _handler_path(service_id: str) -> Path:
-    """Prod handler path: mcp-services/{category}/{service_name}/handler.py"""
+    """Handler path based on source prefix.
+
+    system-*   → backend/services/mcp_system/{name}/handler.py
+    internal   → /app/data/mcp-services/{service_id}/handler.py
+    """
+    if service_id.startswith("system-"):
+        name = service_id[len("system-"):]
+        return SYSTEM_MCP_DIR / name / "handler.py"
     return MCP_SERVICES_DIR / service_id / "handler.py"
 
 
 def _manifest_path(service_id: str) -> Path:
-    """Prod manifest path."""
+    """Manifest path based on source prefix."""
+    if service_id.startswith("system-"):
+        name = service_id[len("system-"):]
+        return SYSTEM_MCP_DIR / name / "manifest.json"
     return MCP_SERVICES_DIR / service_id / "manifest.json"
 
 
@@ -67,7 +78,11 @@ def _load_module_from_path(handler_path: Path, service_id: str) -> Any:
 
 
 def get_handler(service_id: str):
-    """Load handler from mcp-services/{category}/{name}/handler.py, auto-reload on file change."""
+    """Load handler with source-aware routing, auto-reload on file change.
+
+    system-*   → backend/services/mcp_system/{name}/handler.py
+    internal   → /app/data/mcp-services/{service_id}/handler.py
+    """
     path = _handler_path(service_id)
     if not path.is_file():
         raise FileNotFoundError(f"handler not found: {service_id}")

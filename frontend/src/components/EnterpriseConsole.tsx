@@ -25,7 +25,6 @@ import { McpPanel } from "./McpPanel";
 import { RolePanel } from "./RolePanel";
 import { AgentTemplatePanel } from "./AgentTemplatePanel";
 import { DispatchPanel } from "./DispatchPanel";
-import { FunctionListPanel } from "./FunctionListPanel";
 import { DimensionPanel } from "./DimensionPanel";
 import { DisplayTimezoneSelect } from "./DisplayTimezoneSelect";
 import { LanguageToggle } from "./LanguageToggle";
@@ -33,7 +32,7 @@ import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hook
 import { formatDateTimeShort } from "../lib/datetime";
 import { useLocale, type Locale } from "../lib/i18n";
 
-type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "templates" | "dimensions" | "functions" | "costs" | "risk";
+type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "templates" | "dimensions" | "costs" | "risk";
 
 type EngineRecord = {
   engine_id: string;
@@ -194,7 +193,6 @@ const TAB_ROUTE: Record<ConsoleTab, string> = {
   roles: "/console/roles",
   templates: "/console/templates",
   dimensions: "/console/dimensions",
-  functions: "/console/functions",
   costs: "/costs",
   risk: "/risk",
 };
@@ -231,7 +229,7 @@ const MENU_GROUPS: MenuGroup[] = [
   { id: "agent", labelZh: "智能体中心", labelEn: "Agent Center", items: ["coding", "runs", "engines", "roles", "templates"] },
   { id: "capability", labelZh: "能力中心", labelEn: "Capabilities", items: ["skills", "knowledge", "mcp", "databases", "dispatch"] },
   { id: "model", labelZh: "模型管理", labelEn: "Models", items: ["gateway", "policies", "costs", "risk", "assets"] },
-  { id: "admin", labelZh: "系统管理", labelEn: "System", items: ["accounts", "dimensions", "functions"] },
+  { id: "admin", labelZh: "系统管理", labelEn: "System", items: ["accounts", "dimensions"] },
 ];
 
 // Flat set of tabs that belong to expandable groups (non-link groups)
@@ -256,7 +254,6 @@ const CONSOLE_COPY = {
       roles: { label: "角色", desc: "Agent Roles" },
       templates: { label: "模板", desc: "Templates" },
       dimensions: { label: "权限维度", desc: "Dimensions" },
-      functions: { label: "系统功能", desc: "Functions" },
       costs: { label: "成本", desc: "Costs" },
       risk: { label: "风控", desc: "Risk" },
     },
@@ -317,7 +314,6 @@ const CONSOLE_COPY = {
       roles: { label: "Roles", desc: "Agent Roles" },
       templates: { label: "Templates", desc: "Agent Templates" },
       dimensions: { label: "Dimensions", desc: "Permission" },
-      functions: { label: "Functions", desc: "System" },
       costs: { label: "Costs", desc: "Usage" },
       risk: { label: "Risk", desc: "Events" },
     },
@@ -442,10 +438,10 @@ function StatCard({ label, value, note }: { label: string; value: string | numbe
 
 export function EnterpriseConsole({
   initialTab = "dashboard",
-  initialWorkspaceId = "",
+  initialAgentId = "",
 }: {
   initialTab?: ConsoleTab;
-  initialWorkspaceId?: string;
+  initialAgentId?: string;
 }) {
   const navigate = useNavigate();
   const { locale, setLocale } = useLocale();
@@ -788,7 +784,7 @@ export function EnterpriseConsole({
             {tab === "accounts" && <GatewayAccountsPanel locale={locale} />}
             {tab === "engines" && <Engines engines={data.engines} runs={data.runs} violations={data.violations} />}
             {tab === "dispatch" && <DispatchPanel engines={data.engines} onRefresh={load} />}
-            {tab === "coding" && <CodingAgentPage locale={locale} initialWorkspaceId={initialWorkspaceId} />}
+            {tab === "coding" && <CodingAgentPage locale={locale} initialAgentId={initialAgentId} />}
             {tab === "runs" && <Runs runs={data.runs} selectedRun={selectedRun} events={events} loading={eventsLoading} onRun={openRun} onAssetSubmitted={() => setRoute("assets")} />}
             {tab === "skills" && <SkillsManagementPage />}
             {tab === "assets" && <AssetsPanel />}
@@ -799,7 +795,6 @@ export function EnterpriseConsole({
             {tab === "roles" && <RolePanel locale={locale} />}
             {tab === "templates" && <AgentTemplatePanel locale={locale} />}
             {tab === "dimensions" && <DimensionPanel locale={locale} />}
-            {tab === "functions" && <FunctionListPanel locale={locale} />}
             {tab === "costs" && <Costs cost={data.cost} />}
             {tab === "risk" && (
               <Risks

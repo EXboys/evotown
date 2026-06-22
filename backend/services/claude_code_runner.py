@@ -230,7 +230,6 @@ def _resolve_mcp_context(agent_id: str, *, run_id: str = "") -> dict[str, Any]:
                 "name": policy.get("name", sid),
                 "mcp_server_url": policy.get("endpoint_url", ""),
                 "permission": "read",
-                "row_rules": policy.get("row_rules", []),
                 "usage": usage_hint,
             }
         )
@@ -542,54 +541,84 @@ def _render_agent_context_md(
         for rel in attachment_paths:
             lines.append(f"- `{rel}`")
         lines.append("")
-    lines.extend(
-        [
-            "## MCP / Databases",
-            "",
-            f"- Selection: `{mcp_block.get('selection_mode', 'none')}`",
-            "- Details: `.evotown/mcp_context.json`",
-        ]
-    )
-    for conn in mcp_block.get("connections") or []:
-        if not isinstance(conn, dict):
-            continue
-        lines.append(
-            f"- `{conn.get('connection_id')}` ({conn.get('db_type')}) - "
-            f"{conn.get('name')} . permission={conn.get('permission')}"
-        )
-        if conn.get("mcp_server_url"):
-            lines.append(f"  - MCP proxy: {conn['mcp_server_url']}")
-        lines.append(f"  - {conn.get('usage', '')}")
-    # Generic MCP Tools section
-    tool_specs = mcp_block.get("tools") or []
-    if mcp_block.get("mcp_proxy_url") and not tool_specs:
-        lines.append(f"- Default MCP proxy base URL: `{mcp_block['mcp_proxy_url']}`")
-    lines.append("")
+    # Check if bridge (.mcp.json) is configured
+    _mcp_json = Path(root_path) / ".mcp.json"
+    _has_bridge = False
+    if _mcp_json.is_file():
+        try:
+            _mcp_cfg = json.loads(_mcp_json.read_text(encoding="utf-8"))
+            _has_bridge = bool(_mcp_cfg.get("mcpServers"))
+        except Exception:
+            pass
 
-    if tool_specs:
+    if _has_bridge:
+        bridge_url = ""
+        try:
+            _mcp2 = json.loads((Path(root_path) / ".mcp.json").read_text(encoding="utf-8"))
+            bridge_url = _mcp2.get("mcpServers", {}).get("mcp", {}).get("url", "")
+        except Exception:
+            pass
         lines.extend([
-            "## Available MCP Tools",
+            "## MCP Tools",
             "",
-            "The following MCP services are available to you as tools.",
-            "Use your native tool_use mechanism to call them.",
-            "The `input_schema` shows the required JSON body format.",
-            "",
+            "- 你的 MCP 工具已通过 .mcp.json 注入，优先使用 tool_use 原生调用",
+            f"- 若 tool_use 不可用，curl POST bridge URL 的 JSON-RPC：`tools/list` 或 `tools/call`",
+            "- 鉴权已内置于 URL 中，无需额外携带 token",
+            "- 不要 ls/read mcp-dev/ 或 mcp-services/ 目录 —— 权限由 bridge 控制",
         ])
-        for t in tool_specs:
-            safe_name = t['name']
-            lines.append(f"### {safe_name}")
-            lines.append(f"- Description: {t['description']}")
-            lines.append(f"- Endpoint: POST {t['call_endpoint']}")
-            # Render input_schema as JSON
-            input_schema = t.get('input_schema', {})
-            if input_schema:
-                import json as _json_inline
-                schema_str = _json_inline.dumps(input_schema, ensure_ascii=False)
-                if len(schema_str) <= 500:
-                    lines.append(f"- Input Schema: `{schema_str}`")
-                else:
-                    lines.append(f"- Input Schema: `{schema_str[:500]}...`")
-            lines.append("")
+        if bridge_url:
+            # Show URL without token for safety (token already in URL, but hide from log)
+            safe_url = bridge_url.split("&token=")[0] if "&token=" in bridge_url else bridge_url
+            lines.append(f"- Bridge: `{safe_url}&token=...`")
+        lines.append("")
+    else:
+        lines.extend(
+            [
+                "## MCP / Databases",
+                "",
+                f"- Selection: `{mcp_block.get('selection_mode', 'none')}`",
+                "- Details: `.evotown/mcp_context.json`",
+            ]
+        )
+        for conn in mcp_block.get("connections") or []:
+            if not isinstance(conn, dict):
+                continue
+            lines.append(
+                f"- `{conn.get('connection_id')}` ({conn.get('db_type')}) - "
+                f"{conn.get('name')} . permission={conn.get('permission')}"
+            )
+            if conn.get("mcp_server_url"):
+                lines.append(f"  - MCP proxy: {conn['mcp_server_url']}")
+            lines.append(f"  - {conn.get('usage', '')}")
+        tool_specs = mcp_block.get("tools") or []
+        if mcp_block.get("mcp_proxy_url") and not tool_specs:
+            lines.append(f"- Default MCP proxy base URL: `{mcp_block['mcp_proxy_url']}`")
+        lines.append("")
+
+        if tool_specs:
+            lines.extend([
+                "## Available MCP Tools",
+                "",
+                "The following MCP services are available to you as tools.",
+                "Use your native tool_use mechanism to call them.",
+                "The `input_schema` shows the required JSON body format.",
+                "",
+            ])
+            for t in tool_specs:
+                safe_name = t['name']
+                lines.append(f"### {safe_name}")
+                lines.append(f"- Description: {t['description']}")
+                lines.append(f"- Endpoint: POST {t['call_endpoint']}")
+                # Render input_schema as JSON
+                input_schema = t.get('input_schema', {})
+                if input_schema:
+                    import json as _json_inline
+                    schema_str = _json_inline.dumps(input_schema, ensure_ascii=False)
+                    if len(schema_str) <= 500:
+                        lines.append(f"- Input Schema: `{schema_str}`")
+                    else:
+                        lines.append(f"- Input Schema: `{schema_str[:500]}...`")
+                lines.append("")
     lines.append("")
 
     return "\n".join(lines)
@@ -643,10 +672,22 @@ def _write_context_files(
         workspace_root=str(root),
         profile=shared_context.get("workspace_profile"),
     )
+    agent_id_val = str(workspace.get("agent_id") or "")
+    _has_mcp = False
+    if agent_id_val:
+        try:
+            from infra import mcp_registry as _mcp_reg
+            _has_mcp = bool(_mcp_reg.list_policies_for_agent(agent_id_val))
+        except Exception:
+            pass
+
+    mcp_context = shared_context.get("mcp", {})
+    if _has_mcp:
+        mcp_context = {"selection_mode": "bridge", "note": "MCP tools registered via .mcp.json, use tool_use or curl bridge"}
     files: list[tuple[str, str]] = [
         ("skills_manifest.json", _json_dumps(shared_context.get("skills", {}))),
         ("knowledge_context.json", _json_dumps(shared_context.get("knowledge", {}))),
-        ("mcp_context.json", _json_dumps(shared_context.get("mcp", {}))),
+        ("mcp_context.json", _json_dumps(mcp_context)),
         ("AGENT_CONTEXT.md", agent_md),
     ]
 
@@ -674,21 +715,15 @@ def _write_context_files(
             }
         )
 
-    mcp_servers: dict[str, Any] = {}
-    run_id = str(run.get("run_id") or "")
-    for conn in (shared_context.get("mcp") or {}).get("connections") or []:
-        if not isinstance(conn, dict):
-            continue
-        url = str(conn.get("mcp_server_url") or "").strip()
-        if not url:
-            continue
-        if run_id:
-            sep = "&" if "?" in url else "?"
-            url = f"{url}{sep}run_id={run_id}"
-        key = str(conn.get("connection_id") or conn.get("name") or "database")
-        mcp_servers[key] = {"type": "http", "url": url}
-    if mcp_servers:
-        mcp_content = _json_dumps({"mcpServers": mcp_servers})
+    # ── Generate .mcp.json with bridge if agent has MCP permissions ──
+    if _has_mcp:
+        key = agents.get_agent_key(agent_id_val)
+        run_id_val = str(run.get("run_id") or "")
+        bridge_url = "http://localhost:8765/api/v1/mcp/bridge?agent_id=" + agent_id_val + "&token=" + key
+        if run_id_val:
+            bridge_url += "&run_id=" + run_id_val
+        mcp_servers_val = {"mcp": {"type": "http", "url": bridge_url}}
+        mcp_content = _json_dumps({"mcpServers": mcp_servers_val})
         mcp_path = root / ".mcp.json"
         mcp_path.write_text(mcp_content, encoding="utf-8")
         digest = hashlib.sha256(mcp_content.encode("utf-8")).hexdigest()
@@ -712,7 +747,7 @@ def _default_claude_command() -> str:
         return (
             f"{shlex.quote(str(bundled))} -p {{prompt}} --model {{model}} "
             '--permission-mode acceptEdits '
-            '--allowedTools "Read,Edit,Bash,Glob,Grep,Write" '
+            '--allowedTools "Read,Edit,Bash,Glob,Grep,Write,mcp__mcp__*" '
             "--max-turns 25 "
             "--output-format stream-json --verbose --bare "
             "--append-system-prompt-file .evotown/AGENT_CONTEXT.md"
@@ -758,7 +793,7 @@ def _execution_backend() -> str:
     return "dry-run"
 
 
-async def _run_agent(*, workspace_root: Path, prompt: str, run: dict[str, Any], model: str) -> tuple[int, str, str]:
+async def _run_agent(*, workspace_root: Path, prompt: str, run: dict[str, Any], model: str) -> tuple[int, str, str, str]:
     backend = _execution_backend()
     if backend == "sdk":
         from services import claude_agent_sdk_runner
@@ -769,22 +804,22 @@ async def _run_agent(*, workspace_root: Path, prompt: str, run: dict[str, Any], 
             model=model,
             run=run,
         )
-        return exit_code, output, backend
+        return exit_code, output, "", backend
     if backend == "cli":
-        exit_code, output = await _run_configured_command(
+        exit_code, output, raw_output = await _run_configured_command(
             workspace_root=workspace_root,
             prompt=prompt,
             run=run,
             model=model,
         )
-        return exit_code, output, backend
+        return exit_code, output, raw_output, backend
     summary = (
         "Dry-run completed. Install claude-agent-sdk (pip install claude-agent-sdk) and set "
         "ANTHROPIC_API_KEY, enable EVOTOWN_CLAUDE_USE_GATEWAY with EVOTOWN_CLAUDE_GATEWAY_API_KEY, "
         "or configure EVOTOWN_CLAUDE_CODE_COMMAND for CLI execution. "
         "Workspace context files were written under .evotown/."
     )
-    return 0, summary, "dry-run"
+    return 0, summary, "", "dry-run"
 
 
 def _parse_cli_output(raw_output: str) -> tuple[str, str]:
@@ -883,10 +918,75 @@ async def _run_configured_command(*, workspace_root: Path, prompt: str, run: dic
         stderr=asyncio.subprocess.STDOUT,
         env=_cli_subprocess_env(workspace_root=workspace_root, run=run, model=model),
     )
-    stdout, _ = await proc.communicate()
-    raw_output = stdout.decode("utf-8", errors="replace") if stdout else ""
+
+    # Stream output line by line, emit assistant_message events
+    run_id = run["run_id"]
+    assistant_texts: list[str] = []
+    raw_lines: list[str] = []
+    buf = b""
+    while True:
+        chunk = await proc.stdout.read(4096) if proc.stdout else None
+        if not chunk:
+            break
+        buf += chunk
+        while b"\n" in buf:
+            line_bytes, buf = buf.split(b"\n", 1)
+            line = line_bytes.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            raw_lines.append(line)
+            try:
+                obj = json.loads(line)
+            except (json.JSONDecodeError, TypeError):
+                assistant_texts.append(line)
+                continue
+            obj_type = obj.get("type", "")
+            if obj_type == "assistant":
+                message = obj.get("message", {})
+                for block in message.get("content", []):
+                    text = block.get("text", "")
+                    if text:
+                        assistant_texts.append(text)
+                        try:
+                            claude_agent_runs.append_event(
+                                run_id, "assistant_message",
+                                {"text": text, "seq": len(assistant_texts)}
+                            )
+                        except Exception:
+                            pass
+                    # Also emit tool_use call events
+                    if block.get("type") == "tool_use":
+                        tool_name = block.get("name", "?")
+                        tool_input = block.get("input", {})
+                        try:
+                            claude_agent_runs.append_event(
+                                run_id, "tool_call",
+                                {"tool": tool_name, "input": json.dumps(tool_input, ensure_ascii=False)[:500]}
+                            )
+                        except Exception:
+                            pass
+            elif obj_type == "user":
+                # Emit tool_result events
+                for block in obj.get("message", {}).get("content", []):
+                    if block.get("type") == "tool_result":
+                        content = block.get("content", "")
+                        is_error = block.get("is_error", False)
+                        content_preview = (content if isinstance(content, str) else json.dumps(content))[:300]
+                        try:
+                            claude_agent_runs.append_event(
+                                run_id, "tool_result",
+                                {"content": content_preview, "is_error": is_error}
+                            )
+                        except Exception:
+                            pass
+            elif obj_type == "system":
+                if obj.get("subtype") == "init":
+                    assistant_texts.append(f"[Claude Agent started — model: {obj.get('model','?')}]")
+
+    await proc.wait()
+    raw_output = "\n".join(raw_lines)
     clean_output, _ = _parse_cli_output(raw_output)
-    return int(proc.returncode or 0), clean_output[-65536:]
+    return int(proc.returncode or 0), clean_output[-65536:], raw_output[-131072:]
 
 
 async def run_claude_agent(run_id: str) -> dict[str, Any]:
@@ -1002,9 +1102,9 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
             model=model,
         )
         if timeout_sec > 0:
-            exit_code, output, execution_backend = await asyncio.wait_for(agent_coro, timeout=timeout_sec)
+            exit_code, output, raw_output, execution_backend = await asyncio.wait_for(agent_coro, timeout=timeout_sec)
         else:
-            exit_code, output, execution_backend = await agent_coro
+            exit_code, output, raw_output, execution_backend = await agent_coro
     except asyncio.TimeoutError:
         msg = f"Run timed out after {timeout_sec}s"
         claude_agent_runs.append_event(run_id, "run.error", {"error": msg, "timeout_sec": timeout_sec})
@@ -1090,7 +1190,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
     updated = claude_agent_runs.update_run_status(
         run_id,
         status=status,
-        log_excerpt=output,
+        log_excerpt=raw_output,
         result_summary=summary,
         error="" if status == "succeeded" else summary,
         artifact_manifest=artifacts,

@@ -15,13 +15,11 @@ router = APIRouter(prefix="/api/v1", tags=["mcp"])
 
 class McpPolicyUpdate(BaseModel):
     enabled: bool = True
-    row_rules: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class BatchPolicyItem(BaseModel):
     agent_id: str
     enabled: bool = True
-    row_rules: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class BatchPolicyUpdate(BaseModel):
@@ -66,6 +64,18 @@ async def list_mcp_services(
     for svc in services:
         svc["bound_agents"] = mcp_registry.count_service_policies(svc["service_id"])
         svc["calls_24h"] = mcp_registry.count_mcp_calls(svc["service_id"])
+        # Audit status from version sub-table (no extra DB column)
+        pending = mcp_registry.get_pending_version(svc["service_id"])
+        svc["has_pending_version"] = pending is not None
+        if pending:
+            svc["latest_version_status"] = "pending"
+        else:
+            # If no pending, check the latest version's status
+            versions = mcp_registry.list_service_versions(svc["service_id"])
+            if versions:
+                svc["latest_version_status"] = versions[0].get("status", "")
+            else:
+                svc["latest_version_status"] = None
     return {"services": services, "stats": mcp_registry.registry_stats()}
 
 
@@ -156,7 +166,6 @@ async def update_service_policies(service_id: str, body: BatchPolicyUpdate, _adm
             service_id,
             item.agent_id,
             enabled=item.enabled,
-            row_rules=item.row_rules,
         )
         created.append(policy)
     return {"service_id": service_id, "policies": created}
@@ -201,7 +210,7 @@ class RoleMembersUpdate(BaseModel):
 class RolePolicyBatchItem(BaseModel):
     role_id: str
     enabled: bool = True
-    row_rules: list[dict[str, Any]] = Field(default_factory=list)
+
 
 
 class SingleRolePolicyUpdate(BaseModel):
@@ -281,7 +290,6 @@ async def update_service_role_policies(service_id: str, body: RolePolicyBatchUpd
             service_id,
             item.role_id,
             enabled=item.enabled,
-            row_rules=item.row_rules,
         )
         created.append(policy)
     return {"service_id": service_id, "role_policies": created}
@@ -319,7 +327,7 @@ async def get_role_mcp_services(role_id: str):
             "name": svc["name"],
             "endpoint_url": svc["endpoint_url"],
             "enabled": policy["enabled"] if policy else False,
-            "row_rules": policy.get("row_rules", []) if policy else [],
+
         })
     return {"role_id": role_id, "services": result}
 
@@ -386,32 +394,30 @@ async def call_mcp(service_id: str, body: McpCallRequest,
     # ① Token → agent_id
     identity = identity or {}
     agent_id = str(identity.get("account_id") or "")
-    scopes = identity.get("scopes") or []
     if not agent_id:
         raise HTTPException(status_code=401, detail="无法解析 agent_id")
 
-    # ② service → dimensions
+    # ② Check agent has per-service enabled policy
+    from infra.mcp_registry import resolve_mcp_permissions
+    policies = mcp_registry.list_policies_for_agent(agent_id)
+    enabled_sids = {p["service_id"] for p in policies}
+    if service_id not in enabled_sids:
+        raise HTTPException(status_code=403, detail="此 Agent 未授权访问该 MCP 服务")
+
+    # ③ Service must be online
     svc = mcp_registry.get_service(service_id)
     if svc is None or svc.get("status") != "online":
         raise HTTPException(status_code=404, detail="MCP service not found")
-    try:
-        declared_dims = json.loads(str(svc.get("dimensions") or "[]"))
-    except (json.JSONDecodeError, TypeError):
-        declared_dims = []
-    permissions: dict[str, list[str]] = {}
-    if declared_dims:
-        policies = mcp_registry.list_policies_for_agent(agent_id)
-        for p in policies:
-            rules = p.get("row_rules", [])
-            for rule in rules:
-                where = rule.get("where", "")
-                for dim in declared_dims:
-                    if dim in where:
-                        vals = _parse_dim_values(where)
-                        if vals and vals[0] != "*":
-                            permissions[dim] = vals
 
-    # ③ Resolve run_id → account_id for audit
+    # ④ Resolve dimension permissions (shared logic)
+    resolved = resolve_mcp_permissions(agent_id, service_id)
+    permissions = resolved["permissions"]
+
+    # ⑤ Safety: deny if service has dimensions but agent has no rules
+    if resolved["has_dimensions"] and not resolved["has_rules"]:
+        raise HTTPException(status_code=403, detail="未配置数据权限，请联系管理员分配行规则")
+
+    # ⑥ Resolve run_id → account_id for audit
     account_id = ""
     if run_id:
         from infra import claude_agent_runs
@@ -419,15 +425,13 @@ async def call_mcp(service_id: str, body: McpCallRequest,
         if run:
             account_id = str(run.get("account_id") or "")
 
-    # ④ Invoke with version injection
+    # ⑦ Invoke with permissions
     from services.mcp_loader import invoke_mcp
-    if agent_id:
-        permissions["agent_id"] = agent_id
     if account_id:
         permissions["account_id"] = account_id
     result = invoke_mcp(service_id, body.args, permissions)
 
-    # ⑤ Record audit
+    # ⑧ Record audit
     args_summary = json.dumps(body.args, ensure_ascii=False)
     handler_ok = result.get("ok") and (result.get("data") or {}).get("ok", True)
     mcp_registry.record_mcp_call(
@@ -725,6 +729,24 @@ async def list_service_versions_endpoint(service_id: str):
     if mcp_registry.get_service(service_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP service not found")
     versions = mcp_registry.list_service_versions(service_id)
+    # Resolve agent names and account names
+    for v in versions:
+        aid = v.get("submitted_by_agent_id", "")
+        if aid:
+            agent = agents.get_agent(aid)
+            v["submitted_by_agent_name"] = agent.get("name", "") if agent else ""
+        else:
+            v["submitted_by_agent_name"] = ""
+        # submitted_by_account: if it's an account_id (acc_*), resolve name; empty stays empty
+        acct = v.get("submitted_by_account", "")
+        if not acct:
+            v["submitted_by_account_name"] = ""
+        elif acct.startswith("acc_"):
+            from infra import accounts as accounts_store
+            gw = accounts_store.get_account(acct)
+            v["submitted_by_account_name"] = gw.get("name", "") if gw else acct
+        else:
+            v["submitted_by_account_name"] = acct
     return {"service_id": service_id, "versions": versions}
 
 

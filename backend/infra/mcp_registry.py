@@ -768,6 +768,54 @@ def list_policies_for_agent(agent_id: str) -> list[dict[str, Any]]:
     return result
 
 
+def resolve_mcp_permissions(agent_id: str, service_id: str) -> dict[str, Any]:
+    """Resolve data dimension permissions for an agent calling a specific MCP service.
+
+    Returns a dict with:
+        permissions: dict[str, list[str]] — resolved dimension values keyed by code
+        declared_dims: list[str] — dimension codes the service declares
+        has_dimensions: bool — whether the service declares any dimensions
+        has_rules: bool — whether the agent has any matching dimension rules
+    """
+    import json as _json
+
+    permissions: dict[str, Any] = {}
+    declared_dims: list[str] = []
+
+    svc = get_service(service_id)
+    if svc:
+        try:
+            declared_dims = _json.loads(str(svc.get("dimensions") or "[]"))
+        except (_json.JSONDecodeError, TypeError):
+            declared_dims = []
+
+    has_dimensions = bool(declared_dims)
+    has_rules = False
+
+    if declared_dims:
+        # Resolve dimension values from agent_role_dimensions (via agent's roles)
+        role_ids = list_workspace_roles(agent_id)
+        for role_id in role_ids:
+            for rd in get_role_dimensions(role_id):
+                dim_code = rd.get("code", "")
+                if dim_code in declared_dims:
+                    vals = rd.get("dim_values") or []
+                    if vals and vals != ["*"]:
+                        # Dedup merge across multiple roles
+                        existing = permissions.get(dim_code) or []
+                        permissions[dim_code] = list(set(existing + vals))
+                        has_rules = True
+
+    permissions["agent_id"] = agent_id
+
+    return {
+        "permissions": permissions,
+        "declared_dims": declared_dims,
+        "has_dimensions": has_dimensions,
+        "has_rules": has_rules,
+    }
+
+
 def registry_stats() -> dict[str, Any]:
     conn = _ensure_conn()
     total = conn.execute("SELECT COUNT(*) AS c FROM mcp_services").fetchone()["c"]

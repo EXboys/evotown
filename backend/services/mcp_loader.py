@@ -23,11 +23,18 @@ def _handler_path(service_id: str) -> Path:
     """Handler path based on source prefix.
 
     system-*   → backend/services/mcp_system/{name}/handler.py
-    internal   → /app/data/mcp-services/{service_id}/handler.py
+    internal   → /app/data/mcp-services/{mcp_path}/handler.py (from DB)
     """
     if service_id.startswith("system-"):
         name = service_id[len("system-"):]
         return SYSTEM_MCP_DIR / name / "handler.py"
+    # Look up mcp_path from service record for correct directory mapping
+    from infra import mcp_registry
+    svc = mcp_registry.get_service(service_id)
+    if svc:
+        mcp_path = (svc.get("mcp_path") or "").strip("/")
+        if mcp_path:
+            return MCP_SERVICES_DIR / mcp_path / "handler.py"
     return MCP_SERVICES_DIR / service_id / "handler.py"
 
 
@@ -36,6 +43,12 @@ def _manifest_path(service_id: str) -> Path:
     if service_id.startswith("system-"):
         name = service_id[len("system-"):]
         return SYSTEM_MCP_DIR / name / "manifest.json"
+    from infra import mcp_registry
+    svc = mcp_registry.get_service(service_id)
+    if svc:
+        mcp_path = (svc.get("mcp_path") or "").strip("/")
+        if mcp_path:
+            return MCP_SERVICES_DIR / mcp_path / "manifest.json"
     return MCP_SERVICES_DIR / service_id / "manifest.json"
 
 

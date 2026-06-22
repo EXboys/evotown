@@ -110,10 +110,21 @@ def _agent_from_row(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def get_agent_key(agent_id: str) -> str:
-    """Return the raw API key for an agent (internal use only)."""
+    """Return the raw API key for an agent (internal use only).
+    Auto-issues a key if none exists yet."""
     conn = _ensure_conn()
     row = conn.execute("SELECT raw_key FROM agents WHERE agent_id=?", (agent_id,)).fetchone()
-    return str(row["raw_key"] or "") if row else ""
+    if row and row["raw_key"]:
+        return str(row["raw_key"])
+    # Auto-issue key for agents that don't have one
+    name_row = conn.execute("SELECT name FROM agents WHERE agent_id=?", (agent_id,)).fetchone()
+    if not name_row:
+        return ""
+    from infra import accounts as _acct
+    raw_key, key_id = _acct.issue_agent_key(agent_id, str(name_row["name"]))
+    conn.execute("UPDATE agents SET raw_key=?, key_id=? WHERE agent_id=?", (raw_key, key_id, agent_id))
+    conn.commit()
+    return raw_key
 
 
 def _copy_mcp_system_files(dev_dir: Path) -> None:

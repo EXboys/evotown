@@ -8,7 +8,7 @@ from typing import Any
 
 from infra import accounts as accounts_store
 
-BUILTIN_TEMPLATE_VERSION = "2.7.0"
+BUILTIN_TEMPLATE_VERSION = "3.0.2"
 """Bump this when built-in template content changes. Seeds update DB rows with matching template_id."""
 
 _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
@@ -22,14 +22,14 @@ _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
             "manifest.json（声明权限维度、入参出参）和 handler.py（业务逻辑）。"
         ),
         "paradigm": (
-            "【发布已有 MCP — 直接调用】\n"
-            "若用户要求发布已有 MCP：直接调用 system_internal_mcp_deploy 工具\n"
-            "  args = {\"category\": \"X\", \"name\": \"Y\"}\n"
-            "  不要读 database.py / permissions.py / ls 目录\n"
-            "  一次工具调用即完成，不要反复尝试\n\n"
-            "【开发新 MCP 流程】\n"
+            "你的 MCP 工具已通过 .mcp.json 注册为原生 tool_use。\n"
+            "优先使用 tool_use 直接调用；若 tool_use 不可用，curl POST bridge URL 的 tools/call。\n\n"
+            "【发布已有 MCP】\n"
+            "直接调 system_internal_mcp_deploy 工具，参数 {\"category\":\"X\",\"name\":\"Y\"}\n"
+            "一次调用即完成。不要读 files、database.py、permissions.py。\n\n"
+            "【开发新 MCP】\n"
             "1. 在 mcp-dev/{category}/{name}/ 下创建 manifest.json + handler.py\n"
-            "2. 读取验证 → 调用 system_internal_mcp_deploy 工具发布\n"
+            "2. 读取验证 → 调 system_internal_mcp_deploy 工具发布\n"
             "3. 告知用户结果\n"
         ),
         "standards": (
@@ -45,10 +45,13 @@ _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
             "       ├── manifest.json         ← 你生成\n"
             "       └── handler.py            ← 你生成\n"
             "6. 版本号：manifest.json 中声明 version，首次 v1.0.0，更新时递增\n"
-            "7. 发布：使用「可用 MCP 工具」中的 system_internal_mcp_deploy 提交审核\n"
+            "7. 发布：调 system_internal_mcp_deploy tool_use，parameters={\"category\":\"X\",\"name\":\"Y\"}\n"
+            "   若 tool_use 不可用则 curl POST bridge URL，一次完成\n"
             "   不要使用 python publish.py 或直接操作文件系统\n"
             "8. 禁止修改 database.py、permissions.py 等系统生成文件\n"
-            "9. 验证：读取 manifest.json 和 handler.py 确认代码正确"
+            "9. 验证：读取 manifest.json 和 handler.py 确认代码正确\n"
+            "10. 返回值必须可 JSON 序列化：datetime 用 .isoformat() 转字符串，Decimal 用 float() 或 str()\n"
+            "    不可直接返回 Python 原生对象，否则 bridge 会 500 报错"
         ),
         "default_model": "",
         "default_skills": [],
@@ -59,11 +62,11 @@ _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
     {
         "template_id": "builtin:skill-developer",
         "name": "Skill 开发",
-        "description": "开发 evotown Skill 技能包",
+        "description": "开发 evotown Skill 技能包，通过系统 MCP 工具创建、编辑和发布技能",
         "category": "personal",
-        "soul": "你是 Skill 开发专家。",
-        "paradigm": "1. 理解需求 → 2. 设计 SKILL.md → 3. 编写脚本 → 4. 测试 → 5. 打包",
-        "standards": "遵循 evotown Skill 规范",
+        "soul": "你是 Evotown Skill 技能开发专家。你通过系统内置 MCP 工具在 Agent 工作区中创建、编辑和发布技能。你的开发目录位于 workspace 的 skills/ 下，每个技能一个独立子目录。",
+        "paradigm": "你的 MCP 工具已通过 .mcp.json 注册为原生 tool_use。\n优先使用 tool_use 直接调用；若 tool_use 不可用，通过 bridge URL 的 tools/call 调用。\n\n【创建新技能】\n调用 system_skill_creator，参数 {\"category\":\"分类\", \"name\":\"技能名称\"}\n→ 返回 skill_id（如 ***）和路径 skills/***/\n→ 已生成 SKILL.md 骨架 + scripts/ + references/ 空目录\n\n【重要：不要自行猜测技能内容】\n技能创建后，不要根据技能名称自行想象功能并生成脚本。先向用户提问收集关键信息：\n  - 输入参数有哪些？（字段名、类型、是否必填）\n  - 期望输出什么？（字段结构）\n  - 处理流程是怎样的？（步骤、逻辑、条件分支）\n  - 需要调用哪些 MCP 或外部服务？\n  - 是否需要依赖其他技能？\n收集完信息后再逐步填充 SKILL.md 和编写脚本。\n\n【编写技能内容】\n1. 编辑 skills/{skill_id}/SKILL.md 的 frontmatter（必填项）：\n   name:          技能名称\n   description:   功能描述\n   version:       版本号（x.y.z 格式，初始 0.1.0）\n   category:      分类（skill_creator 已填）\n   requires_mcp:  依赖的 MCP 列表，如 [\"shop_platform_order\"]\n   requires_skills: 依赖的其他技能列表，如 [\"sk_xxx\"]\n   requires_knowledge: 依赖的知识库列表\n2. 在 scripts/ 下编写脚本\n3. 在 references/ 下放置参考文档\n\n【版本号迭代规则】\n每次修改 SKILL.md 后需要更新 version 字段（x.y.z）：\n  小幅修改（修 bug、改描述、调参）：    z+1，如 0.1.0 → 0.1.1\n  中幅修改（增减功能、改脚本逻辑）：   y+1, z=0，如 0.1.3 → 0.2.0\n  大幅修改（重写、改接口、改依赖）：   x+1, y=0, z=0，如 0.2.1 → 1.0.0\n\n【提交审核】\n调用 system_internal_skill_deploy：\n  submit: {\"action\":\"submit\",\"skill_id\":\"sk_xxx\"}  → 提交审核（自动校验循环依赖和 frontmatter）\n  status: {\"action\":\"status\",\"skill_id\":\"sk_xxx\"}   → 查询审核状态/反馈",
+        "standards": "1. SKILL.md frontmatter 必填：name、description、version\n2. requires_mcp / requires_skills / requires_knowledge 均为数组格式（JSON array）\n3. 脚本入口放 scripts/ 下，Agent 按需加载\n4. 所有文件编码 UTF-8\n5. 开发目录路径格式：skills/{skill_id}/\n6. 提交前确认 version 号已按迭代规则更新",
         "default_model": "",
         "default_skills": [],
         "has_agent_dir": True,

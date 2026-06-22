@@ -46,6 +46,43 @@ function isImageAttachmentPath(path: string): boolean {
   return /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(path);
 }
 
+function formatLog(raw: string): string {
+  return raw.split("\n").map(line => {
+    line = line.trim();
+    if (!line) return "";
+    try {
+      const obj = JSON.parse(line);
+      switch (obj.type) {
+        case "assistant": {
+          const texts: string[] = [];
+          for (const block of (obj.message?.content || [])) {
+            if (block.text) texts.push(block.text);
+          }
+          return texts.length ? "🤖 " + texts.join(" ") : "";
+        }
+        case "user": {
+          const parts: string[] = [];
+          for (const block of (obj.message?.content || [])) {
+            if (block.type === "tool_result") {
+              const content = typeof block.content === "string" ? block.content.slice(0, 200) : JSON.stringify(block.content).slice(0, 200);
+              parts.push(block.is_error ? "⚠️ 错误: " + content : "📤 " + content);
+            }
+          }
+          return parts.join("\n");
+        }
+        case "system":
+          return obj.subtype === "init" ? "🚀 启动 — 模型: " + (obj.model || "?") : "";
+        case "result":
+          return obj.is_error ? "❌ 失败: " + ((obj.result || obj.subtype || "").slice(0, 200)) : "✅ 完成";
+        default:
+          return "";
+      }
+    } catch {
+      return line.length > 200 ? line.slice(0, 200) + "..." : line;
+    }
+  }).filter(Boolean).join("\n");
+}
+
 const STATUS_META: Record<AgentRun["status"], { label: string; className: string; dot: string }> = {
   queued: { label: "排队中", className: "border-slate-200 bg-slate-50 text-slate-600", dot: "bg-slate-400" },
   running: { label: "运行中", className: "border-blue-200 bg-blue-50 text-blue-700", dot: "bg-blue-500 animate-pulse" },
@@ -78,7 +115,12 @@ function describeEvent(event: AgentRunEvent): { icon: string; title: string; det
     case "vision.ready": return { icon: "👁️", title: "视觉分析完成", detail: `${num("images") ?? 0} 张图片` };
     case "vision.error": return { icon: "⚠️", title: "视觉分析失败", detail: str("error") || "视觉模型不可用" };
     case "vision.skipped": return { icon: "ℹ️", title: "未启用视觉模型", detail: "" };
-    case "assistant_message": return { icon: "🤖", title: "Agent 返回", detail: str("summary") || "" };
+    case "assistant_message": return { icon: "🤖", title: "Agent 返回", detail: str("text")?.slice(0, 80) || "" };
+    case "tool_call": return { icon: "🔧", title: "调用工具", detail: str("tool") || "" };
+    case "tool_result": {
+      const err = payload["is_error"];
+      return { icon: err ? "⚠️" : "📤", title: err ? "工具错误" : "工具返回", detail: str("content")?.slice(0, 80) || "" };
+    }
     case "run.error": return { icon: "⚠️", title: "执行出错", detail: str("error") || "运行失败" };
     default: return { icon: "•", title: event.event_type, detail: "" };
   }
@@ -117,7 +159,7 @@ export function CodingAgentChatPage() {
   const [agent, setAgent] = useState<Agent | null>(null);
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [selectedRunId, setSelectedRunId] = useState("");
-  const [events, setEvents] = useState<AgentRunEvent[]>([]);
+  const [eventsByRun, setEventsByRun] = useState<Record<string, AgentRunEvent[]>>({});
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("claude-sonnet-4");
 
@@ -175,7 +217,7 @@ export function CodingAgentChatPage() {
       }).catch(() => {});
   }, [agentId]);
 
-  const hasDevFiles = devDirRoot ? (devDirRoot === "shared" || devDirRoot === "server") ? true : agentFiles.some((f) => /(\.py|\.js|\.ts|\.tsx|\.json|\.md)/i.test(f.path) && !f.path.startsWith(".evotown/") && f.path !== "README.md") : false;
+  const hasDevFiles = devDirRoot ? true : false;
   useEffect(() => { if (hasDevFiles) setRightOpen(true); }, [hasDevFiles]);
 
   const loadDevDir = (dir: string) => {
@@ -252,23 +294,6 @@ export function CodingAgentChatPage() {
 
   useEffect(() => { void load(); const id = setInterval(() => void load(), 4000); return () => clearInterval(id); }, [load]);
 
-  // Events
-  useEffect(() => {
-    if (!selectedRunId) { setEvents([]); return; }
-    let cancelled = false;
-    const fetchEvents = async () => {
-      try {
-        const data = await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(selectedRunId)}/events`).then((res) => readJson<{ events?: AgentRunEvent[] }>(res));
-        if (!cancelled) setEvents(data.events || []);
-      } catch { if (!cancelled) setEvents([]); }
-    };
-    void fetchEvents();
-    const id = setInterval(() => void fetchEvents(), 4000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [selectedRunId]);
-
-  useEffect(() => { threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" }); }, [events.length, selectedRunId, runs.length]);
-
   // Run chain
   const runChain = useMemo(() => {
     if (!selectedRunId) return [];
@@ -291,6 +316,29 @@ export function CodingAgentChatPage() {
     const targetRoot = rootMap.get(selectedRunId) || selectedRunId;
     return runs.filter((r) => (rootMap.get(r.run_id) || r.run_id) === targetRoot).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   }, [selectedRunId, runs]);
+
+  // Events
+  useEffect(() => {
+    if (!selectedRunId || !runChain.length) { return; }
+    const runIds = runChain.map(r => r.run_id);
+    let cancelled = false;
+    const fetchAll = async () => {
+      for (const rid of runIds) {
+        try {
+          const data = await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(rid)}/events`).then((res) => readJson<{ events?: AgentRunEvent[] }>(res));
+          if (!cancelled) setEventsByRun(prev => ({ ...prev, [rid]: data.events || [] }));
+        } catch { if (!cancelled) setEventsByRun(prev => ({ ...prev, [rid]: prev[rid] || [] })); }
+      }
+    };
+    void fetchAll();
+    const id = setInterval(() => void fetchAll(), 4000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [selectedRunId, runChain.map(r => r.run_id).join(',')]);
+
+  const totalEventCount = useMemo(() => {
+    return Object.values(eventsByRun).reduce((sum, evts) => sum + (evts?.length || 0), 0);
+  }, [eventsByRun]);
+  useEffect(() => { threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" }); }, [totalEventCount, selectedRunId, runs.length]);
 
   const selectedRun = useMemo(() => (runChain.length > 0 ? runChain[runChain.length - 1] : null), [runChain]);
   const isRunning = selectedRun?.status === "running" || selectedRun?.status === "queued";
@@ -616,6 +664,7 @@ export function CodingAgentChatPage() {
               {runChain.map((run) => {
                 const isLast = run.run_id === selectedRun?.run_id;
                 const runRunning = run.status === "running" || run.status === "queued";
+                const runEvents = eventsByRun[run.run_id] || [];
                 const attachments = runAttachmentPaths(run);
                 const isHtmlRun = (run.artifact_manifest || []).some((a) => /\.html?$/i.test(a.path) && !a.path.startsWith(".evotown/"));
                 return (
@@ -674,12 +723,60 @@ export function CodingAgentChatPage() {
                           </div>
                           <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
                             <div className="mb-2 flex flex-wrap items-center gap-2">
-                              <Badge className={STATUS_META[run.status].className}><span className={`h-1.5 w-1.5 rounded-full ${STATUS_META[run.status].dot}`} />{STATUS_META[run.status].label}</Badge>
                               {isLast && runRunning && <button type="button" onClick={() => void cancelRun(run.run_id)} disabled={busy} className="rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50">取消</button>}
                             </div>
                             {runRunning && !run.result_summary && !run.error ? (
-                              <div className="space-y-2"><div className="flex items-center gap-2 text-slate-500"><TypingDots /><span>Agent 正在执行…</span></div></div>
-                            ) : <MarkdownContent>{run.result_summary || run.error || "执行完成。"}</MarkdownContent>}
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2 text-slate-500"><TypingDots /><span>Agent 正在执行…</span></div>
+                                {(() => {
+                                  const toolEvents = runEvents.filter(e => e.event_type === "tool_call" || e.event_type === "tool_result");
+                                  const lastTool = toolEvents[toolEvents.length - 1];
+                                  if (lastTool) {
+                                    const info = describeEvent(lastTool);
+                                    return <div className="flex items-center gap-1 text-[11px] text-slate-400"><span>{info.icon}</span><span>{info.detail}</span></div>;
+                                  }
+                                  return null;
+                                })()}
+                                {runEvents.filter(e => e.event_type === "assistant_message").map((ev) => {
+                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || "";
+                                  if (!text.trim()) return null;
+                                  return (
+                                    <div key={ev.id} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+                                      <MarkdownContent>{text}</MarkdownContent>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : isLast ? (
+                              <div className="space-y-2">
+                                {runEvents.filter(e => e.event_type === "assistant_message").map((ev) => {
+                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || "";
+                                  if (!text.trim()) return null;
+                                  return (
+                                    <div key={ev.id} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+                                      <MarkdownContent>{text}</MarkdownContent>
+                                    </div>
+                                  );
+                                })}
+                                {run.status === "succeeded" && (
+                                  <div className="rounded-xl border border-green-200 bg-green-50/50 px-3 py-2 text-xs text-green-700">
+                                    ✅ 执行完成
+                                  </div>
+                                )}
+                                {run.status === "failed" && (
+                                  <div className="rounded-xl border border-red-200 bg-red-50/50 px-3 py-2 text-xs text-red-700">
+                                    ❌ 执行失败{(run.error ? `：${run.error.slice(0, 200)}` : "")}
+                                  </div>
+                                )}
+                                {run.status === "cancelled" && (
+                                  <div className="rounded-xl border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs text-amber-700">
+                                    ⏹ 已取消
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <MarkdownContent>{run.result_summary || run.error || "执行完成。"}</MarkdownContent>
+                            )}
                             {/* Image/Video inline */}
                             {isLast && (run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && /\.(png|jpg|jpeg|gif|webp|svg|mp4|webm)$/i.test(a.path)).length > 0 && (
                               <div className="mt-3 space-y-2">
@@ -693,19 +790,19 @@ export function CodingAgentChatPage() {
                               </div>
                             )}
                             {/* Toggles */}
-                            {isLast && (run.log_excerpt || events.length > 0 || ((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/")).length > 0)) && (
+                            {isLast && (run.log_excerpt || runEvents.length > 0 || ((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length > 0)) && (
                               <div className="mt-3 flex items-center gap-4 border-t border-slate-100 pt-3">
                                 {run.log_excerpt && <button type="button" onClick={() => setLogExpanded((v) => !v)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{logExpanded ? "▾" : "▸"}</span>执行日志</button>}
-                                {events.length > 0 && <button type="button" onClick={() => setEventsExpanded((v) => !v)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{eventsExpanded ? "▾" : "▸"}</span>事件时间线</button>}
-                                {((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/")).length > 0) && <button type="button" onClick={() => setFilesExpanded((v) => !v)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{filesExpanded ? "▾" : "▸"}</span>文件 ({(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/")).length})</button>}
+                                {runEvents.length > 0 && <button type="button" onClick={() => setEventsExpanded((v) => !v)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{eventsExpanded ? "▾" : "▸"}</span>事件时间线</button>}
+                                {((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length > 0) && <button type="button" onClick={() => setFilesExpanded((v) => !v)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{filesExpanded ? "▾" : "▸"}</span>文件 ({(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length})</button>}
                               </div>
                             )}
-                            {isLast && run.log_excerpt && logExpanded && <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">{run.log_excerpt}</pre>}
-                            {isLast && eventsExpanded && events.length ? (
-                              <div className="mt-2 space-y-1">{events.map((ev) => { const info = describeEvent(ev); return <div key={`${ev.id}-${ev.seq}`} className="flex items-center gap-2 text-xs text-slate-400"><span>{info.icon}</span><span className="text-slate-600">{info.title}</span>{info.detail ? <span className="truncate text-slate-400">· {info.detail}</span> : null}</div>; })}</div>
+                            {isLast && run.log_excerpt && logExpanded && <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">{formatLog(run.log_excerpt)}</pre>}
+                            {isLast && eventsExpanded && runEvents.length ? (
+                              <div className="mt-2 space-y-1">{runEvents.map((ev) => { const info = describeEvent(ev); const time = ev.ts ? parseEvotownTimestamp(ev.ts) : null; return <div key={`${ev.id}-${ev.seq}`} className="flex items-center gap-2 text-xs"><span className="shrink-0 font-mono text-[10px] text-slate-300 w-[52px]">{time ? time.toLocaleTimeString("zh-CN", {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : ""}</span><span>{info.icon}</span><span className="text-slate-600">{info.title}</span>{info.detail ? <span className="truncate text-slate-400">· {info.detail}</span> : null}</div>; })}</div>
                             ) : null}
                             {isLast && filesExpanded && (
-                              <div className="mt-2 space-y-1">{(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/")).map((a) => <a key={a.path} href={`/api/v1/agents/${encodeURIComponent(agentId)}/files?path=${encodeURIComponent(a.path)}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50"><span>{fileMeta(a.path).icon}</span><span className="truncate flex-1">{a.path.split("/").pop() || a.path}</span><span className="shrink-0 text-slate-400">{formatBytes(a.bytes)}</span><span className="shrink-0 text-slate-300">↓</span></a>)}</div>
+                              <div className="mt-2 space-y-1">{(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").map((a) => <a key={a.path} href={`/api/v1/agents/${encodeURIComponent(agentId)}/files?path=${encodeURIComponent(a.path)}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50"><span>{fileMeta(a.path).icon}</span><span className="truncate flex-1">{a.path.split("/").pop() || a.path}</span><span className="shrink-0 text-slate-400">{formatBytes(a.bytes)}</span><span className="shrink-0 text-slate-300">↓</span></a>)}</div>
                             )}
                           </div>
                         </div>

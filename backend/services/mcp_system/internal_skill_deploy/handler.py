@@ -163,12 +163,15 @@ def process(args: dict, permissions: dict) -> dict[str, Any]:
             "error": f"版本 {latest.get('version', '?')} 正在审核中，请等待审核完成后再提交",
         }
 
-    # Read SKILL.md from workspace
+    # Read SKILL.md from workspace (directory named by skill name)
     agent = get_agent(agent_id)
     if agent is None:
         return {"ok": False, "data": None, "error": f"agent 不存在: {agent_id}"}
     ws_root = resolve_agent_path(agent)
-    skill_md_path = ws_root / "skills" / skill_id / "SKILL.md"
+    skill_name = (skill.get("name") or "").strip()
+    if not skill_name:
+        return {"ok": False, "data": None, "error": f"技能名称为空: {skill_id}"}
+    skill_md_path = ws_root / "skills" / skill_name / "SKILL.md"
 
     if not skill_md_path.is_file():
         return {"ok": False, "data": None, "error": f"SKILL.md 不存在: {skill_md_path}"}

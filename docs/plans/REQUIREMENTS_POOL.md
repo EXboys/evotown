@@ -350,6 +350,23 @@ fork 拆分多 Agent 并行处理、batch 工作池抢占消费。
 **关联需求**: REQ-013
 **状态**: 已实现
 
+### REQ-021: Webview 静态产出目录管理
+
+Agent 在执行技能时可以将 HTML/前端页面产出到 webview 目录，通过 URL 直接访问并在对话窗 iframe 渲染。
+
+**后端实现**：
+- 目录：宿主机 `/usr/local/agent-data/webview/{agent_id}/`，通过 `EVOTOWN_WEBVIEW_HOST_DIR` 配置
+- 容器挂载：`/app/data/webview`
+- API：`GET /api/v1/webview/{agent_id}/{filename}` — FastAPI FileResponse 直出
+- Agent 拥有完全读写权限，按 agent_id 隔离
+
+**管理端需求**（待实施）：
+- 查看各 agent webview 目录的空间占用大小
+- 管理员清理（按 agent 或全局）
+- 支持手动清理和定时清理策略
+
+**状态**: 基础设施已实现，管理功能待实施
+
 ---
 
 ## 已实现

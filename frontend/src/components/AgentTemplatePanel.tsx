@@ -8,7 +8,10 @@ type AgentTemplate = {
   default_model: string; default_skills: string[];
   has_agent_dir: boolean; agent_dir_root: string; agent_dir_prefix: string;
   builtin?: boolean; seed_version?: string;
+  agent_count?: number;
 };
+
+type AgentRecord = { agent_id: string; name: string; status: string; category: string; created_at: string };
 
 type TemplatesTab = "department" | "personal";
 
@@ -108,6 +111,13 @@ export function AgentTemplatePanel({ locale }: { locale: Locale }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [viewing, setViewing] = useState<AgentTemplate | null>(null);
+  const [agentList, setAgentList] = useState<AgentRecord[]>([]);
+  const [agentListOpen, setAgentListOpen] = useState(false);
+  const [agentListTitle, setAgentListTitle] = useState("");
+  const [syncTpl, setSyncTpl] = useState<AgentTemplate | null>(null);
+  const [syncAgents, setSyncAgents] = useState<AgentRecord[]>([]);
+  const [syncSelected, setSyncSelected] = useState<Set<string>>(new Set());
+  const [syncing, setSyncing] = useState(false);
 
   const filtered = templates.filter((t) => tab === "department" ? t.category === "department" : t.category === "personal");
 
@@ -122,6 +132,52 @@ export function AgentTemplatePanel({ locale }: { locale: Locale }) {
   };
 
   useEffect(() => { void loadTemplates(); }, []);
+
+  const openAgentList = async (tpl: AgentTemplate) => {
+    try {
+      const res = await adminFetch(`/api/v1/agent-templates/${encodeURIComponent(tpl.template_id)}/agents`);
+      const data = await res.json();
+      setAgentList((data.agents || []) as AgentRecord[]);
+      setAgentListTitle(tpl.name);
+      setAgentListOpen(true);
+    } catch { /* ignore */ }
+  };
+
+  const openSync = async (tpl: AgentTemplate) => {
+    setSyncTpl(tpl);
+    setSyncSelected(new Set());
+    try {
+      const res = await adminFetch(`/api/v1/agent-templates/${encodeURIComponent(tpl.template_id)}/agents`);
+      const data = await res.json();
+      setSyncAgents((data.agents || []) as AgentRecord[]);
+    } catch { setSyncAgents([]); }
+  };
+
+  const doSync = async () => {
+    if (!syncTpl || syncSelected.size === 0) return;
+    setSyncing(true);
+    try {
+      const res = await adminFetch(`/api/v1/agent-templates/${encodeURIComponent(syncTpl.template_id)}/sync`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_ids: Array.from(syncSelected) }),
+      });
+      const data = await res.json();
+      setMessage(`同步完成: ${data.synced?.length || 0} 成功, ${data.failed?.length || 0} 失败`);
+      setSyncTpl(null);
+    } catch (err) { setMessage(err instanceof Error ? err.message : "同步失败"); }
+    finally { setSyncing(false); }
+  };
+
+  const toggleSyncAgent = (id: string) => {
+    const next = new Set(syncSelected);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSyncSelected(next);
+  };
+
+  const selectAllAgents = () => {
+    if (syncSelected.size === syncAgents.length) setSyncSelected(new Set());
+    else setSyncSelected(new Set(syncAgents.map(a => a.agent_id)));
+  };
 
   const startEdit = (tpl?: AgentTemplate) => {
     if (tpl) {
@@ -213,12 +269,22 @@ export function AgentTemplatePanel({ locale }: { locale: Locale }) {
                     {tpl.has_agent_dir && <span className="rounded-md border border-slate-100 bg-slate-50 px-1.5 py-0.5">{copy.dirLabel.replace("{root}", tpl.agent_dir_root === "server" ? "{server}" : tpl.agent_dir_root === "shared" ? "{server}" : tpl.agent_dir_root).replace("{prefix}", tpl.agent_dir_prefix)}</span>}
                   </div>
                 </div>
-                {tpl.category === "department" && (
-                  <div className="flex shrink-0 gap-1">
-                    <button onClick={() => startEdit(tpl)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100">{copy.edit}</button>
-                    <button onClick={() => void remove(tpl)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50">{copy.delete}</button>
-                  </div>
-                )}
+                <div className="flex shrink-0 items-center gap-2">
+                  {(tpl.agent_count ?? 0) > 0 && (
+                    <button onClick={(e) => { e.stopPropagation(); void openAgentList(tpl); }} className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-xs font-medium text-sky-700 hover:bg-sky-100">
+                      {tpl.agent_count} 个智能体
+                    </button>
+                  )}
+                  {(tpl.agent_count ?? 0) > 0 && (
+                    <button onClick={(e) => { e.stopPropagation(); void openSync(tpl); }} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100">同步</button>
+                  )}
+                  {tpl.category === "department" && (
+                    <>
+                      <button onClick={() => startEdit(tpl)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100">{copy.edit}</button>
+                      <button onClick={() => void remove(tpl)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50">{copy.delete}</button>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           ))}
@@ -303,6 +369,81 @@ export function AgentTemplatePanel({ locale }: { locale: Locale }) {
             </div>
             <div className="flex border-t border-slate-100 px-6 py-4">
               <button onClick={() => setViewing(null)} className="w-full rounded-lg border border-slate-200 py-2.5 text-sm text-slate-600 hover:bg-slate-50">{locale === "zh" ? "关闭" : "Close"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Agent list modal */}
+      {agentListOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center" onClick={() => setAgentListOpen(false)}>
+          <div className="absolute inset-0 bg-black/30" />
+          <div className="relative w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-slate-900">使用「{agentListTitle}」的智能体</h3>
+              <button onClick={() => setAgentListOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            {agentList.length === 0 ? (
+              <p className="text-xs text-slate-500 text-center py-4">暂无绑定</p>
+            ) : (
+              <div className="max-h-64 overflow-y-auto space-y-1.5">
+                {agentList.map((a) => (
+                  <div key={a.agent_id} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
+                    <div>
+                      <p className="text-xs font-medium text-slate-900">{a.name}</p>
+                      <p className="text-[10px] text-slate-400 font-mono">{a.agent_id}</p>
+                    </div>
+                    <span className="text-[10px] text-slate-400">{a.status === "active" ? "● 活动" : "○ 归档"}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex justify-end mt-4">
+              <button onClick={() => setAgentListOpen(false)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">关闭</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sync modal */}
+      {syncTpl && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center" onClick={() => setSyncTpl(null)}>
+          <div className="absolute inset-0 bg-black/30" />
+          <div className="relative w-full max-w-lg rounded-xl border border-slate-200 bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">同步模板「{syncTpl.name}」</h3>
+                <p className="text-xs text-slate-500 mt-0.5">将覆盖所选智能体的 soul / paradigm / standards</p>
+              </div>
+              <button onClick={() => setSyncTpl(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            {syncAgents.length === 0 ? (
+              <p className="text-xs text-slate-500 text-center py-4">该模板暂无绑定智能体</p>
+            ) : (
+              <>
+                <div className="mb-2 flex items-center gap-2">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input type="checkbox" checked={syncSelected.size === syncAgents.length} onChange={selectAllAgents} />
+                    <span className="text-xs text-slate-600">全选 ({syncAgents.length} 个)</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400">已选 {syncSelected.size}</span>
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-1 border rounded-lg p-2">
+                  {syncAgents.map((a) => (
+                    <label key={a.agent_id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-50 cursor-pointer">
+                      <input type="checkbox" checked={syncSelected.has(a.agent_id)} onChange={() => toggleSyncAgent(a.agent_id)} />
+                      <span className="text-xs text-slate-900">{a.name}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">{a.agent_id}</span>
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setSyncTpl(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">取消</button>
+              <button onClick={doSync} disabled={syncing || syncSelected.size === 0} className="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50">
+                {syncing ? "同步中…" : `同步 ${syncSelected.size} 个`}
+              </button>
             </div>
           </div>
         </div>

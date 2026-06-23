@@ -124,6 +124,10 @@ services:
       - ${EVOTOWN_MCP_SERVICES_HOST_DIR:-/usr/local/agent-data/mcp-services}:/app/data/mcp-services
       # MCP 开发环境目录（共享）
       - ${EVOTOWN_MCP_DEV_HOST_DIR:-/usr/local/agent-data/mcp-dev}:/app/data/mcp-dev
+      # 技能生产发布目录
+      - ${EVOTOWN_CUSTOM_SKILLS_HOST_DIR:-/usr/local/agent-data/custom-skills}:/app/data/custom-skills
+      # Webview 静态产出目录（Agent 产出 HTML/前端页面）
+      - ${EVOTOWN_WEBVIEW_HOST_DIR:-/usr/local/agent-data/webview}:/app/data/webview
       # 录制回放持久化
       - evotown_replays:/app/replays
       # 运行日志持久化（便于宿主机直接 tail -f 或接入日志系统）

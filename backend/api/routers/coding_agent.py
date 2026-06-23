@@ -127,7 +127,13 @@ async def list_agents(
     if not owner and not _is_admin(identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account-bound session required")
     return {
-        "agents": agents.list_agents(owner_account_id=owner, status=status_filter, category=category, limit=limit),
+        "agents": agents.list_agents(
+            member_account_id=owner,
+            owner_account_id=None,
+            status=status_filter,
+            category=category,
+            limit=limit,
+        ),
         "viewer": {"is_admin": _is_admin(identity), "account_id": _account_id(identity)},
     }
 
@@ -185,8 +191,6 @@ async def update_agent(agent_id: str, body: WorkspaceUpdate, identity: dict | No
     identity = _require_identity(identity)
     _require_scope(identity, "agent.write", "console.write")
     agent = _load_agent_for_identity(agent_id, identity)
-    if not _is_admin(identity) and agent.get("owner_account_id") != _account_id(identity):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only the owner can update agent")
     if body.owner_account_id is not None and not _is_admin(identity):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -233,7 +237,7 @@ async def get_workspace_profile(agent_id: str, identity: dict | None = Depends(r
     identity = _require_identity(identity)
     _require_scope(identity, "agent.read", "agent.write", "console.read", "console.write")
     agent = _load_agent_for_identity(agent_id, identity)
-    return {"profile": workspace_profile.get_profile(workspace)}
+    return {"profile": workspace_profile.get_profile(agent)}
 
 
 @router.put("/agents/{agent_id}/profile")
@@ -245,14 +249,12 @@ async def update_workspace_profile(
     identity = _require_identity(identity)
     _require_scope(identity, "agent.write", "console.write")
     agent = _load_agent_for_identity(agent_id, identity)
-    if not _is_admin(identity) and agent.get("owner_account_id") != _account_id(identity):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only the owner can update agent profile")
     # Lock: template-bound agent profiles can only be modified by admin
     if agent.get("template_id") and not _is_admin(identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="该智能体使用模板初始化，身份信息不可在工作区修改。请联系管理员在后台管理修改。")
     _validate_profile_text_fields(body)
     try:
-        profile = workspace_profile.save_profile(workspace, body.model_dump())
+        profile = workspace_profile.save_profile(agent, body.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return {"profile": profile}
@@ -408,7 +410,7 @@ async def create_agent_run(agent_id: str, body: ClaudeAgentRunCreate, identity: 
     if not agents.can_run_agent(agent, identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="agent run is not allowed for this agent")
 
-    account_id = _account_id(identity) or agent["owner_account_id"]
+    account_id = _account_id(identity)
     max_active = int(os.environ.get("EVOTOWN_CLAUDE_MAX_ACTIVE_RUNS_PER_ACCOUNT", "2") or "2")
     if max_active > 0 and claude_agent_runs.active_run_count(account_id) >= max_active:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="too many active hosted agent runs")
@@ -505,8 +507,6 @@ async def delete_workspace_session(
     identity = _require_identity(identity)
     _require_scope(identity, "console.write", "agent.write")
     agent = _load_agent_for_identity(agent_id, identity)
-    if not _is_admin(identity) and agent.get("owner_account_id") != _account_id(identity):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only the agent owner can delete sessions")
 
     runs = claude_agent_runs.list_runs(agent_id=agent_id, limit=500)
     run_ids = claude_agent_runs.session_run_ids(runs, session_id)

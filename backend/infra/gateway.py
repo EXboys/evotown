@@ -186,18 +186,19 @@ def usage_summary(limit: int = 10) -> dict[str, Any]:
         (max(1, min(limit, 100)),),
     ).fetchall()
     
-    # Fetch account names for by_account results
+    # account_id in gateway_requests stores agent_id.
+    # Look up agent names from agents.db.
     by_account_list = [dict(row) for row in by_account]
-    account_ids = {row["account_id"] for row in by_account_list}
-    account_names = {}
-    if account_ids:
-        from infra import accounts as accounts_store
-        for acc_id in account_ids:
-            acc = accounts_store.get_account(acc_id)
-            if acc and acc.get("name"):
-                account_names[acc_id] = acc["name"]
+    agent_ids = {row["account_id"] for row in by_account_list}
+    agent_names: dict[str, str] = {}
+    if agent_ids:
+        from infra import agents as agents_store
+        for agt_id in agent_ids:
+            agent = agents_store.get_agent(agt_id)
+            if agent and agent.get("name"):
+                agent_names[agt_id] = agent["name"]
     for row in by_account_list:
-        row["account_name"] = account_names.get(row["account_id"], row["account_id"])
+        row["account_name"] = agent_names.get(row["account_id"], row["account_id"])
     
     return {
         "total": dict(total) if total else {},
@@ -231,20 +232,23 @@ def conversations(limit: int = 100) -> list[dict[str, Any]]:
         (max(1, min(limit, 500)),),
     ).fetchall()
 
-    # Extract unique account_ids and fetch account names from accounts.db
+    # account_id in gateway_requests stores agent_id.
+    # Look up agent names from agents.db.
     result = [dict(row) for row in rows]
-    account_ids = {row["account_id"] for row in result if row["account_id"]}
-    account_names = {}
-    if account_ids:
-        from infra import accounts as accounts_store
-        for acc_id in account_ids:
-            acc = accounts_store.get_account(acc_id)
-            if acc and acc.get("name"):
-                account_names[acc_id] = acc["name"]
+    agent_ids = {row["account_id"] for row in result if row["account_id"]}
+    agent_names: dict[str, str] = {}
+    if agent_ids:
+        from infra import agents as agents_store
+        for agt_id in agent_ids:
+            agent = agents_store.get_agent(agt_id)
+            if agent and agent.get("name"):
+                agent_names[agt_id] = agent["name"]
 
-    # Merge account names into results
     for row in result:
-        row["account_name"] = account_names.get(row["account_id"], "")
+        name = agent_names.get(row["account_id"], "")
+        row["agent_name"] = name
+        row["account_name"] = ""
+        row["agent_id"] = row["account_id"]
 
     return result
 
@@ -318,20 +322,24 @@ def recent_requests(limit: int = 100) -> list[dict[str, Any]]:
         (max(1, min(limit, 500)),),
     ).fetchall()
     
-    # Extract unique account_ids and fetch account names from accounts.db
-    account_ids = {row["account_id"] for row in rows if row["account_id"]}
-    account_names = {}
-    if account_ids:
-        from infra import accounts as accounts_store
-        for acc_id in account_ids:
-            acc = accounts_store.get_account(acc_id)
-            if acc and acc.get("name"):
-                account_names[acc_id] = acc["name"]
+    # account_id in gateway_requests stores agent_id.
+    # Look up agent names from agents.db.
+    agent_ids = {row["account_id"] for row in rows if row["account_id"]}
+    agent_names: dict[str, str] = {}
+    if agent_ids:
+        from infra import agents as agents_store
+        for agt_id in agent_ids:
+            agent = agents_store.get_agent(agt_id)
+            if agent and agent.get("name"):
+                agent_names[agt_id] = agent["name"]
     
-    # Merge account names into request data
     result = []
     for row in rows:
         req = _request_from_row(row)
-        req["account_name"] = account_names.get(row["account_id"], "")
+        agt_id = row["account_id"]
+        name = agent_names.get(agt_id, "")
+        req["agent_name"] = name
+        req["agent_id"] = agt_id
+        req["account_name"] = ""
         result.append(req)
     return result

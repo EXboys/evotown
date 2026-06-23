@@ -135,7 +135,7 @@ export function LandingPage() {
     setWorkspacesLoading(true);
     adminFetch("/api/v1/agents?include_all=false&limit=50")
       .then((r) => r.json())
-      .then((d) => setWorkspaces((d.workspaces || []) as typeof workspaces))
+      .then((d) => setWorkspaces((d.agents || []) as typeof workspaces))
       .catch(() => setWorkspaces([]))
       .finally(() => setWorkspacesLoading(false));
   }, []);

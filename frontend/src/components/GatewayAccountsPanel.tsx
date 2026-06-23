@@ -235,10 +235,10 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
 
   const loadBoundWorkspaces = useCallback(async (accountId: string) => {
     try {
-      const res = await adminFetch(`/api/v1/accounts/${encodeURIComponent(accountId)}/workspaces`);
+      const res = await adminFetch(`/api/v1/accounts/${encodeURIComponent(accountId)}/agents`);
       if (res.ok) {
-        const data = await res.json() as { workspaces?: WorkspaceInfo[] };
-        setBoundWorkspaces(data.workspaces || []);
+        const data = await res.json() as { agents?: WorkspaceInfo[] };
+        setBoundWorkspaces(data.agents || []);
       } else {
         setBoundWorkspaces([]);
       }
@@ -251,8 +251,8 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
     try {
       const res = await adminFetch("/api/v1/agents?limit=500&include_all=true");
       if (res.ok) {
-        const data = await res.json() as { workspaces?: WorkspaceInfo[] };
-        setAllWorkspaces(data.workspaces || []);
+        const data = await res.json() as { agents?: WorkspaceInfo[] };
+        setAllWorkspaces(data.agents || []);
       }
     } catch {
       // silent

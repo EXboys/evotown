@@ -16,6 +16,8 @@ from domain.models import (
     SkillPackageUpload,
 )
 from infra import skill_market
+from pydantic import BaseModel as _BaseModel, Field as _Field
+from typing import Literal
 
 router = APIRouter(prefix="/api/v1", tags=["skill-market"])
 
@@ -149,9 +151,28 @@ async def review_skill_candidate(candidate_id: str, body: SkillCandidateReview):
     return {"reviewed": True, "candidate": candidate}
 
 
-# ── New unified skill management endpoints ────────────────────────────────────
+# ── Skill version review (new flow: agent MCP submit → admin review via skill_versions) ──
 
-from pydantic import BaseModel as _BaseModel, Field as _Field
+class SkillVersionReviewBody(_BaseModel):
+    decision: Literal["approved", "rejected"]
+    reviewer: str = _Field(default="admin", min_length=1, max_length=128)
+    reason: str = _Field(default="", max_length=2000)
+
+
+@router.post("/skill-versions/{version_id}/review", dependencies=[Depends(require_admin)])
+async def review_skill_version(version_id: int, body: SkillVersionReviewBody):
+    version = skill_market.review_skill_version(
+        version_id,
+        decision=body.decision,
+        reviewer=body.reviewer,
+        reason=body.reason,
+    )
+    if version is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="version not found")
+    return {"reviewed": True, "version": version}
+
+
+# ── New unified skill management endpoints ────────────────────────────────────
 
 
 class DraftSkillBody(_BaseModel):

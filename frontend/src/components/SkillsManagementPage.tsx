@@ -9,10 +9,12 @@ type SkillRecord = {
   runtime_targets: string[]; package_url?: string; package_sha256?: string;
   status: "draft" | "pending" | "approved" | "deprecated" | "rejected";
   visibility: string; team_id?: string; tags?: string[];
-  source_type?: "enterprise" | "external"; source_run_id?: string;
+  source_type?: "enterprise" | "external" | "workspace"; source_run_id?: string;
   updated_at?: string; created_at?: string;
   versions?: Array<{ version: string; description: string; created_at: string }>;
   test_runs?: TestRun[];
+  pending_version?: { version_id: number; version: string; status: string; submitted_by_agent_id?: string; submitted_by_account?: string; submitted_at?: string } | null;
+  latest_version?: { version_id: number; version: string; status: string } | null;
 };
 
 type SkillCandidate = { candidate_id: string; name: string; description?: string; status: string; runtime_target: string; };
@@ -106,9 +108,9 @@ export function SkillsManagementPage() {
     } catch (err) { setError(err instanceof Error ? err.message : "操作失败"); }
   };
 
-  const handleReview = async (candidateId: string, decision: "approved" | "rejected") => {
+  const handleReview = async (versionId: number, decision: "approved" | "rejected") => {
     try {
-      await adminFetch(`/api/v1/skill-candidates/${encodeURIComponent(candidateId)}/review`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision, reviewer: "admin", reason: decision === "approved" ? "审核通过" : "审核拒绝", visibility: "team" }) });
+      await adminFetch(`/api/v1/skill-versions/${versionId}/review`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision, reviewer: "admin", reason: decision === "approved" ? "审核通过" : "审核拒绝" }) });
       setMessage(decision === "approved" ? "审核通过" : "已拒绝"); loadSkills();
     } catch (err) { setError(err instanceof Error ? err.message : "操作失败"); }
   };
@@ -116,7 +118,12 @@ export function SkillsManagementPage() {
   // ── Counts ───────────────────────────────────────────────────────────────
 
   const counts = { all: skills.length, draft: 0, pending: 0, approved: 0, rejected: 0, deprecated: 0 };
-  skills.forEach((s) => { const key = s.status as keyof typeof counts; if (key in counts) (counts as Record<string, number>)[key]++; });
+  skills.forEach((s) => {
+    // Pending count: skills with pending_version (submitted via MCP) or legacy skills.status=pending
+    if (s.pending_version) counts.pending++;
+    const key = s.status as keyof typeof counts;
+    if (key in counts) (counts as Record<string, number>)[key]++;
+  });
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -198,12 +205,17 @@ export function SkillsManagementPage() {
                     <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1.5">
                         <button type="button" onClick={() => openDetail(skill.skill_id)} className="text-xs text-slate-500 hover:text-slate-800">详情</button>
-                        {skill.status === "draft" && <button type="button" onClick={() => handleSubmit(skill.skill_id)} className="text-xs text-emerald-600 hover:text-emerald-800">提交审核</button>}
-                        {skill.status === "pending" && (
+                        {skill.status === "draft" && skill.pending_version && (
                           <>
                             <button type="button" onClick={() => { setTestSkillId(skill.skill_id); setTestOpen(true); }} className="text-xs text-sky-600 hover:text-sky-800">测试</button>
-                            <button type="button" onClick={() => handleReview(`review_${skill.skill_id}`.slice(0, 128), "approved")} className="text-xs text-emerald-600 hover:text-emerald-800">通过</button>
-                            <button type="button" onClick={() => handleReview(`review_${skill.skill_id}`.slice(0, 128), "rejected")} className="text-xs text-red-600 hover:text-red-800">拒绝</button>
+                            <button type="button" onClick={() => handleReview(skill.pending_version!.version_id, "approved")} className="text-xs text-emerald-600 hover:text-emerald-800">通过</button>
+                            <button type="button" onClick={() => handleReview(skill.pending_version!.version_id, "rejected")} className="text-xs text-red-600 hover:text-red-800">拒绝</button>
+                          </>
+                        )}
+                        {skill.status === "pending" && !skill.pending_version && (
+                          <>
+                            <button type="button" onClick={() => { setTestSkillId(skill.skill_id); setTestOpen(true); }} className="text-xs text-sky-600 hover:text-sky-800">测试</button>
+                            <button type="button" onClick={() => handleSubmit(skill.skill_id)} className="text-xs text-amber-600 hover:text-amber-800">重新提交</button>
                           </>
                         )}
                         {skill.status === "approved" && (
@@ -225,7 +237,7 @@ export function SkillsManagementPage() {
       </div>
 
       {/* Detail drawer */}
-      {detailSkill && <DetailDrawer skill={detailSkill} onClose={() => setDetailSkill(null)} onTest={() => { setTestSkillId(detailSkill.skill_id); setTestOpen(true); }} onReview={(d) => handleReview(`review_${detailSkill.skill_id}`.slice(0, 128), d)} />}
+      {detailSkill && <DetailDrawer skill={detailSkill} onClose={() => setDetailSkill(null)} onTest={() => { setTestSkillId(detailSkill.skill_id); setTestOpen(true); }} onReview={(d) => { if (detailSkill.pending_version) handleReview(detailSkill.pending_version.version_id, d); }} />}
 
       {/* Modals */}
       {extractOpen && <ExtractModal onClose={() => setExtractOpen(false)} onDone={(msg) => { setMessage(msg); loadSkills(); }} />}
@@ -254,12 +266,18 @@ function DetailDrawer({ skill, onClose, onTest, onReview }: { skill: SkillRecord
           <p className="text-slate-500">{skill.description || "暂无描述"}</p>
           {(skill.tags || []).length > 0 && <div className="flex gap-1 flex-wrap">{(skill.tags || []).map((t: string) => <span key={t} className="px-1.5 py-0.5 rounded bg-slate-100 text-[10px] text-slate-600">{t}</span>)}</div>}
         </div>
-        {skill.status === "pending" && (
+        {skill.pending_version && (
           <div className="px-4 py-2 border-b border-slate-100 flex items-center gap-2 shrink-0 bg-amber-50">
-            <span className="text-xs text-amber-700 font-medium">待审核</span>
+            <span className="text-xs text-amber-700 font-medium">待审核 · v{skill.pending_version.version}</span>
+            {skill.pending_version.submitted_by_agent_id && <span className="text-[10px] text-amber-500">{skill.pending_version.submitted_by_agent_id}</span>}
             <button onClick={onTest} className="rounded border border-sky-200 bg-sky-50 px-2 py-1 text-xs text-sky-700 hover:bg-sky-100">🧪 运行测试</button>
             <button onClick={() => onReview("approved")} className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-100">✓ 通过</button>
             <button onClick={() => onReview("rejected")} className="rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100">✗ 拒绝</button>
+          </div>
+        )}
+        {!skill.pending_version && skill.status === "pending" && (
+          <div className="px-4 py-2 border-b border-slate-100 flex items-center gap-2 shrink-0 bg-amber-50">
+            <span className="text-xs text-amber-700 font-medium">待审核（旧流程）</span>
           </div>
         )}
         <div className="flex border-b border-slate-200 shrink-0">

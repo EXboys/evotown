@@ -377,6 +377,122 @@ def list_skill_versions(skill_id: str, *, limit: int = 50) -> list[dict[str, Any
     return [_version_from_row(row) for row in rows]
 
 
+def list_pending_skill_versions(*, limit: int = 100) -> list[dict[str, Any]]:
+    """List all skill versions with status=pending (for admin review)."""
+    rows = _ensure_conn().execute(
+        """
+        SELECT sv.*, s.name as skill_name, s.category as skill_category
+        FROM skill_versions sv
+        LEFT JOIN skills s ON s.skill_id = sv.skill_id
+        WHERE sv.status = 'pending'
+        ORDER BY sv.created_at DESC
+        LIMIT ?
+        """,
+        (max(1, min(limit, 200)),),
+    ).fetchall()
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["dependencies"] = _json_loads(item.get("dependencies", "[]"), [])
+        result.append(item)
+    return result
+
+
+def review_skill_version(
+    version_id: int,
+    *,
+    decision: str,
+    reviewer: str = "",
+    reason: str = "",
+) -> dict[str, Any] | None:
+    """Approve or reject a skill version.
+
+    On approve: updates skills.status draft→online (first approval),
+    updates skill_versions.status=approved.
+    On reject: updates skill_versions.status=rejected + review_comment.
+    """
+    conn = _ensure_conn()
+    row = conn.execute(
+        "SELECT * FROM skill_versions WHERE id=?", (version_id,)
+    ).fetchone()
+    if row is None:
+        return None
+
+    version = dict(row)
+    skill_id = version["skill_id"]
+    new_status = "approved" if decision == "approved" else "rejected"
+
+    conn.execute(
+        """
+        UPDATE skill_versions
+        SET status=?, reviewed_by=?, reviewed_at=datetime('now'), review_comment=?
+        WHERE id=?
+        """,
+        (new_status, reviewer, reason, version_id),
+    )
+
+    if decision == "approved":
+        # Promote skill from draft to online on first approval
+        skill_row = conn.execute(
+            "SELECT status, agent_id FROM skills WHERE skill_id=?", (skill_id,)
+        ).fetchone()
+        if skill_row and skill_row["status"] == "draft":
+            conn.execute(
+                "UPDATE skills SET status='online', updated_at=datetime('now') WHERE skill_id=?",
+                (skill_id,),
+            )
+        # Publish skill files to production custom-skills directory
+        agent_id = skill_row["agent_id"] if skill_row else ""
+        if agent_id:
+            _publish_skill_to_custom(skill_id, agent_id)
+
+    # Return updated version
+    updated = conn.execute(
+        "SELECT * FROM skill_versions WHERE id=?", (version_id,)
+    ).fetchone()
+    return dict(updated) if updated else None
+
+
+def _custom_skills_dir() -> Path:
+    """Production custom-skills directory (bind-mounted from host)."""
+    return _data_dir() / "custom-skills"
+
+
+def _publish_skill_to_custom(skill_id: str, agent_id: str) -> None:
+    """Copy skill files from agent workspace to production custom-skills/."""
+    from infra.agents import _agent_dir
+
+    # Find source directory by skill name (not skill_id since dev dirs are name-based)
+    skill = get_skill(skill_id)
+    skill_name = (skill.get("name") or "").strip() if skill else ""
+    src = _agent_dir(agent_id) / "skills" / (skill_name or skill_id)
+    if not src.is_dir():
+        # Fallback: try skill_id (old naming)
+        src = _agent_dir(agent_id) / "skills" / skill_id
+        if not src.is_dir():
+            return
+
+    dst = _custom_skills_dir() / skill_id
+    # Remove old if exists, then copy
+    if dst.exists():
+        import shutil
+        shutil.rmtree(dst)
+    import shutil
+    shutil.copytree(str(src), str(dst))
+
+    # Generate .skill_hash.json for future distribution comparison
+    import hashlib as _hashlib
+    hashes: dict[str, str] = {}
+    for f in sorted(dst.rglob("*")):
+        if f.is_file() and ".skill_hash" not in str(f):
+            rel = str(f.relative_to(dst))
+            hashes[rel] = _hashlib.sha256(f.read_bytes()).hexdigest()
+    (dst / ".skill_hash.json").write_text(
+        json.dumps({"skill_id": skill_id, "files": hashes}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 def record_download(skill_id: str) -> None:
     _ensure_conn().execute(
         "UPDATE skills SET download_count = download_count + 1, updated_at=updated_at WHERE skill_id=?",
@@ -588,6 +704,40 @@ def _manifest_skill_is_installable(skill_id: str) -> bool:
     return skill.get("status") == "approved"
 
 
+def _enrich_skills_with_version_status(skills: list[dict[str, Any]]) -> None:
+    """Add `pending_version` / `latest_version` fields from skill_versions table."""
+    if not skills:
+        return
+    skill_ids = [s["skill_id"] for s in skills]
+    placeholders = ",".join("?" for _ in skill_ids)
+    conn = _ensure_conn()
+    # Get latest version per skill
+    rows = conn.execute(
+        f"""
+        SELECT sv.skill_id, sv.id as version_id, sv.version, sv.status,
+               sv.submitted_by_agent_id, sv.submitted_by_account,
+               sv.created_at as submitted_at
+        FROM skill_versions sv
+        WHERE sv.skill_id IN ({placeholders})
+          AND sv.id = (
+              SELECT MAX(sv2.id) FROM skill_versions sv2 WHERE sv2.skill_id = sv.skill_id
+          )
+        """,
+        skill_ids,
+    ).fetchall()
+    version_map: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        version_map[row["skill_id"]] = dict(row)
+    for s in skills:
+        ver = version_map.get(s["skill_id"])
+        if ver:
+            s["pending_version"] = ver if ver["status"] == "pending" else None
+            s["latest_version"] = ver
+        else:
+            s["pending_version"] = None
+            s["latest_version"] = None
+
+
 def list_skills(
     *,
     team_id: str | None = None,
@@ -620,6 +770,8 @@ def list_skills(
         params,
     ).fetchall()
     result = [_skill_from_row(row) for row in rows]
+    # Enrich with latest version status (for pending/reviewed versions)
+    _enrich_skills_with_version_status(result)
     if runtime_target:
         result = [item for item in result if runtime_target in item["runtime_targets"]]
     if tag:
@@ -1094,11 +1246,11 @@ def trigger_skill_test(
         acct_skills.assign(test_account_id, [skill_id] + current_skills)
 
     # Find a workspace for the test account
-    ws_list = agents.list_workspaces(owner_account_id=test_account_id, limit=1)
+    ws_list = agents.list_agents(member_account_id=test_account_id, limit=1)
     if not ws_list:
-        raise ValueError(f"no workspace found for test account: {test_account_id}")
+        raise ValueError(f"no agent found for test account: {test_account_id}")
     workspace = ws_list[0]
-    workspace_id = workspace["workspace_id"]
+    workspace_id = workspace["agent_id"]
 
     # Build test prompt
     skill_name = skill.get("name", skill_id)
@@ -1111,7 +1263,7 @@ def trigger_skill_test(
 
     # Create the agent run
     run_id = claude_agent_runs.create_run(
-        workspace_id=workspace_id,
+        agent_id=workspace_id,
         prompt=prompt,
         account_id=test_account_id,
         team_id=team_id,

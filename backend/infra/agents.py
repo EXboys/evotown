@@ -281,6 +281,7 @@ def _upsert_agent_profile(agent_id: str, template_id: str, tpl: dict[str, Any]) 
 def list_agents(
     *,
     owner_account_id: str | None = None,
+    member_account_id: str | None = None,
     status: str | None = AGENT_STATUS_ACTIVE,
     category: str | None = None,
     limit: int = 100,
@@ -288,19 +289,25 @@ def list_agents(
     conn = _ensure_conn()
     where: list[str] = []
     params: list[Any] = []
-    if owner_account_id:
-        where.append("owner_account_id=?")
+    join = ""
+    if member_account_id:
+        # Include agents where account is a member via agent_members
+        join = "JOIN agent_members m ON m.agent_id = agents.agent_id"
+        where.append("m.account_id=?")
+        params.append(member_account_id)
+    elif owner_account_id:
+        where.append("agents.owner_account_id=?")
         params.append(owner_account_id)
     if status:
-        where.append("status=?")
+        where.append("agents.status=?")
         params.append(status)
     if category:
-        where.append("category=?")
+        where.append("agents.category=?")
         params.append(category)
     params.append(max(1, min(limit, 500)))
     clause = "WHERE " + " AND ".join(where) if where else ""
     rows = conn.execute(
-        f"SELECT * FROM agents {clause} ORDER BY updated_at DESC, created_at DESC LIMIT ?",
+        f"SELECT DISTINCT agents.* FROM agents {join} {clause} ORDER BY agents.updated_at DESC, agents.created_at DESC LIMIT ?",
         params,
     ).fetchall()
     return [_agent_from_row(row) for row in rows]
@@ -397,7 +404,8 @@ def can_access_agent(agent: dict[str, Any] | None, identity: dict[str, Any]) -> 
     if "*" in (identity.get("scopes") or []):
         return True
     account_id = str(identity.get("account_id") or "")
-    return bool(account_id and agent.get("owner_account_id") == account_id)
+    agent_id = str(agent.get("agent_id") or "")
+    return bool(account_id and agent_id and is_agent_member(agent_id, account_id))
 
 
 def can_run_agent(agent: dict[str, Any] | None, identity: dict[str, Any]) -> bool:

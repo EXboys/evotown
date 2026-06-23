@@ -13,6 +13,7 @@ import { adminFetch, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import { formatDateTimeShort, formatDateTimeFull, parseEvotownTimestamp } from "../lib/datetime";
 import { formatBytes, fileMeta } from "../lib/codingAgentUtils";
 import { WorkspaceFileList, type WorkspaceFileEntry } from "./WorkspaceFileList";
+import { GatewayDrawer } from "./gateway/GatewayDrawer";
 
 type Agent = {
   agent_id: string; owner_account_id: string; name: string; root_path: string;
@@ -32,6 +33,10 @@ type AgentUpload = { path: string; filename: string; bytes: number; sha256: stri
 type PendingAttachment = AgentUpload & { localId: string; previewUrl?: string };
 type SkillOption = { id: string; name: string; version?: string; summary?: string };
 type KnowledgeItem = { id: string; title: string; version?: string };
+type AgentProfile = {
+  agent_type?: string; soul?: string; paradigm?: string; standards?: string;
+  default_model?: string; default_skills?: string[]; default_mcp?: string[];
+};
 
 const ATTACHMENT_ACCEPT =
   "image/*,.pdf,.txt,.md,.json,.csv,.yaml,.yml,.xml,.html,.htm,.py,.js,.ts,.tsx,.jsx,.css,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx";
@@ -195,6 +200,11 @@ export function CodingAgentChatPage() {
   const [agentFilesTruncated, setAgentFilesTruncated] = useState(false);
   const [agentFilesLoading, setAgentFilesLoading] = useState(false);
   const [showSystemFiles, setShowSystemFiles] = useState(false);
+
+  // Profile modal
+  const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
+  const [profileData, setProfileData] = useState<AgentProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
 
   // Dev file browser
   const [devDirPath, setDevDirPath] = useState("");
@@ -537,6 +547,20 @@ export function CodingAgentChatPage() {
     finally { setBusy(false); }
   };
 
+  const loadProfile = useCallback(async () => {
+    setProfileLoading(true);
+    try {
+      const res = await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/profile`);
+      const data = await res.json() as { profile?: AgentProfile };
+      setProfileData(data.profile || null);
+      setProfileDrawerOpen(true);
+    } catch {
+      setProfileData(null);
+    } finally {
+      setProfileLoading(false);
+    }
+  }, [agentId]);
+
   const onPromptKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== "Enter") return;
     if (event.nativeEvent.isComposing || imeComposingRef.current) return;
@@ -569,7 +593,7 @@ export function CodingAgentChatPage() {
             <div className="flex items-center gap-2.5">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-800 text-sm font-bold text-white">{(agent?.name || "A").slice(0, 1).toUpperCase()}</div>
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-slate-900">{agent?.name || "Agent"}</div>
+                <button type="button" onClick={() => void loadProfile()} className="truncate text-sm font-semibold text-slate-900 hover:text-blue-600 cursor-pointer text-left w-full" title="查看身份设定">{agent?.name || "Agent"}</button>
                 <div className="truncate font-mono text-[11px] text-slate-400">{agentId}</div>
               </div>
             </div>
@@ -695,27 +719,18 @@ export function CodingAgentChatPage() {
 
                     {/* Agent reply */}
                     <div className="px-4 py-3">
-                      {isHtmlRun ? (
-                        /* Full-width HTML */
-                        <div className="space-y-3">
-                          {(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && /\.html?$/i.test(a.path)).map((a) => {
-                            const serveUrl = `/api/v1/agents/${encodeURIComponent(agentId)}/serve/${encodeURIComponent(a.path)}`;
-                            return (
-                              <div key={a.path} className="rounded-lg border border-slate-200 overflow-hidden">
-                                <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
-                                  <span className="flex items-center gap-2 text-xs"><span>🤖</span><span className="font-medium">Agent</span><span className="text-slate-400">{formatDateTimeFull(run.completed_at || run.created_at)}</span></span>
-                                  <a href={serveUrl} target="_blank" rel="noreferrer" className="text-xs text-slate-500 hover:text-slate-700">新窗口打开 ↗</a>
-                                </div>
-                                <div className="w-full" style={{ height: "80vh", maxHeight: "660px" }}>
-                                  {htmlContents[a.path] ? <iframe srcDoc={htmlContents[a.path]} className="w-full h-full border-0" title={a.path} sandbox="allow-scripts allow-same-origin" /> : <div className="flex items-center justify-center h-full text-sm text-slate-400">Loading...</div>}
-                                </div>
-                              </div>
-                            );
-                          })}
+                      {isHtmlRun && (
+                        /* HTML tabs with URL bar */
+                        <div className="mb-3">
+                          <HtmlTabs
+                            artifacts={(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && /\.html?$/i.test(a.path))}
+                            agentId={agentId}
+                            htmlContents={htmlContents}
+                          />
                         </div>
-                      ) : (
-                        /* Standard agent message 75% */
-                        <div className="max-w-[75%]">
+                      )}
+                      {/* Agent message */}
+                      <div className="max-w-[75%]">
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-xs">🤖</span>
                             <span className="text-xs font-medium text-slate-600">Agent</span>
@@ -806,7 +821,6 @@ export function CodingAgentChatPage() {
                             )}
                           </div>
                         </div>
-                      )}
                     </div>
                   </div>
                 );
@@ -894,6 +908,22 @@ export function CodingAgentChatPage() {
 
       {/* ── File error modal ── */}
       {fileError && <FileErrorModal err={fileError} onClose={() => setFileError(null)} />}
+
+      {/* Agent profile drawer */}
+      <GatewayDrawer open={profileDrawerOpen} title="智能体身份设定" onClose={() => setProfileDrawerOpen(false)}>
+        {profileLoading ? (
+          <p className="py-8 text-center text-sm text-slate-400">加载中…</p>
+        ) : profileData ? (
+          <div className="space-y-5">
+            {profileData.agent_type && <div><h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">类型</h4><p className="mt-1 text-sm text-slate-800">{profileData.agent_type}</p></div>}
+            {profileData.soul && <div><h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">🧠 身份设定 (SOUL)</h4><div className="mt-1 rounded-lg bg-slate-50 p-3 text-sm leading-relaxed whitespace-pre-wrap text-slate-700 max-h-60 overflow-y-auto">{profileData.soul}</div></div>}
+            {profileData.paradigm && <div><h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">🔄 工作流 (Paradigm)</h4><div className="mt-1 rounded-lg bg-slate-50 p-3 text-sm leading-relaxed whitespace-pre-wrap text-slate-700 max-h-60 overflow-y-auto">{profileData.paradigm}</div></div>}
+            {profileData.standards && <div><h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">📏 工作规范 (Standards)</h4><div className="mt-1 rounded-lg bg-slate-50 p-3 text-sm leading-relaxed whitespace-pre-wrap text-slate-700 max-h-60 overflow-y-auto">{profileData.standards}</div></div>}
+            {profileData.default_model && <div><h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">🤖 默认模型</h4><p className="mt-1 text-sm font-mono text-slate-800">{profileData.default_model}</p></div>}
+            {Array.isArray(profileData.default_skills) && profileData.default_skills.length > 0 && <div><h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">🧩 默认技能</h4><div className="mt-1 flex flex-wrap gap-1">{profileData.default_skills.map((s) => <span key={s} className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{s}</span>)}</div></div>}
+          </div>
+        ) : <p className="py-8 text-center text-sm text-slate-400">暂无身份设定</p>}
+      </GatewayDrawer>
     </div>
   );
 }
@@ -953,6 +983,74 @@ function FileErrorModal({ err, onClose }: { err: { path: string; message: string
         <div className="flex justify-end">
           <button onClick={onClose} className="rounded-lg bg-slate-950 px-4 py-2 text-xs font-medium text-white hover:bg-slate-800">关闭</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── HtmlTabs: tabbed HTML artifact viewer with URL bar ────────────────────────
+
+type HtmlArtifact = { path: string; sha256: string; bytes: number };
+
+function HtmlTabs({
+  artifacts, agentId, htmlContents,
+}: {
+  artifacts: HtmlArtifact[];
+  agentId: string;
+  htmlContents: Record<string, string>;
+}) {
+  const [activeIdx, setActiveIdx] = useState(0);
+  const current = artifacts[activeIdx];
+  if (!current) return null;
+
+  const serveUrl = `/api/v1/agents/${encodeURIComponent(agentId)}/serve/${encodeURIComponent(current.path)}`;
+  const filename = current.path.split("/").pop() || current.path;
+
+  return (
+    <div className="rounded-lg border border-slate-200 overflow-hidden">
+      {/* Tab bar */}
+      <div className="flex items-center bg-slate-50 border-b border-slate-100">
+        <div className="flex-1 flex overflow-x-auto">
+          {artifacts.map((a, i) => {
+            const name = a.path.split("/").pop() || a.path;
+            return (
+              <button
+                key={a.path}
+                onClick={() => setActiveIdx(i)}
+                className={`shrink-0 px-3 py-2 text-xs border-b-2 transition-colors ${
+                  i === activeIdx
+                    ? "border-slate-800 text-slate-900 font-medium bg-white"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                {name}
+              </button>
+            );
+          })}
+        </div>
+        <a href={serveUrl} target="_blank" rel="noreferrer" className="shrink-0 px-3 py-2 text-xs text-slate-500 hover:text-slate-700 border-l border-slate-200">
+          新窗口打开 ↗
+        </a>
+      </div>
+      {/* URL bar */}
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50/50 border-b border-slate-100 text-[10px] text-slate-400">
+        <span className="shrink-0">🔗</span>
+        <span className="truncate font-mono">{serveUrl}</span>
+      </div>
+      {/* Iframe */}
+      <div className="w-full" style={{ height: "70vh", maxHeight: "600px" }}>
+        {htmlContents[current.path] ? (
+          <iframe
+            srcDoc={htmlContents[current.path]}
+            className="w-full h-full border-0"
+            title={current.path}
+            sandbox="allow-scripts allow-same-origin"
+          />
+        ) : (
+          <div className="flex items-center justify-center h-full text-sm text-slate-400">
+            Loading...
+          </div>
+        )}
       </div>
     </div>
   );

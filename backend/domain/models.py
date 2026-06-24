@@ -115,7 +115,7 @@ class WorkspaceCreate(BaseModel):
     owner_account_id: str = Field(default="", max_length=128)
     tenant_id: str = Field(default="", max_length=128)
     team_id: str = Field(default="", max_length=128)
-    model_policy: Literal["all", "routes_only"] = "routes_only"
+    model_policy: Literal["all", "routes_only"] = "all"
     category: Literal["employee", "department", "dedicated"] = "employee"
     template_id: str = Field(default="", max_length=128)
 
@@ -130,6 +130,7 @@ class WorkspaceUpdate(BaseModel):
 
 class WorkspaceProfileUpdate(BaseModel):
     agent_type: str = Field(default="", max_length=64)
+    runtime_engine: Literal["claude", "codex"] = "claude"
     soul: str = Field(default="", max_length=8000)
     paradigm: str = Field(default="", max_length=8000)
     standards: str = Field(default="", max_length=8000)

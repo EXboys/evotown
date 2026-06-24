@@ -110,6 +110,11 @@ async def get_agent_options(
     return {
         "models": models,
         "default_model": claude_code_runner.default_model_id(policy=policy),
+        "runtime_engines": [
+            {"id": "claude", "label": "Claude Agent SDK"},
+            {"id": "codex", "label": "Codex SDK"},
+        ],
+        "default_runtime_engine": "claude",
         "skills": skills,
         "mcp": databases,
     }
@@ -427,6 +432,7 @@ async def create_agent_run(agent_id: str, body: ClaudeAgentRunCreate, identity: 
     profile = workspace_profile.get_profile(agent)
     run_skills = list(body.skills or []) or list(profile.get("default_skills") or [])
     run_model = claude_code_runner.resolve_run_model(body.model or profile.get("default_model") or "")
+    runtime_engine = str(profile.get("runtime_engine") or "claude").strip().lower()
 
     run = claude_agent_runs.create_run(
         agent_id=agent_id,
@@ -440,6 +446,7 @@ async def create_agent_run(agent_id: str, body: ClaudeAgentRunCreate, identity: 
             "selected_skills": run_skills,
             "previous_run_id": body.previous_run_id,
             "attachments": attachment_paths,
+            "runtime_engine": runtime_engine,
         },
     )
     claude_code_runner.schedule_run(run["run_id"])

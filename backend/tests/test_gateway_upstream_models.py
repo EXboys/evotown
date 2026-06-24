@@ -109,3 +109,22 @@ class GatewayUpstreamModelsTest(unittest.TestCase):
         self.assertEqual(headers["x-api-key"], "dashscope-secret")
         self.assertEqual(headers["anthropic-version"], "2023-06-01")
         self.assertNotIn("Authorization", headers)
+
+    def test_responses_managed_upstream_without_litellm(self) -> None:
+        from infra import gateway_models
+        from infra import gateway_upstream
+
+        gateway_models.create_model(
+            model_name="corp-codex",
+            api_base="https://api.example.com/v1",
+            api_key="sk-test",
+            litellm_model="gpt-5.4",
+        )
+        with patch.dict(os.environ, {"LITELLM_BASE_URL": ""}, clear=False):
+            target, headers, body = gateway_upstream.build_responses_upstream_call(
+                {"model": "corp-codex", "input": "Fix CI"},
+                "corp-codex",
+            )
+        self.assertEqual(target, "https://api.example.com/v1/responses")
+        self.assertEqual(body["model"], "gpt-5.4")
+        self.assertEqual(headers["Authorization"], "Bearer sk-test")

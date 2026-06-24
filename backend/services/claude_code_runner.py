@@ -20,6 +20,10 @@ from infra import claude_agent_runs, knowledge, skill_market, agents
 DEFAULT_MODEL = "claude-sonnet-4"
 DEFAULT_ENGINE_ID = "claude-code-hosted"
 DEFAULT_RUN_TIMEOUT_SEC = 600
+DEFAULT_MAX_TURNS = 100
+
+# DEFAULT_RUN_TIMEOUT_SEC is synced from system.db → env on startup.
+# For module-level access, read os.environ (no inline fallback).
 
 FALLBACK_MODELS: list[dict[str, str]] = [
     {"id": "claude-sonnet-4", "label": "Claude Sonnet 4", "provider": "Anthropic"},
@@ -108,6 +112,15 @@ def run_timeout_sec() -> int:
     except ValueError:
         return DEFAULT_RUN_TIMEOUT_SEC
     return max(0, value)
+
+
+def max_turns() -> int:
+    raw = os.environ.get("EVOTOWN_CLAUDE_MAX_TURNS", str(DEFAULT_MAX_TURNS)).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_MAX_TURNS
+    return max(1, value)
 
 
 def get_run_task(run_id: str) -> asyncio.Task | None:
@@ -747,8 +760,8 @@ def _default_claude_command() -> str:
         return (
             f"{shlex.quote(str(bundled))} -p {{prompt}} --model {{model}} "
             '--permission-mode acceptEdits '
-            '--allowedTools "Read,Edit,Bash,Glob,Grep,Write,mcp__mcp__*" '
-            "--max-turns 25 "
+            f'--allowedTools "Read,Edit,Bash,Glob,Grep,Write,mcp__mcp__*" '
+            f"--max-turns {max_turns()} "
             "--output-format stream-json --verbose --bare "
             "--append-system-prompt-file .evotown/AGENT_CONTEXT.md"
         )
@@ -1239,7 +1252,7 @@ async def cancel_run(run_id: str) -> dict[str, Any] | None:
 
 
 async def stale_run_watchdog_loop() -> None:
-    """Mark queued/running runs as failed when they exceed EVOTOWN_CLAUDE_RUN_TIMEOUT_SEC."""
+    """Mark queued/running runs as failed when they exceed DEFAULT_RUN_TIMEOUT_SEC."""
     while True:
         try:
             await asyncio.sleep(30)

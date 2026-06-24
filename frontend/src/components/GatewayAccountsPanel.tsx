@@ -292,6 +292,7 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
   const closeDrawer = () => {
     setDrawer(null);
     setAccountForm(EMPTY_ACCOUNT);
+    setSelectedAgentIds(new Set());
     setShowAgentPicker(false);
     setAgentSearch("");
   };
@@ -344,7 +345,7 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
     }
   };
 
-  const openAccountEdit = () => {
+  const openAccountEdit = async () => {
     if (!selectedAccount) return;
     setAccountForm({
       name: selectedAccount.name,
@@ -356,6 +357,15 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
       password: "",
       role: selectedAccount.role || "employee",
     });
+    // Load currently bound agents for the edit drawer
+    try {
+      const res = await adminFetch(`/api/v1/accounts/${encodeURIComponent(selectedAccount.account_id)}/agents`);
+      if (res.ok) {
+        const data = await res.json() as { agents?: { agent_id: string }[] };
+        const ids = (data.agents || []).map((a) => a.agent_id);
+        setSelectedAgentIds(new Set(ids));
+      }
+    } catch { /* ignore */ }
     setDrawer("account-edit");
     setError("");
   };
@@ -392,7 +402,7 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { detail?: string }).detail || `${copy.messages.saveFailed} (${res.status})`);
       }
-      // Save agent bindings on create
+      // Save agent bindings
       if (!isEdit) {
         const created = await res.json() as { account?: { account_id?: string } };
         const newId = created.account?.account_id;
@@ -402,6 +412,29 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ agent_id: wsId }),
+            }).catch(() => {});
+          }
+        }
+      } else {
+        // Edit mode: sync bindings
+        const currentIds = new Set(boundWorkspaces.map((w) => w.agent_id));
+        // Add new bindings
+        for (const id of selectedAgentIds) {
+          if (!currentIds.has(id)) {
+            await adminFetch(`/api/v1/accounts/${encodeURIComponent(selectedAccountId!)}/bind-agent`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ agent_id: id }),
+            }).catch(() => {});
+          }
+        }
+        // Remove old bindings
+        for (const id of currentIds) {
+          if (!selectedAgentIds.has(id)) {
+            await adminFetch(`/api/v1/accounts/${encodeURIComponent(selectedAccountId!)}/bind-agent`, {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ agent_id: id }),
             }).catch(() => {});
           }
         }
@@ -880,8 +913,8 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
           </label>
 
-          {/* Agent checkboxes (create mode only) */}
-          {drawer === "account-create" && (
+          {/* Agent checkboxes */}
+          {(drawer === "account-create" || drawer === "account-edit") && (
             <div>
               <h4 className="text-sm font-semibold text-slate-700">{copy.agentSection}</h4>
               <div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-xl border border-slate-200 p-2">

@@ -405,15 +405,61 @@ def update_service(
     return get_service(service_id)
 
 
-def delete_service(service_id: str) -> bool:
+def delete_service(service_id: str) -> dict[str, Any]:
     existing = get_service(service_id)
     if existing and existing.get("source") == SOURCE_SYSTEM:
         raise PermissionError("系统 MCP 不可删除")
+    if existing is None:
+        return {"deleted": False, "cleaned_dirs": [], "cleaned_tables": []}
+
+    import shutil
+
     conn = _ensure_conn()
     cur = conn.execute("DELETE FROM mcp_services WHERE service_id=?", (service_id,))
-    conn.execute("DELETE FROM agent_mcp_policies WHERE service_id=?", (service_id,))
-    conn.execute("DELETE FROM agent_role_mcp_policies WHERE service_id=?", (service_id,))
-    return cur.rowcount > 0
+    deleted = cur.rowcount > 0
+
+    if not deleted:
+        return {"deleted": False, "cleaned_dirs": [], "cleaned_tables": []}
+
+    cleaned_tables: list[str] = ["mcp_services"]
+
+    # Delete related records
+    for table in ["agent_mcp_policies", "agent_role_mcp_policies",
+                  "mcp_service_versions", "mcp_usage_log"]:
+        conn.execute(f"DELETE FROM {table} WHERE service_id=?", (service_id,))
+        cleaned_tables.append(table)
+
+    # Clear in-memory handler cache
+    try:
+        from services.mcp_loader import clear_handler_cache
+        clear_handler_cache(service_id)
+    except Exception:
+        pass
+
+    # Clean up file directories
+    cleaned_dirs: list[str] = []
+    mcp_path = (existing.get("mcp_path") or "").strip("/")
+
+    if mcp_path:
+        # Dev directory: /app/data/mcp-dev/{mcp_path}/
+        dev_dir = Path("/app/data/mcp-dev") / mcp_path
+        if dev_dir.exists():
+            shutil.rmtree(str(dev_dir))
+            cleaned_dirs.append(str(dev_dir))
+
+        # Prod directory (approve path): /app/data/mcp-services/{mcp_path}/
+        prod_dir = Path("/app/data/mcp-services") / mcp_path
+        if prod_dir.exists():
+            shutil.rmtree(str(prod_dir))
+            cleaned_dirs.append(str(prod_dir))
+
+    # Prod directory (deploy path): /app/data/mcp-services/{service_id}/
+    prod_sid_dir = Path("/app/data/mcp-services") / service_id
+    if prod_sid_dir.exists():
+        shutil.rmtree(str(prod_sid_dir))
+        cleaned_dirs.append(str(prod_sid_dir))
+
+    return {"deleted": True, "cleaned_dirs": cleaned_dirs, "cleaned_tables": cleaned_tables}
 
 
 # ── Workspace Policy CRUD ─────────────────────────────────────────────

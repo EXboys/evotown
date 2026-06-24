@@ -5,6 +5,7 @@ import { PublicSiteHeader } from "./PublicSiteHeader";
 import { useLocale } from "../lib/i18n";
 import { adminFetch, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import { formatDateTimeShort } from "../lib/datetime";
+import { useSystemConfig } from "../hooks/useSystemConfig";
 
 const MODULE_META = [
   { path: "/arena", accent: "from-blue-600 to-cyan-500" },
@@ -115,10 +116,16 @@ const COPY = {
 export function LandingPage() {
   const navigate = useNavigate();
   const { locale, setLocale } = useLocale();
+  const sysConfig = useSystemConfig();
   const copy = COPY[locale];
   const [latestChronicle, setLatestChronicle] = useState<{ preview: string; chapter_label: string; virtual_date: string } | null>(null);
   const [workspaces, setWorkspaces] = useState<Array<{ agent_id: string; name: string; status: string; model_policy?: string; updated_at: string }>>([]);
   const [workspacesLoading, setWorkspacesLoading] = useState(false);
+
+  // Override hardcoded hero/footer text with system config
+  const heroTitle = sysConfig.portal_hero_title || "企业 Agent";
+  const heroBody = sysConfig.portal_hero_desc || copy.hero.body;
+  const footerText = sysConfig.portal_footer_text || "© 2025 Evotown · Enterprise Agent Platform";
 
   useEffect(() => {
     fetch("/api/chronicle")
@@ -152,10 +159,12 @@ export function LandingPage() {
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-600">{copy.hero.eyebrow}</p>
             <h1 className="mt-4 text-4xl font-semibold tracking-tight text-slate-950 md:text-5xl">
-              {copy.hero.title}
+              {heroTitle}
+              <br />
+              协作与治理平台
             </h1>
             <p className="mt-5 max-w-xl text-base leading-7 text-slate-600">
-              {copy.hero.body}
+              {heroBody}
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <button
@@ -297,7 +306,7 @@ export function LandingPage() {
 
       <footer className="border-t border-slate-200 bg-white py-6">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-5 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-          <span>© 2025 Evotown · Enterprise Agent Platform</span>
+          <span>{footerText}</span>
           <span>{copy.footer}</span>
         </div>
       </footer>

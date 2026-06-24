@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { MarkdownContent } from "./MarkdownContent";
 import { ClickableConversationImage, ImageLightbox, type LightboxImage } from "./ImageLightbox";
@@ -9,7 +9,7 @@ import {
   sortContextArtifacts,
 } from "./ContextFileViewer";
 
-import { adminFetch, isConsoleAuthenticated } from "../hooks/useAdminToken";
+import { adminFetch, getAdminToken, getConsoleApiKey, getStaffToken, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import { formatDateTimeShort, formatDateTimeFull, parseEvotownTimestamp } from "../lib/datetime";
 import { formatBytes, fileMeta } from "../lib/codingAgentUtils";
 import { WorkspaceFileList, type WorkspaceFileEntry } from "./WorkspaceFileList";
@@ -171,6 +171,9 @@ export function CodingAgentChatPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const PAGE_SIZE = 10;
+  const [hasMoreRuns, setHasMoreRuns] = useState(true);
+  const loadingMoreRef = useRef(false);
   const threadRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -187,6 +190,7 @@ export function CodingAgentChatPage() {
   const [assignedSkills, setAssignedSkills] = useState<SkillOption[]>([]);
   const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>([]);
   const [rightOpen, setRightOpen] = useState(false);
+  const [editingSessionId, setEditingSessionId] = useState("");
 
   // Detail
   useEffect(() => { setLogExpanded(false); setEventsExpanded(false); setFilesExpanded(false); }, [selectedRunId]);
@@ -286,11 +290,14 @@ export function CodingAgentChatPage() {
 
   const load = useCallback(async () => {
     if (!agentId) return;
+    setLoading(true);
     try {
       const wsData = await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}`).then((res) => readJson<{ agent: Agent; runs?: AgentRun[] }>(res));
       setAgent(wsData.agent); setError("");
-      const runData = await adminFetch(`/api/v1/agent-runs?agent_id=${encodeURIComponent(agentId)}&limit=100`).then((res) => readJson<{ runs?: AgentRun[] }>(res));
-      setRuns(runData.runs || []);
+      const runData = await adminFetch(`/api/v1/agent-runs?agent_id=${encodeURIComponent(agentId)}&limit=${PAGE_SIZE}`).then((res) => readJson<{ runs?: AgentRun[]; has_more?: boolean }>(res));
+      const loaded = runData.runs || [];
+      setRuns(loaded);
+      setHasMoreRuns(!!runData.has_more);
       void loadAgentFiles(true);
       try {
         const opts = await adminFetch(`/api/v1/agent/options?agent_id=${encodeURIComponent(agentId)}`).then((res) => res.json());
@@ -302,53 +309,237 @@ export function CodingAgentChatPage() {
     finally { setLoading(false); }
   }, [agentId, loadAgentFiles]);
 
-  useEffect(() => { void load(); const id = setInterval(() => void load(), 4000); return () => clearInterval(id); }, [load]);
+  // Load more (older) runs — cursor-based, session-aware
+  const loadMore = useCallback(async () => {
+    if (!agentId || loadingMoreRef.current || !hasMoreRuns) return;
+    // Find the oldest non-root run for the cursor (root has no older runs)
+    const candidates = selectedRunId
+      ? runs.filter(r => r.run_id !== selectedRunId)
+      : runs;
+    const oldest = candidates[candidates.length - 1];
+    if (!oldest?.created_at) return;
+    loadingMoreRef.current = true;
+    const container = threadRef.current;
+    const prevHeight = container?.scrollHeight || 0;
+    try {
+      let url: string;
+      if (selectedRunId) {
+        url = `/api/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(selectedRunId)}/runs?limit=${PAGE_SIZE}&before=${encodeURIComponent(oldest.created_at)}`;
+      } else {
+        url = `/api/v1/agent-runs?agent_id=${encodeURIComponent(agentId)}&limit=${PAGE_SIZE}&before=${encodeURIComponent(oldest.created_at)}`;
+      }
+      const runData = await adminFetch(url).then((res) => readJson<{ runs?: AgentRun[]; has_more?: boolean }>(res));
+      const more = runData.runs || [];
+      if (!more.length) { setHasMoreRuns(false); return; }
+      setRuns(prev => [...prev, ...more]);
+      setHasMoreRuns(!!runData.has_more);
+      requestAnimationFrame(() => {
+        if (container) container.scrollTop = container.scrollHeight - prevHeight;
+      });
+    } catch { /* ignore */ } finally { loadingMoreRef.current = false; }
+  }, [agentId, hasMoreRuns, runs, selectedRunId]);
 
-  // Run chain
+  // Run chain — when a session is selected, show all loaded runs chronologically
   const runChain = useMemo(() => {
     if (!selectedRunId) return [];
-    const rootMap = new Map<string, string>();
-    for (const run of runs) {
-      let root = run.run_id;
-      let cur: AgentRun | undefined = run;
-      const seen = new Set<string>();
-      let prevId: string;
-      while (true) {
-        prevId = ((cur.signals?.previous_run_id as string) || "").trim();
-        if (!prevId || seen.has(prevId)) break;
-        seen.add(prevId);
-        const prev = runs.find((r) => r.run_id === prevId);
-        if (!prev) break;
-        root = prevId; cur = prev;
-      }
-      rootMap.set(run.run_id, root);
-    }
-    const targetRoot = rootMap.get(selectedRunId) || selectedRunId;
-    return runs.filter((r) => (rootMap.get(r.run_id) || r.run_id) === targetRoot).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    return [...runs].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   }, [selectedRunId, runs]);
 
-  // Events
+  // Events — SSE stream for running runs, one-time fetch for completed runs
+  const sseRef = useRef<AbortController | null>(null);
   useEffect(() => {
-    if (!selectedRunId || !runChain.length) { return; }
-    const runIds = runChain.map(r => r.run_id);
+    if (!selectedRunId || !runChain.length) return;
     let cancelled = false;
-    const fetchAll = async () => {
-      for (const rid of runIds) {
+
+    // One-time fetch events for each run in the chain
+    const fetchAllEvents = async () => {
+      for (const run of runChain) {
+        if (cancelled) return;
+        // Skip runs that already have events loaded
+        if (eventsByRun[run.run_id]?.length) continue;
         try {
-          const data = await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(rid)}/events`).then((res) => readJson<{ events?: AgentRunEvent[] }>(res));
-          if (!cancelled) setEventsByRun(prev => ({ ...prev, [rid]: data.events || [] }));
-        } catch { if (!cancelled) setEventsByRun(prev => ({ ...prev, [rid]: prev[rid] || [] })); }
+          const data = await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(run.run_id)}/events`).then((res) => readJson<{ events?: AgentRunEvent[] }>(res));
+          if (!cancelled) setEventsByRun(prev => ({ ...prev, [run.run_id]: data.events || [] }));
+        } catch { if (!cancelled) setEventsByRun(prev => ({ ...prev, [run.run_id]: prev[run.run_id] || [] })); }
       }
     };
-    void fetchAll();
-    const id = setInterval(() => void fetchAll(), 4000);
-    return () => { cancelled = true; clearInterval(id); };
+    void fetchAllEvents();
+
+    // SSE for running runs — push new events in real time
+    const runningRunIds = runChain.filter(r => r.status === "running" || r.status === "queued").map(r => r.run_id);
+
+    if (runningRunIds.length > 0) {
+      const abort = new AbortController();
+      sseRef.current = abort;
+
+      const streamRun = async (runId: string) => {
+        try {
+          const staffToken = getStaffToken();
+          const apiKey = getConsoleApiKey();
+          const adminToken = getAdminToken();
+          const headers: Record<string, string> = {};
+          if (staffToken) headers["Authorization"] = `Bearer ${staffToken}`;
+          else if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+          else if (adminToken) headers["X-Admin-Token"] = adminToken;
+
+          const res = await fetch(`/api/v1/agent-runs/${encodeURIComponent(runId)}/stream`, { headers, signal: abort.signal });
+          if (!res.ok || !res.body) return;
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          while (true) {
+            if (cancelled || abort.signal.aborted) break;
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                try {
+                  const ev = JSON.parse(line.slice(6)) as AgentRunEvent;
+                  if (!cancelled) {
+                    setEventsByRun(prev => {
+                      const existing = prev[runId] || [];
+                      if (existing.some(e => e.id === ev.id)) return prev;
+                      return { ...prev, [runId]: [...existing, ev] };
+                    });
+                  }
+                } catch { /* ignore parse errors */ }
+              } else if (line.startsWith("event: done")) {
+                setEventsByRun(prev => {
+                  const existing = prev[runId] || [];
+                  const doneEvent: AgentRunEvent = {
+                    id: (existing.length + 1),
+                    run_id: runId,
+                    event_type: "run.done",
+                    seq: (existing.length + 1),
+                    ts: new Date().toISOString(),
+                    payload: { sse_closed: true },
+                  };
+                  return { ...prev, [runId]: [...existing, doneEvent] };
+                });
+                return; // stream done
+              }
+            }
+          }
+        } catch (err) {
+          if (!cancelled && !(err instanceof DOMException && err.name === "AbortError")) {
+            // ignore — EventSource-like auto-reconnect isn't built in here,
+            // but the next status change on the run list will trigger a reload
+          }
+        }
+      };
+
+      for (const rid of runningRunIds) {
+        void streamRun(rid);
+      }
+    }
+
+    return () => {
+      cancelled = true;
+      sseRef.current?.abort();
+      sseRef.current = null;
+    };
   }, [selectedRunId, runChain.map(r => r.run_id).join(',')]);
+
+  // When clicking a session not yet loaded, fetch newest 10 + root run
+  useEffect(() => {
+    if (!agentId || !selectedRunId) return;
+    const hasRuns = runs.some(r => r.run_id === selectedRunId);
+    if (hasRuns) return;
+    let cancelled = false;
+    Promise.all([
+      adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(selectedRunId)}/runs?limit=${PAGE_SIZE}`).then(res => res.json()),
+      adminFetch(`/api/v1/agent-runs/${encodeURIComponent(selectedRunId)}`).then(res => res.json()),
+    ]).then(([pageData, rootData]: [{ runs?: AgentRun[]; has_more?: boolean }, { run?: AgentRun }]) => {
+        if (cancelled) return;
+        const all = pageData.runs || [];
+        const rootRun = rootData.run;
+        if (rootRun && !all.some(r => r.run_id === rootRun.run_id)) {
+          all.push(rootRun);
+        }
+        if (!all.length) return;
+        setRuns(all);
+        setHasMoreRuns(!!pageData.has_more);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [agentId, selectedRunId, runs.length]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  // Track whether user manually scrolled away from bottom
+  const userScrolledUpRef = useRef(false);
+  useEffect(() => {
+    const el = threadRef.current;
+    if (!el) return;
+    const handler = () => {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
+      userScrolledUpRef.current = !atBottom;
+    };
+    el.addEventListener("scroll", handler, { passive: true });
+    return () => el.removeEventListener("scroll", handler);
+  }, []);
 
   const totalEventCount = useMemo(() => {
     return Object.values(eventsByRun).reduce((sum, evts) => sum + (evts?.length || 0), 0);
   }, [eventsByRun]);
-  useEffect(() => { threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" }); }, [totalEventCount, selectedRunId, runs.length]);
+
+  // Scroll to bottom on new-session-open, content load, or runChain length change
+  const prevSelectedRunIdRef = useRef(selectedRunId);
+  const needsScrollRef = useRef(false);
+  useLayoutEffect(() => {
+    const isNewSession = prevSelectedRunIdRef.current !== selectedRunId;
+    prevSelectedRunIdRef.current = selectedRunId;
+    if (isNewSession) needsScrollRef.current = true;
+    if (!isNewSession && !needsScrollRef.current && runChain.length > 0) return;
+    requestAnimationFrame(() => {
+      const el = threadRef.current;
+      if (!el) return;
+      el.scrollTo({ top: el.scrollHeight, behavior: "instant" as ScrollBehavior });
+    });
+  }, [selectedRunId, runChain.length]);
+
+  // Scroll to bottom while streaming events; on new session, force-scroll once
+  useLayoutEffect(() => {
+    requestAnimationFrame(() => {
+      const el = threadRef.current;
+      if (!el) return;
+      if (needsScrollRef.current) {
+        el.scrollTo({ top: el.scrollHeight, behavior: "instant" as ScrollBehavior });
+        needsScrollRef.current = false;
+        return;
+      }
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
+      if (atBottom) {
+        el.scrollTo({ top: el.scrollHeight, behavior: "instant" as ScrollBehavior });
+      }
+    });
+  }, [totalEventCount]);
+
+  // Keep scroll pinned to bottom when content resizes (events, iframes, images)
+  useEffect(() => {
+    const el = threadRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      if (needsScrollRef.current) {
+        el.scrollTo({ top: el.scrollHeight, behavior: "instant" as ScrollBehavior });
+        needsScrollRef.current = false;
+        return;
+      }
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
+      if (atBottom) {
+        el.scrollTo({ top: el.scrollHeight, behavior: "instant" as ScrollBehavior });
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const selectedRun = useMemo(() => (runChain.length > 0 ? runChain[runChain.length - 1] : null), [runChain]);
   const isRunning = selectedRun?.status === "running" || selectedRun?.status === "queued";
@@ -399,37 +590,20 @@ export function CodingAgentChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId, runChain.map((r) => `${runAttachmentPaths(r).join(",")}|${r.artifact_manifest?.map((a) => a.path).join(",") || ""}`).join(";")]);
 
-  // Sessions
+  // Sessions — loaded from dedicated endpoint (not computed from paginated runs)
   type Session = { id: string; prompt: string; count: number; lastAt: string; lastStatus: AgentRun["status"] };
-  const sessions = useMemo((): Session[] => {
-    const rootMap = new Map<string, string>();
-    for (const run of runs) {
-      let root = run.run_id;
-      let cur: AgentRun | undefined = run;
-      const seen = new Set<string>();
-      let prevId: string;
-      while (true) {
-        prevId = ((cur.signals?.previous_run_id as string) || "").trim();
-        if (!prevId || seen.has(prevId)) break;
-        seen.add(prevId);
-        const prev = runs.find((r) => r.run_id === prevId);
-        if (!prev) break;
-        root = prevId; cur = prev;
-      }
-      rootMap.set(run.run_id, root);
-    }
-    const groups = new Map<string, AgentRun[]>();
-    for (const run of runs) {
-      const root = rootMap.get(run.run_id) || run.run_id;
-      const g = groups.get(root) || [];
-      g.push(run); groups.set(root, g);
-    }
-    return Array.from(groups.entries()).map(([id, sessionRuns]) => {
-      sessionRuns.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-      const last = sessionRuns[sessionRuns.length - 1];
-      return { id, prompt: sessionRuns[0].prompt, count: sessionRuns.length, lastAt: last.created_at, lastStatus: last.status };
-    }).sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
-  }, [runs]);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  useEffect(() => {
+    if (!agentId) return;
+    let cancelled = false;
+    adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions`)
+      .then(res => res.json())
+      .then((data: { sessions?: Session[] }) => {
+        if (!cancelled) setSessions(data.sessions || []);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [agentId]);
 
   const saveSessionTitle = (sessionId: string, title: string) => {
     const next = { ...sessionTitles, [sessionId]: title.trim() || "" };
@@ -615,18 +789,37 @@ export function CodingAgentChatPage() {
                     {(expandedSection === "history" ? sessions : sessions.slice(0, 3)).map((session) => {
                       const customTitle = sessionTitles[session.id] || "";
                       const displayTitle = customTitle || session.prompt;
+                      const isEditing = editingSessionId === session.id;
                       const isActive = runChain.some((r) => r.run_id === session.id || ((r.signals?.previous_run_id as string) || "").trim() === session.id);
                       return (
                         <div key={session.id} className={`flex items-stretch gap-0.5 rounded-lg border transition ${isActive ? "border-slate-300 bg-white" : "border-transparent hover:bg-slate-100"}`}>
-                          <button type="button" onClick={() => setSelectedRunId(session.id)} className="min-w-0 flex-1 rounded-lg px-2.5 py-1.5 text-left">
+                          <button type="button" onClick={() => { if (!isEditing) setSelectedRunId(session.id); }} className="min-w-0 flex-1 rounded-lg px-2.5 py-1.5 text-left">
                             <div className="flex items-center gap-1.5">
                               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_META[session.lastStatus].dot}`} />
-                              <span className="truncate text-xs text-slate-700">{displayTitle}</span>
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  className="w-full truncate rounded border border-slate-300 px-1 py-0 text-xs text-slate-700 outline-none focus:border-blue-400"
+                                  defaultValue={displayTitle}
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") { saveSessionTitle(session.id, (e.target as HTMLInputElement).value); setEditingSessionId(""); }
+                                    if (e.key === "Escape") setEditingSessionId("");
+                                  }}
+                                  onBlur={(e: React.FocusEvent<HTMLInputElement>) => { saveSessionTitle(session.id, e.target.value); setEditingSessionId(""); }}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              ) : (
+                                <span className="truncate text-xs text-slate-700">{displayTitle}</span>
+                              )}
                             </div>
                             <div className="mt-0.5 flex items-center gap-1 pl-3.5 text-[10px] text-slate-400">
                               <span>{session.count}轮</span><span>·</span><span>{formatDateTimeShort(session.lastAt)}</span>
                             </div>
                           </button>
+                          {!isEditing && (
+                            <button type="button" title="编辑标题" onClick={() => setEditingSessionId(session.id)} className="shrink-0 self-center rounded px-1 text-[10px] text-slate-300 hover:text-slate-500">✎</button>
+                          )}
                           <button type="button" title="删除" onClick={() => void deleteSession(session.id)} className="shrink-0 self-center rounded px-1.5 text-[10px] text-slate-300 hover:text-red-500">×</button>
                         </div>
                       );
@@ -685,6 +878,23 @@ export function CodingAgentChatPage() {
         <div ref={threadRef} className="min-h-0 flex-1 overflow-y-auto">
           {runChain.length > 0 ? (
             <div>
+              {/* Load more history button */}
+              {runChain.length > 0 && (
+                <div className="flex justify-center py-3">
+                  {hasMoreRuns ? (
+                    <button
+                      type="button"
+                      onClick={() => loadMore()}
+                      disabled={loadingMoreRef.current}
+                      className="rounded-md border border-slate-200 bg-white px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      {loadingMoreRef.current ? "加载中…" : "加载更多历史消息"}
+                    </button>
+                  ) : (
+                    <span className="text-xs text-slate-400">没有更多消息</span>
+                  )}
+                </div>
+              )}
               {runChain.map((run) => {
                 const isLast = run.run_id === selectedRun?.run_id;
                 const runRunning = run.status === "running" || run.status === "queued";
@@ -790,8 +1000,35 @@ export function CodingAgentChatPage() {
                                 )}
                               </div>
                             ) : (
-                              <MarkdownContent>{run.result_summary || run.error || "执行完成。"}</MarkdownContent>
+                              <div className="space-y-2">
+                                {runEvents.filter(e => e.event_type === "assistant_message").map((ev) => {
+                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || "";
+                                  if (!text.trim()) return null;
+                                  return (
+                                    <div key={ev.id} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+                                      <MarkdownContent>{text}</MarkdownContent>
+                                    </div>
+                                  );
+                                })}
+                                {run.status === "succeeded" && (
+                                  <div className="rounded-xl border border-green-200 bg-green-50/50 px-3 py-2 text-xs text-green-700">✅ 执行完成</div>
+                                )}
+                                {run.status === "failed" && (
+                                  <div className="rounded-xl border border-red-200 bg-red-50/50 px-3 py-2 text-xs text-red-700">❌ 执行失败{(run.error ? `：${run.error.slice(0, 200)}` : "")}</div>
+                                )}
+                                {run.status === "cancelled" && (
+                                  <div className="rounded-xl border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs text-amber-700">⏹ 已取消</div>
+                                )}
+                              </div>
                             )}
+                            {/* Webview inline — full width */}
+                            {(() => {
+                              const allText = runEvents
+                                .filter(e => e.event_type === "assistant_message")
+                                .map(e => (e.payload as Record<string,unknown> | undefined)?.text as string || "")
+                                .join("\n");
+                              return <WebviewIframes text={allText} />;
+                            })()}
                             {/* Image/Video inline */}
                             {isLast && (run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && /\.(png|jpg|jpeg|gif|webp|svg|mp4|webm)$/i.test(a.path)).length > 0 && (
                               <div className="mt-3 space-y-2">
@@ -984,6 +1221,39 @@ function FileErrorModal({ err, onClose }: { err: { path: string; message: string
           <button onClick={onClose} className="rounded-lg bg-slate-950 px-4 py-2 text-xs font-medium text-white hover:bg-slate-800">关闭</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── WebviewIframes: detect webview URLs in text and embed as iframes ──────────
+
+const WEBVIEW_URL_RE = /\/api\/v1\/webview\/([^\s\)]+)/gi;
+
+function WebviewIframes({ text }: { text: string }) {
+  const urls = Array.from(text.matchAll(WEBVIEW_URL_RE), (m) => m[0]);
+  if (!urls.length) return null;
+  const unique = [...new Set(urls)];
+  return (
+    <div className="mt-3 space-y-3">
+      {unique.map((url) => {
+        const filename = url.split("/").pop() || url;
+        return (
+          <div key={url} className="rounded-lg border border-slate-200 overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
+              <span className="flex items-center gap-2 text-xs">
+                <span>🌐</span>
+                <span className="font-medium text-slate-700">{filename}</span>
+              </span>
+              <a href={url} target="_blank" rel="noreferrer" className="text-xs text-slate-500 hover:text-slate-700">
+                新窗口打开 ↗
+              </a>
+            </div>
+            <div className="w-full" style={{ height: "65vh", maxHeight: "560px" }}>
+              <iframe src={url} className="w-full h-full border-0" title={filename} sandbox="allow-scripts allow-same-origin" />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

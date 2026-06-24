@@ -37,3 +37,4 @@ CODE_GUIDE.md
 .DS_Store
 Thumbs.db
 PLAN-2026-任务分配.md
+.env.deploy

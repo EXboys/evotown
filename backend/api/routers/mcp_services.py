@@ -121,12 +121,12 @@ async def update_mcp_status(service_id: str, body: McpStatusUpdate, _admin=Depen
 @router.delete("/mcp-services/{service_id}")
 async def delete_mcp_service(service_id: str, _admin=Depends(require_admin)):
     try:
-        deleted = mcp_registry.delete_service(service_id)
+        result = mcp_registry.delete_service(service_id)
     except PermissionError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
-    if not deleted:
+    if not result.get("deleted"):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP service not found")
-    return {"deleted": True}
+    return result
 
 
 @router.get("/mcp-services/{service_id}", dependencies=[Depends(require_admin)])

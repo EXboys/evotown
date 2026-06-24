@@ -1,10 +1,12 @@
 """Centrally hosted Coding Agent agents and runs."""
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse, StreamingResponse
 
 from core.auth import check_prompt_injection, require_console_read, validate_soul_content
 from domain.models import ClaudeAgentRunCreate, WorkspaceCreate, WorkspaceProfileUpdate, WorkspaceUpdate
@@ -148,19 +150,26 @@ async def create_agent(body: WorkspaceCreate, identity: dict | None = Depends(re
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="owner_account_id is required when using admin token",
         )
-    # Validate: routes_only requires at least one enabled route alias
-    if body.model_policy == "routes_only" and claude_code_runner.count_route_aliases() == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="无法创建：选择了「仅路由别名」模式，但当前没有任何已启用的路由别名。请先在网关配置中添加路由别名，或选择「全部模型」模式。",
-        )
     try:
+        # Resolve model_policy: system_config default overrides Pydantic default
+        from infra import system_config as sys_cfg
+        effective_policy = str(body.model_policy or sys_cfg.get_value("agent_default_model_policy", "routes_only"))
+        if effective_policy not in ("all", "routes_only"):
+            effective_policy = "routes_only"
+
+        # Validate: routes_only requires at least one enabled route alias
+        if effective_policy == "routes_only" and claude_code_runner.count_route_aliases() == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="无法创建：选择了「仅路由别名」模式，但当前没有任何已启用的路由别名。请先在网关配置中添加路由别名，或选择「全部模型」模式。",
+            )
+
         agent = agents.create_agent(
             owner_account_id=owner,
             name=body.name,
             tenant_id=body.tenant_id or str(identity.get("org_id") or ""),
             team_id=body.team_id or str(identity.get("team_id") or ""),
-            model_policy=body.model_policy,
+            model_policy=effective_policy,
             category=body.category,
             template_id=body.template_id,
         )
@@ -174,14 +183,14 @@ async def get_agent(agent_id: str, identity: dict | None = Depends(require_conso
     identity = _require_identity(identity)
     _require_scope(identity, "agent.read", "agent.write", "console.read", "console.write")
     agent = _load_agent_for_identity(agent_id, identity)
-    runs = claude_agent_runs.list_runs(
+    result = claude_agent_runs.list_runs(
         agent_id=agent_id,
         account_id=None if _is_admin(identity) else _account_id(identity),
         limit=20,
     )
     return {
         "agent": {**agent, "usage_bytes": agents.agent_usage_bytes(agent)},
-        "runs": runs,
+        "runs": result["runs"],
         "viewer": {"is_admin": _is_admin(identity), "account_id": _account_id(identity)},
     }
 
@@ -444,20 +453,105 @@ async def list_agent_runs(
     agent_id: str | None = None,
     status_filter: str | None = None,
     limit: int = 100,
+    offset: int = 0,
+    before: str | None = None,
     identity: dict | None = Depends(require_console_read),
 ):
     identity = _require_identity(identity)
     _require_scope(identity, "agent.run", "agent.read", "console.read", "console.write")
     if agent_id:
         _load_agent_for_identity(agent_id, identity)
-    return {
-        "runs": claude_agent_runs.list_runs(
-            agent_id=agent_id,
-            account_id=None if _is_admin(identity) else _account_id(identity),
-            status=status_filter,
-            limit=limit,
-        )
-    }
+    result = claude_agent_runs.list_runs(
+        agent_id=agent_id,
+        account_id=None if _is_admin(identity) else _account_id(identity),
+        status=status_filter,
+        limit=limit,
+        offset=offset,
+        before=before,
+    )
+    return result
+
+
+@router.get("/agents/{agent_id}/sessions")
+async def list_agent_sessions(agent_id: str, identity: dict | None = Depends(require_console_read)):
+    """Return all conversation sessions for this agent (not paginated).
+
+    Each session is a group of runs linked by ``previous_run_id``.
+    """
+    identity = _require_identity(identity)
+    _require_scope(identity, "agent.run", "agent.read", "console.read", "console.write")
+    _load_agent_for_identity(agent_id, identity)
+
+    # Fetch all runs to build accurate session groups (max 500 to cap cost)
+    result = claude_agent_runs.list_runs(
+        agent_id=agent_id,
+        account_id=None if _is_admin(identity) else _account_id(identity),
+        limit=500,
+    )
+    runs = result["runs"]
+    groups = claude_agent_runs.build_session_groups(runs)
+
+    sessions = []
+    for root_id, run_ids in groups.items():
+        chain = [r for r in runs if r["run_id"] in run_ids]
+        chain.sort(key=lambda r: r["created_at"])
+        first = chain[0]
+        last = chain[-1]
+        sessions.append({
+            "id": root_id,
+            "prompt": first.get("prompt", ""),
+            "count": len(chain),
+            "lastAt": last.get("created_at", ""),
+            "lastStatus": last.get("status", ""),
+        })
+    sessions.sort(key=lambda s: s["lastAt"], reverse=True)
+    return {"sessions": sessions}
+
+
+@router.get("/agents/{agent_id}/sessions/{session_id}/runs")
+async def list_session_runs(
+    agent_id: str,
+    session_id: str,
+    limit: int = 10,
+    asc: bool = False,
+    before: str | None = None,
+    after: str | None = None,
+    identity: dict | None = Depends(require_console_read),
+):
+    """Return runs in a conversation session, paginated.
+
+    Default: ``asc=false`` → newest first, ``before`` cursor pagination.
+    ``asc=true`` → oldest first (starts from root), ``after`` cursor pagination.
+    """
+    identity = _require_identity(identity)
+    _require_scope(identity, "agent.run", "agent.read", "console.read", "console.write")
+    _load_agent_for_identity(agent_id, identity)
+
+    result = claude_agent_runs.list_runs(
+        agent_id=agent_id,
+        account_id=None if _is_admin(identity) else _account_id(identity),
+        limit=500,
+    )
+    all_runs = result["runs"]
+    run_ids_set = set(claude_agent_runs.session_run_ids(all_runs, session_id))
+    if not run_ids_set:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+
+    chain = [r for r in all_runs if r["run_id"] in run_ids_set]
+    effective_limit = max(1, min(limit, 100))
+
+    if asc:
+        chain.sort(key=lambda r: r["created_at"])  # oldest first
+        if after:
+            chain = [r for r in chain if r["created_at"] > after]
+    else:
+        chain.sort(key=lambda r: r["created_at"], reverse=True)  # newest first
+        if before:
+            chain = [r for r in chain if r["created_at"] < before]
+
+    has_more = len(chain) > effective_limit
+    page = chain[:effective_limit]
+    return {"runs": page, "has_more": has_more}
 
 
 @router.get("/agent-runs/{run_id}")
@@ -480,6 +574,48 @@ async def list_agent_run_events(run_id: str, limit: int = 500, identity: dict | 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
     _load_agent_for_identity(run["agent_id"], identity)
     return {"events": claude_agent_runs.list_events(run_id, limit=limit)}
+
+
+@router.get("/agent-runs/{run_id}/stream")
+async def stream_agent_run_events(run_id: str, identity: dict | None = Depends(require_console_read)):
+    """SSE stream of events for a run. Emits new events as they are persisted.
+
+    When the run reaches a terminal status, a ``done`` event is sent and the
+    stream closes.  EventSource clients reconnect automatically after short
+    disconnections.
+    """
+    identity = _require_identity(identity)
+    _require_scope(identity, "agent.run", "agent.read", "console.read", "console.write")
+    run = claude_agent_runs.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found")
+    _load_agent_for_identity(run["agent_id"], identity)
+
+    async def event_generator():
+        last_seq = 0
+        while True:
+            events = claude_agent_runs.list_events(run_id)
+            for ev in events:
+                if ev.get("seq", 0) > last_seq:
+                    yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                    last_seq = ev["seq"]
+
+            current = claude_agent_runs.get_run(run_id)
+            if current and current.get("status") in claude_agent_runs.TERMINAL_STATUSES:
+                yield f"event: done\ndata: {json.dumps({'status': current['status']}, ensure_ascii=False)}\n\n"
+                break
+
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # disable nginx buffering
+        },
+    )
 
 
 @router.post("/agent-runs/{run_id}/cancel")
@@ -508,7 +644,8 @@ async def delete_workspace_session(
     _require_scope(identity, "console.write", "agent.write")
     agent = _load_agent_for_identity(agent_id, identity)
 
-    runs = claude_agent_runs.list_runs(agent_id=agent_id, limit=500)
+    result = claude_agent_runs.list_runs(agent_id=agent_id, limit=500)
+    runs = result["runs"]
     run_ids = claude_agent_runs.session_run_ids(runs, session_id)
     if not run_ids:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")

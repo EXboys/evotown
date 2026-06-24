@@ -26,13 +26,15 @@ import { RolePanel } from "./RolePanel";
 import { AgentTemplatePanel } from "./AgentTemplatePanel";
 import { DispatchPanel } from "./DispatchPanel";
 import { DimensionPanel } from "./DimensionPanel";
+import SystemConfigPage from "./SystemConfigPage";
 import { DisplayTimezoneSelect } from "./DisplayTimezoneSelect";
 import { LanguageToggle } from "./LanguageToggle";
 import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hooks/useAdminToken";
+import { useSystemConfig } from "../hooks/useSystemConfig";
 import { formatDateTimeShort } from "../lib/datetime";
 import { useLocale, type Locale } from "../lib/i18n";
 
-type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "templates" | "dimensions" | "costs" | "risk";
+type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "templates" | "dimensions" | "settings" | "costs" | "risk";
 
 type EngineRecord = {
   engine_id: string;
@@ -193,6 +195,7 @@ const TAB_ROUTE: Record<ConsoleTab, string> = {
   roles: "/console/roles",
   templates: "/console/templates",
   dimensions: "/console/dimensions",
+  settings: "/console/settings",
   costs: "/costs",
   risk: "/risk",
 };
@@ -229,7 +232,7 @@ const MENU_GROUPS: MenuGroup[] = [
   { id: "agent", labelZh: "智能体中心", labelEn: "Agent Center", items: ["coding", "runs", "engines", "roles", "templates"] },
   { id: "capability", labelZh: "能力中心", labelEn: "Capabilities", items: ["skills", "knowledge", "mcp", "databases", "dispatch"] },
   { id: "model", labelZh: "模型管理", labelEn: "Models", items: ["gateway", "policies", "costs", "risk", "assets"] },
-  { id: "admin", labelZh: "系统管理", labelEn: "System", items: ["accounts", "dimensions"] },
+  { id: "admin", labelZh: "系统管理", labelEn: "System", items: ["accounts", "dimensions", "settings"] },
 ];
 
 // Flat set of tabs that belong to expandable groups (non-link groups)
@@ -254,6 +257,7 @@ const CONSOLE_COPY = {
       roles: { label: "角色", desc: "Agent Roles" },
       templates: { label: "模板", desc: "Templates" },
       dimensions: { label: "权限维度", desc: "Dimensions" },
+      settings: { label: "系统配置", desc: "Settings" },
       costs: { label: "成本", desc: "Costs" },
       risk: { label: "风控", desc: "Risk" },
     },
@@ -314,6 +318,7 @@ const CONSOLE_COPY = {
       roles: { label: "Roles", desc: "Agent Roles" },
       templates: { label: "Templates", desc: "Agent Templates" },
       dimensions: { label: "Dimensions", desc: "Permission" },
+      settings: { label: "Settings", desc: "System Config" },
       costs: { label: "Costs", desc: "Usage" },
       risk: { label: "Risk", desc: "Events" },
     },
@@ -445,7 +450,10 @@ export function EnterpriseConsole({
 }) {
   const navigate = useNavigate();
   const { locale, setLocale } = useLocale();
+  const sysConfig = useSystemConfig();
   const copy = CONSOLE_COPY[locale];
+  const brand = sysConfig.brand_name || "Evotown";
+  const siteTitle = sysConfig.site_name || copy.shell.title;
   const [tab, setTab] = useState<ConsoleTab>(initialTab);
   const [data, setData] = useState<ConsoleData>({
     engines: [],
@@ -611,7 +619,7 @@ export function EnterpriseConsole({
             <button onClick={() => navigate("/")} className="flex items-center gap-3 text-left">
               <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500 text-sm font-semibold text-white">E</span>
               <span>
-                <span className="block text-sm font-semibold">Evotown Console</span>
+                <span className="block text-sm font-semibold">{brand} Console</span>
                 <span className="mt-0.5 block text-xs text-slate-400">Enterprise control plane</span>
               </span>
             </button>
@@ -717,7 +725,7 @@ export function EnterpriseConsole({
             <div className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start lg:px-8">
               <div className="min-w-0 pr-0 md:pr-6">
                 <div className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">{copy.shell.eyebrow}</div>
-                <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{copy.shell.title}</h1>
+                <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{siteTitle}</h1>
                 <p className="mt-1 text-sm text-slate-500">{copy.shell.subtitle}</p>
               </div>
               <div className="flex shrink-0 flex-col items-start gap-2 md:items-end">
@@ -795,6 +803,7 @@ export function EnterpriseConsole({
             {tab === "roles" && <RolePanel locale={locale} />}
             {tab === "templates" && <AgentTemplatePanel locale={locale} />}
             {tab === "dimensions" && <DimensionPanel locale={locale} />}
+            {tab === "settings" && <SystemConfigPage locale={locale} />}
             {tab === "costs" && <Costs cost={data.cost} />}
             {tab === "risk" && (
               <Risks

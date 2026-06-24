@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { isConsoleAuthenticated, setConsoleApiKey, setStaffRole, setStaffToken } from "../hooks/useAdminToken";
+import { useSystemConfig } from "../hooks/useSystemConfig";
 
 type RegistrationStatus = {
   public_registration_allowed?: boolean;
@@ -49,6 +50,8 @@ export function ConsoleLoginPage() {
   const [loginPassword, setLoginPassword] = useState("");
   const [registerForm, setRegisterForm] = useState({ name: "", owner_email: "", org_id: "" });
   const [registrationAllowed, setRegistrationAllowed] = useState(true);
+  const sysConfig = useSystemConfig();
+  const brand = sysConfig.brand_name || "Evotown";
   const [oidcEnabled, setOidcEnabled] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -213,7 +216,7 @@ export function ConsoleLoginPage() {
     <div className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100">
       <div className="mx-auto max-w-lg">
         <div className="mb-8 text-center">
-          <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Evotown Console</p>
+          <p className="text-sm uppercase tracking-[0.2em] text-slate-500">{brand} Console</p>
           <h1 className="mt-2 text-3xl font-semibold text-white">企业控制台登录</h1>
           <p className="mt-2 text-sm text-slate-400">
             {mode === "staff" && "使用账号和密码登录。"}

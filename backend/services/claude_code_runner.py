@@ -1281,7 +1281,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
     updated = claude_agent_runs.update_run_status(
         run_id,
         status=status,
-        log_excerpt=raw_output,
+        log_excerpt=output,
         result_summary=summary,
         error="" if status == "succeeded" else summary,
         artifact_manifest=artifacts,

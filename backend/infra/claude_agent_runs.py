@@ -156,7 +156,14 @@ def list_runs(
     account_id: str | None = None,
     status: str | None = None,
     limit: int = 100,
-) -> list[dict[str, Any]]:
+    offset: int = 0,
+    before: str | None = None,
+) -> dict[str, Any]:
+    """List runs with optional cursor-based pagination.
+
+    Returns ``{"runs": [...], "has_more": bool}``.
+    When ``before`` is set (ISO timestamp), pagination uses cursor instead of offset.
+    """
     where: list[str] = []
     params: list[Any] = []
     if agent_id:
@@ -168,13 +175,32 @@ def list_runs(
     if status:
         where.append("status=?")
         params.append(status)
-    params.append(max(1, min(limit, 500)))
+    if before:
+        where.append("created_at < ?")
+        params.append(before)
+    effective_limit = max(1, min(limit, 500))
     clause = "WHERE " + " AND ".join(where) if where else ""
-    rows = _ensure_conn().execute(
-        f"SELECT * FROM claude_agent_runs {clause} ORDER BY created_at DESC LIMIT ?",
-        params,
-    ).fetchall()
-    return [_run_from_row(row) for row in rows]
+
+    if before:
+        # Cursor pagination — fetch limit+1 to detect has_more
+        params.append(effective_limit + 1)
+        rows = _ensure_conn().execute(
+            f"SELECT * FROM claude_agent_runs {clause} ORDER BY created_at DESC LIMIT ?",
+            params,
+        ).fetchall()
+        has_more = len(rows) > effective_limit
+        if has_more:
+            rows = rows[:effective_limit]
+    else:
+        params.append(effective_limit)
+        params.append(max(0, offset))
+        rows = _ensure_conn().execute(
+            f"SELECT * FROM claude_agent_runs {clause} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            params,
+        ).fetchall()
+        has_more = len(rows) == effective_limit
+
+    return {"runs": [_run_from_row(row) for row in rows], "has_more": has_more}
 
 
 def update_run_status(

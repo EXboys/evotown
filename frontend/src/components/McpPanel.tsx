@@ -70,6 +70,8 @@ const COPY = {
     save: "保存",
     saving: "保存中…",
     deleteConfirm: "确定删除此 MCP 服务？",
+    deleteConfirmInternal: "确定删除此内部 MCP 服务？将同时删除：\n• 数据库记录（服务、策略、版本历史、调用日志）\n• 开发目录文件\n• 生产目录文件\n此操作不可撤销。",
+    deleteSuccess: "删除成功",
     noServices: "暂无 MCP 服务",
     name: "名称",
     serviceId: "服务 ID",
@@ -124,6 +126,8 @@ const COPY = {
     save: "Save",
     saving: "Saving…",
     deleteConfirm: "Delete this MCP service?",
+    deleteConfirmInternal: "Delete this internal MCP service? This will also delete:\n• Database records (service, policies, versions, call logs)\n• Development directory files\n• Production directory files\nThis action cannot be undone.",
+    deleteSuccess: "Deleted successfully",
     noServices: "No MCP services",
     name: "Name",
     serviceId: "Service ID",
@@ -184,7 +188,8 @@ export function McpPanel({ locale }: { locale: Locale }) {
   const [editingSvc, setEditingSvc] = useState<McpService | null>(null);
 
   // Delete confirm
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingSvc, setDeletingSvc] = useState<McpService | null>(null);
+  const [deleteResult, setDeleteResult] = useState<string>("");
 
   // Review state
   const [reviewingSvc, setReviewingSvc] = useState<string | null>(null);
@@ -228,12 +233,18 @@ export function McpPanel({ locale }: { locale: Locale }) {
   };
 
   const handleDelete = async () => {
-    if (!deletingId) return;
+    if (!deletingSvc) return;
     try {
-      await adminFetch(`/api/v1/mcp-services/${encodeURIComponent(deletingId)}`, { method: "DELETE" });
-      setDeletingId(null);
+      const res = await adminFetch(`/api/v1/mcp-services/${encodeURIComponent(deletingSvc.service_id)}`, { method: "DELETE" });
+      const data = await res.json();
+      const dirs = data.cleaned_dirs || [];
+      const tables = data.cleaned_tables || [];
+      const dirList = dirs.length > 0 ? "\n已清理目录:\n" + dirs.map((d: string) => "  " + d).join("\n") : "";
+      const tableList = tables.length > 0 ? "\n已清理数据表: " + tables.join(", ") : "";
+      setDeleteResult(copy.deleteSuccess + tableList + dirList);
+      setDeletingSvc(null);
       void load();
-    } catch (err) { setMessage(err instanceof Error ? err.message : "删除失败"); setDeletingId(null); }
+    } catch (err) { setMessage(err instanceof Error ? err.message : "删除失败"); setDeletingSvc(null); }
   };
 
   const openReview = (svc: McpService) => {
@@ -419,7 +430,7 @@ export function McpPanel({ locale }: { locale: Locale }) {
                       ) : tab !== "system" ? (
                         <>
                           <button onClick={() => openEdit(svc)} className="text-xs text-violet-600 hover:text-violet-800">{copy.edit}</button>
-                          <button onClick={() => setDeletingId(svc.service_id)} className="text-xs text-red-500 hover:text-red-700">{copy.delete}</button>
+                          <button onClick={() => setDeletingSvc(svc)} className="text-xs text-red-500 hover:text-red-700">{copy.delete}</button>
                         </>
                       ) : (
                         <button onClick={() => openEdit(svc)} className="text-xs text-slate-500 hover:text-slate-700">{copy.view}</button>
@@ -446,17 +457,35 @@ export function McpPanel({ locale }: { locale: Locale }) {
       )}
 
       {/* Delete confirm */}
-      {deletingId && (
+      {deletingSvc && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setDeletingId(null)} />
+          <div className="absolute inset-0 bg-black/30" onClick={() => { setDeletingSvc(null); setDeleteResult(""); }} />
           <div className="relative bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
             <h3 className="text-lg font-semibold text-slate-900">{copy.delete}</h3>
-            <p className="mt-2 text-sm text-slate-600">{copy.deleteConfirm}</p>
+            <p className="mt-2 text-sm text-slate-600 whitespace-pre-line">
+              {deletingSvc.source === "internal" ? copy.deleteConfirmInternal : copy.deleteConfirm}
+            </p>
+            {deletingSvc.source === "internal" && (
+              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                <p className="text-xs font-mono text-amber-800">
+                  服务 ID: {deletingSvc.service_id}<br/>
+                  路径: {deletingSvc.mcp_path || "-"}
+                </p>
+              </div>
+            )}
             <div className="mt-4 flex justify-end gap-3">
-              <button onClick={() => setDeletingId(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">取消</button>
+              <button onClick={() => { setDeletingSvc(null); setDeleteResult(""); }} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">取消</button>
               <button onClick={handleDelete} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">{copy.delete}</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Delete result toast */}
+      {deleteResult && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-md rounded-xl border border-green-200 bg-green-50 p-4 shadow-lg">
+          <p className="text-sm text-green-800 whitespace-pre-line">{deleteResult}</p>
+          <button onClick={() => setDeleteResult("")} className="mt-2 text-xs text-green-600 hover:text-green-800 underline">关闭</button>
         </div>
       )}
 

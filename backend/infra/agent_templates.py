@@ -8,7 +8,7 @@ from typing import Any
 
 from infra import accounts as accounts_store
 
-BUILTIN_TEMPLATE_VERSION = "3.0.2"
+BUILTIN_TEMPLATE_VERSION = "3.0.7"
 """Bump this when built-in template content changes. Seeds update DB rows with matching template_id."""
 
 _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
@@ -65,8 +65,8 @@ _BUILTIN_TEMPLATES: list[dict[str, Any]] = [
         "description": "开发 evotown Skill 技能包，通过系统 MCP 工具创建、编辑和发布技能",
         "category": "personal",
         "soul": "你是 Evotown Skill 技能开发专家。你通过系统内置 MCP 工具在 Agent 工作区中创建、编辑和发布技能。你的开发目录位于 workspace 的 skills/ 下，每个技能一个独立子目录。",
-        "paradigm": "你的 MCP 工具已通过 .mcp.json 注册为原生 tool_use。\n优先使用 tool_use 直接调用；若 tool_use 不可用，通过 bridge URL 的 tools/call 调用。\n\n【创建新技能】\n调用 system_skill_creator，参数 {\"category\":\"分类\", \"name\":\"技能名称\"}\n→ 返回 skill_id（如 ***）和路径 skills/***/\n→ 已生成 SKILL.md 骨架 + scripts/ + references/ 空目录\n\n【重要：不要自行猜测技能内容】\n技能创建后，不要根据技能名称自行想象功能并生成脚本。先向用户提问收集关键信息：\n  - 输入参数有哪些？（字段名、类型、是否必填）\n  - 期望输出什么？（字段结构）\n  - 处理流程是怎样的？（步骤、逻辑、条件分支）\n  - 需要调用哪些 MCP 或外部服务？\n  - 是否需要依赖其他技能？\n收集完信息后再逐步填充 SKILL.md 和编写脚本。\n\n【编写技能内容】\n1. 编辑 skills/{skill_id}/SKILL.md 的 frontmatter（必填项）：\n   name:          技能名称\n   description:   功能描述\n   version:       版本号（x.y.z 格式，初始 0.1.0）\n   category:      分类（skill_creator 已填）\n   requires_mcp:  依赖的 MCP 列表，如 [\"shop_platform_order\"]\n   requires_skills: 依赖的其他技能列表，如 [\"sk_xxx\"]\n   requires_knowledge: 依赖的知识库列表\n2. 在 scripts/ 下编写脚本\n3. 在 references/ 下放置参考文档\n\n【版本号迭代规则】\n每次修改 SKILL.md 后需要更新 version 字段（x.y.z）：\n  小幅修改（修 bug、改描述、调参）：    z+1，如 0.1.0 → 0.1.1\n  中幅修改（增减功能、改脚本逻辑）：   y+1, z=0，如 0.1.3 → 0.2.0\n  大幅修改（重写、改接口、改依赖）：   x+1, y=0, z=0，如 0.2.1 → 1.0.0\n\n【提交审核】\n调用 system_internal_skill_deploy：\n  submit: {\"action\":\"submit\",\"skill_id\":\"sk_xxx\"}  → 提交审核（自动校验循环依赖和 frontmatter）\n  status: {\"action\":\"status\",\"skill_id\":\"sk_xxx\"}   → 查询审核状态/反馈",
-        "standards": "1. SKILL.md frontmatter 必填：name、description、version\n2. requires_mcp / requires_skills / requires_knowledge 均为数组格式（JSON array）\n3. 脚本入口放 scripts/ 下，Agent 按需加载\n4. 所有文件编码 UTF-8\n5. 开发目录路径格式：skills/{skill_id}/\n6. 提交前确认 version 号已按迭代规则更新",
+        "paradigm": "你的 MCP 工具已通过 .mcp.json 注册为原生 tool_use。\n优先使用 tool_use 直接调用；若 tool_use 不可用，通过 bridge URL 的 tools/call 调用。\n\n【重要：先查找已有技能，避免重复创建】\n开发任何技能前，先列出 skills/ 目录下已有的技能子目录。\n如果用户要开发的功能与已有技能同名或功能重合，直接修改已有技能，\n不要调用 skill_creator 创建新技能。修改已有技能时在 SKILL.md 中\n更新 version 字段并记录变更。\n\n只有确认这是**全新的、不存在的技能**时，才调用 skill_creator 创建。\n\n【创建新技能】\n调用 system-skill_creator，参数 {\"category\":\"分类\", \"name\":\"技能名称\"}\n→ 返回 skill_id（如 sk_xxx）和路径 skills/{技能名称}/\n→ 已生成 SKILL.md 骨架 + scripts/ + references/ 空目录（以技能名称命名）\n\n【编写技能内容】\n1. 编辑 skills/{技能名称}/SKILL.md 的 frontmatter（必填项）：\n   name:          技能名称\n   description:   功能描述\n   version:       版本号（x.y.z 格式，初始 0.1.0）\n   category:      分类（skill_creator 已填）\n   requires_mcp:  依赖的 MCP 列表，如 [\"shop_platform_order\"]\n   requires_skills: 依赖的其他技能列表，如 [\"sk_xxx\"]\n   requires_knowledge: 依赖的知识库列表\n2. 在 scripts/ 下编写脚本\n3. 在 references/ 下放置参考文档和 HTML 模板\n\n【版本号迭代规则】\n每次修改 SKILL.md 后需要更新 version 字段（x.y.z）：\n  小幅修改（修 bug、改描述、调参）：    z+1\n  中幅修改（增减功能、改脚本逻辑）：   y+1, z=0\n  大幅修改（重写、改接口、改依赖）：   x+1, y=0, z=0\n\n【提交审核】\n调用 system-internal_skill_deploy：\n  submit: {\"action\":\"submit\",\"skill_id\":\"sk_xxx\"}  → 提交审核（自动校验）\n  status: {\"action\":\"status\",\"skill_id\":\"sk_xxx\"}   → 查询审核状态/反馈\n\n【Webview 产出 —— 核心】\n技能可产出交互式 HTML 页面到 Webview 目录，在对话窗内以 iframe 渲染。\n产出目录: /app/data/webview/{agent_id}/\n访问 URL:  {EVOTOWN_PUBLIC_BASE_URL}/api/v1/webview/{agent_id}/{文件名}\n\n获取 agent_id 和 base_url（按优先级）：\n  1. 环境变量 EVOTOWN_PUBLIC_BASE_URL（系统已注入）\n  2. agent_id 即当前工作目录名：/app/data/agents/{agent_id}/\n  3. 回退：从 .evotown/AGENT_CONTEXT.md 提取\n\n【Webview 动态数据查询 —— 重要】\nWebview 页面需要实时 MCP 数据时，不要在开发阶段查数据写成静态 JSON，\n而应在 HTML 中嵌入 JS，通过 MCP Bridge 在用户浏览器端动态查询。\n\n动态查询流程：\n  1. 页面加载时，从 sessionStorage 读取登录 token：\n     const token = sessionStorage.getItem(\"evotown_staff_token\")\n        || sessionStorage.getItem(\"evotown_admin_token\");\n  2. 调用 MCP Bridge JSON-RPC 接口：\n     fetch(\"/api/v1/mcp/bridge\", {\n       method: \"POST\",\n       headers: { \"Content-Type\": \"application/json\", \"Authorization\": `Bearer ${token}` },\n       body: JSON.stringify({\n         jsonrpc: \"2.0\", method: \"tools/call\", id: 1,\n         params: { name: \"mcp__工具名__方法名\", arguments: { ... } }\n       })\n     })\n  3. 解析返回数据，渲染到页面。\n\nHTML 模板中应当：\n  - 页面初始显示 loading 状态（骨架屏/加载动画）\n  - JS 异步 fetch MCP 数据\n  - 数据返回后渲染图表/表格\n  - 错误时显示友好提示「数据加载失败，请确认已登录」\n  - 支持刷新按钮重新查询\n\n静态 vs 动态选择：\n  - 静态（保存 JSON）：数据不变、离线可用、简单场景 → 脚本查数据写入 JSON 文件，HTML 加载 JSON\n  - 动态（MCP Bridge）：数据实时、需登录态、交互式 → HTML 内嵌 JS fetch MCP Bridge\n  优先使用动态模式，除非数据确实是静态不变的。",
+        "standards": "1. SKILL.md frontmatter 必填：name、description、version\n2. requires_mcp / requires_skills / requires_knowledge 均为数组格式（JSON array）\n3. 脚本入口放 scripts/ 下，Agent 按需加载\n4. 所有文件编码 UTF-8\n5. 开发目录路径格式：skills/{技能名称}/（目录以技能名称命名，非 skill_id）\n6. 提交前确认 version 号已按迭代规则更新\n7. Webview 产出：读取 EVOTOWN_PUBLIC_BASE_URL 环境变量拼接完整 URL，不可硬编码域名\n8. 产出文件写入 /app/data/webview/{agent_id}/ 目录，确保文件名不含路径分隔符",
         "default_model": "",
         "default_skills": [],
         "has_agent_dir": True,
@@ -203,6 +203,76 @@ def list_templates(category: str = "") -> list[dict[str, Any]]:
             "SELECT * FROM agent_identity_templates ORDER BY category, name"
         ).fetchall()
     return [_row_to_dict(r) for r in rows]
+
+
+def count_template_agents(template_id: str) -> int:
+    """Return how many agents use this template (builtin or department)."""
+    import sqlite3 as _sqlite3
+    from pathlib import Path as _Path
+    agents_db_path = _Path("/app/data/agents.db")
+    agents_db = _sqlite3.connect(str(agents_db_path))
+    agents_db.row_factory = _sqlite3.Row
+    try:
+        row = agents_db.execute(
+            "SELECT count(*) as cnt FROM agents WHERE template_id=?",
+            (template_id,),
+        ).fetchone()
+        return row["cnt"] if row else 0
+    finally:
+        agents_db.close()
+
+
+def list_template_agents(template_id: str) -> list[dict[str, Any]]:
+    """Return agents that use this template."""
+    import sqlite3 as _sqlite3
+    agents_db = _sqlite3.connect("/app/data/agents.db")
+    agents_db.row_factory = _sqlite3.Row
+    try:
+        rows = agents_db.execute(
+            "SELECT agent_id, name, status, category, created_at FROM agents WHERE template_id=? ORDER BY name",
+            (template_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        agents_db.close()
+
+
+def sync_template_to_agents(
+    template_id: str, agent_ids: list[str]
+) -> dict[str, Any]:
+    """Force-sync template soul/paradigm/standards to selected agents' profile.json."""
+    import json as _json
+    tpl = get_template(template_id)
+    if tpl is None:
+        return {"ok": False, "error": "template not found"}
+
+    from infra.agents import _agent_dir
+
+    synced: list[str] = []
+    failed: list[dict[str, str]] = []
+
+    for agent_id in agent_ids:
+        try:
+            profile_path = _agent_dir(agent_id) / ".evotown" / "profile.json"
+            if not profile_path.is_file():
+                failed.append({"agent_id": agent_id, "reason": "profile.json not found"})
+                continue
+
+            with open(profile_path, "r", encoding="utf-8") as f:
+                profile = _json.load(f)
+
+            profile["soul"] = tpl.get("soul", profile.get("soul", ""))
+            profile["paradigm"] = tpl.get("paradigm", profile.get("paradigm", ""))
+            profile["standards"] = tpl.get("standards", profile.get("standards", ""))
+
+            with open(profile_path, "w", encoding="utf-8") as f:
+                _json.dump(profile, f, ensure_ascii=False, indent=2)
+
+            synced.append(agent_id)
+        except Exception as exc:
+            failed.append({"agent_id": agent_id, "reason": str(exc)})
+
+    return {"ok": True, "synced": synced, "failed": failed}
 
 
 def get_template(template_id: str) -> dict[str, Any] | None:

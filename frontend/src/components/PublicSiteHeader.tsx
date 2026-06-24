@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { clearConsoleSession, isAdmin, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import type { Locale } from "../lib/i18n";
 import { LanguageToggle } from "./LanguageToggle";
+import { useSystemConfig } from "../hooks/useSystemConfig";
 
 const HEADER_COPY = {
   zh: {
@@ -97,6 +98,8 @@ export function PublicSiteHeader({
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const copy = HEADER_COPY[locale];
+  const sysConfig = useSystemConfig();
+  const brand = sysConfig.brand_name || copy.brand;
   const signedIn = isConsoleAuthenticated();
   const adminUser = isAdmin();
   const isMarket = variant === "market";
@@ -116,7 +119,7 @@ export function PublicSiteHeader({
             {isMarket ? "S" : "E"}
           </span>
           <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold text-slate-950">{copy.brand}</span>
+            <span className="block truncate text-sm font-semibold text-slate-950">{brand}</span>
             <span className="block truncate text-xs text-slate-500">{copy.subtitle[variant]}</span>
           </span>
         </Link>

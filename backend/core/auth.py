@@ -591,7 +591,7 @@ def validate_task_content(task: str) -> None:
 
 # ── Staff session store (account + password login, SQLite-backed) ────
 
-STAFF_SESSION_TTL = int(os.environ.get("EVOTOWN_STAFF_SESSION_TTL", str(24 * 3600)))  # 24h default
+STAFF_SESSION_TTL = int(os.environ.get("EVOTOWN_STAFF_SESSION_TTL", "86400"))  # synced from system.db on startup
 
 
 def create_staff_session(account: dict[str, Any]) -> str:

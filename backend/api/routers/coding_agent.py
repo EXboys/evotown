@@ -404,7 +404,7 @@ async def upload_workspace_files(
         payload.append((name, content))
 
     try:
-        saved = workspace_uploads.save_uploads(workspace, payload)
+        saved = workspace_uploads.save_uploads(agent, payload)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -538,6 +538,14 @@ async def list_session_runs(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
 
     chain = [r for r in all_runs if r["run_id"] in run_ids_set]
+    # When no cursor is provided (initial load of a session), return the
+    # full chain so the frontend can build an unbroken runChain.  Without
+    # this, large sessions only get the newest N runs and the chain breaks,
+    # leaving the root-run orphaned and its events as the only visible content.
+    if before is None and after is None:
+        chain.sort(key=lambda r: r["created_at"])  # oldest first
+        return {"runs": chain, "has_more": False}
+
     effective_limit = max(1, min(limit, 100))
 
     if asc:

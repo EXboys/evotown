@@ -91,8 +91,12 @@ async def run_agent_sdk(
     prompt: str,
     model: str,
     run: dict[str, Any],
-) -> tuple[int, str]:
-    """Run a single hosted agent task via the embedded Claude Agent SDK."""
+    resume_session_id: str = "",
+) -> tuple[int, str, str]:
+    """Run a single hosted agent task via the embedded Claude Agent SDK.
+
+    Returns (exit_code, output, claude_session_id).
+    """
     from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, query
 
     permission_mode = os.environ.get("EVOTOWN_CLAUDE_PERMISSION_MODE", "acceptEdits").strip() or "acceptEdits"
@@ -109,8 +113,12 @@ async def run_agent_sdk(
             "EVOTOWN_WORKSPACE_ROOT": str(workspace_root),
             "EVOTOWN_CLAUDE_MODEL": model,
         },
-        "extra_args": {"bare": None},
     }
+
+    # Resume previous Claude session when available (native context management)
+    if resume_session_id:
+        options_kwargs["resume"] = resume_session_id
+
     system_prompt = _system_prompt(workspace_root)
     if system_prompt is not None:
         options_kwargs["system_prompt"] = system_prompt
@@ -122,25 +130,48 @@ async def run_agent_sdk(
 
     log_lines: list[str] = []
     exit_code = 1
-    async for message in query(prompt=prompt, options=options):
-        if isinstance(message, AssistantMessage):
-            for block in message.content:
-                text = getattr(block, "text", None)
-                if text:
-                    log_lines.append(str(text))
-        elif isinstance(message, ResultMessage):
-            if message.result:
-                log_lines.append(str(message.result))
-            if getattr(message, "errors", None):
-                log_lines.extend(str(item) for item in message.errors)
-            if message.subtype == "success" and not message.is_error:
-                exit_code = 0
-            else:
-                exit_code = 1
+    claude_session_id = ""
+
+    async def _query():
+        nonlocal exit_code, claude_session_id
+        async for message in query(prompt=prompt, options=options):
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    text = getattr(block, "text", None)
+                    if text:
+                        log_lines.append(str(text))
+            elif isinstance(message, ResultMessage):
+                if message.result:
+                    log_lines.append(str(message.result))
+                if getattr(message, "errors", None):
+                    log_lines.extend(str(item) for item in message.errors)
+                if message.subtype == "success" and not message.is_error:
+                    exit_code = 0
+                else:
+                    exit_code = 1
+                # Capture session_id for future resume
+                claude_session_id = getattr(message, "session_id", "") or ""
+
+    # Try resume first; if stale/broken, silently fall back to fresh session
+    try:
+        await _query()
+    except Exception:
+        # Stale session — retry without resume
+        if resume_session_id:
+            log_lines.clear()
+            log_lines.append(f"(session {resume_session_id[:12]}... expired, starting fresh)")
+            resume_session_id = ""
+            options_kwargs.pop("resume", None)
+            options = ClaudeAgentOptions(**options_kwargs)
+            exit_code = 1
+            claude_session_id = ""
+            await _query()
+        else:
+            raise
 
     output = "\n".join(line for line in log_lines if line).strip()
     if len(output) > 65536:
         output = output[-65536:]
     if not output:
         output = "Claude Agent SDK run completed."
-    return exit_code, output
+    return exit_code, output, claude_session_id

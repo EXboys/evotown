@@ -56,6 +56,7 @@ async def create_upstream_model(body: GatewayUpstreamModelCreate):
         provider_label=body.provider_label,
         description=body.description,
         enabled=body.enabled,
+        is_vision=body.is_vision,
     )
     record = await _maybe_sync(record)
     return {
@@ -71,11 +72,24 @@ async def update_upstream_model(model_id: str, body: GatewayUpstreamModelUpdate)
         other = models_store.get_by_model_name(payload["model_name"])
         if other and other.get("model_id") != model_id:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="model_name already exists")
+    # If unchecking is_vision, also clear is_vision_default
+    if payload.get("is_vision") is False:
+        payload["is_vision_default"] = False
     record = models_store.update_model(model_id, **payload)
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="model not found")
     record = await _maybe_sync(record)
     return {"model": record}
+
+
+@router.post("/upstream-models/{model_id}/set-vision-default", dependencies=[Depends(require_admin)])
+async def set_vision_default_model(model_id: str):
+    """Set this model as the default vision model (only one at a time)."""
+    record = models_store.set_vision_default(model_id)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                           detail="model not found or not vision-capable")
+    return {"vision_model": record}
 
 
 @router.delete("/upstream-models/{model_id}", dependencies=[Depends(require_admin)])

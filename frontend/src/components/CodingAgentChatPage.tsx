@@ -197,6 +197,8 @@ export function CodingAgentChatPage() {
   const [logExpanded, setLogExpanded] = useState(false);
   const [eventsExpanded, setEventsExpanded] = useState(false);
   const [filesExpanded, setFilesExpanded] = useState(false);
+  // Per-run expand state for historical runs (and last run too)
+  const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
   const [fileViewer, setFileViewer] = useState<{ path: string; content: string; size: number; truncated: boolean } | null>(null);
   const [fileLoading, setFileLoading] = useState("");
   const [fileError, setFileError] = useState<{ path: string; message: string; status?: number } | null>(null);
@@ -339,10 +341,48 @@ export function CodingAgentChatPage() {
     } catch { /* ignore */ } finally { loadingMoreRef.current = false; }
   }, [agentId, hasMoreRuns, runs, selectedRunId]);
 
-  // Run chain — when a session is selected, show all loaded runs chronologically
+  // Run chain — only runs belonging to the selected session, with gap handling
   const runChain = useMemo(() => {
     if (!selectedRunId) return [];
-    return [...runs].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    const byId = new Map(runs.map(r => [r.run_id, r]));
+
+    // Walk backward from each run to find its local root (stop at gaps)
+    const rootMap = new Map<string, string>();
+    for (const run of runs) {
+      let root = run.run_id;
+      let cur: AgentRun | undefined = run;
+      const seen = new Set<string>();
+      while (true) {
+        const prevId = ((cur.signals?.previous_run_id as string) || "").trim();
+        if (!prevId || seen.has(prevId)) break;
+        seen.add(prevId);
+        const prev = byId.get(prevId);
+        if (!prev) break; // gap — use current as local root
+        root = prevId; cur = prev;
+      }
+      rootMap.set(run.run_id, root);
+    }
+
+    // Resolve target root: walk backward from selectedRunId if in runs,
+    // otherwise walk forward to find nearest child in runs
+    let targetRoot = rootMap.get(selectedRunId);
+    if (!targetRoot) {
+      let nextId = selectedRunId;
+      const seen = new Set<string>();
+      while (true) {
+        const child = runs.find(r => ((r.signals?.previous_run_id as string) || "").trim() === nextId);
+        if (!child || seen.has(child.run_id)) break;
+        seen.add(child.run_id);
+        const resolved = rootMap.get(child.run_id);
+        if (resolved) { targetRoot = resolved; break; }
+        nextId = child.run_id;
+      }
+      if (!targetRoot) targetRoot = selectedRunId;
+    }
+
+    return runs
+      .filter(r => (rootMap.get(r.run_id) || r.run_id) === targetRoot)
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   }, [selectedRunId, runs]);
 
   // Events — SSE stream for running runs, one-time fetch for completed runs
@@ -353,14 +393,23 @@ export function CodingAgentChatPage() {
 
     // One-time fetch events for each run in the chain
     const fetchAllEvents = async () => {
+      let fetched = false;
       for (const run of runChain) {
         if (cancelled) return;
         // Skip runs that already have events loaded
         if (eventsByRun[run.run_id]?.length) continue;
         try {
           const data = await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(run.run_id)}/events`).then((res) => readJson<{ events?: AgentRunEvent[] }>(res));
-          if (!cancelled) setEventsByRun(prev => ({ ...prev, [run.run_id]: data.events || [] }));
-        } catch { if (!cancelled) setEventsByRun(prev => ({ ...prev, [run.run_id]: prev[run.run_id] || [] })); }
+          if (!cancelled) { setEventsByRun(prev => ({ ...prev, [run.run_id]: data.events || [] })); fetched = true; }
+        } catch { if (!cancelled) { setEventsByRun(prev => ({ ...prev, [run.run_id]: prev[run.run_id] || [] })); fetched = true; } }
+      }
+      // After events are loaded, scroll to bottom
+      if (fetched && !cancelled) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "instant" as ScrollBehavior });
+          });
+        });
       }
     };
     void fetchAllEvents();
@@ -398,7 +447,8 @@ export function CodingAgentChatPage() {
             const lines = buffer.split("\n");
             buffer = lines.pop() || "";
 
-            for (const line of lines) {
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i];
               if (line.startsWith("data: ")) {
                 try {
                   const ev = JSON.parse(line.slice(6)) as AgentRunEvent;
@@ -411,18 +461,33 @@ export function CodingAgentChatPage() {
                   }
                 } catch { /* ignore parse errors */ }
               } else if (line.startsWith("event: done")) {
-                setEventsByRun(prev => {
-                  const existing = prev[runId] || [];
-                  const doneEvent: AgentRunEvent = {
-                    id: (existing.length + 1),
-                    run_id: runId,
-                    event_type: "run.done",
-                    seq: (existing.length + 1),
-                    ts: new Date().toISOString(),
-                    payload: { sse_closed: true },
-                  };
-                  return { ...prev, [runId]: [...existing, doneEvent] };
-                });
+                // Read the next data: line for terminal status
+                let doneStatus = "completed";
+                if (i + 1 < lines.length && lines[i + 1].startsWith("data: ")) {
+                  try {
+                    const doneData = JSON.parse(lines[i + 1].slice(6));
+                    doneStatus = doneData.status || "completed";
+                  } catch { /* keep default */ }
+                  i++; // skip the data: line we just consumed
+                }
+                // Update run status in the runs array
+                const finalStatus = (doneStatus || "succeeded") as AgentRun["status"];
+                setRuns(prev => prev.map(r => r.run_id === runId ? ({ ...r, status: finalStatus, finished_at: new Date().toISOString() } as AgentRun) : r));
+                // Add synthetic done event
+                if (!cancelled) {
+                  setEventsByRun(prev => {
+                    const existing = prev[runId] || [];
+                    const doneEvent: AgentRunEvent = {
+                      id: (existing.length + 1),
+                      run_id: runId,
+                      event_type: "run.done",
+                      seq: (existing.length + 1),
+                      ts: new Date().toISOString(),
+                      payload: { status: doneStatus, sse_closed: true },
+                    };
+                    return { ...prev, [runId]: [...existing, doneEvent] };
+                  });
+                }
                 return; // stream done
               }
             }
@@ -527,11 +592,14 @@ export function CodingAgentChatPage() {
     const el = threadRef.current;
     if (!el) return;
     const ro = new ResizeObserver(() => {
-      if (needsScrollRef.current) {
+      // Only consume needsScrollRef when there's actual content to scroll to
+      if (needsScrollRef.current && el.scrollHeight > el.clientHeight) {
         el.scrollTo({ top: el.scrollHeight, behavior: "instant" as ScrollBehavior });
         needsScrollRef.current = false;
         return;
       }
+      // Re-fire on next resize if needsScrollRef is still pending
+      if (needsScrollRef.current) return;
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
       if (atBottom) {
         el.scrollTo({ top: el.scrollHeight, behavior: "instant" as ScrollBehavior });
@@ -593,17 +661,20 @@ export function CodingAgentChatPage() {
   // Sessions — loaded from dedicated endpoint (not computed from paginated runs)
   type Session = { id: string; prompt: string; count: number; lastAt: string; lastStatus: AgentRun["status"] };
   const [sessions, setSessions] = useState<Session[]>([]);
-  useEffect(() => {
+  const refreshSessions = useCallback(() => {
     if (!agentId) return;
-    let cancelled = false;
     adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions`)
       .then(res => res.json())
-      .then((data: { sessions?: Session[] }) => {
-        if (!cancelled) setSessions(data.sessions || []);
-      })
+      .then((data: { sessions?: Session[] }) => setSessions(data.sessions || []))
       .catch(() => {});
-    return () => { cancelled = true; };
   }, [agentId]);
+  useEffect(() => { refreshSessions(); }, [refreshSessions]);
+
+  // 4-second polling for session list — picks up new sessions and status changes
+  useEffect(() => {
+    const id = setInterval(() => refreshSessions(), 4000);
+    return () => clearInterval(id);
+  }, [refreshSessions]);
 
   const saveSessionTitle = (sessionId: string, title: string) => {
     const next = { ...sessionTitles, [sessionId]: title.trim() || "" };
@@ -653,6 +724,11 @@ export function CodingAgentChatPage() {
     const picked = Array.from(event.target.files || []);
     event.target.value = "";
     if (!picked.length) return;
+    await uploadPickedFiles(picked);
+  };
+
+  // Shared upload logic — used by both file picker and Ctrl+V paste
+  const uploadPickedFiles = async (picked: File[]) => {
     const maxBytes = 10 * 1024 * 1024;
     const tooLarge = picked.filter((f) => f.size > maxBytes);
     if (tooLarge.length) { setError(`以下文件超过 10MB：${tooLarge.map((f) => f.name).join("、")}`); return; }
@@ -667,6 +743,14 @@ export function CodingAgentChatPage() {
       setPendingAttachments((prev) => [...prev, ...next]);
     } catch (err) { setError(err instanceof Error ? err.message : "上传失败"); }
     finally { setUploadingAttachments(false); }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData.files);
+    if (files.length > 0) {
+      e.preventDefault();
+      uploadPickedFiles(files);
+    }
   };
 
   const startRun = async () => {
@@ -699,13 +783,14 @@ export function CodingAgentChatPage() {
       for (const item of pendingAttachments) { if (item.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(item.previewUrl); }
       setPendingAttachments([]);
       void load();
+      refreshSessions();
     } catch (err) { setError(err instanceof Error ? err.message : "运行失败"); }
     finally { setBusy(false); }
   };
 
   const cancelRun = async (runId: string) => {
     setBusy(true); setError("");
-    try { await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }).then((res) => readJson(res)); await load(); }
+    try { await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }).then((res) => readJson(res)); await load(); refreshSessions(); }
     catch (err) { setError(err instanceof Error ? err.message : "取消失败"); }
     finally { setBusy(false); }
   };
@@ -717,6 +802,7 @@ export function CodingAgentChatPage() {
       await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }).then((res) => readJson(res));
       if (runChain[0]?.run_id === sessionId) setSelectedRunId("");
       await load();
+      refreshSessions();
     } catch (err) { setError(err instanceof Error ? err.message : "删除失败"); }
     finally { setBusy(false); }
   };
@@ -963,7 +1049,7 @@ export function CodingAgentChatPage() {
                                   return null;
                                 })()}
                                 {runEvents.filter(e => e.event_type === "assistant_message").map((ev) => {
-                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || "";
+                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || (ev.payload as Record<string,unknown> | undefined)?.summary as string || "";
                                   if (!text.trim()) return null;
                                   return (
                                     <div key={ev.id} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
@@ -975,7 +1061,7 @@ export function CodingAgentChatPage() {
                             ) : isLast ? (
                               <div className="space-y-2">
                                 {runEvents.filter(e => e.event_type === "assistant_message").map((ev) => {
-                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || "";
+                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || (ev.payload as Record<string,unknown> | undefined)?.summary as string || "";
                                   if (!text.trim()) return null;
                                   return (
                                     <div key={ev.id} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
@@ -1002,7 +1088,7 @@ export function CodingAgentChatPage() {
                             ) : (
                               <div className="space-y-2">
                                 {runEvents.filter(e => e.event_type === "assistant_message").map((ev) => {
-                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || "";
+                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || (ev.payload as Record<string,unknown> | undefined)?.summary as string || "";
                                   if (!text.trim()) return null;
                                   return (
                                     <div key={ev.id} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
@@ -1025,7 +1111,7 @@ export function CodingAgentChatPage() {
                             {(() => {
                               const allText = runEvents
                                 .filter(e => e.event_type === "assistant_message")
-                                .map(e => (e.payload as Record<string,unknown> | undefined)?.text as string || "")
+                                .map(e => (e.payload as Record<string,unknown> | undefined)?.text as string || (e.payload as Record<string,unknown> | undefined)?.summary as string || "")
                                 .join("\n");
                               return <WebviewIframes text={allText} />;
                             })()}
@@ -1041,19 +1127,25 @@ export function CodingAgentChatPage() {
                                 })}
                               </div>
                             )}
-                            {/* Toggles */}
-                            {isLast && (run.log_excerpt || runEvents.length > 0 || ((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length > 0)) && (
+                            {/* Toggles — always shown for last run, expandable for historical runs */}
+                            {(isLast || expandedRuns.has(run.run_id)) && (run.log_excerpt || runEvents.length > 0 || ((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length > 0)) && (
                               <div className="mt-3 flex items-center gap-4 border-t border-slate-100 pt-3">
-                                {run.log_excerpt && <button type="button" onClick={() => setLogExpanded((v) => !v)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{logExpanded ? "▾" : "▸"}</span>执行日志</button>}
-                                {runEvents.length > 0 && <button type="button" onClick={() => setEventsExpanded((v) => !v)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{eventsExpanded ? "▾" : "▸"}</span>事件时间线</button>}
-                                {((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length > 0) && <button type="button" onClick={() => setFilesExpanded((v) => !v)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{filesExpanded ? "▾" : "▸"}</span>文件 ({(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length})</button>}
+                                {run.log_excerpt && <button type="button" onClick={() => isLast ? setLogExpanded((v) => !v) : setExpandedRuns(prev => { const n = new Set(prev); n.delete(run.run_id); return n; })} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{(isLast ? logExpanded : true) ? "▾" : "▸"}</span>执行日志</button>}
+                                {runEvents.length > 0 && <button type="button" onClick={() => isLast ? setEventsExpanded((v) => !v) : setExpandedRuns(prev => { const n = new Set(prev); n.delete(run.run_id); return n; })} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{(isLast ? eventsExpanded : true) ? "▾" : "▸"}</span>事件时间线</button>}
+                                {((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length > 0) && <button type="button" onClick={() => isLast ? setFilesExpanded((v) => !v) : setExpandedRuns(prev => { const n = new Set(prev); n.delete(run.run_id); return n; })} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{(isLast ? filesExpanded : true) ? "▾" : "▸"}</span>文件 ({(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length})</button>}
                               </div>
                             )}
-                            {isLast && run.log_excerpt && logExpanded && <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">{formatLog(run.log_excerpt)}</pre>}
-                            {isLast && eventsExpanded && runEvents.length ? (
+                            {/* Expand button for collapsed historical runs */}
+                            {!isLast && !expandedRuns.has(run.run_id) && (run.log_excerpt || runEvents.length > 0) && (
+                              <button type="button" onClick={() => setExpandedRuns(prev => new Set(prev).add(run.run_id))} className="mt-2 flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600">
+                                <span>▸</span>查看详情
+                              </button>
+                            )}
+                            {(isLast ? logExpanded : expandedRuns.has(run.run_id)) && run.log_excerpt && <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">{formatLog(run.log_excerpt)}</pre>}
+                            {(isLast ? eventsExpanded : expandedRuns.has(run.run_id)) && runEvents.length ? (
                               <div className="mt-2 space-y-1">{runEvents.map((ev) => { const info = describeEvent(ev); const time = ev.ts ? parseEvotownTimestamp(ev.ts) : null; return <div key={`${ev.id}-${ev.seq}`} className="flex items-center gap-2 text-xs"><span className="shrink-0 font-mono text-[10px] text-slate-300 w-[52px]">{time ? time.toLocaleTimeString("zh-CN", {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : ""}</span><span>{info.icon}</span><span className="text-slate-600">{info.title}</span>{info.detail ? <span className="truncate text-slate-400">· {info.detail}</span> : null}</div>; })}</div>
                             ) : null}
-                            {isLast && filesExpanded && (
+                            {(isLast ? filesExpanded : expandedRuns.has(run.run_id)) && (
                               <div className="mt-2 space-y-1">{(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").map((a) => <a key={a.path} href={`/api/v1/agents/${encodeURIComponent(agentId)}/files?path=${encodeURIComponent(a.path)}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50"><span>{fileMeta(a.path).icon}</span><span className="truncate flex-1">{a.path.split("/").pop() || a.path}</span><span className="shrink-0 text-slate-400">{formatBytes(a.bytes)}</span><span className="shrink-0 text-slate-300">↓</span></a>)}</div>
                             )}
                           </div>
@@ -1093,7 +1185,7 @@ export function CodingAgentChatPage() {
             </div>
           ) : null}
           <div className="rounded-2xl border border-slate-200 shadow-sm transition focus-within:border-slate-400 focus-within:ring-2 focus-within:ring-slate-100">
-            <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onCompositionStart={() => { imeComposingRef.current = true; }} onCompositionEnd={() => { imeComposingRef.current = false; }} onKeyDown={onPromptKeyDown} rows={1} placeholder="输入你的任务… (Enter 发送 · Shift+Enter 换行)" className="max-h-52 min-h-[3rem] w-full resize-none rounded-t-2xl px-4 pt-3 text-sm leading-relaxed outline-none" />
+            <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onCompositionStart={() => { imeComposingRef.current = true; }} onCompositionEnd={() => { imeComposingRef.current = false; }} onKeyDown={onPromptKeyDown} onPaste={handlePaste} rows={1} placeholder="输入你的任务… (Enter 发送 · Shift+Enter 换行 · Ctrl+V 粘贴附件)" className="max-h-52 min-h-[3rem] w-full resize-none rounded-t-2xl px-4 pt-3 text-sm leading-relaxed outline-none" />
             <div className="flex items-center justify-between gap-2 px-3 pb-3">
               <button type="button" onClick={() => fileInputRef.current?.click()} disabled={busy || uploadingAttachments} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">📎 {uploadingAttachments ? "上传中…" : "附件"}</button>
               <button type="button" onClick={() => void startRun()} disabled={busy || uploadingAttachments || (!prompt.trim() && !pendingAttachments.length)} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-900 disabled:opacity-50">{busy ? "提交中…" : "发送 →"}</button>

@@ -537,6 +537,7 @@ class GatewayUpstreamModelCreate(BaseModel):
     provider_label: str = Field(default="", max_length=128)
     description: str = Field(default="", max_length=512)
     enabled: bool = True
+    is_vision: bool = False
 
 
 class GatewayUpstreamModelUpdate(BaseModel):
@@ -549,6 +550,7 @@ class GatewayUpstreamModelUpdate(BaseModel):
     provider_label: str | None = Field(default=None, max_length=128)
     description: str | None = Field(default=None, max_length=512)
     enabled: bool | None = None
+    is_vision: bool | None = None
 
 
 class OidcExchange(BaseModel):

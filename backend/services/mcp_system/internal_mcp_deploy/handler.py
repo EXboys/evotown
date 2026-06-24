@@ -95,6 +95,18 @@ def process(args: dict, permissions: dict) -> dict[str, Any]:
             output_schema=output_schema,
             status=STATUS_PENDING,
         )
+        # Also create a version record so admin can review it
+        create_service_version(
+            service_id=service_id,
+            version=version,
+            version_notes=manifest.get("changelog", ""),
+            dimensions=dimensions,
+            tables=tables,
+            input_schema=input_schema,
+            output_schema=output_schema,
+            submitted_by_agent_id=agent_id,
+            submitted_by_account=account,
+        )
         return {
             "ok": True,
             "data": {

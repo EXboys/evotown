@@ -800,6 +800,7 @@ function DetailDrawer({
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
+  const [selectedCall, setSelectedCall] = useState<any>(null);
   const pageSize = 20;
 
   useEffect(() => {
@@ -819,6 +820,17 @@ function DetailDrawer({
       }
     } catch { setData(null); }
     finally { setLoading(false); setPage(p); }
+  };
+
+  const truncateText = (s: string | null | undefined, maxLen = 80) => {
+    if (!s) return "-";
+    return s.length > maxLen ? s.slice(0, maxLen) + "…" : s;
+  };
+
+  const formatJson = (s: string | null | undefined) => {
+    if (!s) return "(空)";
+    try { return JSON.stringify(JSON.parse(s), null, 2); }
+    catch { return s; }
   };
 
   const totalPages = type === "calls" ? Math.ceil((data?.total || 0) / pageSize) : 1;
@@ -910,13 +922,25 @@ function DetailDrawer({
                       <tr className="border-b border-slate-100 bg-slate-50 text-left text-[11px] font-medium text-slate-500">
                         <th className="px-3 py-2">#</th>
                         <th className="px-3 py-2">调用时间</th>
+                        <th className="px-3 py-2">状态</th>
+                        <th className="px-3 py-2">入参</th>
+                        <th className="px-3 py-2">出参</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {data.calls.map((c: any, i: number) => (
-                        <tr key={c.id} className="hover:bg-slate-50/50">
+                      {data.calls.map((c: any) => (
+                        <tr key={c.id} onClick={() => setSelectedCall(c)} className="hover:bg-slate-50/50 cursor-pointer">
                           <td className="px-3 py-1.5 font-mono text-[10px] text-slate-400">{c.id}</td>
-                          <td className="px-3 py-1.5 text-slate-600">{fmtTime(c.called_at)}</td>
+                          <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{fmtTime(c.called_at)}</td>
+                          <td className="px-3 py-1.5">
+                            <span className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium ${
+                              c.status === "ok" ? "border-green-200 bg-green-50 text-green-700" :
+                              c.status === "error" ? "border-red-200 bg-red-50 text-red-600" :
+                              "border-slate-200 bg-slate-50 text-slate-500"
+                            }`}>{c.status || "-"}</span>
+                          </td>
+                          <td className="px-3 py-1.5 font-mono text-[10px] text-slate-500 max-w-[180px] truncate">{truncateText(c.args, 60)}</td>
+                          <td className="px-3 py-1.5 font-mono text-[10px] text-slate-500 max-w-[180px] truncate">{truncateText(c.result, 60)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -935,6 +959,50 @@ function DetailDrawer({
             </div>
           )}
         </div>
+
+        {/* Call detail sub-modal */}
+        {selectedCall && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/30" onClick={() => setSelectedCall(null)} />
+            <div className="relative w-full max-w-2xl max-h-[85vh] bg-white border border-slate-200 rounded-xl shadow-xl flex flex-col m-4">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0">
+                <h3 className="text-sm font-semibold text-slate-900">调用详情 # {selectedCall.id}</h3>
+                <button onClick={() => setSelectedCall(null)} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 text-xs">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-slate-50 rounded-lg px-3 py-2">
+                    <div className="text-[10px] text-slate-400">调用时间</div>
+                    <div className="text-slate-700">{fmtTime(selectedCall.called_at)}</div>
+                  </div>
+                  <div className="bg-slate-50 rounded-lg px-3 py-2">
+                    <div className="text-[10px] text-slate-400">状态</div>
+                    <div className="text-slate-700">{selectedCall.status || "-"}</div>
+                  </div>
+                  <div className="bg-slate-50 rounded-lg px-3 py-2">
+                    <div className="text-[10px] text-slate-400">Agent</div>
+                    <div className="font-mono text-slate-600 truncate">{selectedCall.agent_id || "-"}</div>
+                  </div>
+                  <div className="bg-slate-50 rounded-lg px-3 py-2">
+                    <div className="text-[10px] text-slate-400">Run ID</div>
+                    <div className="font-mono text-slate-600 truncate">{selectedCall.run_id || "-"}</div>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">入参 (args)</div>
+                  <pre className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-[11px] text-slate-700 leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto font-mono">{formatJson(selectedCall.args)}</pre>
+                </div>
+                <div>
+                  <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">出参 (result)</div>
+                  <pre className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-[11px] text-slate-700 leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto font-mono">{formatJson(selectedCall.result)}</pre>
+                </div>
+              </div>
+              <div className="flex justify-end px-4 py-3 border-t border-slate-200 shrink-0">
+                <button onClick={() => setSelectedCall(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">关闭</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

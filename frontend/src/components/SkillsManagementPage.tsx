@@ -25,6 +25,12 @@ type WorkspaceSkill = { skill_id: string; name: string; description: string; scr
 
 type SkillsTab = "all" | "draft" | "pending" | "approved" | "deprecated";
 
+type DeployAgentInfo = {
+  agent_id: string; agent_name: string; account_id: string;
+  installed_version: string; market_version: string; is_modified: boolean;
+  selected?: boolean;
+};
+
 // ── Shared helpers ──────────────────────────────────────────────────────────
 
 function StatCard({ label, value, note }: { label: string; value: string | number; note: string }) {
@@ -66,6 +72,20 @@ export function SkillsManagementPage() {
   const [repairOpen, setRepairOpen] = useState(false);
   const [repairSkillId, setRepairSkillId] = useState("");
   const [repairSkillName, setRepairSkillName] = useState("");
+
+  // Deploy
+  const [deployOpen, setDeployOpen] = useState(false);
+  const [deploySkillId, setDeploySkillId] = useState("");
+  const [deploySkillName, setDeploySkillName] = useState("");
+  const [deployMarketVersion, setDeployMarketVersion] = useState("");
+  const [deployAgents, setDeployAgents] = useState<DeployAgentInfo[]>([]);
+  const [deployBusy, setDeployBusy] = useState(false);
+  const [deployForce, setDeployForce] = useState(false);
+  const [deployMessage, setDeployMessage] = useState("");
+
+  // Expanded agent lists per skill
+  const [expandedAgents, setExpandedAgents] = useState<Record<string, DeployAgentInfo[]>>({});
+  const [expandedSkillIds, setExpandedSkillIds] = useState<Set<string>>(new Set());
 
   const loadSkills = async () => {
     setLoading(true); setError("");
@@ -113,6 +133,62 @@ export function SkillsManagementPage() {
       await adminFetch(`/api/v1/skill-versions/${versionId}/review`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision, reviewer: "admin", reason: decision === "approved" ? "审核通过" : "审核拒绝" }) });
       setMessage(decision === "approved" ? "审核通过" : "已拒绝"); loadSkills();
     } catch (err) { setError(err instanceof Error ? err.message : "操作失败"); }
+  };
+
+  // Deploy
+  const openDeploy = async (skill: SkillRecord) => {
+    setDeploySkillId(skill.skill_id);
+    setDeploySkillName(skill.name);
+    setDeployMarketVersion(skill.version);
+    setDeployForce(false);
+    setDeployMessage("");
+    setDeployOpen(true);
+    setDeployBusy(true);
+    try {
+      const res = await adminFetch("/api/v1/skills/" + encodeURIComponent(skill.skill_id) + "/agent-versions");
+      const data = await res.json() as { agents?: DeployAgentInfo[] };
+      const agents = (data.agents || []).map(a => ({ ...a, selected: !a.is_modified }));
+      setDeployAgents(agents);
+    } catch { setDeployAgents([]); }
+    finally { setDeployBusy(false); }
+  };
+
+  const doDeploy = async () => {
+    const selected = deployAgents.filter(a => a.selected);
+    if (!selected.length) { setDeployMessage("请选择目标 Agent"); return; }
+    setDeployBusy(true); setDeployMessage("");
+    const results: string[] = [];
+    for (const agent of selected) {
+      try {
+        const res = await adminFetch("/api/v1/accounts/" + encodeURIComponent(agent.account_id) + "/skills", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ skills: [deploySkillId], force: deployForce }),
+        });
+        const d = await res.json();
+        const deployR = d.deploy_results?.[agent.agent_id]?.[0];
+        results.push(agent.agent_name + ": " + (deployR?.deployed ? "已更新" : deployR?.skipped ? "已跳过(版本不同)" : deployR?.reason || "失败"));
+      } catch { results.push(agent.agent_name + ": 请求失败"); }
+    }
+    setDeployMessage(results.join("\n"));
+    setDeployBusy(false);
+    if (results.some(r => r.includes("已更新"))) loadSkills();
+  };
+
+  const toggleAgentExpand = async (skillId: string) => {
+    const isExpanded = expandedSkillIds.has(skillId);
+    if (isExpanded) {
+      setExpandedSkillIds(prev => { const next = new Set(prev); next.delete(skillId); return next; });
+    } else {
+      setExpandedSkillIds(prev => new Set(prev).add(skillId));
+      if (!expandedAgents[skillId]) {
+        try {
+          const res = await adminFetch("/api/v1/skills/" + encodeURIComponent(skillId) + "/agent-versions");
+          const data = await res.json() as { agents?: DeployAgentInfo[] };
+          setExpandedAgents(prev => ({ ...prev, [skillId]: data.agents || [] }));
+        } catch { setExpandedAgents(prev => ({ ...prev, [skillId]: [] })); }
+      }
+    }
   };
 
   // ── Counts ───────────────────────────────────────────────────────────────
@@ -220,6 +296,7 @@ export function SkillsManagementPage() {
                         )}
                         {skill.status === "approved" && (
                           <>
+                            <button type="button" onClick={() => openDeploy(skill)} className="text-xs text-indigo-600 hover:text-indigo-800">下发</button>
                             <button type="button" onClick={() => { setTestSkillId(skill.skill_id); setTestOpen(true); }} className="text-xs text-sky-600 hover:text-sky-800">测试</button>
                             <button type="button" onClick={() => { setRepairSkillId(skill.skill_id); setRepairSkillName(skill.name); setRepairOpen(true); }} className="text-xs text-amber-600 hover:text-amber-800">修复</button>
                             <button type="button" onClick={() => handleDeprecate(skill.skill_id)} className="text-xs text-red-600 hover:text-red-800">废弃</button>
@@ -228,7 +305,7 @@ export function SkillsManagementPage() {
                         {skill.status === "rejected" && <button type="button" onClick={() => handleSubmit(skill.skill_id)} className="text-xs text-amber-600 hover:text-amber-800">重新提交</button>}
                       </div>
                     </td>
-                  </tr>
+</tr>
                 ))}
               </tbody>
             </table>
@@ -244,6 +321,20 @@ export function SkillsManagementPage() {
       {uploadOpen && <UploadModal onClose={() => setUploadOpen(false)} onDone={(msg) => { setMessage(msg); loadSkills(); }} />}
       {testOpen && <TestModal skillId={testSkillId} onClose={() => setTestOpen(false)} onDone={(msg) => { setMessage(msg); }} />}
       {repairOpen && <RepairModal skillId={repairSkillId} skillName={repairSkillName} onClose={() => setRepairOpen(false)} onDone={(msg) => { setMessage(msg); }} />}
+      {deployOpen && (
+        <DeployModal
+          skillName={deploySkillName}
+          marketVersion={deployMarketVersion}
+          agents={deployAgents}
+          busy={deployBusy}
+          force={deployForce}
+          message={deployMessage}
+          onForceChange={setDeployForce}
+          onAgentToggle={(agentId) => setDeployAgents(prev => prev.map(a => a.agent_id === agentId ? { ...a, selected: !a.selected } : a))}
+          onDeploy={doDeploy}
+          onClose={() => setDeployOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -495,6 +586,86 @@ function RepairModal({ skillId, skillName, onClose, onDone }: { skillId: string;
         {result && <pre className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3 whitespace-pre-wrap max-h-48 overflow-y-auto font-mono">{result}</pre>}
         {error && <p className="text-xs text-red-600">{error}</p>}
         <div className="flex justify-end gap-2 pt-2"><button onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">关闭</button><button onClick={repair} disabled={loading || !agentId} className="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50">{loading ? "修复中…" : "开始修复"}</button></div>
+      </div>
+    </div>
+  );
+}
+
+// Deploy Modal ---------------------------------------------------------
+
+function DeployModal({
+  skillName, marketVersion, agents, busy, force, message,
+  onForceChange, onAgentToggle, onDeploy, onClose,
+}: {
+  skillName: string; marketVersion: string; agents: DeployAgentInfo[];
+  busy: boolean; force: boolean; message: string;
+  onForceChange: (v: boolean) => void;
+  onAgentToggle: (agentId: string) => void;
+  onDeploy: () => void;
+  onClose: () => void;
+}) {
+  const totalAgents = agents.length;
+  const selectedCount = agents.filter(a => a.selected).length;
+  const modifiedCount = agents.filter(a => a.is_modified).length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
+      <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+          <div>
+            <h3 className="text-base font-semibold text-slate-900">下发技能 · {skillName}</h3>
+            <p className="text-xs text-slate-500">市场版本 v{marketVersion} · {totalAgents} 个 Agent 已绑定</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+        </div>
+
+        {modifiedCount > 0 && (
+          <div className="flex items-center gap-2 px-5 py-2 bg-amber-50 border-b border-amber-100 shrink-0">
+            <label className="flex items-center gap-2 text-xs text-amber-800 cursor-pointer">
+              <input type="checkbox" checked={force} onChange={e => onForceChange(e.target.checked)} className="accent-amber-600" />
+              强制覆盖 ({modifiedCount} 个 Agent 版本不同)
+            </label>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-1.5">
+          {agents.length === 0 ? (
+            <p className="text-xs text-slate-400 py-4 text-center">暂无已绑定该技能的 Agent</p>
+          ) : (
+            agents.map(a => (
+              <label key={a.agent_id} className={`flex items-center gap-3 rounded-lg border px-3 py-2 cursor-pointer transition ${a.selected ? "border-indigo-200 bg-indigo-50/50" : "border-slate-100 hover:bg-slate-50"}`}>
+                <input type="checkbox" checked={a.selected} onChange={() => onAgentToggle(a.agent_id)} className="accent-indigo-600 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm text-slate-800 truncate">{a.agent_name}</div>
+                  <div className="text-[10px] text-slate-400 font-mono truncate">{a.agent_id}</div>
+                </div>
+                <div className="text-right shrink-0">
+                  {a.is_modified ? (
+                    <span className="text-xs text-amber-600 font-medium">v{a.installed_version} != v{a.market_version}</span>
+                  ) : a.installed_version ? (
+                    <span className="text-xs text-emerald-600">v{a.installed_version}</span>
+                  ) : (
+                    <span className="text-xs text-slate-400">未安装</span>
+                  )}
+                </div>
+              </label>
+            ))
+          )}
+        </div>
+
+        {message && (
+          <div className="px-5 py-2 border-t border-slate-100 shrink-0">
+            <pre className="text-xs text-slate-600 whitespace-pre-wrap">{message}</pre>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 shrink-0">
+          <span className="text-xs text-slate-400">已选 {selectedCount}/{totalAgents} 个 Agent</span>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">取消</button>
+            <button onClick={onDeploy} disabled={busy || selectedCount === 0} className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{busy ? "下发中…" : `下发 (${selectedCount})`}</button>
+          </div>
+        </div>
       </div>
     </div>
   );

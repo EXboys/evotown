@@ -23,8 +23,9 @@ async def set_account_skills(account_id: str, body: dict):
     if accounts_store.get_account(account_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="account not found")
     skill_ids = list(body.get("skills") or [])
-    account_skills.assign(account_id, skill_ids)
-    return {"account_id": account_id, "skills": account_skills.list_for_account(account_id)}
+    force = bool(body.get("force", False))
+    result = account_skills.deploy_skills_to_agents(account_id, skill_ids, force=force)
+    return result
 
 
 @router.get("/accounts/{account_id}/workspace-skills", dependencies=[Depends(require_admin)])

@@ -131,6 +131,17 @@ async def run_agent_sdk(
     log_lines: list[str] = []
     exit_code = 1
     claude_session_id = ""
+    run_id = str(run.get("run_id") or "")
+
+    def _emit(text: str) -> None:
+        """Persist intermediate text as an event for SSE streaming."""
+        log_lines.append(text)
+        if run_id:
+            try:
+                from infra import claude_agent_runs as _evt
+                _evt.append_event(run_id, "assistant_message", {"text": text})
+            except Exception:
+                pass
 
     async def _query():
         nonlocal exit_code, claude_session_id
@@ -139,17 +150,17 @@ async def run_agent_sdk(
                 for block in message.content:
                     text = getattr(block, "text", None)
                     if text:
-                        log_lines.append(str(text))
+                        _emit(str(text))
             elif isinstance(message, ResultMessage):
                 if message.result:
-                    log_lines.append(str(message.result))
+                    _emit(str(message.result))
                 if getattr(message, "errors", None):
-                    log_lines.extend(str(item) for item in message.errors)
+                    for item in message.errors:
+                        _emit(str(item))
                 if message.subtype == "success" and not message.is_error:
                     exit_code = 0
                 else:
                     exit_code = 1
-                # Capture session_id for future resume
                 claude_session_id = getattr(message, "session_id", "") or ""
 
     # Try resume first; if stale/broken, silently fall back to fresh session

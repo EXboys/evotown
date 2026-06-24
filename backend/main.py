@@ -13,7 +13,7 @@ try:
 except ImportError:
     pass
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.callbacks import (
@@ -53,10 +53,13 @@ from api.routers import (
     replay,
 )
 from api.routers import skill_market, skill_catalog, console_auth, market, knowledge, databases
-from api.routers import policies, assets, mcp_services, agent_templates
+from api.routers import policies, assets, mcp_services, agent_templates, mcp_bridge
 from api.routers import teams
 from api.routers import chronicle as chronicle_router
 from api.routers import snapshot as snapshot_router
+from api.routers import system_config as system_config_router
+from infra import system_config as system_config_infra
+from fastapi.responses import FileResponse
 from log_watcher import start_watching
 
 logging.basicConfig(
@@ -76,6 +79,10 @@ async def lifespan(app: FastAPI):
     from infra.mcp_registry import _ensure_conn
     _ensure_conn()
     logger.info("MCP registry initialized")
+
+    # ── System config: sync DB → env on startup ──
+    system_config_infra.sync_env_on_startup()
+    logger.info("system_config env sync completed")
 
     # 启动 Replay 录制 session（以实验 ID 命名，重启后开新 session）
     from infra.replay import start_session as _start_replay
@@ -342,10 +349,12 @@ app.include_router(monitor.router)
 app.include_router(websocket.router)
 app.include_router(replay.router)
 app.include_router(teams.router)
+app.include_router(mcp_bridge.router)
 app.include_router(mcp_services.router)
 app.include_router(agent_templates.router)
 app.include_router(chronicle_router.router)
 app.include_router(snapshot_router.router)
+app.include_router(system_config_router.router)
 # 兼容前端可能使用的 /api 前缀（解决 /config/experiment、/monitor/task_history、/chronicle 404）
 app.include_router(config.router, prefix="/api")
 app.include_router(monitor.router, prefix="/api")
@@ -356,6 +365,20 @@ app.include_router(chronicle_router.router, prefix="/api")
 async def health():
     """健康检查，用于验证服务与路由是否正常"""
     return {"status": "ok"}
+
+
+@app.get("/system/{filename:path}")
+async def serve_system_file(filename: str):
+    """Serve static system files (logo, etc.) directly by filename."""
+    system_dir = system_config_infra.system_dir()
+    file_path = system_dir / filename
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(404, "File not found")
+    # Prevent path traversal
+    resolved = file_path.resolve()
+    if not str(resolved).startswith(str(system_dir.resolve())):
+        raise HTTPException(404, "File not found")
+    return FileResponse(resolved)
 
 
 if __name__ == "__main__":

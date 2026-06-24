@@ -405,15 +405,61 @@ def update_service(
     return get_service(service_id)
 
 
-def delete_service(service_id: str) -> bool:
+def delete_service(service_id: str) -> dict[str, Any]:
     existing = get_service(service_id)
     if existing and existing.get("source") == SOURCE_SYSTEM:
         raise PermissionError("系统 MCP 不可删除")
+    if existing is None:
+        return {"deleted": False, "cleaned_dirs": [], "cleaned_tables": []}
+
+    import shutil
+
     conn = _ensure_conn()
     cur = conn.execute("DELETE FROM mcp_services WHERE service_id=?", (service_id,))
-    conn.execute("DELETE FROM agent_mcp_policies WHERE service_id=?", (service_id,))
-    conn.execute("DELETE FROM agent_role_mcp_policies WHERE service_id=?", (service_id,))
-    return cur.rowcount > 0
+    deleted = cur.rowcount > 0
+
+    if not deleted:
+        return {"deleted": False, "cleaned_dirs": [], "cleaned_tables": []}
+
+    cleaned_tables: list[str] = ["mcp_services"]
+
+    # Delete related records
+    for table in ["agent_mcp_policies", "agent_role_mcp_policies",
+                  "mcp_service_versions", "mcp_usage_log"]:
+        conn.execute(f"DELETE FROM {table} WHERE service_id=?", (service_id,))
+        cleaned_tables.append(table)
+
+    # Clear in-memory handler cache
+    try:
+        from services.mcp_loader import clear_handler_cache
+        clear_handler_cache(service_id)
+    except Exception:
+        pass
+
+    # Clean up file directories
+    cleaned_dirs: list[str] = []
+    mcp_path = (existing.get("mcp_path") or "").strip("/")
+
+    if mcp_path:
+        # Dev directory: /app/data/mcp-dev/{mcp_path}/
+        dev_dir = Path("/app/data/mcp-dev") / mcp_path
+        if dev_dir.exists():
+            shutil.rmtree(str(dev_dir))
+            cleaned_dirs.append(str(dev_dir))
+
+        # Prod directory (approve path): /app/data/mcp-services/{mcp_path}/
+        prod_dir = Path("/app/data/mcp-services") / mcp_path
+        if prod_dir.exists():
+            shutil.rmtree(str(prod_dir))
+            cleaned_dirs.append(str(prod_dir))
+
+    # Prod directory (deploy path): /app/data/mcp-services/{service_id}/
+    prod_sid_dir = Path("/app/data/mcp-services") / service_id
+    if prod_sid_dir.exists():
+        shutil.rmtree(str(prod_sid_dir))
+        cleaned_dirs.append(str(prod_sid_dir))
+
+    return {"deleted": True, "cleaned_dirs": cleaned_dirs, "cleaned_tables": cleaned_tables}
 
 
 # ── Workspace Policy CRUD ─────────────────────────────────────────────
@@ -766,6 +812,54 @@ def list_policies_for_agent(agent_id: str) -> list[dict[str, Any]]:
             result.append(d)
 
     return result
+
+
+def resolve_mcp_permissions(agent_id: str, service_id: str) -> dict[str, Any]:
+    """Resolve data dimension permissions for an agent calling a specific MCP service.
+
+    Returns a dict with:
+        permissions: dict[str, list[str]] — resolved dimension values keyed by code
+        declared_dims: list[str] — dimension codes the service declares
+        has_dimensions: bool — whether the service declares any dimensions
+        has_rules: bool — whether the agent has any matching dimension rules
+    """
+    import json as _json
+
+    permissions: dict[str, Any] = {}
+    declared_dims: list[str] = []
+
+    svc = get_service(service_id)
+    if svc:
+        try:
+            declared_dims = _json.loads(str(svc.get("dimensions") or "[]"))
+        except (_json.JSONDecodeError, TypeError):
+            declared_dims = []
+
+    has_dimensions = bool(declared_dims)
+    has_rules = False
+
+    if declared_dims:
+        # Resolve dimension values from agent_role_dimensions (via agent's roles)
+        role_ids = list_workspace_roles(agent_id)
+        for role_id in role_ids:
+            for rd in get_role_dimensions(role_id):
+                dim_code = rd.get("code", "")
+                if dim_code in declared_dims:
+                    vals = rd.get("dim_values") or []
+                    if vals and vals != ["*"]:
+                        # Dedup merge across multiple roles
+                        existing = permissions.get(dim_code) or []
+                        permissions[dim_code] = list(set(existing + vals))
+                        has_rules = True
+
+    permissions["agent_id"] = agent_id
+
+    return {
+        "permissions": permissions,
+        "declared_dims": declared_dims,
+        "has_dimensions": has_dimensions,
+        "has_rules": has_rules,
+    }
 
 
 def registry_stats() -> dict[str, Any]:

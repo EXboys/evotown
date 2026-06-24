@@ -118,19 +118,39 @@ def _ensure_conn() -> sqlite3.Connection:
         );
 
         CREATE TABLE IF NOT EXISTS skill_versions (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            skill_id        TEXT NOT NULL,
-            version         TEXT NOT NULL,
-            description     TEXT NOT NULL DEFAULT '',
-            readme          TEXT NOT NULL DEFAULT '',
-            dependencies    TEXT NOT NULL DEFAULT '[]',
-            package_sha256  TEXT NOT NULL DEFAULT '',
-            package_bytes   INTEGER NOT NULL DEFAULT 0,
-            source_run_id   TEXT NOT NULL DEFAULT '',
-            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            skill_id            TEXT NOT NULL,
+            version             TEXT NOT NULL,
+            description         TEXT NOT NULL DEFAULT '',
+            readme              TEXT NOT NULL DEFAULT '',
+            dependencies        TEXT NOT NULL DEFAULT '[]',
+            package_sha256      TEXT NOT NULL DEFAULT '',
+            package_bytes       INTEGER NOT NULL DEFAULT 0,
+            source_run_id       TEXT NOT NULL DEFAULT '',
+            status              TEXT NOT NULL DEFAULT 'pending',
+            version_notes       TEXT NOT NULL DEFAULT '',
+            submitted_by_agent_id  TEXT NOT NULL DEFAULT '',
+            submitted_by_account   TEXT NOT NULL DEFAULT '',
+            reviewed_by         TEXT NOT NULL DEFAULT '',
+            reviewed_at         TEXT NOT NULL DEFAULT '',
+            review_comment      TEXT NOT NULL DEFAULT '',
+            created_at          TEXT NOT NULL DEFAULT (datetime('now')),
             UNIQUE(skill_id, version)
         );
         CREATE INDEX IF NOT EXISTS idx_skill_versions_skill ON skill_versions(skill_id);
+
+        CREATE TABLE IF NOT EXISTS skill_usage_log (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            skill_id       TEXT NOT NULL,
+            agent_id       TEXT NOT NULL DEFAULT '',
+            run_id         TEXT NOT NULL DEFAULT '',
+            account        TEXT NOT NULL DEFAULT '',
+            event          TEXT NOT NULL DEFAULT '',
+            details        TEXT NOT NULL DEFAULT '{}',
+            created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_skill_usage_skill ON skill_usage_log(skill_id);
+        CREATE INDEX IF NOT EXISTS idx_skill_usage_time ON skill_usage_log(created_at);
         """
     )
     _migrate_skills_schema(conn)
@@ -159,6 +179,32 @@ def _migrate_skills_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE skills ADD COLUMN package_signature TEXT NOT NULL DEFAULT ''")
     if "source_type" not in cols:
         conn.execute("ALTER TABLE skills ADD COLUMN source_type TEXT NOT NULL DEFAULT 'enterprise'")
+    if "category" not in cols:
+        conn.execute("ALTER TABLE skills ADD COLUMN category TEXT NOT NULL DEFAULT ''")
+    if "agent_id" not in cols:
+        conn.execute("ALTER TABLE skills ADD COLUMN agent_id TEXT NOT NULL DEFAULT ''")
+    if "created_by" not in cols:
+        conn.execute("ALTER TABLE skills ADD COLUMN created_by TEXT NOT NULL DEFAULT ''")
+
+    # ── skill_versions migration ──────────────────────────────────
+    ver_cols = {row["name"] for row in conn.execute("PRAGMA table_info(skill_versions)").fetchall()}
+    if "status" not in ver_cols:
+        conn.execute("ALTER TABLE skill_versions ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_skill_versions_status ON skill_versions(status)")
+    if "version_notes" not in ver_cols:
+        conn.execute("ALTER TABLE skill_versions ADD COLUMN version_notes TEXT NOT NULL DEFAULT ''")
+    if "submitted_by_agent_id" not in ver_cols:
+        conn.execute("ALTER TABLE skill_versions ADD COLUMN submitted_by_agent_id TEXT NOT NULL DEFAULT ''")
+    if "submitted_by_account" not in ver_cols:
+        conn.execute("ALTER TABLE skill_versions ADD COLUMN submitted_by_account TEXT NOT NULL DEFAULT ''")
+    if "reviewed_by" not in ver_cols:
+        conn.execute("ALTER TABLE skill_versions ADD COLUMN reviewed_by TEXT NOT NULL DEFAULT ''")
+    if "reviewed_at" not in ver_cols:
+        conn.execute("ALTER TABLE skill_versions ADD COLUMN reviewed_at TEXT NOT NULL DEFAULT ''")
+    if "review_comment" not in ver_cols:
+        conn.execute("ALTER TABLE skill_versions ADD COLUMN review_comment TEXT NOT NULL DEFAULT ''")
+    if "requires_skills" not in ver_cols:
+        conn.execute("ALTER TABLE skill_versions ADD COLUMN requires_skills TEXT NOT NULL DEFAULT '[]'")
 
 
 def _json_dumps(value: Any) -> str:
@@ -271,6 +317,51 @@ def _record_skill_version(
             source_run_id,
         ),
     )
+
+
+def submit_skill_version(
+    *,
+    skill_id: str,
+    version: str,
+    description: str = "",
+    version_notes: str = "",
+    requires_skills: str = "[]",
+    submitted_by_agent_id: str = "",
+    submitted_by_account: str = "",
+) -> dict[str, Any]:
+    """Submit a new skill version for review (status=pending)."""
+    conn = _ensure_conn()
+    conn.execute(
+        """
+        INSERT INTO skill_versions (
+            skill_id, version, description, status, version_notes,
+            requires_skills, submitted_by_agent_id, submitted_by_account
+        )
+        VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)
+        """,
+        (
+            skill_id,
+            version,
+            description,
+            version_notes,
+            requires_skills,
+            submitted_by_agent_id,
+            submitted_by_account,
+        ),
+    )
+    return dict(conn.execute(
+        "SELECT * FROM skill_versions WHERE skill_id=? AND version=?",
+        (skill_id, version),
+    ).fetchone() or {})
+
+
+def get_latest_skill_version(skill_id: str) -> dict[str, Any] | None:
+    """Get the latest version record for a skill."""
+    row = _ensure_conn().execute(
+        "SELECT * FROM skill_versions WHERE skill_id=? ORDER BY created_at DESC LIMIT 1",
+        (skill_id,),
+    ).fetchone()
+    return dict(row) if row else None
 
 
 def list_skill_versions(skill_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
@@ -882,11 +973,14 @@ def create_draft_skill(
     skill_id: str,
     name: str,
     description: str = "",
+    category: str = "",
     runtime_targets: list[str] | None = None,
     team_id: str = "",
     tags: list[str] | None = None,
     source_run_id: str = "",
-    source_type: str = "enterprise",
+    source_type: str = "workspace",
+    agent_id: str = "",
+    created_by: str = "",
 ) -> dict[str, Any]:
     """Create a skill in draft status for later review."""
     conn = _ensure_conn()
@@ -897,9 +991,10 @@ def create_draft_skill(
         """
         INSERT INTO skills (
             skill_id, name, description, version, runtime_targets, package_url,
-            status, visibility, team_id, tags, source_run_id, source_type
+            status, visibility, team_id, tags, source_run_id, source_type,
+            category, agent_id, created_by
         )
-        VALUES (?, ?, ?, '0.1.0', ?, ?, 'draft', 'team', ?, ?, ?, ?)
+        VALUES (?, ?, ?, '0.1.0', ?, ?, 'draft', 'team', ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(skill_id) DO UPDATE SET
             name=excluded.name,
             description=excluded.description,
@@ -909,6 +1004,9 @@ def create_draft_skill(
             tags=excluded.tags,
             source_run_id=excluded.source_run_id,
             source_type=excluded.source_type,
+            category=excluded.category,
+            agent_id=excluded.agent_id,
+            created_by=excluded.created_by,
             updated_at=datetime('now')
         """,
         (
@@ -921,6 +1019,9 @@ def create_draft_skill(
             _json_dumps(tag_list),
             source_run_id,
             source_type,
+            category,
+            agent_id,
+            created_by,
         ),
     )
     return get_skill(skill_id) or {"skill_id": skill_id}
@@ -1081,3 +1182,30 @@ def get_skill_test_runs(skill_id: str) -> list[dict[str, Any]]:
             item["run_created_at"] = item.get("created_at")
         results.append(item)
     return results
+
+
+def record_skill_usage(
+    *,
+    skill_id: str,
+    agent_id: str = "",
+    run_id: str = "",
+    account: str = "",
+    event: str = "",
+    details: dict[str, Any] | None = None,
+) -> None:
+    """Record a skill usage event (create / submit / approve / deploy / load / execute)."""
+    conn = _ensure_conn()
+    conn.execute(
+        """
+        INSERT INTO skill_usage_log (skill_id, agent_id, run_id, account, event, details)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            skill_id,
+            agent_id or "",
+            run_id or "",
+            account or "",
+            event,
+            _json_dumps(details or {}),
+        ),
+    )

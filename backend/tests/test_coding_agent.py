@@ -74,22 +74,22 @@ class CodingAgentApiTest(unittest.TestCase):
         _bob, bob_key = self._account_key("Bob")
 
         create = client.post(
-            "/api/v1/workspaces",
+            "/api/v1/agents",
             headers={"Authorization": f"Bearer {alice_key}"},
             json={"name": "Alice Sandbox"},
         )
         self.assertEqual(create.status_code, 200)
-        workspace = create.json()["workspace"]
+        workspace = create.json()["agent"]
         self.assertEqual(workspace["owner_account_id"], alice["account_id"])
 
         denied = client.get(
-            f"/api/v1/workspaces/{workspace['workspace_id']}",
+            f"/api/v1/agents/{workspace['agent_id']}",
             headers={"Authorization": f"Bearer {bob_key}"},
         )
         self.assertEqual(denied.status_code, 403)
 
         with self.assertRaises(ValueError):
-            agents.resolve_workspace_path(workspace, "../escape.txt")
+            agents.resolve_agent_path(workspace, "../escape.txt")
 
     def test_workspace_profile_crud_and_run_injection(self) -> None:
         from infra import agents
@@ -98,23 +98,23 @@ class CodingAgentApiTest(unittest.TestCase):
         client = self._client()
         _alice, alice_key = self._account_key("Alice")
         create_ws = client.post(
-            "/api/v1/workspaces",
+            "/api/v1/agents",
             headers={"Authorization": f"Bearer {alice_key}"},
             json={"name": "Profile Sandbox"},
         )
         self.assertEqual(create_ws.status_code, 200)
-        workspace = create_ws.json()["workspace"]
-        ws_id = workspace["workspace_id"]
+        workspace = create_ws.json()["agent"]
+        ws_id = workspace["agent_id"]
 
         empty = client.get(
-            f"/api/v1/workspaces/{ws_id}/profile",
+            f"/api/v1/agents/{ws_id}/profile",
             headers={"Authorization": f"Bearer {alice_key}"},
         )
         self.assertEqual(empty.status_code, 200)
         self.assertEqual(empty.json()["profile"]["agent_type"], "")
 
         save = client.put(
-            f"/api/v1/workspaces/{ws_id}/profile",
+            f"/api/v1/agents/{ws_id}/profile",
             headers={"Authorization": f"Bearer {alice_key}"},
             json={
                 "agent_type": "code-reviewer",
@@ -131,7 +131,7 @@ class CodingAgentApiTest(unittest.TestCase):
 
         with patch("services.claude_code_runner.schedule_run", lambda run_id: None):
             create_run = client.post(
-                f"/api/v1/workspaces/{ws_id}/runs",
+                f"/api/v1/agents/{ws_id}/runs",
                 headers={"Authorization": f"Bearer {alice_key}"},
                 json={"prompt": "Review this patch."},
             )
@@ -159,18 +159,18 @@ class CodingAgentApiTest(unittest.TestCase):
         client = self._client()
         _alice, alice_key = self._account_key("Alice")
         create_ws = client.post(
-            "/api/v1/workspaces",
+            "/api/v1/agents",
             headers={"Authorization": f"Bearer {alice_key}"},
             json={"name": "Files Sandbox"},
         )
-        workspace = create_ws.json()["workspace"]
-        ws_id = workspace["workspace_id"]
+        workspace = create_ws.json()["agent"]
+        ws_id = workspace["agent_id"]
         root = agents.resolve_agent_path(workspace)
         (root / "notes.md").write_text("# hello", encoding="utf-8")
         (root / ".evotown" / "hidden.json").write_text("{}", encoding="utf-8")
 
         listed = client.get(
-            f"/api/v1/workspaces/{ws_id}/file-index",
+            f"/api/v1/agents/{ws_id}/file-index",
             headers={"Authorization": f"Bearer {alice_key}"},
         )
         self.assertEqual(listed.status_code, 200)
@@ -181,7 +181,7 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertFalse(any(p.startswith(".evotown/") for p in paths))
 
         with_dot = client.get(
-            f"/api/v1/workspaces/{ws_id}/file-index?include_dot=true",
+            f"/api/v1/agents/{ws_id}/file-index?include_dot=true",
             headers={"Authorization": f"Bearer {alice_key}"},
         )
         dot_paths = [item["path"] for item in with_dot.json()["entries"]]
@@ -195,15 +195,15 @@ class CodingAgentApiTest(unittest.TestCase):
         _alice, alice_key = self._account_key("Alice")
         with patch("services.claude_code_runner.schedule_run", lambda run_id: None):
             create_ws = client.post(
-                "/api/v1/workspaces",
+                "/api/v1/agents",
                 headers={"Authorization": f"Bearer {alice_key}"},
                 json={"name": "Coding Sandbox"},
             )
             self.assertEqual(create_ws.status_code, 200)
-            workspace = create_ws.json()["workspace"]
+            workspace = create_ws.json()["agent"]
 
             create_run = client.post(
-                f"/api/v1/workspaces/{workspace['workspace_id']}/runs",
+                f"/api/v1/agents/{workspace['agent_id']}/runs",
                 headers={"Authorization": f"Bearer {alice_key}"},
                 json={"prompt": "Summarize the Evotown workspace context.", "model": "claude-test"},
             )
@@ -215,7 +215,7 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertEqual(updated["status"], "succeeded")
         self.assertTrue(updated["signals"]["sdk_command_configured"] is False)
 
-        stored_workspace = agents.get_workspace(workspace["workspace_id"])
+        stored_workspace = agents.get_agent(workspace["agent_id"])
         assert stored_workspace is not None
         ws_root = agents.resolve_agent_path(stored_workspace)
         context_path = ws_root / ".evotown" / "AGENT_CONTEXT.md"
@@ -245,12 +245,12 @@ class CodingAgentApiTest(unittest.TestCase):
         _alice, alice_key = self._account_key("Alice")
         with patch("services.claude_code_runner.schedule_run", lambda run_id: None):
             workspace = client.post(
-                "/api/v1/workspaces",
+                "/api/v1/agents",
                 headers={"Authorization": f"Bearer {alice_key}"},
                 json={"name": "Inject Sandbox"},
-            ).json()["workspace"]
+            ).json()["agent"]
             create_run = client.post(
-                f"/api/v1/workspaces/{workspace['workspace_id']}/runs",
+                f"/api/v1/agents/{workspace['agent_id']}/runs",
                 headers={"Authorization": f"Bearer {alice_key}"},
                 json={
                     "prompt": "Use http-request skill and query demo database.",
@@ -285,7 +285,7 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertEqual(updated["signals"]["materialized_skill_count"], 1)
         self.assertEqual(updated["signals"]["mcp_connection_count"], 1)
 
-        stored_workspace = agents.get_workspace(workspace["workspace_id"])
+        stored_workspace = agents.get_agent(workspace["agent_id"])
         assert stored_workspace is not None
         root = agents.resolve_agent_path(stored_workspace)
         self.assertTrue((root / ".evotown" / "mcp_context.json").is_file())
@@ -305,12 +305,12 @@ class CodingAgentApiTest(unittest.TestCase):
         _alice, alice_key = self._account_key("Alice")
         with patch("services.claude_code_runner.schedule_run", lambda run_id: None):
             workspace = client.post(
-                "/api/v1/workspaces",
+                "/api/v1/agents",
                 headers={"Authorization": f"Bearer {alice_key}"},
                 json={"name": "SDK Sandbox"},
-            ).json()["workspace"]
+            ).json()["agent"]
             create_run = client.post(
-                f"/api/v1/workspaces/{workspace['workspace_id']}/runs",
+                f"/api/v1/agents/{workspace['agent_id']}/runs",
                 headers={"Authorization": f"Bearer {alice_key}"},
                 json={"prompt": "Add a comment to README.md", "model": "claude-sonnet-4"},
             )
@@ -380,9 +380,9 @@ class CodingAgentApiTest(unittest.TestCase):
         from services import claude_code_runner
 
         account, secret = self._account_key("CancelUser")
-        ws = agents.create_workspace(owner_account_id=account["account_id"], name="Cancel WS")
+        ws = agents.create_agent(owner_account_id=account["account_id"], name="Cancel WS")
         run = claude_agent_runs.create_run(
-            workspace_id=ws["workspace_id"],
+            agent_id=ws["agent_id"],
             account_id=account["account_id"],
             prompt="slow task",
             model="claude-sonnet-4",
@@ -398,9 +398,9 @@ class CodingAgentApiTest(unittest.TestCase):
         from infra import claude_agent_runs, agents
 
         account, _secret = self._account_key("StaleUser")
-        ws = agents.create_workspace(owner_account_id=account["account_id"], name="Stale WS")
+        ws = agents.create_agent(owner_account_id=account["account_id"], name="Stale WS")
         run = claude_agent_runs.create_run(
-            workspace_id=ws["workspace_id"],
+            agent_id=ws["agent_id"],
             account_id=account["account_id"],
             prompt="stale",
             model="claude-sonnet-4",
@@ -420,11 +420,11 @@ class CodingAgentApiTest(unittest.TestCase):
 
         client = self._client()
         account, secret = self._account_key("DeleteSessionUser")
-        ws = agents.create_workspace(owner_account_id=account["account_id"], name="Delete WS")
-        workspace_id = ws["workspace_id"]
+        ws = agents.create_agent(owner_account_id=account["account_id"], name="Delete WS")
+        workspace_id = ws["agent_id"]
 
         first = client.post(
-            f"/api/v1/workspaces/{workspace_id}/runs",
+            f"/api/v1/agents/{workspace_id}/runs",
             headers={"Authorization": f"Bearer {secret}"},
             json={"prompt": "first turn", "model": "claude-test"},
         )
@@ -432,7 +432,7 @@ class CodingAgentApiTest(unittest.TestCase):
         run1 = first.json()["run"]["run_id"]
 
         second = client.post(
-            f"/api/v1/workspaces/{workspace_id}/runs",
+            f"/api/v1/agents/{workspace_id}/runs",
             headers={"Authorization": f"Bearer {secret}"},
             json={"prompt": "second turn", "model": "claude-test", "previous_run_id": run1},
         )
@@ -440,7 +440,7 @@ class CodingAgentApiTest(unittest.TestCase):
         run2 = second.json()["run"]["run_id"]
 
         deleted = client.delete(
-            f"/api/v1/workspaces/{workspace_id}/sessions/{run1}",
+            f"/api/v1/agents/{workspace_id}/sessions/{run1}",
             headers={"Authorization": f"Bearer {secret}"},
         )
         self.assertEqual(deleted.status_code, 200)
@@ -456,12 +456,12 @@ class CodingAgentApiTest(unittest.TestCase):
 
         client = self._client()
         account, secret = self._account_key("UploadUser")
-        ws = agents.create_workspace(owner_account_id=account["account_id"], name="Upload WS")
-        workspace_id = ws["workspace_id"]
+        ws = agents.create_agent(owner_account_id=account["account_id"], name="Upload WS")
+        workspace_id = ws["agent_id"]
         headers = {"Authorization": f"Bearer {secret}"}
 
         uploaded = client.post(
-            f"/api/v1/workspaces/{workspace_id}/uploads",
+            f"/api/v1/agents/{workspace_id}/uploads",
             headers=headers,
             files=[
                 ("files", ("note.txt", b"hello attachment", "text/plain")),
@@ -475,7 +475,7 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertTrue(all(path.startswith("uploads/") for path in paths))
 
         created = client.post(
-            f"/api/v1/workspaces/{workspace_id}/runs",
+            f"/api/v1/agents/{workspace_id}/runs",
             headers=headers,
             json={
                 "prompt": "请阅读附件",
@@ -488,7 +488,7 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertEqual(run["signals"]["attachments"], paths)
 
         invalid = client.post(
-            f"/api/v1/workspaces/{workspace_id}/runs",
+            f"/api/v1/agents/{workspace_id}/runs",
             headers=headers,
             json={"prompt": "bad path", "model": "claude-test", "attachments": ["../README.md"]},
         )
@@ -498,14 +498,14 @@ class CodingAgentApiTest(unittest.TestCase):
         client = self._client()
         _alice, alice_key = self._account_key("Alice")
         create_ws = client.post(
-            "/api/v1/workspaces",
+            "/api/v1/agents",
             headers={"Authorization": f"Bearer {alice_key}"},
             json={"name": "Runtime Sandbox"},
         )
-        ws_id = create_ws.json()["workspace"]["workspace_id"]
+        ws_id = create_ws.json()["agent"]["agent_id"]
 
         save = client.put(
-            f"/api/v1/workspaces/{ws_id}/profile",
+            f"/api/v1/agents/{ws_id}/profile",
             headers={"Authorization": f"Bearer {alice_key}"},
             json={"runtime_engine": "codex", "default_model": "gpt-test"},
         )
@@ -513,7 +513,7 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertEqual(save.json()["profile"]["runtime_engine"], "codex")
 
         options = client.get(
-            f"/api/v1/agent/options?workspace_id={ws_id}",
+            f"/api/v1/agent/options?agent_id={ws_id}",
             headers={"Authorization": f"Bearer {alice_key}"},
         )
         self.assertEqual(options.status_code, 200)
@@ -527,21 +527,21 @@ class CodingAgentApiTest(unittest.TestCase):
         client = self._client()
         _alice, alice_key = self._account_key("Alice")
         create_ws = client.post(
-            "/api/v1/workspaces",
+            "/api/v1/agents",
             headers={"Authorization": f"Bearer {alice_key}"},
             json={"name": "Codex Dry Run"},
         )
-        workspace = create_ws.json()["workspace"]
-        ws_id = workspace["workspace_id"]
+        workspace = create_ws.json()["agent"]
+        ws_id = workspace["agent_id"]
         client.put(
-            f"/api/v1/workspaces/{ws_id}/profile",
+            f"/api/v1/agents/{ws_id}/profile",
             headers={"Authorization": f"Bearer {alice_key}"},
             json={"runtime_engine": "codex"},
         )
 
         with patch("services.claude_code_runner.schedule_run", lambda run_id: None):
             create_run = client.post(
-                f"/api/v1/workspaces/{ws_id}/runs",
+                f"/api/v1/agents/{ws_id}/runs",
                 headers={"Authorization": f"Bearer {alice_key}"},
                 json={"prompt": "Plan a refactor."},
             )

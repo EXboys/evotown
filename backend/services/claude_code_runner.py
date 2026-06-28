@@ -728,15 +728,26 @@ def _write_context_files(
             }
         )
 
-    # ── Generate .mcp.json with bridge if agent has MCP permissions ──
+    # ── Generate .mcp.json (bridge for policy-bound agents, or explicit run connections) ──
+    mcp_servers: dict[str, Any] = {}
     if _has_mcp:
         key = agents.get_agent_key(agent_id_val)
         run_id_val = str(run.get("run_id") or "")
         bridge_url = "http://localhost:8765/api/v1/mcp/bridge?agent_id=" + agent_id_val + "&token=" + key
         if run_id_val:
             bridge_url += "&run_id=" + run_id_val
-        mcp_servers_val = {"mcp": {"type": "http", "url": bridge_url}}
-        mcp_content = _json_dumps({"mcpServers": mcp_servers_val})
+        mcp_servers["mcp"] = {"type": "http", "url": bridge_url}
+    else:
+        for conn in (shared_context.get("mcp") or {}).get("connections") or []:
+            if not isinstance(conn, dict):
+                continue
+            url = str(conn.get("mcp_server_url") or "").strip()
+            if not url:
+                continue
+            key = str(conn.get("connection_id") or conn.get("name") or "database")
+            mcp_servers[key] = {"type": "http", "url": url}
+    if mcp_servers:
+        mcp_content = _json_dumps({"mcpServers": mcp_servers})
         mcp_path = root / ".mcp.json"
         mcp_path.write_text(mcp_content, encoding="utf-8")
         digest = hashlib.sha256(mcp_content.encode("utf-8")).hexdigest()

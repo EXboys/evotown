@@ -247,7 +247,7 @@ async def get_workspace_profile(agent_id: str, identity: dict | None = Depends(r
     identity = _require_identity(identity)
     _require_scope(identity, "agent.read", "agent.write", "console.read", "console.write")
     agent = _load_agent_for_identity(agent_id, identity)
-    return {"profile": workspace_profile.get_profile(workspace)}
+    return {"profile": workspace_profile.get_profile(agent)}
 
 
 @router.put("/agents/{agent_id}/profile")
@@ -266,7 +266,7 @@ async def update_workspace_profile(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="该智能体使用模板初始化，身份信息不可在工作区修改。请联系管理员在后台管理修改。")
     _validate_profile_text_fields(body)
     try:
-        profile = workspace_profile.save_profile(workspace, body.model_dump())
+        profile = workspace_profile.save_profile(agent, body.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return {"profile": profile}
@@ -407,7 +407,7 @@ async def upload_workspace_files(
         payload.append((name, content))
 
     try:
-        saved = workspace_uploads.save_uploads(workspace, payload)
+        saved = workspace_uploads.save_uploads(agent, payload)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

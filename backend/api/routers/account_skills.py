@@ -36,7 +36,7 @@ async def scan_workspace_skills(account_id: str):
     if not ws_list:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no workspace found for account")
     ws = ws_list[0]
-    root = agents.resolve_workspace_path(ws)
+    root = agents.resolve_agent_path(ws)
     skills_dir = root / ".evotown" / "skills"
     if not skills_dir.is_dir():
         return {"account_id": account_id, "skills": [], "workspace_root": str(root)}

@@ -119,7 +119,7 @@ async def describe_workspace_images(
 
     encoded = 0
     for rel in paths:
-        target = agents.resolve_workspace_path(workspace, rel)
+        target = agents.resolve_agent_path(workspace, rel)
         if not target.is_file():
             continue
         media_type, b64 = _prepare_image_b64(target)

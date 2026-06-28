@@ -55,8 +55,8 @@ class HostedDispatchTest(unittest.TestCase):
     def test_workspace_registers_fleet_engine(self) -> None:
         from infra import hosted_agent_engines, agents
 
-        workspace = agents.create_workspace(owner_account_id="acct-1", name="Dispatch Sandbox")
-        engine_id = hosted_agent_engines.engine_id_for_workspace(workspace["workspace_id"])
+        agent = agents.create_agent(owner_account_id="acct-1", name="Dispatch Sandbox")
+        engine_id = hosted_agent_engines.engine_id_for_agent(agent["agent_id"])
 
         client = self._client()
         fleet = client.get("/api/v1/engines/fleet", headers={"X-Admin-Token": "test-admin"})
@@ -71,8 +71,8 @@ class HostedDispatchTest(unittest.TestCase):
         from infra import hosted_agent_engines, agents
         from services import hosted_dispatch_worker
 
-        workspace = agents.create_workspace(owner_account_id="acct-dispatch", name="Job Target")
-        engine_id = hosted_agent_engines.engine_id_for_workspace(workspace["workspace_id"])
+        agent = agents.create_agent(owner_account_id="acct-dispatch", name="Job Target")
+        engine_id = hosted_agent_engines.engine_id_for_agent(agent["agent_id"])
 
         client = self._client()
         admin = {"X-Admin-Token": "test-admin"}
@@ -114,8 +114,8 @@ class HostedDispatchTest(unittest.TestCase):
         from infra import claude_agent_runs, hosted_agent_engines, agents
         from services import hosted_dispatch_worker
 
-        workspace = agents.create_workspace(owner_account_id="acct-model", name="Model Target")
-        engine_id = hosted_agent_engines.engine_id_for_workspace(workspace["workspace_id"])
+        agent = agents.create_agent(owner_account_id="acct-model", name="Model Target")
+        engine_id = hosted_agent_engines.engine_id_for_agent(agent["agent_id"])
 
         client = self._client()
         admin = {"X-Admin-Token": "test-admin"}
@@ -153,9 +153,9 @@ class HostedDispatchTest(unittest.TestCase):
     def test_archived_workspace_rejects_dispatch_target(self) -> None:
         from infra import hosted_agent_engines, agents
 
-        workspace = agents.create_workspace(owner_account_id="acct-arch", name="Archived")
-        engine_id = hosted_agent_engines.engine_id_for_workspace(workspace["workspace_id"])
-        agents.update_workspace(workspace["workspace_id"], status=agents.WORKSPACE_STATUS_ARCHIVED)
+        agent = agents.create_agent(owner_account_id="acct-arch", name="Archived")
+        engine_id = hosted_agent_engines.engine_id_for_agent(agent["agent_id"])
+        agents.update_agent(agent["agent_id"], status=agents.AGENT_STATUS_ARCHIVED)
 
         client = self._client()
         admin = {"X-Admin-Token": "test-admin"}

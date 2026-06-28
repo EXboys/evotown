@@ -488,12 +488,11 @@ async def list_agent_sessions(agent_id: str, identity: dict | None = Depends(req
     _load_agent_for_identity(agent_id, identity)
 
     # Fetch all runs to build accurate session groups (max 500 to cap cost)
-    result = claude_agent_runs.list_runs(
-        agent_id=agent_id,
+    all_runs = claude_agent_runs.list_runs_for_agent(
+        agent_id,
         account_id=None if _is_admin(identity) else _account_id(identity),
-        limit=500,
     )
-    runs = result["runs"]
+    runs = all_runs
     groups = claude_agent_runs.build_session_groups(runs)
 
     sessions = []
@@ -532,31 +531,18 @@ async def list_session_runs(
     _require_scope(identity, "agent.run", "agent.read", "console.read", "console.write")
     _load_agent_for_identity(agent_id, identity)
 
-    result = claude_agent_runs.list_runs(
-        agent_id=agent_id,
+    payload = claude_agent_runs.list_session_runs_page(
+        agent_id,
+        session_id,
         account_id=None if _is_admin(identity) else _account_id(identity),
-        limit=500,
+        limit=limit,
+        asc=asc,
+        before=before,
+        after=after,
     )
-    all_runs = result["runs"]
-    run_ids_set = set(claude_agent_runs.session_run_ids(all_runs, session_id))
-    if not run_ids_set:
+    if not payload["runs"]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
-
-    chain = [r for r in all_runs if r["run_id"] in run_ids_set]
-    effective_limit = max(1, min(limit, 100))
-
-    if asc:
-        chain.sort(key=lambda r: r["created_at"])  # oldest first
-        if after:
-            chain = [r for r in chain if r["created_at"] > after]
-    else:
-        chain.sort(key=lambda r: r["created_at"], reverse=True)  # newest first
-        if before:
-            chain = [r for r in chain if r["created_at"] < before]
-
-    has_more = len(chain) > effective_limit
-    page = chain[:effective_limit]
-    return {"runs": page, "has_more": has_more}
+    return payload
 
 
 @router.get("/agent-runs/{run_id}")

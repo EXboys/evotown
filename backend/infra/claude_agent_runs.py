@@ -306,6 +306,60 @@ def list_stale_active_runs(*, timeout_sec: int, limit: int = 50) -> list[dict[st
     return [_run_from_row(row) for row in rows]
 
 
+def list_runs_for_agent(
+    agent_id: str,
+    *,
+    account_id: str | None = None,
+    max_rows: int = 500,
+) -> list[dict[str, Any]]:
+    """Load all runs for one agent (bounded) — used for session grouping."""
+    where = ["agent_id=?"]
+    params: list[Any] = [agent_id]
+    if account_id:
+        where.append("account_id=?")
+        params.append(account_id)
+    cap = max(1, min(max_rows, 500))
+    params.append(cap)
+    rows = _ensure_conn().execute(
+        f"SELECT * FROM claude_agent_runs WHERE {' AND '.join(where)} ORDER BY created_at ASC LIMIT ?",
+        params,
+    ).fetchall()
+    return [_run_from_row(row) for row in rows]
+
+
+def list_session_runs_page(
+    agent_id: str,
+    session_id: str,
+    *,
+    account_id: str | None = None,
+    limit: int = 100,
+    asc: bool = False,
+    before: str | None = None,
+    after: str | None = None,
+) -> dict[str, Any]:
+    """Return paginated runs for one conversation session."""
+    all_runs = list_runs_for_agent(agent_id, account_id=account_id)
+    run_ids_set = set(session_run_ids(all_runs, session_id))
+    if not run_ids_set:
+        return {"runs": [], "has_more": False}
+
+    chain = [r for r in all_runs if r["run_id"] in run_ids_set]
+    effective_limit = max(1, min(limit, 100))
+
+    if asc:
+        chain.sort(key=lambda r: r["created_at"])
+        if after:
+            chain = [r for r in chain if r["created_at"] > after]
+    else:
+        chain.sort(key=lambda r: r["created_at"], reverse=True)
+        if before:
+            chain = [r for r in chain if r["created_at"] < before]
+
+    has_more = len(chain) > effective_limit
+    page = chain[:effective_limit]
+    return {"runs": page, "has_more": has_more}
+
+
 def build_session_groups(runs: list[dict[str, Any]]) -> dict[str, list[str]]:
     """Map session root run_id -> all run_ids in the conversation chain."""
     by_id = {run["run_id"]: run for run in runs}

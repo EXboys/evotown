@@ -336,17 +336,36 @@ export function CodingAgentChatPage() {
   const hasDevFiles = devDirRoot ? true : false;
   useEffect(() => { if (hasDevFiles) setRightOpen(true); }, [hasDevFiles]);
 
-  const reloadSessions = useCallback(async () => {
-    if (!agentId) return;
-    try {
-      const data = await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions`).then((res) =>
-        readJson<{ sessions?: Array<{ id: string; prompt: string; count: number; lastAt: string; lastStatus: AgentRun["status"] }> }>(res),
+  const [sessionLoading, setSessionLoading] = useState(false);
+
+  const mergeRuns = useCallback((incoming: AgentRun[]) => {
+    setRuns((prev) => {
+      const merged = new Map(prev.map((run) => [run.run_id, run]));
+      for (const run of incoming) merged.set(run.run_id, run);
+      return Array.from(merged.values()).sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
       );
-      setSessions(data.sessions || []);
+    });
+  }, []);
+
+  const loadSessionRuns = useCallback(async (sessionId: string) => {
+    if (!agentId || !sessionId) return;
+    setSessionLoading(true);
+    try {
+      const data = await adminFetch(
+        `/api/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/runs?limit=${PAGE_SIZE}&asc=true`,
+      ).then((res) => readJson<{ runs?: AgentRun[]; has_more?: boolean }>(res));
+      mergeRuns(data.runs || []);
+      setHasMoreRuns(!!data.has_more);
     } catch {
-      /* ignore */
+      /* keep prior runs; thread may show partial data */
+    } finally {
+      setSessionLoading(false);
     }
-  }, [agentId]);
+  }, [agentId, mergeRuns]);
+
+  const loadSessionRunsRef = useRef(loadSessionRuns);
+  loadSessionRunsRef.current = loadSessionRuns;
 
   const loadDevDir = (dir: string) => {
     if (!agentId) return;
@@ -406,22 +425,45 @@ export function CodingAgentChatPage() {
     if (!agentId) return;
     setLoading(true);
     try {
-      const wsData = await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}`).then((res) => readJson<{ agent: Agent; runs?: AgentRun[] }>(res));
-      setAgent(wsData.agent); setError("");
-      const runData = await adminFetch(`/api/v1/agent-runs?agent_id=${encodeURIComponent(agentId)}&limit=${PAGE_SIZE}`).then((res) => readJson<{ runs?: AgentRun[]; has_more?: boolean }>(res));
-      const loaded = runData.runs || [];
-      setRuns(loaded);
-      setHasMoreRuns(!!runData.has_more);
+      const [wsData, sessionsData] = await Promise.all([
+        adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}`).then((res) =>
+          readJson<{ agent: Agent; runs?: AgentRun[] }>(res),
+        ),
+        adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions`).then((res) =>
+          readJson<{ sessions?: Session[] }>(res),
+        ),
+      ]);
+      setAgent(wsData.agent);
+      setSessions(sessionsData.sessions || []);
+      if (wsData.runs?.length) mergeRuns(wsData.runs);
+      setError("");
       void loadAgentFiles(true);
-      try {
-        const opts = await adminFetch(`/api/v1/agent/options?agent_id=${encodeURIComponent(agentId)}`).then((res) => res.json());
-        setAssignedSkills((opts.skills || []) as SkillOption[]);
-        const dm = (opts.default_model as string) || "";
-        if (dm) setModel(dm);
-      } catch { /* ignore */ }
-    } catch (err) { setError(err instanceof Error ? err.message : "加载失败"); }
-    finally { setLoading(false); }
-  }, [agentId, loadAgentFiles]);
+      void adminFetch(`/api/v1/agent/options?agent_id=${encodeURIComponent(agentId)}`)
+        .then((res) => res.json())
+        .then((opts) => {
+          setAssignedSkills((opts.skills || []) as SkillOption[]);
+          const dm = (opts.default_model as string) || "";
+          if (dm) setModel(dm);
+        })
+        .catch(() => {});
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }, [agentId, loadAgentFiles, mergeRuns]);
+
+  const reloadSessions = useCallback(async () => {
+    if (!agentId) return;
+    try {
+      const data = await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions`).then((res) =>
+        readJson<{ sessions?: Session[] }>(res),
+      );
+      setSessions(data.sessions || []);
+    } catch {
+      /* ignore */
+    }
+  }, [agentId]);
 
   const sessionRootId = useMemo(
     () => (selectedRunId ? resolveSessionRoot(runs, selectedRunId) : ""),
@@ -474,6 +516,12 @@ export function CodingAgentChatPage() {
     setSelectedRunId(sessions[0].id);
   }, [selectedRunId, sessions, loading]);
 
+  useEffect(() => {
+    const root = sessionRootId || selectedRunId;
+    if (!root || loading) return;
+    void loadSessionRunsRef.current(root);
+  }, [sessionRootId, selectedRunId, loading, agentId]);
+
   // Events — SSE stream for running runs, one-time fetch for completed runs
   const sseRef = useRef<AbortController | null>(null);
   const loadRef = useRef(load);
@@ -483,28 +531,7 @@ export function CodingAgentChatPage() {
 
   const refreshActiveSession = useCallback(async (sessionId: string) => {
     if (!agentId || !sessionId) return;
-    try {
-      const [sessionRunsData, sessionsData] = await Promise.all([
-        adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/runs?limit=${PAGE_SIZE}&asc=true`).then((res) =>
-          readJson<{ runs?: AgentRun[]; has_more?: boolean }>(res),
-        ),
-        adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions`).then((res) =>
-          readJson<{ sessions?: Session[] }>(res),
-        ),
-      ]);
-      const sessionRuns = sessionRunsData.runs || [];
-      setRuns((prev) => {
-        const merged = new Map(prev.map((run) => [run.run_id, run]));
-        for (const run of sessionRuns) merged.set(run.run_id, run);
-        return Array.from(merged.values()).sort(
-          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-        );
-      });
-      setSessions(sessionsData.sessions || []);
-    } catch {
-      await loadRef.current();
-      await reloadSessionsRef.current();
-    }
+    await Promise.all([loadSessionRunsRef.current(sessionId), reloadSessionsRef.current()]);
   }, [agentId]);
 
   const refreshActiveSessionRef = useRef(refreshActiveSession);
@@ -517,15 +544,16 @@ export function CodingAgentChatPage() {
 
     // One-time fetch events for each run in the chain
     const fetchAllEvents = async () => {
-      for (const run of runChain) {
+      await Promise.all(runChain.map(async (run) => {
         if (cancelled) return;
-        // Skip runs that already have events loaded
-        if (eventsByRun[run.run_id]?.length) continue;
+        if (eventsByRun[run.run_id]?.length) return;
         try {
           const data = await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(run.run_id)}/events`).then((res) => readJson<{ events?: AgentRunEvent[] }>(res));
-          if (!cancelled) setEventsByRun(prev => ({ ...prev, [run.run_id]: data.events || [] }));
-        } catch { if (!cancelled) setEventsByRun(prev => ({ ...prev, [run.run_id]: prev[run.run_id] || [] })); }
-      }
+          if (!cancelled) setEventsByRun((prev) => ({ ...prev, [run.run_id]: data.events || [] }));
+        } catch {
+          if (!cancelled) setEventsByRun((prev) => ({ ...prev, [run.run_id]: prev[run.run_id] || [] }));
+        }
+      }));
     };
     void fetchAllEvents();
 
@@ -614,30 +642,6 @@ export function CodingAgentChatPage() {
       sseRef.current = null;
     };
   }, [selectedRunId, runChain.map(r => r.run_id).join(',')]);
-
-  // When clicking a session not yet loaded, fetch newest 10 + root run
-  useEffect(() => {
-    if (!agentId || !selectedRunId) return;
-    const hasRuns = runs.some(r => r.run_id === selectedRunId);
-    if (hasRuns) return;
-    let cancelled = false;
-    Promise.all([
-      adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(selectedRunId)}/runs?limit=${PAGE_SIZE}`).then(res => res.json()),
-      adminFetch(`/api/v1/agent-runs/${encodeURIComponent(selectedRunId)}`).then(res => res.json()),
-    ]).then(([pageData, rootData]: [{ runs?: AgentRun[]; has_more?: boolean }, { run?: AgentRun }]) => {
-        if (cancelled) return;
-        const all = pageData.runs || [];
-        const rootRun = rootData.run;
-        if (rootRun && !all.some(r => r.run_id === rootRun.run_id)) {
-          all.push(rootRun);
-        }
-        if (!all.length) return;
-        setRuns(all);
-        setHasMoreRuns(!!pageData.has_more);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [agentId, selectedRunId, runs.length]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -758,11 +762,6 @@ export function CodingAgentChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId, runChain.map((r) => `${runAttachmentPaths(r).join(",")}|${r.artifact_manifest?.map((a) => a.path).join(",") || ""}`).join(";")]);
 
-  // Sessions — loaded from dedicated endpoint (not computed from paginated runs)
-  useEffect(() => {
-    void reloadSessions();
-  }, [reloadSessions]);
-
   const saveSessionTitle = (sessionId: string, title: string) => {
     const next = { ...sessionTitles, [sessionId]: title.trim() || "" };
     setSessionTitles(next);
@@ -865,6 +864,7 @@ export function CodingAgentChatPage() {
       for (const item of pendingAttachments) { if (item.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(item.previewUrl); }
       setPendingAttachments([]);
       void reloadSessions();
+      void loadSessionRuns(nextRoot);
       void loadAgentFiles(true);
     } catch (err) { setError(err instanceof Error ? err.message : "运行失败"); }
     finally { setBusy(false); }
@@ -1220,6 +1220,10 @@ export function CodingAgentChatPage() {
                   </div>
                 );
               })}
+            </div>
+          ) : (loading || sessionLoading) && selectedRunId ? (
+            <div className="space-y-4 p-4">
+              {[0, 1].map((i) => (<div key={i} className="animate-pulse space-y-3"><div className="ml-auto h-16 w-2/3 max-w-[75%] rounded-2xl bg-slate-100" /><div className="h-24 w-4/5 max-w-[75%] rounded-2xl border border-slate-100 bg-white" /></div>))}
             </div>
           ) : loading ? (
             <div className="space-y-4 p-4">

@@ -55,6 +55,44 @@ function runAttachmentPaths(run: AgentRun): string[] {
   return raw.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 }
 
+function eventAssistantText(payload: Record<string, unknown> | undefined): string {
+  if (!payload) return "";
+  const text = typeof payload.text === "string" ? payload.text : "";
+  const summary = typeof payload.summary === "string" ? payload.summary : "";
+  return (text || summary).trim();
+}
+
+function streamingAssistantTexts(events: AgentRunEvent[]): string[] {
+  const texts: string[] = [];
+  const seen = new Set<string>();
+  for (const ev of events) {
+    if (ev.event_type !== "assistant_message") continue;
+    const t = eventAssistantText(ev.payload);
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    texts.push(t);
+  }
+  return texts;
+}
+
+function runReplyFallback(run: AgentRun, events: AgentRunEvent[]): string {
+  if (streamingAssistantTexts(events).length) return "";
+  return (run.result_summary || "").trim();
+}
+
+function AssistantReplyBlocks({ texts }: { texts: string[] }) {
+  if (!texts.length) return null;
+  return (
+    <>
+      {texts.map((text, index) => (
+        <div key={`${index}-${text.slice(0, 24)}`} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+          <MarkdownContent>{text}</MarkdownContent>
+        </div>
+      ))}
+    </>
+  );
+}
+
 function isImageAttachmentPath(path: string): boolean {
   return /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(path);
 }
@@ -128,7 +166,7 @@ function describeEvent(event: AgentRunEvent): { icon: string; title: string; det
     case "vision.ready": return { icon: "👁️", title: "视觉分析完成", detail: `${num("images") ?? 0} 张图片` };
     case "vision.error": return { icon: "⚠️", title: "视觉分析失败", detail: str("error") || "视觉模型不可用" };
     case "vision.skipped": return { icon: "ℹ️", title: "未启用视觉模型", detail: "" };
-    case "assistant_message": return { icon: "🤖", title: "Agent 返回", detail: str("text")?.slice(0, 80) || "" };
+    case "assistant_message": return { icon: "🤖", title: "Agent 返回", detail: (str("text") || str("summary"))?.slice(0, 80) || "" };
     case "tool_call": return { icon: "🔧", title: "调用工具", detail: str("tool") || "" };
     case "tool_result": {
       const err = payload["is_error"];
@@ -360,6 +398,8 @@ export function CodingAgentChatPage() {
 
   // Events — SSE stream for running runs, one-time fetch for completed runs
   const sseRef = useRef<AbortController | null>(null);
+  const loadRef = useRef(load);
+  loadRef.current = load;
   useEffect(() => {
     if (!selectedRunId || !runChain.length) return;
     let cancelled = false;
@@ -436,6 +476,7 @@ export function CodingAgentChatPage() {
                   };
                   return { ...prev, [runId]: [...existing, doneEvent] };
                 });
+                if (!cancelled) void loadRef.current();
                 return; // stream done
               }
             }
@@ -910,8 +951,11 @@ export function CodingAgentChatPage() {
               )}
               {runChain.map((run) => {
                 const isLast = run.run_id === selectedRun?.run_id;
-                const runRunning = run.status === "running" || run.status === "queued";
                 const runEvents = eventsByRun[run.run_id] || [];
+                const replyTexts = streamingAssistantTexts(runEvents);
+                const replyFallback = runReplyFallback(run, runEvents);
+                const hasReply = replyTexts.length > 0 || Boolean(replyFallback);
+                const runRunning = (run.status === "running" || run.status === "queued") && !hasReply && !run.error;
                 const attachments = runAttachmentPaths(run);
                 const isHtmlRun = (run.artifact_manifest || []).some((a) => /\.html?$/i.test(a.path) && !a.path.startsWith(".evotown/"));
                 return (
@@ -963,7 +1007,7 @@ export function CodingAgentChatPage() {
                             <div className="mb-2 flex flex-wrap items-center gap-2">
                               {isLast && runRunning && <button type="button" onClick={() => void cancelRun(run.run_id)} disabled={busy} className="rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50">取消</button>}
                             </div>
-                            {runRunning && !run.result_summary && !run.error ? (
+                            {runRunning ? (
                               <div className="space-y-2">
                                 <div className="flex items-center gap-2 text-slate-500"><TypingDots /><span>Agent 正在执行…</span></div>
                                 {(() => {
@@ -975,30 +1019,24 @@ export function CodingAgentChatPage() {
                                   }
                                   return null;
                                 })()}
-                                {runEvents.filter(e => e.event_type === "assistant_message").map((ev) => {
-                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || "";
-                                  if (!text.trim()) return null;
-                                  return (
-                                    <div key={ev.id} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
-                                      <MarkdownContent>{text}</MarkdownContent>
-                                    </div>
-                                  );
-                                })}
+                                <AssistantReplyBlocks texts={replyTexts} />
                               </div>
                             ) : isLast ? (
                               <div className="space-y-2">
-                                {runEvents.filter(e => e.event_type === "assistant_message").map((ev) => {
-                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || "";
-                                  if (!text.trim()) return null;
-                                  return (
-                                    <div key={ev.id} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
-                                      <MarkdownContent>{text}</MarkdownContent>
-                                    </div>
-                                  );
-                                })}
-                                {run.status === "succeeded" && (
+                                <AssistantReplyBlocks texts={replyTexts} />
+                                {!replyTexts.length && replyFallback ? (
+                                  <div className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+                                    <MarkdownContent>{replyFallback}</MarkdownContent>
+                                  </div>
+                                ) : null}
+                                {run.status === "succeeded" && hasReply && (
                                   <div className="rounded-xl border border-green-200 bg-green-50/50 px-3 py-2 text-xs text-green-700">
                                     ✅ 执行完成
+                                  </div>
+                                )}
+                                {run.status === "succeeded" && !hasReply && (
+                                  <div className="rounded-xl border border-green-200 bg-green-50/50 px-3 py-2 text-xs text-green-700">
+                                    ✅ 执行完成（无文本回复）
                                   </div>
                                 )}
                                 {run.status === "failed" && (
@@ -1014,16 +1052,13 @@ export function CodingAgentChatPage() {
                               </div>
                             ) : (
                               <div className="space-y-2">
-                                {runEvents.filter(e => e.event_type === "assistant_message").map((ev) => {
-                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || "";
-                                  if (!text.trim()) return null;
-                                  return (
-                                    <div key={ev.id} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
-                                      <MarkdownContent>{text}</MarkdownContent>
-                                    </div>
-                                  );
-                                })}
-                                {run.status === "succeeded" && (
+                                <AssistantReplyBlocks texts={replyTexts} />
+                                {!replyTexts.length && replyFallback ? (
+                                  <div className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+                                    <MarkdownContent>{replyFallback}</MarkdownContent>
+                                  </div>
+                                ) : null}
+                                {run.status === "succeeded" && !hasReply && (
                                   <div className="rounded-xl border border-green-200 bg-green-50/50 px-3 py-2 text-xs text-green-700">✅ 执行完成</div>
                                 )}
                                 {run.status === "failed" && (
@@ -1036,10 +1071,7 @@ export function CodingAgentChatPage() {
                             )}
                             {/* Webview inline — full width */}
                             {(() => {
-                              const allText = runEvents
-                                .filter(e => e.event_type === "assistant_message")
-                                .map(e => (e.payload as Record<string,unknown> | undefined)?.text as string || "")
-                                .join("\n");
+                              const allText = [...replyTexts, replyFallback].filter(Boolean).join("\n");
                               return <WebviewIframes text={allText} />;
                             })()}
                             {/* Image/Video inline */}

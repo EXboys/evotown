@@ -1262,7 +1262,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
     claude_agent_runs.append_event(
         run_id,
         "assistant_message" if status == "succeeded" else "run.error",
-        {"exit_code": exit_code, "summary": summary[:1000]},
+        {"exit_code": exit_code, "summary": summary[:1000], "text": summary[:1000]},
     )
     updated = claude_agent_runs.update_run_status(
         run_id,

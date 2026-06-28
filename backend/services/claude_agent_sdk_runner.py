@@ -144,16 +144,17 @@ async def run_agent_sdk(
         elif isinstance(message, ResultMessage):
             if message.result:
                 result_str = str(message.result)
-                log_lines.append(result_str)
-                if run_id:
-                    try:
-                        claude_agent_runs.append_event(
-                            run_id,
-                            "assistant_message",
-                            {"text": result_str, "seq": len(log_lines), "final": True},
-                        )
-                    except Exception:
-                        pass
+                if result_str and (not log_lines or log_lines[-1] != result_str):
+                    log_lines.append(result_str)
+                    if run_id:
+                        try:
+                            claude_agent_runs.append_event(
+                                run_id,
+                                "assistant_message",
+                                {"text": result_str, "seq": len(log_lines), "final": True},
+                            )
+                        except Exception:
+                            pass
             if getattr(message, "errors", None):
                 log_lines.extend(str(item) for item in message.errors)
             if message.subtype == "success" and not message.is_error:

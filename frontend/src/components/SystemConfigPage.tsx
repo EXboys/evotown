@@ -94,8 +94,8 @@ export default function SystemConfigPage({ locale = "zh" }: { locale?: Locale })
         setRestartNeeded(data.restart_needed);
       }
       setMsg({ type: "ok", text: c.saved });
-    } catch (e: any) {
-      setMsg({ type: "err", text: e.message || c.saveErr });
+    } catch (e: unknown) {
+      setMsg({ type: "err", text: e instanceof Error ? e.message : c.saveErr });
     } finally {
       setSaving(false);
     }

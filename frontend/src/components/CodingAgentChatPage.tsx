@@ -1240,7 +1240,7 @@ function FileErrorModal({ err, onClose }: { err: { path: string; message: string
 
 // ── WebviewIframes: detect webview URLs in text and embed as iframes ──────────
 
-const WEBVIEW_URL_RE = /\/api\/v1\/webview\/([^\s\)]+)/gi;
+const WEBVIEW_URL_RE = /\/api\/v1\/webview\/([^\s)]+)/gi;
 
 function WebviewIframes({ text }: { text: string }) {
   const urls = Array.from(text.matchAll(WEBVIEW_URL_RE), (m) => m[0]);

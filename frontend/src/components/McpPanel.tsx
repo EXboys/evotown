@@ -788,6 +788,35 @@ function McpDetailDrawer({
   );
 }
 
+type McpAgentPolicy = {
+  agent_id: string;
+  enabled: boolean;
+};
+
+type McpRolePolicy = {
+  role_id: string;
+  role_name: string;
+  enabled: boolean;
+  members?: string[];
+};
+
+type McpBindingsDrawerData = {
+  policies: McpAgentPolicy[];
+  role_policies: McpRolePolicy[];
+};
+
+type McpCallRecord = {
+  id: string | number;
+  called_at: string;
+};
+
+type McpCallsDrawerData = {
+  total: number;
+  calls: McpCallRecord[];
+};
+
+type DetailDrawerData = McpBindingsDrawerData | McpCallsDrawerData;
+
 // ── Detail Drawer (bindings / calls) ─────────────────────────────────────
 
 function DetailDrawer({
@@ -799,7 +828,7 @@ function DetailDrawer({
   name: string;
   onClose: () => void;
 }) {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<DetailDrawerData | null>(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const pageSize = 20;
@@ -823,7 +852,7 @@ function DetailDrawer({
     finally { setLoading(false); setPage(p); }
   };
 
-  const totalPages = type === "calls" ? Math.ceil((data?.total || 0) / pageSize) : 1;
+  const totalPages = type === "calls" ? Math.ceil(((data as McpCallsDrawerData | null)?.total || 0) / pageSize) : 1;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -840,9 +869,14 @@ function DetailDrawer({
             <div className="text-xs text-slate-400">加载中…</div>
           ) : type === "bindings" ? (
             <div className="space-y-4">
-              {(data?.policies?.length || data?.role_policies?.length) ? (
+              {(() => {
+                const bindings = data as McpBindingsDrawerData | null;
+                if (!bindings?.policies?.length && !bindings?.role_policies?.length) {
+                  return <div className="text-xs text-slate-400">暂无绑定记录</div>;
+                }
+                return (
                 <>
-                  {data?.policies?.length > 0 && (
+                  {bindings.policies?.length ? (
                     <div>
                       <div className="text-xs font-medium text-slate-600 mb-2">直接绑定</div>
                       <div className="overflow-hidden rounded-lg border border-slate-100">
@@ -855,7 +889,7 @@ function DetailDrawer({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-50">
-                            {data.policies.map((p: any) => (
+                            {bindings.policies.map((p) => (
                               <tr key={p.agent_id} className="hover:bg-slate-50/50">
                                 <td className="px-3 py-1.5 font-mono text-[10px] text-slate-600">{p.agent_id}</td>
                                 <td className="px-3 py-1.5">
@@ -867,8 +901,8 @@ function DetailDrawer({
                         </table>
                       </div>
                     </div>
-                  )}
-                  {data?.role_policies?.length > 0 && (
+                  ) : null}
+                  {bindings.role_policies?.length ? (
                     <div>
                       <div className="text-xs font-medium text-slate-600 mb-2">角色绑定</div>
                       <div className="overflow-hidden rounded-lg border border-slate-100">
@@ -881,7 +915,7 @@ function DetailDrawer({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-50">
-                            {data.role_policies.map((p: any) => (
+                            {bindings.role_policies.map((p) => (
                               <tr key={p.role_id} className="hover:bg-slate-50/50">
                                 <td className="px-3 py-1.5 font-medium text-slate-700">{p.role_name}</td>
                                 <td className="px-3 py-1.5">
@@ -894,18 +928,17 @@ function DetailDrawer({
                         </table>
                       </div>
                     </div>
-                  )}
+                  ) : null}
                 </>
-              ) : (
-                <div className="text-xs text-slate-400">暂无绑定记录</div>
-              )}
+                );
+              })()}
             </div>
           ) : (
             <div>
               <div className="text-xs text-slate-500 mb-3">
-                共 {data?.total || 0} 条记录，第 {page * pageSize + 1}–{Math.min((page + 1) * pageSize, data?.total || 0)} 条
+                共 {(data as McpCallsDrawerData | null)?.total || 0} 条记录，第 {page * pageSize + 1}–{Math.min((page + 1) * pageSize, (data as McpCallsDrawerData | null)?.total || 0)} 条
               </div>
-              {data?.calls?.length ? (
+              {(data as McpCallsDrawerData | null)?.calls?.length ? (
                 <div className="overflow-hidden rounded-lg border border-slate-100">
                   <table className="w-full text-xs">
                     <thead>
@@ -915,7 +948,7 @@ function DetailDrawer({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {data.calls.map((c: any, i: number) => (
+                      {(data as McpCallsDrawerData).calls.map((c) => (
                         <tr key={c.id} className="hover:bg-slate-50/50">
                           <td className="px-3 py-1.5 font-mono text-[10px] text-slate-400">{c.id}</td>
                           <td className="px-3 py-1.5 text-slate-600">{fmtTime(c.called_at)}</td>

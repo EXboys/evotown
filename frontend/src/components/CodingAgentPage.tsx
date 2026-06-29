@@ -421,6 +421,17 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialAgentId?: s
                     </span>
                     <button
                       type="button"
+                      title="技能下发"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setSkillsWsId(agent.owner_account_id);
+                        setSkillsWsName(agent.name);
+                      }}
+                      className="rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs text-indigo-700 hover:bg-indigo-100"
+                    >🧩 技能</button>
+                    <button
+                      type="button"
                       title="设置"
                       onClick={(event) => { event.preventDefault(); event.stopPropagation(); openEdit(agent); }}
                       className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"

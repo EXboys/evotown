@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { adminFetch } from "../hooks/useAdminToken";
 import { formatDateTimeShort } from "../lib/datetime";
+import { SkillAccountAssignSection, SkillBundlePublishSection } from "./SkillsDispatchSections";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,7 @@ type TestRun = { id: number; skill_id: string; run_id: string; test_prompt: stri
 type WorkspaceSkill = { skill_id: string; name: string; description: string; scripts: string[]; };
 
 type SkillsTab = "all" | "draft" | "pending" | "approved" | "deprecated";
+type SkillsPageSection = "library" | "publish" | "assign";
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -51,6 +53,7 @@ export function SkillsManagementPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [tab, setTab] = useState<SkillsTab>("all");
+  const [pageSection, setPageSection] = useState<SkillsPageSection>("library");
   const [filters, setFilters] = useState({ query: "", source_type: "", tag: "" });
 
   // Detail
@@ -124,14 +127,40 @@ export function SkillsManagementPage() {
     <div className="space-y-5">
       {/* Top bar */}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="text-sm text-slate-500">统一技能管理：Agent 创建 → 草稿 → 审核 → 入池 → 下发。企业技能 / 外部导入合流管理。</p>
+        <p className="text-sm text-slate-500">统一技能管理：Agent 创建 → 草稿 → 审核 → 入池 → <strong className="text-slate-700">发布 Bundle / 账号下发</strong>（见下方 Tab）。</p>
+        {pageSection === "library" ? (
         <div className="flex gap-2">
           <button type="button" onClick={loadSkills} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">{loading ? "刷新中…" : "刷新"}</button>
           <button type="button" onClick={() => { setExtractOpen(true); setError(""); }} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100">⬇ 提取技能</button>
           <button type="button" onClick={() => { setUploadOpen(true); setError(""); }} className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800">+ 上传技能</button>
         </div>
+        ) : null}
       </div>
 
+      {/* Section tabs: library / publish / assign */}
+      <div className="flex flex-wrap gap-2 rounded-xl bg-slate-100 p-1">
+        {([
+          { id: "library" as const, label: "技能库", desc: "上传 · 审核 · 测试" },
+          { id: "publish" as const, label: "发布 Bundle", desc: "本机 Agent sync" },
+          { id: "assign" as const, label: "账号下发", desc: "云端 Agent 挂载" },
+        ]).map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setPageSection(item.id)}
+            className={`rounded-lg px-4 py-2.5 text-left transition ${pageSection === item.id ? "bg-white text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
+          >
+            <span className="block text-sm font-semibold">{item.label}</span>
+            <span className="mt-0.5 block text-xs font-normal text-slate-500">{item.desc}</span>
+          </button>
+        ))}
+      </div>
+
+      {pageSection === "publish" ? <SkillBundlePublishSection /> : null}
+      {pageSection === "assign" ? <SkillAccountAssignSection /> : null}
+
+      {pageSection === "library" ? (
+      <>
       {/* Stat cards */}
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="全部" value={counts.all} note="总技能数" />
@@ -232,6 +261,8 @@ export function SkillsManagementPage() {
       {uploadOpen && <UploadModal onClose={() => setUploadOpen(false)} onDone={(msg) => { setMessage(msg); loadSkills(); }} />}
       {testOpen && <TestModal skillId={testSkillId} onClose={() => setTestOpen(false)} onDone={(msg) => { setMessage(msg); }} />}
       {repairOpen && <RepairModal skillId={repairSkillId} skillName={repairSkillName} onClose={() => setRepairOpen(false)} onDone={(msg) => { setMessage(msg); }} />}
+      </>
+      ) : null}
     </div>
   );
 }

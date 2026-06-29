@@ -79,9 +79,11 @@ const COPY = {
     showArchived: "显示已归档",
     gateway: "本地部署",
     gatewayTitle: "本地部署 · 网关配置",
-    gatewayHint: "与本页云端智能体无关。SkillLite 复制两行 .env；OpenClaw/Hermes 用 Gateway URL + Key。",
-    cloudTitle: "云端智能体",
-    cloudHint: "在浏览器内直接使用，无需本机配置。",
+    gatewayHint: "SkillLite 复制两行 .env；OpenClaw/Hermes 用 Gateway URL + Key。",
+    modeCloud: "云端智能体",
+    modeLocal: "本地部署",
+    modeCloudDesc: "浏览器内直接使用，无需本机配置",
+    modeLocalDesc: "OpenClaw / Hermes / SkillLite 本机接入",
   },
   en: {
     eyebrow: "Coding Agent",
@@ -117,9 +119,11 @@ const COPY = {
     showArchived: "Show archived",
     gateway: "Local deploy",
     gatewayTitle: "Local deploy · Gateway",
-    gatewayHint: "Independent from cloud agents. SkillLite: copy two-line .env. OpenClaw/Hermes: Gateway URL + Key.",
-    cloudTitle: "Cloud agents",
-    cloudHint: "Use in the browser; no local config required.",
+    gatewayHint: "SkillLite: copy two-line .env. OpenClaw/Hermes: Gateway URL + Key.",
+    modeCloud: "Cloud agents",
+    modeLocal: "Local deploy",
+    modeCloudDesc: "Use in the browser; no local config",
+    modeLocalDesc: "OpenClaw / Hermes / SkillLite on your machine",
   },
 } as const;
 
@@ -167,6 +171,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialAgentId?: s
   const [skillsWsId, setSkillsWsId] = useState<string | null>(null);
   const [skillsWsName, setSkillsWsName] = useState("");
   const [editMembers, setEditMembers] = useState<Array<{ account_id: string; account_name?: string; login_name?: string; role: string; bound_at: string }>>([]);
+  const [pageMode, setPageMode] = useState<"cloud" | "local">("cloud");
 
   const isAdmin = viewer.is_admin || Boolean(getAdminToken());
 
@@ -295,20 +300,39 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialAgentId?: s
 
   return (
     <div className="space-y-5">
-      <section className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50/80 to-white p-5 shadow-sm md:p-6">
-        <div className="mb-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-600">{copy.gateway}</p>
-          <h2 className="mt-1 text-lg font-semibold text-slate-950">{copy.gatewayTitle}</h2>
-          <p className="mt-1 text-sm text-slate-600">{copy.gatewayHint}</p>
-        </div>
-        <EmployeeGatewayPanel />
-      </section>
+      <div className="flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1">
+        {(["cloud", "local"] as const).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => setPageMode(mode)}
+            className={`rounded-lg px-4 py-2.5 text-left transition sm:min-w-[9rem] ${
+              pageMode === mode ? "bg-white text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <span className="block text-sm font-semibold">{mode === "cloud" ? copy.modeCloud : copy.modeLocal}</span>
+            <span className="mt-0.5 block text-xs font-normal text-slate-500">
+              {mode === "cloud" ? copy.modeCloudDesc : copy.modeLocalDesc}
+            </span>
+          </button>
+        ))}
+      </div>
 
+      {pageMode === "local" ? (
+        <section className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50/80 to-white p-5 shadow-sm md:p-6">
+          <div className="mb-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-600">{copy.gateway}</p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950">{copy.gatewayTitle}</h2>
+            <p className="mt-1 text-sm text-slate-600">{copy.gatewayHint}</p>
+          </div>
+          <EmployeeGatewayPanel />
+        </section>
+      ) : (
       <section>
         <div className="mb-4">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600">{copy.eyebrow}</p>
-          <h2 className="mt-1 text-lg font-semibold text-slate-950">{copy.cloudTitle}</h2>
-          <p className="mt-1 text-sm text-slate-600">{copy.cloudHint}</p>
+          <h2 className="mt-1 text-lg font-semibold text-slate-950">{copy.modeCloud}</h2>
+          <p className="mt-1 text-sm text-slate-600">{copy.modeCloudDesc}</p>
         </div>
       {/* Tab + Search Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -656,6 +680,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialAgentId?: s
       )}
 
       </section>
+      )}
 
       {/* Skills drawer */}
       {skillsWsId && (

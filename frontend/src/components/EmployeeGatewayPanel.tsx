@@ -127,26 +127,11 @@ export function EmployeeGatewayPanel() {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="rounded-xl border border-violet-200 bg-violet-50/60 px-4 py-3 text-sm leading-6 text-slate-700">
-        <p className="font-medium text-slate-900">怎么配本机？</p>
-        <ol className="mt-2 list-decimal space-y-1 pl-5">
-          <li>
-            先点下方<strong className="font-medium text-slate-900">「获取 / 重新签发 Key」</strong>，拿到完整 <code className="text-xs">evk_…</code>
-          </li>
-          <li>
-            <strong className="font-medium text-slate-900">SkillLite / evotown-agent-setup</strong>：点
-            <strong className="font-medium text-slate-900">「复制两行 .env」</strong>，写入本机{" "}
-            <code className="text-xs">~/.config/evotown/evotown.agent.env</code>（含站点地址 + Key，不用单独挑 URL）
-          </li>
-          <li>
-            <strong className="font-medium text-slate-900">OpenClaw / Hermes 手写 YAML</strong>：模型地址填{" "}
-            <strong className="font-medium text-slate-900">Gateway URL</strong>，Key 填 <code className="text-xs">evk_…</code>；或点
-            <strong className="font-medium text-slate-900">「复制 OpenClaw/Hermes 两行」</strong>
-          </li>
-        </ol>
-        <p className="mt-2 text-xs text-slate-500">与下方「云端智能体」无关；云端在浏览器里直接用，不需要这些配置。</p>
-      </div>
+    <div className="space-y-4">
+      <p className="text-sm leading-6 text-slate-600">
+        先签发 Key，再点<strong className="font-medium text-slate-800">「复制两行 .env（推荐）」</strong>写到本机{" "}
+        <code className="text-xs">~/.config/evotown/evotown.agent.env</code>。OpenClaw / Hermes 手写配置见下方「高级字段」。
+      </p>
 
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
@@ -218,35 +203,40 @@ export function EmployeeGatewayPanel() {
         </div>
       )}
 
-      <div className="space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">各字段含义（需要单独复制时再看）</p>
-
-        <CopyRow
-          label="EVOTOWN_URL — 站点根地址"
-          hint="给 SkillLite / evotown-agent-setup 用；Skills 市场、同步脚本也认这个地址。OpenClaw/Hermes 配模型时不要用这一行。"
-          value={baseUrl}
-          copied={copied}
-          onCopy={flashCopy}
-        />
-
-        <CopyRow
-          label="Gateway URL — 模型 API 地址"
-          hint="给 OpenClaw / Hermes 的 base_url、openai_base_url 用，等价于 OPENAI_BASE_URL。SkillLite 标准 .env 不需要单独复制这一行。"
-          value={gatewayUrl}
-          copied={copied}
-          onCopy={flashCopy}
-        />
-
-        {hasVisibleKey ? (
+      <details className="group rounded-xl border border-slate-200 bg-white">
+        <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-slate-700 marker:content-none [&::-webkit-details-marker]:hidden">
+          <span className="flex items-center justify-between gap-2">
+            高级：各字段单独复制
+            <span className="text-xs font-normal text-slate-400 group-open:hidden">展开</span>
+            <span className="hidden text-xs font-normal text-slate-400 group-open:inline">收起</span>
+          </span>
+        </summary>
+        <div className="space-y-3 border-t border-slate-100 px-4 pb-4 pt-3">
           <CopyRow
-            label="API Key — evk_…"
-            hint="所有本机接入方式都要用；与上面两个 URL 搭配。"
-            value={apiKey}
+            label="EVOTOWN_URL — 站点根地址"
+            hint="SkillLite / evotown-agent-setup；OpenClaw/Hermes 配模型不要用这一行。"
+            value={baseUrl}
             copied={copied}
             onCopy={flashCopy}
           />
-        ) : null}
-      </div>
+          <CopyRow
+            label="Gateway URL — 模型 API 地址"
+            hint="OpenClaw / Hermes 的 base_url；等价 OPENAI_BASE_URL。"
+            value={gatewayUrl}
+            copied={copied}
+            onCopy={flashCopy}
+          />
+          {hasVisibleKey ? (
+            <CopyRow
+              label="API Key — evk_…"
+              hint="所有本机接入方式都要用。"
+              value={apiKey}
+              copied={copied}
+              onCopy={flashCopy}
+            />
+          ) : null}
+        </div>
+      </details>
     </div>
   );
 }

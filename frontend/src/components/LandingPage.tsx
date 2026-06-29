@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { PublicSiteHeader } from "./PublicSiteHeader";
 import { useLocale } from "../lib/i18n";
-import { adminFetch, getAdminToken, isAdmin, isConsoleAuthenticated, isStaffEmployee } from "../hooks/useAdminToken";
+import { adminFetch, canAccessAdminConsole, isConsoleAuthenticated, isStaffEmployee } from "../hooks/useAdminToken";
 import { STAFF_EMPLOYEE_HOME } from "../lib/staffRoutes";
 import { formatDateTimeShort } from "../lib/datetime";
 import { useSystemConfig } from "../hooks/useSystemConfig";
@@ -130,7 +130,7 @@ export function LandingPage() {
 
   const consoleEntryPath = (): string => {
     if (!isConsoleAuthenticated()) return "/login";
-    if (isAdmin() || Boolean(getAdminToken())) return "/dashboard";
+    if (canAccessAdminConsole()) return "/dashboard";
     return STAFF_EMPLOYEE_HOME;
   };
 

@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
-import { clearConsoleSession, isAdmin, isConsoleAuthenticated } from "../hooks/useAdminToken";
+import { clearConsoleSession, canAccessAdminConsole, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import type { Locale } from "../lib/i18n";
 import { LanguageToggle } from "./LanguageToggle";
 import { useSystemConfig } from "../hooks/useSystemConfig";
@@ -120,7 +120,7 @@ export function PublicSiteHeader({
   const sysConfig = useSystemConfig();
   const brand = sysConfig.brand_name || copy.brand;
   const signedIn = isConsoleAuthenticated();
-  const adminUser = isAdmin();
+  const adminUser = canAccessAdminConsole();
   const navItems = navItemsForUser(signedIn, adminUser);
   const isMarket = variant === "market";
   const loginTo = loginReturnPath

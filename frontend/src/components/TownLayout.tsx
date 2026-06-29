@@ -5,6 +5,8 @@ import { EventTicker } from "./EventTicker";
 import { useAgentSync } from "../hooks/useAgentSync";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useChronicleStore } from "../store/chronicleStore";
+import { canAccessAdminConsole } from "../hooks/useAdminToken";
+import { STAFF_EMPLOYEE_HOME } from "../lib/staffRoutes";
 
 export function TownLayout() {
   useAgentSync();
@@ -12,6 +14,10 @@ export function TownLayout() {
   const navigate = useNavigate();
   const latest = useChronicleStore((s) => s.latestPublished);
   const clear = useChronicleStore((s) => s.clearLatestPublished);
+  const showAdminConsole = canAccessAdminConsole();
+  const consolePath = showAdminConsole ? "/dashboard" : STAFF_EMPLOYEE_HOME;
+  const consoleTitle = showAdminConsole ? "企业管理后台" : "智能体工作台";
+  const consoleLabel = showAdminConsole ? "控制台" : "工作台";
 
   return (
     <div className="flex-1 flex flex-col relative border-r border-slate-600/50 min-w-0">
@@ -52,11 +58,11 @@ export function TownLayout() {
         </button>
         <button
           type="button"
-          onClick={() => navigate("/dashboard")}
+          onClick={() => navigate(consolePath)}
           className="flex items-center gap-1.5 rounded-lg border border-cyan-700/50 bg-[#071318]/90 px-3 py-1.5 text-xs font-medium text-cyan-300 shadow-lg shadow-black/40 backdrop-blur-sm transition-colors hover:border-cyan-400 hover:text-cyan-100 hover:bg-[#0a1b23]/95"
-          title="企业管理后台"
+          title={consoleTitle}
         >
-          ◆ <span className="tracking-wider">控制台</span>
+          ◆ <span className="tracking-wider">{consoleLabel}</span>
         </button>
       </div>
       {!connected && (

@@ -13,6 +13,7 @@ import { adminFetch, getAdminToken, getConsoleApiKey, getStaffToken, isConsoleAu
 import { formatDateTimeShort, formatDateTimeFull, parseEvotownTimestamp } from "../lib/datetime";
 import { formatBytes, fileMeta } from "../lib/codingAgentUtils";
 import { WorkspaceFileList, type WorkspaceFileEntry } from "./WorkspaceFileList";
+import { AgentShareDialog } from "./AgentShareDialog";
 import { GatewayDrawer } from "./gateway/GatewayDrawer";
 
 type Agent = {
@@ -297,6 +298,8 @@ export function CodingAgentChatPage() {
   const [agentFiles, setAgentFiles] = useState<WorkspaceFileEntry[]>([]);
   const [agentFilesTruncated, setAgentFilesTruncated] = useState(false);
   const [agentFilesLoading, setAgentFilesLoading] = useState(false);
+  const [selectedSharePaths, setSelectedSharePaths] = useState<Set<string>>(() => new Set());
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [showSystemFiles, setShowSystemFiles] = useState(false);
 
   // Profile modal
@@ -408,6 +411,15 @@ export function CodingAgentChatPage() {
   }, [prompt]);
 
   // Load
+  const toggleSharePath = (path: string) => {
+    setSelectedSharePaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+
   const loadAgentFiles = useCallback(async (silent: boolean = false) => {
     if (!agentId) return;
     if (!silent) setAgentFilesLoading(true);
@@ -1272,7 +1284,18 @@ export function CodingAgentChatPage() {
         <aside className="flex w-72 shrink-0 flex-col border-l border-slate-200 bg-slate-50">
           <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2.5">
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">📂 工作区文件</span>
-            <button type="button" onClick={() => setRightOpen(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-200" title="收起"><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19l-7-7-7-7" /></svg></button>
+            <div className="flex items-center gap-1">
+              {selectedSharePaths.size > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setShareDialogOpen(true)}
+                  className="rounded-md bg-indigo-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-indigo-700"
+                >
+                  分享 ({selectedSharePaths.size})
+                </button>
+              ) : null}
+              <button type="button" onClick={() => setRightOpen(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-200" title="收起"><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19l-7-7-7-7" /></svg></button>
+            </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-3 [scrollbar-width:thin]">
             <WorkspaceFileList
@@ -1284,6 +1307,9 @@ export function CodingAgentChatPage() {
               onOpenFile={(path) => void openFile(path)}
               fileLoadingPath={fileLoading}
               compact
+              selectable
+              selectedPaths={selectedSharePaths}
+              onToggleSelect={toggleSharePath}
             />
             {hasDevFiles ? (
               <div className="mt-4 border-t border-slate-200 pt-3">
@@ -1305,6 +1331,18 @@ export function CodingAgentChatPage() {
           </div>
         </aside>
       )}
+
+      {shareDialogOpen && agentId ? (
+        <AgentShareDialog
+          sourceAgentId={agentId}
+          selectedPaths={[...selectedSharePaths]}
+          onClose={() => setShareDialogOpen(false)}
+          onSuccess={() => {
+            setSelectedSharePaths(new Set());
+            void loadAgentFiles(true);
+          }}
+        />
+      ) : null}
 
       {/* ── File viewer modal ── */}
       {fileViewer && (

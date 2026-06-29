@@ -600,18 +600,25 @@ STAFF_EMPLOYEE_SCOPES = [
 ]
 
 
+def staff_session_scopes(role: str) -> list[str]:
+    if role == "admin":
+        return [CONSOLE_SCOPE_READ, CONSOLE_SCOPE_WRITE]
+    return list(STAFF_EMPLOYEE_SCOPES)
+
+
 def create_staff_session(account: dict[str, Any]) -> str:
     from infra import accounts as accounts_store
 
     token = secrets.token_urlsafe(32)
+    role = str(account.get("role") or "employee")
     session: dict[str, Any] = {
         "token": token,
         "account_id": account.get("account_id", ""),
         "account_name": account.get("name", ""),
         "login_name": account.get("login_name", ""),
         "org_id": account.get("org_id", ""),
-        "role": account.get("role", "employee"),
-        "scopes": ["console.read", "console.write"] if account.get("role") == "admin" else list(STAFF_EMPLOYEE_SCOPES),
+        "role": role,
+        "scopes": staff_session_scopes(role),
         "expires_at": time.time() + STAFF_SESSION_TTL,
     }
     accounts_store.save_staff_session(session)
@@ -621,7 +628,25 @@ def create_staff_session(account: dict[str, Any]) -> str:
 def get_staff_session(token: str) -> dict[str, Any] | None:
     from infra import accounts as accounts_store
 
-    return accounts_store.load_staff_session(token)
+    session = accounts_store.load_staff_session(token)
+    if session is None:
+        return None
+    current_scopes = staff_session_scopes(str(session.get("role") or "employee"))
+    if session.get("scopes") != current_scopes:
+        session["scopes"] = current_scopes
+        accounts_store.save_staff_session(
+            {
+                "token": token,
+                "account_id": session["account_id"],
+                "account_name": session["account_name"],
+                "login_name": session["login_name"],
+                "org_id": session["org_id"],
+                "role": session["role"],
+                "scopes": current_scopes,
+                "expires_at": session["expires_at"],
+            }
+        )
+    return session
 
 
 def destroy_staff_session(token: str) -> None:

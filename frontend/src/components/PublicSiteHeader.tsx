@@ -15,6 +15,7 @@ const HEADER_COPY = {
       market: "Skills 市场",
       knowledge: "知识库",
       admin: "企业后台",
+      agent: "智能体工作台",
     },
     signedIn: "已登录",
     logout: "退出登录",
@@ -30,6 +31,7 @@ const HEADER_COPY = {
       market: "Skills Market",
       knowledge: "Knowledge Base",
       admin: "Admin Console",
+      agent: "Agent Workspace",
     },
     signedIn: "Signed in",
     logout: "Log out",
@@ -47,30 +49,47 @@ type NavItem = {
   activePrefixes?: string[];
 };
 
-const NAV_ITEMS: NavItem[] = [
+const BASE_NAV_ITEMS: NavItem[] = [
   { key: "home", path: "/" },
   { key: "market", path: "/market", activePrefixes: ["/market"] },
   { key: "knowledge", path: "/knowledge" },
   { key: "arena", path: "/arena" },
-  {
-    key: "admin",
-    path: "/dashboard",
-    activePrefixes: [
-      "/dashboard",
-      "/gateway",
-      "/accounts",
-      "/engines",
-      "/dispatch",
-      "/runs",
-      "/assets",
-      "/policies",
-      "/skills",
-      "/costs",
-      "/risk",
-      "/console",
-    ],
-  },
 ];
+
+const ADMIN_NAV_ITEM: NavItem = {
+  key: "admin",
+  path: "/dashboard",
+  activePrefixes: [
+    "/dashboard",
+    "/gateway",
+    "/accounts",
+    "/engines",
+    "/dispatch",
+    "/runs",
+    "/assets",
+    "/policies",
+    "/skills",
+    "/costs",
+    "/risk",
+    "/console",
+  ],
+};
+
+const AGENT_NAV_ITEM: NavItem = {
+  key: "agent",
+  path: "/agent",
+  activePrefixes: ["/agent"],
+};
+
+function navItemsForUser(signedIn: boolean, adminUser: boolean): NavItem[] {
+  if (adminUser) {
+    return [...BASE_NAV_ITEMS, ADMIN_NAV_ITEM];
+  }
+  if (signedIn) {
+    return [...BASE_NAV_ITEMS, AGENT_NAV_ITEM];
+  }
+  return BASE_NAV_ITEMS;
+}
 
 function isNavActive(item: NavItem, pathname: string) {
   if (item.path === "/") return pathname === "/";
@@ -102,6 +121,7 @@ export function PublicSiteHeader({
   const brand = sysConfig.brand_name || copy.brand;
   const signedIn = isConsoleAuthenticated();
   const adminUser = isAdmin();
+  const navItems = navItemsForUser(signedIn, adminUser);
   const isMarket = variant === "market";
   const loginTo = loginReturnPath
     ? `/login?return=${encodeURIComponent(loginReturnPath)}`
@@ -125,7 +145,7 @@ export function PublicSiteHeader({
         </Link>
 
         <nav className="hidden min-w-0 flex-1 items-center justify-center gap-0.5 text-sm md:flex">
-          {(adminUser ? NAV_ITEMS : NAV_ITEMS.filter(i => i.key !== "admin")).map((item) => {
+          {navItems.map((item) => {
             const active = isNavActive(item, pathname);
             const label = copy.nav[item.key];
             return (
@@ -170,7 +190,7 @@ export function PublicSiteHeader({
       </div>
 
       <nav className="flex gap-1 overflow-x-auto border-t border-slate-100 px-5 py-2 text-sm md:hidden">
-        {(adminUser ? NAV_ITEMS : NAV_ITEMS.filter(i => i.key !== "admin")).map((item) => {
+        {navItems.map((item) => {
           const active = isNavActive(item, pathname);
           return (
             <Link

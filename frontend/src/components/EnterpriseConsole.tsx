@@ -29,7 +29,8 @@ import { DimensionPanel } from "./DimensionPanel";
 import SystemConfigPage from "./SystemConfigPage";
 import { DisplayTimezoneSelect } from "./DisplayTimezoneSelect";
 import { LanguageToggle } from "./LanguageToggle";
-import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hooks/useAdminToken";
+import { adminFetch, clearConsoleSession, isConsoleAuthenticated, isStaffEmployee } from "../hooks/useAdminToken";
+import { STAFF_EMPLOYEE_HOME } from "../lib/staffRoutes";
 import { useSystemConfig } from "../hooks/useSystemConfig";
 import { formatDateTimeShort } from "../lib/datetime";
 import { useLocale, type Locale } from "../lib/i18n";
@@ -486,16 +487,22 @@ export function EnterpriseConsole({
     }
   }, [tab]);
 
+  const staffEmployee = isStaffEmployee();
+
   useEffect(() => {
     if (!isConsoleAuthenticated()) {
       navigate(`/login?return=${encodeURIComponent(window.location.pathname)}`, { replace: true });
+      return;
+    }
+    if (staffEmployee && initialTab !== "coding") {
+      navigate(STAFF_EMPLOYEE_HOME, { replace: true });
       return;
     }
     adminFetch("/api/v1/auth/me")
       .then((r) => r.ok ? r.json() as Promise<{ session?: { account_name?: string } }> : null)
       .then((data) => setSessionName(data?.session?.account_name || ""))
       .catch(() => setSessionName(""));
-  }, [navigate]);
+  }, [navigate, staffEmployee, initialTab]);
 
   const load = () => {
     setLoading(true);
@@ -551,8 +558,9 @@ export function EnterpriseConsole({
   useEffect(() => setTab(initialTab), [initialTab]);
 
   useEffect(() => {
+    if (staffEmployee) return;
     load();
-  }, []);
+  }, [staffEmployee]);
 
   const summary = useMemo(() => {
     const total = data.runs.length;
@@ -623,7 +631,13 @@ export function EnterpriseConsole({
             </button>
           </div>
           <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-3 py-3 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
-            {MENU_GROUPS.map((group) => {
+            {(staffEmployee
+              ? MENU_GROUPS.filter((group) => group.id === "agent").map((group) => ({
+                  ...group,
+                  items: group.items.filter((item) => item === "coding"),
+                }))
+              : MENU_GROUPS
+            ).map((group) => {
               const groupLabel = locale === "zh" ? group.labelZh : group.labelEn;
               const isExpanded = expandedGroups.has(group.id);
               const activeInGroup = group.items.some(item => tab === item);
@@ -703,6 +717,14 @@ export function EnterpriseConsole({
           </nav>
           <div className="shrink-0 space-y-2 border-t border-white/10 p-4">
             <DisplayTimezoneSelect layout="card" tone="dark" />
+            {staffEmployee && (
+              <button
+                onClick={() => navigate("/market")}
+                className="w-full rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-sm font-medium text-violet-100 transition hover:bg-violet-500/20"
+              >
+                {locale === "zh" ? "Skills 市场" : "Skills Market"}
+              </button>
+            )}
             <button
               onClick={() => navigate("/")}
               className="w-full rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"

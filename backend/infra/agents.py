@@ -400,10 +400,25 @@ def is_agent_member(agent_id: str, account_id: str) -> bool:
     return row is not None
 
 
+def is_console_superuser(identity: dict[str, Any]) -> bool:
+    """IT admin: bootstrap token, staff role=admin, or legacy * scope."""
+    scopes = identity.get("scopes") or []
+    if "*" in scopes:
+        return True
+    if str(identity.get("role") or "").strip().lower() == "admin":
+        return True
+    if identity.get("source") == "admin_token":
+        return True
+    return False
+
+
 def can_access_agent(agent: dict[str, Any] | None, identity: dict[str, Any]) -> bool:
     if agent is None:
         return False
-    if "*" in (identity.get("scopes") or []):
+    if is_console_superuser(identity):
+        return True
+    scopes = identity.get("scopes") or []
+    if "*" in scopes:
         return True
     account_id = str(identity.get("account_id") or "")
     if not account_id:

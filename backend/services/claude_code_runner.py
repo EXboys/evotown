@@ -1130,13 +1130,14 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
         prompt = _append_vision_to_prompt(prompt, vision_text, image_paths)
 
     identity = _runner_identity(run)
+    skill_account_id = str(workspace.get("owner_account_id") or identity.get("account_id") or "")
 
     shared_context = build_shared_context(
         prompt=run["prompt"],
         team_id=run.get("team_id", ""),
         selected_skills=selected_skills,
         agent_id=workspace["agent_id"],
-        account_id=identity.get("account_id", ""),
+        account_id=skill_account_id,
         run_id=run_id,
     )
     shared_context["workspace_profile"] = ws_profile

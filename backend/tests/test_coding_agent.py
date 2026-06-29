@@ -561,6 +561,35 @@ class CodingAgentApiTest(unittest.TestCase):
         profile_md = agents.resolve_agent_path(workspace) / ".evotown" / "AGENT_PROFILE.md"
         self.assertIn("codex", profile_md.read_text(encoding="utf-8"))
 
+    def test_staff_admin_can_access_employee_agent(self) -> None:
+        from core.auth import create_staff_session
+        from infra import accounts
+
+        client = self._client()
+        admin_acct = accounts.create_account(name="IT Admin", login_name="admin1", role="admin", password="secret")
+        admin_token = create_staff_session(admin_acct)
+        _employee, emp_key = self._account_key("Employee")
+
+        create = client.post(
+            "/api/v1/agents",
+            headers={"Authorization": f"Bearer {emp_key}"},
+            json={"name": "Employee Agent"},
+        )
+        self.assertEqual(create.status_code, 200)
+        agent_id = create.json()["agent"]["agent_id"]
+
+        ok = client.get(
+            f"/api/v1/agents/{agent_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(ok.status_code, 200, ok.text)
+
+        opts = client.get(
+            f"/api/v1/agent/options?agent_id={agent_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(opts.status_code, 200)
+
 
 class ClaudeRunModelResolveTest(unittest.TestCase):
     def test_resolve_run_model_prefers_explicit(self) -> None:

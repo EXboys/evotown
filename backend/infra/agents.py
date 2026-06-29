@@ -406,7 +406,11 @@ def can_access_agent(agent: dict[str, Any] | None, identity: dict[str, Any]) -> 
     if "*" in (identity.get("scopes") or []):
         return True
     account_id = str(identity.get("account_id") or "")
-    return bool(account_id and agent.get("owner_account_id") == account_id)
+    if not account_id:
+        return False
+    if agent.get("owner_account_id") == account_id:
+        return True
+    return is_agent_member(str(agent.get("agent_id") or ""), account_id)
 
 
 def can_run_agent(agent: dict[str, Any] | None, identity: dict[str, Any]) -> bool:

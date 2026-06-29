@@ -6,6 +6,7 @@ import { formatDateTimeShort } from "../lib/datetime";
 import type { Locale } from "../lib/i18n";
 import { GatewayDrawer } from "./gateway/GatewayDrawer";
 import { SkillsAssignmentPanel } from "./SkillsAssignmentPanel";
+import { EmployeeGatewayPanel } from "./EmployeeGatewayPanel";
 
 type Agent = {
   agent_id: string;
@@ -76,6 +77,11 @@ const COPY = {
     archivedTag: "已归档",
     selectAccount: "选择账号…",
     showArchived: "显示已归档",
+    gateway: "本地部署",
+    gatewayTitle: "本地部署 · 网关配置",
+    gatewayHint: "与本页云端智能体无关，用于本机 OpenClaw / Hermes。",
+    cloudTitle: "云端智能体",
+    cloudHint: "在浏览器内直接使用，无需本机配置。",
   },
   en: {
     eyebrow: "Coding Agent",
@@ -109,6 +115,11 @@ const COPY = {
     archivedTag: "Archived",
     selectAccount: "Select account…",
     showArchived: "Show archived",
+    gateway: "Local deploy",
+    gatewayTitle: "Local deploy · Gateway",
+    gatewayHint: "Independent from cloud agents below — for OpenClaw / Hermes on your machine.",
+    cloudTitle: "Cloud agents",
+    cloudHint: "Use in the browser; no local config required.",
   },
 } as const;
 
@@ -284,6 +295,21 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialAgentId?: s
 
   return (
     <div className="space-y-5">
+      <section className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50/80 to-white p-5 shadow-sm md:p-6">
+        <div className="mb-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-600">{copy.gateway}</p>
+          <h2 className="mt-1 text-lg font-semibold text-slate-950">{copy.gatewayTitle}</h2>
+          <p className="mt-1 text-sm text-slate-600">{copy.gatewayHint}</p>
+        </div>
+        <EmployeeGatewayPanel />
+      </section>
+
+      <section>
+        <div className="mb-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600">{copy.eyebrow}</p>
+          <h2 className="mt-1 text-lg font-semibold text-slate-950">{copy.cloudTitle}</h2>
+          <p className="mt-1 text-sm text-slate-600">{copy.cloudHint}</p>
+        </div>
       {/* Tab + Search Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
@@ -628,6 +654,8 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialAgentId?: s
           </div>
         </div>
       )}
+
+      </section>
 
       {/* Skills drawer */}
       {skillsWsId && (

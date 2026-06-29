@@ -592,6 +592,12 @@ def validate_task_content(task: str) -> None:
 # ── Staff session store (account + password login, SQLite-backed) ────
 
 STAFF_SESSION_TTL = int(os.environ.get("EVOTOWN_STAFF_SESSION_TTL", "86400"))  # synced from system.db on startup
+STAFF_EMPLOYEE_SCOPES = [
+    CONSOLE_SCOPE_READ,
+    AGENT_SCOPE_RUN,
+    "agent.read",
+    "agent.write",
+]
 
 
 def create_staff_session(account: dict[str, Any]) -> str:
@@ -605,7 +611,7 @@ def create_staff_session(account: dict[str, Any]) -> str:
         "login_name": account.get("login_name", ""),
         "org_id": account.get("org_id", ""),
         "role": account.get("role", "employee"),
-        "scopes": ["console.read", "console.write"] if account.get("role") == "admin" else ["console.read"],
+        "scopes": ["console.read", "console.write"] if account.get("role") == "admin" else list(STAFF_EMPLOYEE_SCOPES),
         "expires_at": time.time() + STAFF_SESSION_TTL,
     }
     accounts_store.save_staff_session(session)

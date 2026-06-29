@@ -229,7 +229,7 @@ def issue_agent_key(agent_id: str, agent_name: str) -> tuple[str, str]:
     raw_key = _generate_raw_key()
     key_hash = hash_api_key(raw_key)
     key_prefix = raw_key[:12]
-    scope_list = [GATEWAY_SCOPE_CHAT, AGENT_SCOPE_RUN]
+    scope_list = [GATEWAY_SCOPE_CHAT, AGENT_SCOPE_RUN, CONSOLE_SCOPE_READ]
 
     conn.execute(
         """INSERT INTO gateway_api_keys (key_id, account_id, label, key_prefix, key_hash, scopes)

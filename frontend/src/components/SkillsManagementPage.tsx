@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { adminFetch } from "../hooks/useAdminToken";
 import { formatDateTimeShort } from "../lib/datetime";
 import { SkillAccountAssignSection, SkillBundlePublishSection } from "./SkillsDispatchSections";
@@ -48,13 +49,34 @@ const SOURCE_LABEL: Record<string, string> = { enterprise: "企业技能", exter
 // ── Component ──────────────────────────────────────────────────────────────
 
 export function SkillsManagementPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sectionFromUrl = searchParams.get("section");
+  const initialSection: SkillsPageSection =
+    sectionFromUrl === "publish" || sectionFromUrl === "assign" || sectionFromUrl === "library"
+      ? sectionFromUrl
+      : "library";
+
   const [skills, setSkills] = useState<SkillRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [tab, setTab] = useState<SkillsTab>("all");
-  const [pageSection, setPageSection] = useState<SkillsPageSection>("library");
+  const [pageSection, setPageSection] = useState<SkillsPageSection>(initialSection);
   const [filters, setFilters] = useState({ query: "", source_type: "", tag: "" });
+
+  const setSection = (next: SkillsPageSection) => {
+    setPageSection(next);
+    const params = new URLSearchParams(searchParams);
+    if (next === "library") params.delete("section");
+    else params.set("section", next);
+    setSearchParams(params, { replace: true });
+  };
+
+  useEffect(() => {
+    if (sectionFromUrl === "publish" || sectionFromUrl === "assign" || sectionFromUrl === "library") {
+      setPageSection(sectionFromUrl);
+    }
+  }, [sectionFromUrl]);
 
   // Detail
   const [detailSkill, setDetailSkill] = useState<SkillRecord | null>(null);
@@ -125,35 +147,51 @@ export function SkillsManagementPage() {
 
   return (
     <div className="space-y-5">
-      {/* Top bar */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="text-sm text-slate-500">统一技能管理：Agent 创建 → 草稿 → 审核 → 入池 → <strong className="text-slate-700">发布 Bundle / 账号下发</strong>（见下方 Tab）。</p>
-        {pageSection === "library" ? (
-        <div className="flex gap-2">
-          <button type="button" onClick={loadSkills} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">{loading ? "刷新中…" : "刷新"}</button>
-          <button type="button" onClick={() => { setExtractOpen(true); setError(""); }} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100">⬇ 提取技能</button>
-          <button type="button" onClick={() => { setUploadOpen(true); setError(""); }} className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800">+ 上传技能</button>
+      {/* Dispatch entry — always visible at top */}
+      <div className="sticky top-0 z-10 -mx-1 rounded-2xl border-2 border-violet-200 bg-gradient-to-r from-violet-50 to-indigo-50 p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-violet-950">技能下发</h2>
+            <p className="mt-0.5 text-sm text-violet-800/80">
+              审核通过后在此下发：云端 Agent 用「账号下发」，本机 OpenClaw 用「发布 Bundle」。
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setSection("assign")}
+              className={`rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition ${
+                pageSection === "assign"
+                  ? "bg-indigo-600 text-white ring-2 ring-indigo-300"
+                  : "bg-white text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-50"
+              }`}
+            >
+              👤 账号下发（云端 Agent）
+            </button>
+            <button
+              type="button"
+              onClick={() => setSection("publish")}
+              className={`rounded-lg px-4 py-2 text-sm font-semibold shadow-sm transition ${
+                pageSection === "publish"
+                  ? "bg-violet-600 text-white ring-2 ring-violet-300"
+                  : "bg-white text-violet-700 ring-1 ring-violet-200 hover:bg-violet-50"
+              }`}
+            >
+              📦 发布 Bundle（本机 sync）
+            </button>
+            <button
+              type="button"
+              onClick={() => setSection("library")}
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                pageSection === "library"
+                  ? "bg-slate-800 text-white"
+                  : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              技能库
+            </button>
+          </div>
         </div>
-        ) : null}
-      </div>
-
-      {/* Section tabs: library / publish / assign */}
-      <div className="flex flex-wrap gap-2 rounded-xl bg-slate-100 p-1">
-        {([
-          { id: "library" as const, label: "技能库", desc: "上传 · 审核 · 测试" },
-          { id: "publish" as const, label: "发布 Bundle", desc: "本机 Agent sync" },
-          { id: "assign" as const, label: "账号下发", desc: "云端 Agent 挂载" },
-        ]).map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setPageSection(item.id)}
-            className={`rounded-lg px-4 py-2.5 text-left transition ${pageSection === item.id ? "bg-white text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
-          >
-            <span className="block text-sm font-semibold">{item.label}</span>
-            <span className="mt-0.5 block text-xs font-normal text-slate-500">{item.desc}</span>
-          </button>
-        ))}
       </div>
 
       {pageSection === "publish" ? <SkillBundlePublishSection /> : null}
@@ -161,6 +199,25 @@ export function SkillsManagementPage() {
 
       {pageSection === "library" ? (
       <>
+      {/* Top bar */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="text-sm text-slate-500">上传、审核、测试技能包。通过后点击上方 <strong className="text-indigo-700">账号下发</strong> 或 <strong className="text-violet-700">发布 Bundle</strong>。</p>
+        <div className="flex gap-2">
+          <button type="button" onClick={loadSkills} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">{loading ? "刷新中…" : "刷新"}</button>
+          <button type="button" onClick={() => { setExtractOpen(true); setError(""); }} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100">⬇ 提取技能</button>
+          <button type="button" onClick={() => { setUploadOpen(true); setError(""); }} className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800">+ 上传技能</button>
+        </div>
+      </div>
+
+      {counts.approved > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+          <span>已有 <strong>{counts.approved}</strong> 个已通过技能，可下发给员工使用。</span>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setSection("assign")} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700">去账号下发 →</button>
+            <button type="button" onClick={() => setSection("publish")} className="rounded-lg border border-violet-300 bg-white px-3 py-1.5 text-xs font-semibold text-violet-700 hover:bg-violet-50">去发布 Bundle →</button>
+          </div>
+        </div>
+      ) : null}
       {/* Stat cards */}
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="全部" value={counts.all} note="总技能数" />

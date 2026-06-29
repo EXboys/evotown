@@ -148,6 +148,13 @@ class ClaudeAgentRunCreate(BaseModel):
     attachments: list[str] = Field(default_factory=list, max_length=20)
 
 
+class AgentShareRequest(BaseModel):
+    paths: list[str] = Field(min_length=1, max_length=50)
+    target_agent_id: str = Field(min_length=1, max_length=128)
+    dest_prefix: str = Field(default="", max_length=256)
+    overwrite: bool = False
+
+
 class SetupAgentRequest(BaseModel):
     workspace_name: str = Field(default="", max_length=128)  # 专属账号时必填，其他自动生成
 

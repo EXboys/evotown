@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
 from core.auth import check_prompt_injection, require_console_read, validate_soul_content
-from domain.models import ClaudeAgentRunCreate, WorkspaceCreate, WorkspaceProfileUpdate, WorkspaceUpdate
-from infra import claude_agent_runs, workspace_files, workspace_profile, workspace_uploads, agents
+from domain.models import AgentShareRequest, ClaudeAgentRunCreate, WorkspaceCreate, WorkspaceProfileUpdate, WorkspaceUpdate
+from infra import claude_agent_runs, workspace_files, workspace_profile, workspace_share, workspace_uploads, agents
 from services import claude_code_runner
 
 router = APIRouter(prefix="/api/v1", tags=["agent"])
@@ -383,6 +383,43 @@ async def list_workspace_file_index(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return payload
+
+
+@router.post("/agents/{agent_id}/share")
+async def share_workspace_files(
+    agent_id: str,
+    body: AgentShareRequest,
+    identity: dict | None = Depends(require_console_read),
+):
+    """Copy selected workspace files to another agent the caller can run."""
+    identity = _require_identity(identity)
+    _require_scope(identity, "agent.write", "console.write", "agent.run")
+    source_agent = _load_agent_for_identity(agent_id, identity)
+    if not agents.can_run_agent(source_agent, identity):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="share is not allowed for this agent")
+
+    target_agent = agents.get_agent(body.target_agent_id.strip())
+    if target_agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="target agent not found")
+    if not agents.can_run_agent(target_agent, identity):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="share to target agent is not allowed")
+
+    try:
+        result = workspace_share.share_files(
+            source_agent,
+            target_agent,
+            paths=list(body.paths),
+            dest_prefix=body.dest_prefix,
+            overwrite=body.overwrite,
+        )
+    except workspace_share.ShareConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except workspace_share.ShareSizeLimitError as exc:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(exc)) from exc
+    except workspace_share.ShareError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return result
 
 
 @router.post("/agents/{agent_id}/uploads")

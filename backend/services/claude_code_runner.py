@@ -1247,11 +1247,13 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
     summary = _result_summary_from_output(output, vision_text=vision_text)
 
     # Scan workspace for new files created by the Agent
+    new_artifact_paths: set[str] = set()
     try:
         for p in root.rglob("*"):
             if p.is_file() and not any(part.startswith(".") for part in p.relative_to(root).parts):
                 rel = str(p.relative_to(root))
                 if rel not in _before_files:
+                    new_artifact_paths.add(rel)
                     artifacts.append({
                         "path": rel,
                         "bytes": p.stat().st_size,
@@ -1259,6 +1261,23 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
                     })
     except Exception:
         pass
+
+    from infra import artifact_sort
+
+    artifacts, moved, sort_warning = artifact_sort.sort_artifacts(
+        root,
+        artifacts,
+        new_paths=new_artifact_paths,
+        run_id=run_id,
+    )
+    if moved:
+        claude_agent_runs.append_event(run_id, "artifact.sort", {"moved": moved})
+    if sort_warning:
+        claude_agent_runs.append_event(
+            run_id,
+            "artifact.sort",
+            {"warning": "invalid EVOTOWN_ARTIFACT_SORT_RULES; using defaults", "detail": sort_warning},
+        )
 
     claude_agent_runs.append_event(
         run_id,

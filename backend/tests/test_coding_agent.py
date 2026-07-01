@@ -237,6 +237,52 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertEqual(fetched.status_code, 200)
         self.assertEqual(fetched.json()["run"]["status"], "succeeded")
 
+    def test_runner_sorts_new_html_artifact_into_dashboard(self) -> None:
+        from infra import claude_agent_runs, agents
+        from services import claude_code_runner
+
+        async def fake_run(*, workspace_root, prompt, run, model, runtime_engine="claude"):
+            del prompt, model, runtime_engine
+            (workspace_root / "report.html").write_text("<html><body>ok</body></html>", encoding="utf-8")
+            (workspace_root / "data.pdf").write_bytes(b"%PDF-1.4")
+            return 0, "done", "", "dry-run"
+
+        client = self._client()
+        _alice, alice_key = self._account_key("Alice")
+        with patch("services.claude_code_runner.schedule_run", lambda run_id: None):
+            workspace = client.post(
+                "/api/v1/agents",
+                headers={"Authorization": f"Bearer {alice_key}"},
+                json={"name": "Artifact Sort Sandbox"},
+            ).json()["agent"]
+            create_run = client.post(
+                f"/api/v1/agents/{workspace['agent_id']}/runs",
+                headers={"Authorization": f"Bearer {alice_key}"},
+                json={"prompt": "Build a dashboard page.", "model": "claude-test"},
+            )
+            self.assertEqual(create_run.status_code, 200)
+            run_id = create_run.json()["run"]["run_id"]
+
+        with patch("services.claude_code_runner._run_agent", new=AsyncMock(side_effect=fake_run)):
+            updated = asyncio.run(claude_code_runner.run_claude_agent(run_id))
+
+        self.assertEqual(updated["status"], "succeeded")
+        manifest_paths = [item["path"] for item in updated["artifact_manifest"]]
+        self.assertIn("dashboard/report.html", manifest_paths)
+        self.assertIn("downloads/data.pdf", manifest_paths)
+
+        stored_workspace = agents.get_agent(workspace["agent_id"])
+        assert stored_workspace is not None
+        ws_root = agents.resolve_agent_path(stored_workspace)
+        self.assertTrue((ws_root / "dashboard/report.html").is_file())
+        self.assertTrue((ws_root / "downloads/data.pdf").is_file())
+        self.assertFalse((ws_root / "report.html").exists())
+
+        events = claude_agent_runs.list_events(run_id)
+        sort_events = [event for event in events if event["event_type"] == "artifact.sort"]
+        self.assertTrue(sort_events)
+        self.assertTrue(any(event["payload"].get("moved") for event in sort_events))
+
     def test_runner_injects_selected_skills_and_mcp(self) -> None:
         from infra import claude_agent_runs, agents
         from services import claude_code_runner

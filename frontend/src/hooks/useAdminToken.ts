@@ -86,6 +86,21 @@ export function isAdmin(): boolean {
   return getStaffRole() === "admin";
 }
 
+/** Staff 账号密码登录且角色为员工（非 API Key / ADMIN_TOKEN 管理员）。 */
+export function isStaffEmployee(): boolean {
+  return Boolean(getStaffToken()) && !isAdmin() && !getAdminToken();
+}
+
+/** 是否应展示企业后台入口（导航、页内链接等）。 */
+export function canAccessAdminConsole(): boolean {
+  if (getAdminToken()) return true;
+  if (isStaffEmployee()) return false;
+  if (isAdmin()) return true;
+  // API Key 登录（非 staff session）— 控制台登录通常带 write scope
+  if (getConsoleApiKey() && !getStaffToken()) return true;
+  return false;
+}
+
 export function clearStaffToken(): void {
   if (typeof window === "undefined") return;
   sessionStorage.removeItem(STAFF_TOKEN_KEY);

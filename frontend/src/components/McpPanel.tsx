@@ -408,14 +408,16 @@ export function McpPanel({ locale }: { locale: Locale }) {
                     <button onClick={() => setDetail({ type: "calls", serviceId: svc.service_id, name: svc.name })} className="text-violet-600 hover:text-violet-800 underline cursor-pointer">{svc.calls_24h ?? "-"}</button>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
-                      svc.status === "online" ? "border-green-200 bg-green-50 text-green-700" :
-                      svc.status === "pending" ? "border-amber-200 bg-amber-50 text-amber-700" :
-                      svc.status === "offline" ? "border-slate-200 bg-slate-50 text-slate-500" :
-                      svc.status === "rejected" ? "border-red-200 bg-red-50 text-red-600" :
-                      svc.status === "deprecated" ? "border-slate-300 bg-slate-50 text-slate-400" :
-                      "border-slate-200 bg-slate-50 text-slate-500"
-                    }`}>{STATUS_LABELS[svc.status] || svc.status}</span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={svc.status === "online"}
+                        onChange={() => toggleStatus(svc)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-violet-600" />
+                      <span className="ml-2 text-xs text-slate-500">{svc.status === "online" ? copy.online : copy.offline}</span>
+                    </label>
                   </td>
                   {/* ★ NEW: 审核状态列 */}
                   {tab === "internal" && <td className="px-4 py-3">{auditBadge(svc)}</td>}
@@ -786,6 +788,35 @@ function McpDetailDrawer({
   );
 }
 
+type McpAgentPolicy = {
+  agent_id: string;
+  enabled: boolean;
+};
+
+type McpRolePolicy = {
+  role_id: string;
+  role_name: string;
+  enabled: boolean;
+  members?: string[];
+};
+
+type McpBindingsDrawerData = {
+  policies: McpAgentPolicy[];
+  role_policies: McpRolePolicy[];
+};
+
+type McpCallRecord = {
+  id: string | number;
+  called_at: string;
+};
+
+type McpCallsDrawerData = {
+  total: number;
+  calls: McpCallRecord[];
+};
+
+type DetailDrawerData = McpBindingsDrawerData | McpCallsDrawerData;
+
 // ── Detail Drawer (bindings / calls) ─────────────────────────────────────
 
 function DetailDrawer({
@@ -797,10 +828,9 @@ function DetailDrawer({
   name: string;
   onClose: () => void;
 }) {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<DetailDrawerData | null>(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
-  const [selectedCall, setSelectedCall] = useState<any>(null);
   const pageSize = 20;
 
   useEffect(() => {
@@ -822,18 +852,7 @@ function DetailDrawer({
     finally { setLoading(false); setPage(p); }
   };
 
-  const truncateText = (s: string | null | undefined, maxLen = 80) => {
-    if (!s) return "-";
-    return s.length > maxLen ? s.slice(0, maxLen) + "…" : s;
-  };
-
-  const formatJson = (s: string | null | undefined) => {
-    if (!s) return "(空)";
-    try { return JSON.stringify(JSON.parse(s), null, 2); }
-    catch { return s; }
-  };
-
-  const totalPages = type === "calls" ? Math.ceil((data?.total || 0) / pageSize) : 1;
+  const totalPages = type === "calls" ? Math.ceil(((data as McpCallsDrawerData | null)?.total || 0) / pageSize) : 1;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -850,9 +869,14 @@ function DetailDrawer({
             <div className="text-xs text-slate-400">加载中…</div>
           ) : type === "bindings" ? (
             <div className="space-y-4">
-              {(data?.policies?.length || data?.role_policies?.length) ? (
+              {(() => {
+                const bindings = data as McpBindingsDrawerData | null;
+                if (!bindings?.policies?.length && !bindings?.role_policies?.length) {
+                  return <div className="text-xs text-slate-400">暂无绑定记录</div>;
+                }
+                return (
                 <>
-                  {data?.policies?.length > 0 && (
+                  {bindings.policies?.length ? (
                     <div>
                       <div className="text-xs font-medium text-slate-600 mb-2">直接绑定</div>
                       <div className="overflow-hidden rounded-lg border border-slate-100">
@@ -865,7 +889,7 @@ function DetailDrawer({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-50">
-                            {data.policies.map((p: any) => (
+                            {bindings.policies.map((p) => (
                               <tr key={p.agent_id} className="hover:bg-slate-50/50">
                                 <td className="px-3 py-1.5 font-mono text-[10px] text-slate-600">{p.agent_id}</td>
                                 <td className="px-3 py-1.5">
@@ -877,8 +901,8 @@ function DetailDrawer({
                         </table>
                       </div>
                     </div>
-                  )}
-                  {data?.role_policies?.length > 0 && (
+                  ) : null}
+                  {bindings.role_policies?.length ? (
                     <div>
                       <div className="text-xs font-medium text-slate-600 mb-2">角色绑定</div>
                       <div className="overflow-hidden rounded-lg border border-slate-100">
@@ -891,7 +915,7 @@ function DetailDrawer({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-50">
-                            {data.role_policies.map((p: any) => (
+                            {bindings.role_policies.map((p) => (
                               <tr key={p.role_id} className="hover:bg-slate-50/50">
                                 <td className="px-3 py-1.5 font-medium text-slate-700">{p.role_name}</td>
                                 <td className="px-3 py-1.5">
@@ -904,43 +928,30 @@ function DetailDrawer({
                         </table>
                       </div>
                     </div>
-                  )}
+                  ) : null}
                 </>
-              ) : (
-                <div className="text-xs text-slate-400">暂无绑定记录</div>
-              )}
+                );
+              })()}
             </div>
           ) : (
             <div>
               <div className="text-xs text-slate-500 mb-3">
-                共 {data?.total || 0} 条记录，第 {page * pageSize + 1}–{Math.min((page + 1) * pageSize, data?.total || 0)} 条
+                共 {(data as McpCallsDrawerData | null)?.total || 0} 条记录，第 {page * pageSize + 1}–{Math.min((page + 1) * pageSize, (data as McpCallsDrawerData | null)?.total || 0)} 条
               </div>
-              {data?.calls?.length ? (
+              {(data as McpCallsDrawerData | null)?.calls?.length ? (
                 <div className="overflow-hidden rounded-lg border border-slate-100">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50 text-left text-[11px] font-medium text-slate-500">
                         <th className="px-3 py-2">#</th>
                         <th className="px-3 py-2">调用时间</th>
-                        <th className="px-3 py-2">状态</th>
-                        <th className="px-3 py-2">入参</th>
-                        <th className="px-3 py-2">出参</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {data.calls.map((c: any) => (
-                        <tr key={c.id} onClick={() => setSelectedCall(c)} className="hover:bg-slate-50/50 cursor-pointer">
+                      {(data as McpCallsDrawerData).calls.map((c) => (
+                        <tr key={c.id} className="hover:bg-slate-50/50">
                           <td className="px-3 py-1.5 font-mono text-[10px] text-slate-400">{c.id}</td>
-                          <td className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{fmtTime(c.called_at)}</td>
-                          <td className="px-3 py-1.5">
-                            <span className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium ${
-                              c.status === "ok" ? "border-green-200 bg-green-50 text-green-700" :
-                              c.status === "error" ? "border-red-200 bg-red-50 text-red-600" :
-                              "border-slate-200 bg-slate-50 text-slate-500"
-                            }`}>{c.status || "-"}</span>
-                          </td>
-                          <td className="px-3 py-1.5 font-mono text-[10px] text-slate-500 max-w-[180px] truncate">{truncateText(c.args, 60)}</td>
-                          <td className="px-3 py-1.5 font-mono text-[10px] text-slate-500 max-w-[180px] truncate">{truncateText(c.result, 60)}</td>
+                          <td className="px-3 py-1.5 text-slate-600">{fmtTime(c.called_at)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -959,50 +970,6 @@ function DetailDrawer({
             </div>
           )}
         </div>
-
-        {/* Call detail sub-modal */}
-        {selectedCall && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/30" onClick={() => setSelectedCall(null)} />
-            <div className="relative w-full max-w-2xl max-h-[85vh] bg-white border border-slate-200 rounded-xl shadow-xl flex flex-col m-4">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0">
-                <h3 className="text-sm font-semibold text-slate-900">调用详情 # {selectedCall.id}</h3>
-                <button onClick={() => setSelectedCall(null)} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 text-xs">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-slate-50 rounded-lg px-3 py-2">
-                    <div className="text-[10px] text-slate-400">调用时间</div>
-                    <div className="text-slate-700">{fmtTime(selectedCall.called_at)}</div>
-                  </div>
-                  <div className="bg-slate-50 rounded-lg px-3 py-2">
-                    <div className="text-[10px] text-slate-400">状态</div>
-                    <div className="text-slate-700">{selectedCall.status || "-"}</div>
-                  </div>
-                  <div className="bg-slate-50 rounded-lg px-3 py-2">
-                    <div className="text-[10px] text-slate-400">Agent</div>
-                    <div className="font-mono text-slate-600 truncate">{selectedCall.agent_id || "-"}</div>
-                  </div>
-                  <div className="bg-slate-50 rounded-lg px-3 py-2">
-                    <div className="text-[10px] text-slate-400">Run ID</div>
-                    <div className="font-mono text-slate-600 truncate">{selectedCall.run_id || "-"}</div>
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">入参 (args)</div>
-                  <pre className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-[11px] text-slate-700 leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto font-mono">{formatJson(selectedCall.args)}</pre>
-                </div>
-                <div>
-                  <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">出参 (result)</div>
-                  <pre className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-[11px] text-slate-700 leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto font-mono">{formatJson(selectedCall.result)}</pre>
-                </div>
-              </div>
-              <div className="flex justify-end px-4 py-3 border-t border-slate-200 shrink-0">
-                <button onClick={() => setSelectedCall(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">关闭</button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

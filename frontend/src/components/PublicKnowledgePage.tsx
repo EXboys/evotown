@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useLocale } from "../lib/i18n";
 import { PublicSiteHeader } from "./PublicSiteHeader";
+import { canAccessAdminConsole } from "../hooks/useAdminToken";
 
 type KnowledgeSpace = {
   space_id: string;
@@ -48,7 +49,9 @@ const COPY = {
   zh: {
     eyebrow: "Enterprise Knowledge",
     title: "企业知识库",
-    subtitle: "浏览已发布的内部文档与检索结果，供团队与 Agent 引用。管理同步与发布请至企业后台。",
+    subtitle: "浏览已发布的内部文档与检索结果，供团队与 Agent 引用。",
+    subtitleAdmin: "浏览已发布的内部文档与检索结果，供团队与 Agent 引用。管理同步与发布请至",
+    subtitleEmployee: "浏览已发布的内部文档与检索结果，供团队与 Agent 引用。管理同步与发布请联系管理员。",
     manageLink: "企业后台",
     searchPlaceholder: "搜索文档标题与内容…",
     search: "搜索",
@@ -68,7 +71,9 @@ const COPY = {
   en: {
     eyebrow: "Enterprise Knowledge",
     title: "Knowledge Base",
-    subtitle: "Browse published internal docs and search results for teams and Agents. Manage connectors and publishing in the admin console.",
+    subtitle: "Browse published internal docs and search results for teams and Agents.",
+    subtitleAdmin: "Browse published internal docs and search results for teams and Agents. Manage connectors and publishing in the",
+    subtitleEmployee: "Browse published internal docs and search results for teams and Agents. Contact an admin to manage connectors and publishing.",
     manageLink: "Admin Console",
     searchPlaceholder: "Search titles and content…",
     search: "Search",
@@ -171,6 +176,7 @@ export function PublicKnowledgePage() {
   };
 
   const activeSpace = useMemo(() => spaces.find((s) => s.space_id === activeSpaceId), [spaces, activeSpaceId]);
+  const showAdminLink = canAccessAdminConsole();
 
   return (
     <div
@@ -185,10 +191,17 @@ export function PublicKnowledgePage() {
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-600">{copy.eyebrow}</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950 md:text-3xl">{copy.title}</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-600">
-            {copy.subtitle}{" "}
-            <a href="/dashboard" className="font-medium text-teal-700 hover:underline">
-              {copy.manageLink}
-            </a>
+            {showAdminLink ? (
+              <>
+                {copy.subtitleAdmin}{" "}
+                <a href="/dashboard" className="font-medium text-teal-700 hover:underline">
+                  {copy.manageLink}
+                </a>
+                {locale === "zh" ? "。" : "."}
+              </>
+            ) : (
+              copy.subtitleEmployee
+            )}
           </p>
           <dl className="mt-5 flex flex-wrap gap-8 text-center">
             <div>

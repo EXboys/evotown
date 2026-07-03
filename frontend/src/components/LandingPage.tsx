@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 
 import { PublicSiteHeader } from "./PublicSiteHeader";
 import { useLocale } from "../lib/i18n";
-import { adminFetch, isConsoleAuthenticated } from "../hooks/useAdminToken";
+import { adminFetch, canAccessAdminConsole, isConsoleAuthenticated, isStaffEmployee } from "../hooks/useAdminToken";
+import { STAFF_EMPLOYEE_HOME } from "../lib/staffRoutes";
 import { formatDateTimeShort } from "../lib/datetime";
 import { useSystemConfig } from "../hooks/useSystemConfig";
 
@@ -127,6 +128,21 @@ export function LandingPage() {
   const heroBody = sysConfig.portal_hero_desc || copy.hero.body;
   const footerText = sysConfig.portal_footer_text || "© 2025 Evotown · Enterprise Agent Platform";
 
+  const consoleEntryPath = (): string => {
+    if (!isConsoleAuthenticated()) return "/login";
+    if (canAccessAdminConsole()) return "/dashboard";
+    return STAFF_EMPLOYEE_HOME;
+  };
+
+  const resolveModulePath = (path: string): string => {
+    if (path === "/dashboard" && isStaffEmployee()) return STAFF_EMPLOYEE_HOME;
+    return path;
+  };
+
+  const primaryCtaLabel = isStaffEmployee()
+    ? (locale === "zh" ? "进入智能体工作台" : "Open Agent Workspace")
+    : copy.hero.primary;
+
   useEffect(() => {
     fetch("/api/chronicle")
       .then((r) => r.json())
@@ -142,7 +158,7 @@ export function LandingPage() {
     setWorkspacesLoading(true);
     adminFetch("/api/v1/agents?include_all=false&limit=50")
       .then((r) => r.json())
-      .then((d) => setWorkspaces((d.agents || []) as typeof workspaces))
+      .then((d) => setWorkspaces((d.workspaces || []) as typeof workspaces))
       .catch(() => setWorkspaces([]))
       .finally(() => setWorkspacesLoading(false));
   }, []);
@@ -169,10 +185,10 @@ export function LandingPage() {
             <div className="mt-8 flex flex-wrap gap-3">
               <button
                 type="button"
-                onClick={() => navigate("/dashboard")}
+                onClick={() => navigate(consoleEntryPath())}
                 className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-medium text-white shadow-sm hover:bg-blue-500"
               >
-                {copy.hero.primary}
+                {primaryCtaLabel}
               </button>
               <button
                 type="button"
@@ -261,7 +277,7 @@ export function LandingPage() {
             <button
               key={MODULE_META[index].path}
               type="button"
-              onClick={() => navigate(MODULE_META[index].path)}
+              onClick={() => navigate(resolveModulePath(MODULE_META[index].path))}
               className="group rounded-2xl border border-slate-200 bg-white p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
             >
               <div className={`inline-flex rounded-xl bg-gradient-to-br ${MODULE_META[index].accent} px-3 py-1.5 text-xs font-medium text-white`}>

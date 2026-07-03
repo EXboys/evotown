@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
 from core.auth import check_prompt_injection, require_console_read, validate_soul_content
-from domain.models import ClaudeAgentRunCreate, WorkspaceCreate, WorkspaceProfileUpdate, WorkspaceUpdate
-from infra import claude_agent_runs, workspace_files, workspace_profile, workspace_uploads, agents
+from domain.models import AgentShareRequest, ClaudeAgentRunCreate, WorkspaceCreate, WorkspaceProfileUpdate, WorkspaceUpdate
+from infra import claude_agent_runs, workspace_files, workspace_profile, workspace_share, workspace_uploads, agents
 from services import claude_code_runner
 
 router = APIRouter(prefix="/api/v1", tags=["agent"])
@@ -91,8 +91,14 @@ async def get_agent_options(
     try:
         from infra import account_skills, skill_market
 
-        account_id = _account_id(identity)
-        assigned = account_skills.list_for_account(account_id) if account_id else []
+        skill_account_id = _account_id(identity)
+        if agent_id:
+            ws = agents.get_agent(agent_id)
+            if ws is not None and agents.can_access_agent(ws, identity):
+                owner = str(ws.get("owner_account_id") or "").strip()
+                if owner:
+                    skill_account_id = owner
+        assigned = account_skills.list_for_account(skill_account_id) if skill_account_id else []
         for sid in assigned:
             skill = skill_market.get_market_skill(sid)
             if skill:
@@ -110,6 +116,11 @@ async def get_agent_options(
     return {
         "models": models,
         "default_model": claude_code_runner.default_model_id(policy=policy),
+        "runtime_engines": [
+            {"id": "claude", "label": "Claude Agent SDK"},
+            {"id": "codex", "label": "Codex SDK"},
+        ],
+        "default_runtime_engine": "claude",
         "skills": skills,
         "mcp": databases,
     }
@@ -382,6 +393,43 @@ async def list_workspace_file_index(
     return payload
 
 
+@router.post("/agents/{agent_id}/share")
+async def share_workspace_files(
+    agent_id: str,
+    body: AgentShareRequest,
+    identity: dict | None = Depends(require_console_read),
+):
+    """Copy selected workspace files to another agent the caller can run."""
+    identity = _require_identity(identity)
+    _require_scope(identity, "agent.write", "console.write", "agent.run")
+    source_agent = _load_agent_for_identity(agent_id, identity)
+    if not agents.can_run_agent(source_agent, identity):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="share is not allowed for this agent")
+
+    target_agent = agents.get_agent(body.target_agent_id.strip())
+    if target_agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="target agent not found")
+    if not agents.can_run_agent(target_agent, identity):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="share to target agent is not allowed")
+
+    try:
+        result = workspace_share.share_files(
+            source_agent,
+            target_agent,
+            paths=list(body.paths),
+            dest_prefix=body.dest_prefix,
+            overwrite=body.overwrite,
+        )
+    except workspace_share.ShareConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except workspace_share.ShareSizeLimitError as exc:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(exc)) from exc
+    except workspace_share.ShareError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return result
+
+
 @router.post("/agents/{agent_id}/uploads")
 async def upload_workspace_files(
     agent_id: str,
@@ -429,6 +477,7 @@ async def create_agent_run(agent_id: str, body: ClaudeAgentRunCreate, identity: 
     profile = workspace_profile.get_profile(agent)
     run_skills = list(body.skills or []) or list(profile.get("default_skills") or [])
     run_model = claude_code_runner.resolve_run_model(body.model or profile.get("default_model") or "")
+    runtime_engine = str(profile.get("runtime_engine") or "claude").strip().lower()
 
     run = claude_agent_runs.create_run(
         agent_id=agent_id,
@@ -442,6 +491,7 @@ async def create_agent_run(agent_id: str, body: ClaudeAgentRunCreate, identity: 
             "selected_skills": run_skills,
             "previous_run_id": body.previous_run_id,
             "attachments": attachment_paths,
+            "runtime_engine": runtime_engine,
         },
     )
     claude_code_runner.schedule_run(run["run_id"])
@@ -483,12 +533,10 @@ async def list_agent_sessions(agent_id: str, identity: dict | None = Depends(req
     _load_agent_for_identity(agent_id, identity)
 
     # Fetch all runs to build accurate session groups (max 500 to cap cost)
-    result = claude_agent_runs.list_runs(
-        agent_id=agent_id,
+    runs = claude_agent_runs.list_runs_for_agent(
+        agent_id,
         account_id=None if _is_admin(identity) else _account_id(identity),
-        limit=500,
     )
-    runs = result["runs"]
     groups = claude_agent_runs.build_session_groups(runs)
 
     sessions = []
@@ -527,39 +575,33 @@ async def list_session_runs(
     _require_scope(identity, "agent.run", "agent.read", "console.read", "console.write")
     _load_agent_for_identity(agent_id, identity)
 
-    result = claude_agent_runs.list_runs(
-        agent_id=agent_id,
+    payload = claude_agent_runs.list_session_runs_page(
+        agent_id,
+        session_id,
         account_id=None if _is_admin(identity) else _account_id(identity),
-        limit=500,
+        limit=limit,
+        asc=asc,
+        before=before,
+        after=after,
     )
-    all_runs = result["runs"]
-    run_ids_set = set(claude_agent_runs.session_run_ids(all_runs, session_id))
-    if not run_ids_set:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
-
-    chain = [r for r in all_runs if r["run_id"] in run_ids_set]
     # When no cursor is provided (initial load of a session), return the
     # full chain so the frontend can build an unbroken runChain.  Without
     # this, large sessions only get the newest N runs and the chain breaks,
     # leaving the root-run orphaned and its events as the only visible content.
     if before is None and after is None:
-        chain.sort(key=lambda r: r["created_at"])  # oldest first
+        all_runs = claude_agent_runs.list_runs_for_agent(
+            agent_id,
+            account_id=None if _is_admin(identity) else _account_id(identity),
+        )
+        run_ids_set = set(claude_agent_runs.session_run_ids(all_runs, session_id))
+        if not run_ids_set:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+        chain = [r for r in all_runs if r["run_id"] in run_ids_set]
+        chain.sort(key=lambda r: r["created_at"])
         return {"runs": chain, "has_more": False}
-
-    effective_limit = max(1, min(limit, 100))
-
-    if asc:
-        chain.sort(key=lambda r: r["created_at"])  # oldest first
-        if after:
-            chain = [r for r in chain if r["created_at"] > after]
-    else:
-        chain.sort(key=lambda r: r["created_at"], reverse=True)  # newest first
-        if before:
-            chain = [r for r in chain if r["created_at"] < before]
-
-    has_more = len(chain) > effective_limit
-    page = chain[:effective_limit]
-    return {"runs": page, "has_more": has_more}
+    if not payload["runs"]:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+    return payload
 
 
 @router.get("/agent-runs/{run_id}")

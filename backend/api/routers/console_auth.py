@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Security, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Security, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials
 
@@ -23,6 +23,48 @@ from infra import oidc as oidc_store
 from infra import agents as agents_store
 
 router = APIRouter(prefix="/api/v1/auth", tags=["console-auth"])
+
+LOCAL_DEPLOY_KEY_LABEL = "local-deploy"
+EMPLOYEE_GATEWAY_SCOPES = [
+    accounts_store.GATEWAY_SCOPE_CHAT,
+    accounts_store.CONSOLE_SCOPE_READ,
+    accounts_store.AGENT_SCOPE_RUN,
+]
+
+
+def _resolve_public_base_url(request: Request | None) -> str:
+    explicit = os.environ.get("EVOTOWN_PUBLIC_URL", "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    if request is None:
+        return ""
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
+    if not host:
+        return ""
+    return f"{proto}://{host}".rstrip("/")
+
+
+def _gateway_credentials_payload(*, request: Request, account_id: str, api_key: str = "") -> dict:
+    base = _resolve_public_base_url(request) or "https://evotown.company.internal"
+    keys = accounts_store.list_api_keys(account_id=account_id, status="active", limit=50)
+    gateway_keys = [
+        k for k in keys
+        if accounts_store.GATEWAY_SCOPE_CHAT in (k.get("scopes") or [])
+    ]
+    local_keys = [k for k in gateway_keys if str(k.get("label") or "").startswith(LOCAL_DEPLOY_KEY_LABEL)]
+    ref = local_keys[0] if local_keys else (gateway_keys[0] if gateway_keys else None)
+    return {
+        "evotown_url": base,
+        "gateway_base_url": f"{base}/api/gateway/v1",
+        "skills_manifest_url": (
+            f"{base}/api/v1/market/bundles/default-agent-skills/manifest?runtime_target=openclaw"
+        ),
+        "api_key": api_key,
+        "has_key": bool(api_key or ref),
+        "key_prefix": str(ref.get("key_prefix") or "") if ref else "",
+        "key_label": str(ref.get("label") or "") if ref else "",
+    }
 
 
 def _public_register_allowed() -> bool:
@@ -224,6 +266,36 @@ async def oidc_exchange(body: OidcExchange):
 
 
 # ── Agent discovery for staff sessions ──────────────────────────────
+
+@router.get("/my-gateway-credentials")
+async def my_gateway_credentials(request: Request, session: dict = Depends(require_console_session)):
+    """Account-level gateway config for local OpenClaw/Hermes deploy (independent of cloud agents)."""
+    account_id = str(session.get("account_id") or "")
+    if not account_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account session required")
+    return {"credentials": _gateway_credentials_payload(request=request, account_id=account_id)}
+
+
+@router.post("/my-gateway-credentials/issue")
+async def issue_my_gateway_credentials(request: Request, session: dict = Depends(require_console_session)):
+    """Issue or rotate the employee local-deploy API key for the logged-in account."""
+    account_id = str(session.get("account_id") or "")
+    if not account_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account session required")
+    for key in accounts_store.list_api_keys(account_id=account_id, status="active", limit=100):
+        label = str(key.get("label") or "")
+        if label == LOCAL_DEPLOY_KEY_LABEL or label.startswith(f"{LOCAL_DEPLOY_KEY_LABEL}-"):
+            accounts_store.revoke_api_key(str(key.get("key_id") or ""))
+    _record, secret = accounts_store.create_api_key(
+        account_id,
+        label=LOCAL_DEPLOY_KEY_LABEL,
+        scopes=list(EMPLOYEE_GATEWAY_SCOPES),
+    )
+    return {
+        "credentials": _gateway_credentials_payload(request=request, account_id=account_id, api_key=secret),
+        "warning": "Store this API key now. It will not be shown again.",
+    }
+
 
 @router.get("/my-agents")
 async def my_agents(session: dict = Depends(require_staff_session)):

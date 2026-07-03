@@ -39,6 +39,7 @@ from api.routers import (
     accounts,
     account_skills,
     agent_dispatch,
+    audit,
     config,
     coding_agent,
     dispatcher,
@@ -243,7 +244,15 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
 
+    from infra import hosted_agent_engines
     from services.hosted_dispatch_worker import hosted_dispatch_loop
+
+    try:
+        synced = hosted_agent_engines.sync_all_active_agents()
+        if synced:
+            logger.info("[hosted-dispatch] synced %d active agent fleet engines", synced)
+    except Exception as exc:
+        logger.warning("[hosted-dispatch] agent fleet sync failed: %s", exc)
 
     _timeout_task = asyncio.create_task(_timeout_loop())
     _checkpoint_task = asyncio.create_task(_checkpoint_loop())
@@ -331,6 +340,7 @@ app.include_router(engine_ingest.router)
 app.include_router(policies.router)
 app.include_router(assets.router)
 app.include_router(agent_dispatch.router)
+app.include_router(audit.router)
 app.include_router(coding_agent.router)
 app.include_router(accounts.router)
 app.include_router(account_skills.router)

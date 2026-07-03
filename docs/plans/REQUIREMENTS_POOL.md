@@ -230,7 +230,7 @@ Agent 调用 MCP 时，后端需要知道是哪个 Agent 在调用，并基于 A
 
 ### REQ-002: Web 交互页面 — 分享功能
 用户生成的 Web 页面分享给其他账号。方案 A：文件复制到目标 workspace；方案 B：分享链接 + 临时 token。
-**状态**: 待讨论
+**状态**: 已实施（#203）
 
 ### REQ-003: Agent 产出物自动归类目录
 Agent 产出按类型自动放入 workspace 子目录（downloads/、dashboard/ 等）。

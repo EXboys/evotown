@@ -42,7 +42,7 @@ class WorkspaceVisionTest(unittest.TestCase):
         from services import workspace_vision
 
         account_id = "acc_test"
-        ws = agents.create_workspace(owner_account_id=account_id, name="Vision WS")
+        ws = agents.create_agent(owner_account_id=account_id, name="Vision WS")
         gateway_models.create_model(
             model_name="qwen-vl-test",
             provider_label="qwen",
@@ -50,7 +50,7 @@ class WorkspaceVisionTest(unittest.TestCase):
             api_key="sk-test",
             litellm_model="qwen-vl-plus",
         )
-        root = agents.resolve_workspace_path(ws)
+        root = agents.resolve_agent_path(ws)
         rel = "uploads/test.jpg"
         img_path = root / rel
         img_path.parent.mkdir(parents=True, exist_ok=True)

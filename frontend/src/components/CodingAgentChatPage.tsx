@@ -12,6 +12,12 @@ import {
 import { adminFetch, getAdminToken, getConsoleApiKey, getStaffToken, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import { formatDateTimeShort, formatDateTimeFull, parseEvotownTimestamp } from "../lib/datetime";
 import { formatBytes, fileMeta } from "../lib/codingAgentUtils";
+import {
+  groupArtifacts,
+  isHtmlArtifactPath,
+  isUserVisibleArtifact,
+  sortPathsForShare,
+} from "../lib/workspaceArtifactGroups";
 import { WorkspaceFileList, type WorkspaceFileEntry } from "./WorkspaceFileList";
 import { AgentShareDialog } from "./AgentShareDialog";
 import { GatewayDrawer } from "./gateway/GatewayDrawer";
@@ -49,6 +55,10 @@ type AgentProfile = {
 
 const ATTACHMENT_ACCEPT =
   "image/*,.pdf,.txt,.md,.json,.csv,.yaml,.yml,.xml,.html,.htm,.py,.js,.ts,.tsx,.jsx,.css,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx";
+
+function runVisibleArtifacts(run: AgentRun) {
+  return (run.artifact_manifest || []).filter((a) => isUserVisibleArtifact(a.path));
+}
 
 function runAttachmentPaths(run: AgentRun): string[] {
   const raw = run.signals?.attachments;
@@ -298,6 +308,7 @@ export function CodingAgentChatPage() {
   const [agentFiles, setAgentFiles] = useState<WorkspaceFileEntry[]>([]);
   const [agentFilesTruncated, setAgentFilesTruncated] = useState(false);
   const [agentFilesLoading, setAgentFilesLoading] = useState(false);
+  const [filesBrowsePath, setFilesBrowsePath] = useState("");
   const [selectedSharePaths, setSelectedSharePaths] = useState<Set<string>>(() => new Set());
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [showSystemFiles, setShowSystemFiles] = useState(false);
@@ -424,14 +435,22 @@ export function CodingAgentChatPage() {
     if (!agentId) return;
     if (!silent) setAgentFilesLoading(true);
     try {
+      const params = new URLSearchParams();
+      params.set("include_dot", showSystemFiles ? "true" : "false");
+      if (filesBrowsePath) params.set("subdir", filesBrowsePath);
       const data = await adminFetch(
-        `/api/v1/agents/${encodeURIComponent(agentId)}/file-index?include_dot=${showSystemFiles ? "true" : "false"}`,
+        `/api/v1/agents/${encodeURIComponent(agentId)}/file-index?${params.toString()}`,
       ).then((res) => readJson<{ entries?: WorkspaceFileEntry[]; truncated?: boolean }>(res));
-      setAgentFiles(data.entries || []);
+      const prefix = filesBrowsePath.replace(/\/$/, "");
+      const entries = (data.entries || []).map((entry) => ({
+        ...entry,
+        path: prefix ? `${prefix}/${entry.path}`.replace(/\/+/g, "/") : entry.path,
+      }));
+      setAgentFiles(entries);
       setAgentFilesTruncated(Boolean(data.truncated));
     } catch { if (!silent) { setAgentFiles([]); setAgentFilesTruncated(false); } }
     finally { if (!silent) setAgentFilesLoading(false); }
-  }, [agentId, showSystemFiles]);
+  }, [agentId, showSystemFiles, filesBrowsePath]);
 
   const load = useCallback(async () => {
     if (!agentId) return;
@@ -449,7 +468,6 @@ export function CodingAgentChatPage() {
       setSessions(sessionsData.sessions || []);
       if (wsData.runs?.length) mergeRuns(wsData.runs);
       setError("");
-      void loadAgentFiles(true);
       void adminFetch(`/api/v1/agent/options?agent_id=${encodeURIComponent(agentId)}`)
         .then((res) => res.json())
         .then((opts) => {
@@ -463,7 +481,7 @@ export function CodingAgentChatPage() {
     } finally {
       setLoading(false);
     }
-  }, [agentId, loadAgentFiles, mergeRuns]);
+  }, [agentId, mergeRuns]);
 
   const reloadSessions = useCallback(async () => {
     if (!agentId) return;
@@ -654,6 +672,13 @@ export function CodingAgentChatPage() {
       sseRef.current = null;
     };
   }, [selectedRunId, runChain.map(r => r.run_id).join(',')]);
+
+  useEffect(() => { setFilesBrowsePath(""); }, [agentId]);
+
+  useEffect(() => {
+    if (!agentId) return;
+    void loadAgentFiles(true);
+  }, [agentId, filesBrowsePath, showSystemFiles, loadAgentFiles]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -1082,7 +1107,8 @@ export function CodingAgentChatPage() {
                 const hasReply = replyTexts.length > 0 || Boolean(replyFallback);
                 const runRunning = (run.status === "running" || run.status === "queued") && !hasReply && !run.error;
                 const attachments = runAttachmentPaths(run);
-                const isHtmlRun = (run.artifact_manifest || []).some((a) => /\.html?$/i.test(a.path) && !a.path.startsWith(".evotown/"));
+                const visibleArtifacts = runVisibleArtifacts(run);
+                const isHtmlRun = visibleArtifacts.some((a) => isHtmlArtifactPath(a.path));
                 return (
                   <div key={run.run_id}>
                     {/* User message */}
@@ -1115,7 +1141,7 @@ export function CodingAgentChatPage() {
                         /* HTML tabs with URL bar */
                         <div className="mb-3">
                           <HtmlTabs
-                            artifacts={(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && /\.html?$/i.test(a.path))}
+                            artifacts={visibleArtifacts.filter((a) => isHtmlArtifactPath(a.path))}
                             agentId={agentId}
                             htmlContents={htmlContents}
                           />
@@ -1200,9 +1226,9 @@ export function CodingAgentChatPage() {
                               return <WebviewIframes text={allText} />;
                             })()}
                             {/* Image/Video inline */}
-                            {isLast && (run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && /\.(png|jpg|jpeg|gif|webp|svg|mp4|webm)$/i.test(a.path)).length > 0 && (
+                            {isLast && visibleArtifacts.some((a) => /\.(png|jpg|jpeg|gif|webp|svg|mp4|webm)$/i.test(a.path)) && (
                               <div className="mt-3 space-y-2">
-                                {(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && /\.(png|jpg|jpeg|gif|webp|svg|mp4|webm)$/i.test(a.path)).map((a) => {
+                                {visibleArtifacts.filter((a) => /\.(png|jpg|jpeg|gif|webp|svg|mp4|webm)$/i.test(a.path)).map((a) => {
                                   const ext = a.path.split(".").pop()?.toLowerCase() || "";
                                   const isVideo = ext === "mp4" || ext === "webm";
                                   const blobUrl = mediaBlobUrls[a.path];
@@ -1212,11 +1238,11 @@ export function CodingAgentChatPage() {
                               </div>
                             )}
                             {/* Toggles */}
-                            {isLast && (run.log_excerpt || runEvents.length > 0 || ((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length > 0)) && (
+                            {isLast && (run.log_excerpt || runEvents.length > 0 || visibleArtifacts.length > 0) && (
                               <div className="mt-3 flex items-center gap-4 border-t border-slate-100 pt-3">
                                 {run.log_excerpt && <button type="button" onClick={() => setLogExpanded((v) => !v)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{logExpanded ? "▾" : "▸"}</span>执行日志</button>}
                                 {runEvents.length > 0 && <button type="button" onClick={() => setEventsExpanded((v) => !v)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{eventsExpanded ? "▾" : "▸"}</span>事件时间线</button>}
-                                {((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length > 0) && <button type="button" onClick={() => setFilesExpanded((v) => !v)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{filesExpanded ? "▾" : "▸"}</span>文件 ({(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length})</button>}
+                                {visibleArtifacts.length > 0 && <button type="button" onClick={() => setFilesExpanded((v) => !v)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{filesExpanded ? "▾" : "▸"}</span>文件 ({visibleArtifacts.length})</button>}
                               </div>
                             )}
                             {isLast && run.log_excerpt && logExpanded && <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">{formatLog(run.log_excerpt)}</pre>}
@@ -1224,7 +1250,7 @@ export function CodingAgentChatPage() {
                               <div className="mt-2 space-y-1">{runEvents.map((ev) => { const info = describeEvent(ev); const time = ev.ts ? parseEvotownTimestamp(ev.ts) : null; return <div key={`${ev.id}-${ev.seq}`} className="flex items-center gap-2 text-xs"><span className="shrink-0 font-mono text-[10px] text-slate-300 w-[52px]">{time ? time.toLocaleTimeString("zh-CN", {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : ""}</span><span>{info.icon}</span><span className="text-slate-600">{info.title}</span>{info.detail ? <span className="truncate text-slate-400">· {info.detail}</span> : null}</div>; })}</div>
                             ) : null}
                             {isLast && filesExpanded && (
-                              <div className="mt-2 space-y-1">{(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").map((a) => <a key={a.path} href={`/api/v1/agents/${encodeURIComponent(agentId)}/files?path=${encodeURIComponent(a.path)}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50"><span>{fileMeta(a.path).icon}</span><span className="truncate flex-1">{a.path.split("/").pop() || a.path}</span><span className="shrink-0 text-slate-400">{formatBytes(a.bytes)}</span><span className="shrink-0 text-slate-300">↓</span></a>)}</div>
+                              <RunArtifactLinks artifacts={visibleArtifacts} agentId={agentId} />
                             )}
                           </div>
                         </div>
@@ -1305,6 +1331,13 @@ export function CodingAgentChatPage() {
               showSystemFiles={showSystemFiles}
               onToggleSystemFiles={() => setShowSystemFiles((value) => !value)}
               onOpenFile={(path) => void openFile(path)}
+              onEnterDir={(path) => setFilesBrowsePath(path)}
+              browsePath={filesBrowsePath}
+              onBrowseUp={() => {
+                const parent = filesBrowsePath.split("/").slice(0, -1).join("/");
+                setFilesBrowsePath(parent);
+              }}
+              grouped={!filesBrowsePath}
               fileLoadingPath={fileLoading}
               compact
               selectable
@@ -1335,7 +1368,7 @@ export function CodingAgentChatPage() {
       {shareDialogOpen && agentId ? (
         <AgentShareDialog
           sourceAgentId={agentId}
-          selectedPaths={[...selectedSharePaths]}
+          selectedPaths={sortPathsForShare([...selectedSharePaths])}
           onClose={() => setShareDialogOpen(false)}
           onSuccess={() => {
             setSelectedSharePaths(new Set());
@@ -1469,6 +1502,41 @@ function WebviewIframes({ text }: { text: string }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── RunArtifactLinks: grouped artifact download links ───────────────────────
+
+type RunArtifact = { path: string; sha256?: string; bytes: number };
+
+function RunArtifactLinks({ artifacts, agentId }: { artifacts: RunArtifact[]; agentId: string }) {
+  const groups = groupArtifacts(artifacts);
+  if (!groups.length) return null;
+
+  return (
+    <div className="mt-2 space-y-3">
+      {groups.map((group) => (
+        <div key={group.key}>
+          <div className="px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">{group.label}</div>
+          <div className="space-y-1">
+            {group.items.map((a) => (
+              <a
+                key={a.path}
+                href={`/api/v1/agents/${encodeURIComponent(agentId)}/files?path=${encodeURIComponent(a.path)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+              >
+                <span>{fileMeta(a.path).icon}</span>
+                <span className="truncate flex-1">{a.path.split("/").pop() || a.path}</span>
+                <span className="shrink-0 text-slate-400">{formatBytes(a.bytes)}</span>
+                <span className="shrink-0 text-slate-300">↓</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

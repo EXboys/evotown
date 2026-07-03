@@ -25,6 +25,7 @@ import { McpPanel } from "./McpPanel";
 import { RolePanel } from "./RolePanel";
 import { AgentTemplatePanel } from "./AgentTemplatePanel";
 import { DispatchPanel } from "./DispatchPanel";
+import { AgentActivityPanel } from "./AgentActivityPanel";
 import { DimensionPanel } from "./DimensionPanel";
 import SystemConfigPage from "./SystemConfigPage";
 import { DisplayTimezoneSelect } from "./DisplayTimezoneSelect";
@@ -35,7 +36,7 @@ import { useSystemConfig } from "../hooks/useSystemConfig";
 import { formatDateTimeShort } from "../lib/datetime";
 import { useLocale, type Locale } from "../lib/i18n";
 
-type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "templates" | "dimensions" | "settings" | "costs" | "risk";
+type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "templates" | "dimensions" | "settings" | "costs" | "risk" | "audit";
 
 type EngineRecord = {
   engine_id: string;
@@ -199,6 +200,7 @@ const TAB_ROUTE: Record<ConsoleTab, string> = {
   settings: "/console/settings",
   costs: "/costs",
   risk: "/risk",
+  audit: "/console/audit",
 };
 
 const NAV_ITEMS: ConsoleTab[] = [
@@ -218,6 +220,7 @@ const NAV_ITEMS: ConsoleTab[] = [
   "roles",
   "costs",
   "risk",
+  "audit",
 ];
 
 type MenuGroup = {
@@ -233,7 +236,7 @@ const MENU_GROUPS: MenuGroup[] = [
   { id: "agent", labelZh: "智能体中心", labelEn: "Agent Center", items: ["coding", "runs", "engines", "roles", "templates"] },
   { id: "capability", labelZh: "能力中心", labelEn: "Capabilities", items: ["skills", "knowledge", "mcp", "databases", "dispatch"] },
   { id: "model", labelZh: "模型管理", labelEn: "Models", items: ["gateway", "policies", "costs", "risk", "assets"] },
-  { id: "admin", labelZh: "系统管理", labelEn: "System", items: ["accounts", "dimensions", "settings"] },
+  { id: "admin", labelZh: "系统管理", labelEn: "System", items: ["accounts", "audit", "dimensions", "settings"] },
 ];
 
 // Flat set of tabs that belong to expandable groups (non-link groups)
@@ -261,6 +264,7 @@ const CONSOLE_COPY = {
       settings: { label: "系统配置", desc: "Settings" },
       costs: { label: "成本", desc: "Costs" },
       risk: { label: "风控", desc: "Risk" },
+      audit: { label: "追溯", desc: "Audit" },
     },
     shell: {
       eyebrow: "Management Console",
@@ -322,6 +326,7 @@ const CONSOLE_COPY = {
       settings: { label: "Settings", desc: "System Config" },
       costs: { label: "Costs", desc: "Usage" },
       risk: { label: "Risk", desc: "Events" },
+      audit: { label: "Audit", desc: "Activity" },
     },
     shell: {
       eyebrow: "Management Console",
@@ -825,6 +830,7 @@ export function EnterpriseConsole({
             {tab === "dimensions" && <DimensionPanel locale={locale} />}
             {tab === "settings" && <SystemConfigPage locale={locale} />}
             {tab === "costs" && <Costs cost={data.cost} />}
+            {tab === "audit" && <AgentActivityPanel locale={locale} />}
             {tab === "risk" && (
               <Risks
                 violations={data.violations}

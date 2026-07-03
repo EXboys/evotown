@@ -39,6 +39,7 @@ from api.routers import (
     accounts,
     account_skills,
     agent_dispatch,
+    audit,
     config,
     coding_agent,
     dispatcher,
@@ -338,6 +339,7 @@ app.include_router(engine_ingest.router)
 app.include_router(policies.router)
 app.include_router(assets.router)
 app.include_router(agent_dispatch.router)
+app.include_router(audit.router)
 app.include_router(coding_agent.router)
 app.include_router(accounts.router)
 app.include_router(account_skills.router)

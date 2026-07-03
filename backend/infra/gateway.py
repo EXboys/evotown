@@ -335,3 +335,79 @@ def recent_requests(limit: int = 100) -> list[dict[str, Any]]:
         req["account_name"] = account_names.get(row["account_id"], "")
         result.append(req)
     return result
+
+
+def _gateway_time_filter(from_ts: str | None, to_ts: str | None) -> tuple[str, list[Any]]:
+    parts: list[str] = []
+    params: list[Any] = []
+    if from_ts:
+        parts.append("created_at >= ?")
+        params.append(from_ts)
+    if to_ts:
+        parts.append("created_at <= ?")
+        params.append(to_ts)
+    clause = (" AND " + " AND ".join(parts)) if parts else ""
+    return clause, params
+
+
+def count_requests_by_account(*, from_ts: str | None = None, to_ts: str | None = None) -> list[dict[str, Any]]:
+    clause, params = _gateway_time_filter(from_ts, to_ts)
+    rows = _ensure_conn().execute(
+        f"""
+        SELECT
+            account_id,
+            COUNT(*) AS gateway_requests,
+            COALESCE(SUM(total_tokens), 0) AS total_tokens,
+            COALESCE(SUM(cost_usd), 0) AS cost_usd
+        FROM gateway_requests
+        WHERE account_id != ''{clause}
+        GROUP BY account_id
+        """,
+        params,
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_requests_for_account(
+    account_id: str,
+    *,
+    from_ts: str | None = None,
+    to_ts: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    clause, params = _gateway_time_filter(from_ts, to_ts)
+    effective_limit = max(1, min(limit, 500))
+    query_params = [account_id, *params, effective_limit, max(0, offset)]
+    rows = _ensure_conn().execute(
+        f"""
+        SELECT * FROM gateway_requests
+        WHERE account_id = ?{clause}
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+        """,
+        query_params,
+    ).fetchall()
+    return [_request_from_row(row) for row in rows]
+
+
+def list_requests_in_range(
+    *,
+    from_ts: str | None = None,
+    to_ts: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    clause, params = _gateway_time_filter(from_ts, to_ts)
+    effective_limit = max(1, min(limit, 500))
+    query_params = [*params, effective_limit, max(0, offset)]
+    rows = _ensure_conn().execute(
+        f"""
+        SELECT * FROM gateway_requests
+        WHERE 1=1{clause}
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+        """,
+        query_params,
+    ).fetchall()
+    return [_request_from_row(row) for row in rows]

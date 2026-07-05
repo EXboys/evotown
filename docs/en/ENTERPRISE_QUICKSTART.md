@@ -4,6 +4,8 @@ For companies where employees run **OpenClaw** or **Hermes** locally: deploy Evo
 
 See the full guide (Chinese, primary): [zh-CN/ENTERPRISE_QUICKSTART.md](zh-CN/ENTERPRISE_QUICKSTART.md)
 
+Post-deploy ops (upgrade, backup, rollback, health checks): [zh-CN/ENTERPRISE_DEPLOY_RUNBOOK.md](zh-CN/ENTERPRISE_DEPLOY_RUNBOOK.md)
+
 ## IT deploy
 
 ```bash

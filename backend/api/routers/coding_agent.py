@@ -89,10 +89,10 @@ async def get_agent_options(
 
     skills: list[dict] = []
     try:
-        from infra import account_skills, skill_market
+        from infra import agent_skills, skill_market
 
         account_id = _account_id(identity)
-        assigned = account_skills.list_for_account(account_id) if account_id else []
+        assigned = agent_skills.list_for_agent(agent_id) if agent_id else []
         for sid in assigned:
             skill = skill_market.get_market_skill(sid)
             if skill:

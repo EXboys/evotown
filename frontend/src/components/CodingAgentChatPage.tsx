@@ -341,48 +341,10 @@ export function CodingAgentChatPage() {
     } catch { /* ignore */ } finally { loadingMoreRef.current = false; }
   }, [agentId, hasMoreRuns, runs, selectedRunId]);
 
-  // Run chain — only runs belonging to the selected session, with gap handling
+  // Run chain — when a session is selected, runs are session-scoped
   const runChain = useMemo(() => {
     if (!selectedRunId) return [];
-    const byId = new Map(runs.map(r => [r.run_id, r]));
-
-    // Walk backward from each run to find its local root (stop at gaps)
-    const rootMap = new Map<string, string>();
-    for (const run of runs) {
-      let root = run.run_id;
-      let cur: AgentRun | undefined = run;
-      const seen = new Set<string>();
-      while (true) {
-        const prevId = ((cur.signals?.previous_run_id as string) || "").trim();
-        if (!prevId || seen.has(prevId)) break;
-        seen.add(prevId);
-        const prev = byId.get(prevId);
-        if (!prev) break; // gap — use current as local root
-        root = prevId; cur = prev;
-      }
-      rootMap.set(run.run_id, root);
-    }
-
-    // Resolve target root: walk backward from selectedRunId if in runs,
-    // otherwise walk forward to find nearest child in runs
-    let targetRoot = rootMap.get(selectedRunId);
-    if (!targetRoot) {
-      let nextId = selectedRunId;
-      const seen = new Set<string>();
-      while (true) {
-        const child = runs.find(r => ((r.signals?.previous_run_id as string) || "").trim() === nextId);
-        if (!child || seen.has(child.run_id)) break;
-        seen.add(child.run_id);
-        const resolved = rootMap.get(child.run_id);
-        if (resolved) { targetRoot = resolved; break; }
-        nextId = child.run_id;
-      }
-      if (!targetRoot) targetRoot = selectedRunId;
-    }
-
-    return runs
-      .filter(r => (rootMap.get(r.run_id) || r.run_id) === targetRoot)
-      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    return [...runs].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   }, [selectedRunId, runs]);
 
   // Events — SSE stream for running runs, one-time fetch for completed runs
@@ -512,11 +474,9 @@ export function CodingAgentChatPage() {
     };
   }, [selectedRunId, runChain.map(r => r.run_id).join(',')]);
 
-  // When clicking a session not yet loaded, fetch newest 10 + root run
+  // When clicking a session, always fetch session runs (replace existing runs)
   useEffect(() => {
     if (!agentId || !selectedRunId) return;
-    const hasRuns = runs.some(r => r.run_id === selectedRunId);
-    if (hasRuns) return;
     let cancelled = false;
     Promise.all([
       adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(selectedRunId)}/runs?limit=${PAGE_SIZE}`).then(res => res.json()),
@@ -534,7 +494,7 @@ export function CodingAgentChatPage() {
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [agentId, selectedRunId, runs.length]);
+  }, [agentId, selectedRunId]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -842,7 +802,7 @@ export function CodingAgentChatPage() {
       {leftOpen && (
         <aside className="flex w-64 shrink-0 flex-col border-r border-slate-200 bg-slate-50">
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-            <button type="button" onClick={() => navigate("/agent")} className="text-xs font-medium text-slate-500 hover:text-slate-800">← 返回</button>
+            <button type="button" onClick={() => navigate(-1)} className="text-xs font-medium text-slate-500 hover:text-slate-800">← 返回</button>
             <button type="button" onClick={() => setLeftOpen(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-200" title="收起">
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </button>
@@ -1327,25 +1287,42 @@ function WebviewIframes({ text }: { text: string }) {
   const unique = [...new Set(urls)];
   return (
     <div className="mt-3 space-y-3">
-      {unique.map((url) => {
-        const filename = url.split("/").pop() || url;
-        return (
-          <div key={url} className="rounded-lg border border-slate-200 overflow-hidden">
-            <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
-              <span className="flex items-center gap-2 text-xs">
-                <span>🌐</span>
-                <span className="font-medium text-slate-700">{filename}</span>
-              </span>
-              <a href={url} target="_blank" rel="noreferrer" className="text-xs text-slate-500 hover:text-slate-700">
-                新窗口打开 ↗
-              </a>
-            </div>
-            <div className="w-full" style={{ height: "65vh", maxHeight: "560px" }}>
-              <iframe src={url} className="w-full h-full border-0" title={filename} sandbox="allow-scripts allow-same-origin" />
-            </div>
-          </div>
-        );
-      })}
+      {unique.map((url) => (
+        <WebviewFrame key={url} url={url} />
+      ))}
+    </div>
+  );
+}
+
+function WebviewFrame({ url }: { url: string }) {
+  const [tick, setTick] = useState(0);
+  const filename = url.split("/").pop() || url;
+
+  const handleRefresh = () => setTick((t) => t + 1);
+
+  return (
+    <div className="rounded-lg border border-slate-200 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
+        <span className="flex items-center gap-2 text-xs">
+          <span>🌐</span>
+          <span className="font-medium text-slate-700">{filename}</span>
+        </span>
+        <span className="flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            className="text-xs text-slate-500 hover:text-slate-700 cursor-pointer"
+            title="刷新（绕过缓存）"
+          >
+            🔄 刷新
+          </button>
+          <a href={url} target="_blank" rel="noreferrer" className="text-xs text-slate-500 hover:text-slate-700">
+            新窗口打开 ↗
+          </a>
+        </span>
+      </div>
+      <div className="w-full" style={{ height: "65vh", maxHeight: "560px" }}>
+        <iframe key={tick} src={url} className="w-full h-full border-0" title={filename} sandbox="allow-scripts allow-same-origin" />
+      </div>
     </div>
   );
 }

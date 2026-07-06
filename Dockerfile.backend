@@ -45,7 +45,7 @@ RUN set -e && \
 # --mount=type=cache 持久化 pip wheel 缓存，--no-cache 也不会清除，跨次构建复用。
 COPY evotown/backend/requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --timeout=120 --retries=5 -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+    pip install --timeout=120 --retries=5 -i https://pypi.tuna.tsinghua.edu.cn/simple --extra-index-url https://pypi.org/simple -r requirements.txt
 
 # 复制源码
 COPY evotown/backend/ .

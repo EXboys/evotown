@@ -132,9 +132,18 @@ async def run_agent_sdk(
     exit_code = 1
     claude_session_id = ""
     run_id = str(run.get("run_id") or "")
+    _emitted_texts: set[str] = set()  # dedup across blocks/rounds
 
     def _emit(text: str) -> None:
-        """Persist intermediate text as an event for SSE streaming."""
+        """Persist intermediate text as an event for SSE streaming (deduped)."""
+        stripped = text.strip()
+        if not stripped:
+            return
+        # Skip exact duplicates (SDK sometimes emits same text in multiple blocks or
+        # repeats full conversation in ResultMessage.result)
+        if stripped in _emitted_texts:
+            return
+        _emitted_texts.add(stripped)
         log_lines.append(text)
         if run_id:
             try:
@@ -152,8 +161,8 @@ async def run_agent_sdk(
                     if text:
                         _emit(str(text))
             elif isinstance(message, ResultMessage):
-                if message.result:
-                    _emit(str(message.result))
+                # Don't emit .result — it's the full accumulated text already
+                # emitted via AssistantMessage blocks above. Only log errors.
                 if getattr(message, "errors", None):
                     for item in message.errors:
                         _emit(str(item))

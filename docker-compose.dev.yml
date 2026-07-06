@@ -1,0 +1,28 @@
+# ── 后端热更新（不改前端）─────────────────────────────────────────
+# 用法：docker compose up -d（生产模式，需要 build）
+#       docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d backend（开发模式，改 Python 即时生效）
+#
+# 说明：只覆盖 backend 服务，挂载源码 + uvicorn --reload。
+#       前端不受影响，依然走 8080 端口。
+# ───────────────────────────────────────────────────────────────────
+
+services:
+  backend:
+    volumes:
+      - ./backend:/app
+    command:
+      - uvicorn
+      - main:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8765"
+      - --reload
+      - --reload-dir
+      - /app/api
+      - --reload-dir
+      - /app/infra
+      - --reload-dir
+      - /app/core
+      - --reload-dir
+      - /app/services

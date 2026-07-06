@@ -183,7 +183,6 @@ def process(args: dict, permissions: dict) -> dict[str, Any]:
     errors: list[str] = []
     name = (fm.get("name") or "").strip()
     description = (fm.get("description") or "").strip()
-    version = (fm.get("version") or "0.1.0").strip()
 
     if not name:
         errors.append("name 不能为空")
@@ -215,12 +214,12 @@ def process(args: dict, permissions: dict) -> dict[str, Any]:
     # ── Submit version ──────────────────────────────────────────────
     ver_record = submit_skill_version(
         skill_id=skill_id,
-        version=version,
         description=description,
         requires_skills=json.dumps(requires_skills or [], ensure_ascii=False),
         submitted_by_agent_id=agent_id,
         submitted_by_account=account,
     )
+    submitted_version = ver_record.get("version", "1.0.0")
 
     # ── Record usage log ────────────────────────────────────────────
     record_skill_usage(
@@ -228,15 +227,15 @@ def process(args: dict, permissions: dict) -> dict[str, Any]:
         agent_id=agent_id,
         account=account,
         event="submit",
-        details={"version": version, "name": name},
+        details={"version": submitted_version, "name": name},
     )
 
     return {
         "ok": True,
         "data": {
             "skill_id": skill_id,
-            "version": version,
+            "version": submitted_version,
             "name": name,
-            "message": f"技能 '{name}' 版本 {version} 已提交审核",
+            "message": f"技能 '{name}' 版本 {submitted_version} 已提交审核",
         },
     }

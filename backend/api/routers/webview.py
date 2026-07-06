@@ -34,6 +34,7 @@ async def serve_webview_file(file_path: str):
     return FileResponse(
         full_path,
         media_type=_guess_media_type(str(full_path)),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 
 

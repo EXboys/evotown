@@ -85,9 +85,6 @@ function navItemsForUser(signedIn: boolean, adminUser: boolean): NavItem[] {
   if (adminUser) {
     return [...BASE_NAV_ITEMS, ADMIN_NAV_ITEM];
   }
-  if (signedIn) {
-    return [...BASE_NAV_ITEMS, AGENT_NAV_ITEM];
-  }
   return BASE_NAV_ITEMS;
 }
 

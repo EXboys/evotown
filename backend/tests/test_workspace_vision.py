@@ -42,7 +42,7 @@ class WorkspaceVisionTest(unittest.TestCase):
         from services import workspace_vision
 
         account_id = "acc_test"
-        ws = agents.create_agent(owner_account_id=account_id, name="Vision WS")
+        ws = agents.create_agent(account_id=account_id, name="Vision WS")
         gateway_models.create_model(
             model_name="qwen-vl-test",
             provider_label="qwen",

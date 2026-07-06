@@ -672,3 +672,30 @@ async def require_staff_session(
         )
     return session
 
+
+async def get_optional_admin_identity(
+    key: str | None = Security(_HEADER_SCHEME),
+    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
+) -> dict[str, Any] | None:
+    """Validate optional auth for task_pool endpoints. Returns identity dict with submitter_type/submitter_id, or None."""
+    admin_token = _get_configured_token()
+    if admin_token and key and key == admin_token:
+        return {"submitter_type": "admin", "submitter_id": "", "scopes": ["*"]}
+    if credentials is not None and credentials.scheme.lower() == "bearer":
+        token = credentials.credentials
+        staff = get_staff_session(token)
+        if staff is not None:
+            return {
+                "submitter_type": "employee",
+                "submitter_id": staff.get("account_id", ""),
+                "scopes": staff.get("scopes", []),
+            }
+        session = session_from_api_key(token)
+        if session is not None:
+            return {
+                "submitter_type": "api_key",
+                "submitter_id": session.get("account_id", ""),
+                "scopes": session.get("scopes", []),
+            }
+    return None
+

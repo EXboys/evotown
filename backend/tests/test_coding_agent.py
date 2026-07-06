@@ -80,7 +80,7 @@ class CodingAgentApiTest(unittest.TestCase):
         )
         self.assertEqual(create.status_code, 200)
         workspace = create.json()["agent"]
-        self.assertEqual(workspace["owner_account_id"], alice["account_id"])
+        self.assertEqual(agents.get_agent_owner(workspace["agent_id"]), alice["account_id"])
 
         denied = client.get(
             f"/api/v1/agents/{workspace['agent_id']}",
@@ -426,7 +426,7 @@ class CodingAgentApiTest(unittest.TestCase):
         from services import claude_code_runner
 
         account, secret = self._account_key("CancelUser")
-        ws = agents.create_agent(owner_account_id=account["account_id"], name="Cancel WS")
+        ws = agents.create_agent(account_id=account["account_id"], name="Cancel WS")
         run = claude_agent_runs.create_run(
             agent_id=ws["agent_id"],
             account_id=account["account_id"],
@@ -444,7 +444,7 @@ class CodingAgentApiTest(unittest.TestCase):
         from infra import claude_agent_runs, agents
 
         account, _secret = self._account_key("StaleUser")
-        ws = agents.create_agent(owner_account_id=account["account_id"], name="Stale WS")
+        ws = agents.create_agent(account_id=account["account_id"], name="Stale WS")
         run = claude_agent_runs.create_run(
             agent_id=ws["agent_id"],
             account_id=account["account_id"],
@@ -466,7 +466,7 @@ class CodingAgentApiTest(unittest.TestCase):
 
         client = self._client()
         account, secret = self._account_key("DeleteSessionUser")
-        ws = agents.create_agent(owner_account_id=account["account_id"], name="Delete WS")
+        ws = agents.create_agent(account_id=account["account_id"], name="Delete WS")
         workspace_id = ws["agent_id"]
 
         first = client.post(
@@ -502,7 +502,7 @@ class CodingAgentApiTest(unittest.TestCase):
 
         client = self._client()
         account, secret = self._account_key("UploadUser")
-        ws = agents.create_agent(owner_account_id=account["account_id"], name="Upload WS")
+        ws = agents.create_agent(account_id=account["account_id"], name="Upload WS")
         workspace_id = ws["agent_id"]
         headers = {"Authorization": f"Bearer {secret}"}
 

@@ -113,6 +113,8 @@ services:
       - EVOTOWN_DB_MCP_URL=${EVOTOWN_DB_MCP_URL:-http://db-mcp-proxy:9100}
       - EVOTOWN_AGENTS_HOST_DIR=${EVOTOWN_AGENTS_HOST_DIR:-/usr/local/agent-data/agents}
       - EVOTOWN_AGENTS_DIR=/app/data/agents
+      # Task pool API key (shared secret for Hermes/agent claim endpoint)
+      - EVOTOWN_TASK_POOL_KEY=${EVOTOWN_TASK_POOL_KEY:-}
     # 使用定制 seccomp profile，允许 bubblewrap (bwrap) 创建 user namespace，
     # 同时拦截最危险的内核级 syscall（kexec / module load / perf_event 等）。
     # 比 seccomp:unconfined 更安全：默认 ALLOW 但明确 DENY 高危操作。

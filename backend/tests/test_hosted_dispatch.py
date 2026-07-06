@@ -55,7 +55,7 @@ class HostedDispatchTest(unittest.TestCase):
     def test_workspace_registers_fleet_engine(self) -> None:
         from infra import hosted_agent_engines, agents
 
-        agent = agents.create_agent(owner_account_id="acct-1", name="Dispatch Sandbox")
+        agent = agents.create_agent(account_id="acct-1", name="Dispatch Sandbox")
         engine_id = hosted_agent_engines.engine_id_for_agent(agent["agent_id"])
 
         client = self._client()
@@ -71,7 +71,7 @@ class HostedDispatchTest(unittest.TestCase):
         from infra import hosted_agent_engines, agents
         from services import hosted_dispatch_worker
 
-        agent = agents.create_agent(owner_account_id="acct-dispatch", name="Job Target")
+        agent = agents.create_agent(account_id="acct-dispatch", name="Job Target")
         engine_id = hosted_agent_engines.engine_id_for_agent(agent["agent_id"])
 
         client = self._client()
@@ -114,7 +114,7 @@ class HostedDispatchTest(unittest.TestCase):
         from infra import claude_agent_runs, hosted_agent_engines, agents
         from services import hosted_dispatch_worker
 
-        agent = agents.create_agent(owner_account_id="acct-model", name="Model Target")
+        agent = agents.create_agent(account_id="acct-model", name="Model Target")
         engine_id = hosted_agent_engines.engine_id_for_agent(agent["agent_id"])
 
         client = self._client()
@@ -153,7 +153,7 @@ class HostedDispatchTest(unittest.TestCase):
     def test_archived_workspace_rejects_dispatch_target(self) -> None:
         from infra import hosted_agent_engines, agents
 
-        agent = agents.create_agent(owner_account_id="acct-arch", name="Archived")
+        agent = agents.create_agent(account_id="acct-arch", name="Archived")
         engine_id = hosted_agent_engines.engine_id_for_agent(agent["agent_id"])
         agents.update_agent(agent["agent_id"], status=agents.AGENT_STATUS_ARCHIVED)
 

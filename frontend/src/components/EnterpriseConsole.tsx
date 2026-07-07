@@ -25,16 +25,18 @@ import { McpPanel } from "./McpPanel";
 import { RolePanel } from "./RolePanel";
 import { AgentTemplatePanel } from "./AgentTemplatePanel";
 import { DispatchPanel } from "./DispatchPanel";
+import { AgentActivityPanel } from "./AgentActivityPanel";
 import { DimensionPanel } from "./DimensionPanel";
 import SystemConfigPage from "./SystemConfigPage";
 import { DisplayTimezoneSelect } from "./DisplayTimezoneSelect";
 import { LanguageToggle } from "./LanguageToggle";
-import { adminFetch, clearConsoleSession, isConsoleAuthenticated } from "../hooks/useAdminToken";
+import { adminFetch, clearConsoleSession, isConsoleAuthenticated, isStaffEmployee } from "../hooks/useAdminToken";
+import { STAFF_EMPLOYEE_HOME } from "../lib/staffRoutes";
 import { useSystemConfig } from "../hooks/useSystemConfig";
 import { formatDateTimeShort } from "../lib/datetime";
 import { useLocale, type Locale } from "../lib/i18n";
 
-type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "templates" | "dimensions" | "settings" | "costs" | "risk";
+type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "templates" | "dimensions" | "settings" | "costs" | "risk" | "audit";
 
 type EngineRecord = {
   engine_id: string;
@@ -198,6 +200,7 @@ const TAB_ROUTE: Record<ConsoleTab, string> = {
   settings: "/console/settings",
   costs: "/costs",
   risk: "/risk",
+  audit: "/console/audit",
 };
 
 const NAV_ITEMS: ConsoleTab[] = [
@@ -217,6 +220,7 @@ const NAV_ITEMS: ConsoleTab[] = [
   "roles",
   "costs",
   "risk",
+  "audit",
 ];
 
 type MenuGroup = {
@@ -232,7 +236,7 @@ const MENU_GROUPS: MenuGroup[] = [
   { id: "agent", labelZh: "智能体中心", labelEn: "Agent Center", items: ["coding", "runs", "engines", "roles", "templates"] },
   { id: "capability", labelZh: "能力中心", labelEn: "Capabilities", items: ["skills", "knowledge", "mcp", "databases", "dispatch"] },
   { id: "model", labelZh: "模型管理", labelEn: "Models", items: ["gateway", "policies", "costs", "risk", "assets"] },
-  { id: "admin", labelZh: "系统管理", labelEn: "System", items: ["accounts", "dimensions", "settings"] },
+  { id: "admin", labelZh: "系统管理", labelEn: "System", items: ["accounts", "audit", "dimensions", "settings"] },
 ];
 
 // Flat set of tabs that belong to expandable groups (non-link groups)
@@ -260,6 +264,7 @@ const CONSOLE_COPY = {
       settings: { label: "系统配置", desc: "Settings" },
       costs: { label: "成本", desc: "Costs" },
       risk: { label: "风控", desc: "Risk" },
+      audit: { label: "追溯", desc: "Audit" },
     },
     shell: {
       eyebrow: "Management Console",
@@ -321,6 +326,7 @@ const CONSOLE_COPY = {
       settings: { label: "Settings", desc: "System Config" },
       costs: { label: "Costs", desc: "Usage" },
       risk: { label: "Risk", desc: "Events" },
+      audit: { label: "Audit", desc: "Activity" },
     },
     shell: {
       eyebrow: "Management Console",
@@ -486,16 +492,22 @@ export function EnterpriseConsole({
     }
   }, [tab]);
 
+  const staffEmployee = isStaffEmployee();
+
   useEffect(() => {
     if (!isConsoleAuthenticated()) {
       navigate(`/login?return=${encodeURIComponent(window.location.pathname)}`, { replace: true });
+      return;
+    }
+    if (staffEmployee && initialTab !== "coding") {
+      navigate(STAFF_EMPLOYEE_HOME, { replace: true });
       return;
     }
     adminFetch("/api/v1/auth/me")
       .then((r) => r.ok ? r.json() as Promise<{ session?: { account_name?: string } }> : null)
       .then((data) => setSessionName(data?.session?.account_name || ""))
       .catch(() => setSessionName(""));
-  }, [navigate]);
+  }, [navigate, staffEmployee, initialTab]);
 
   const load = () => {
     setLoading(true);
@@ -551,10 +563,9 @@ export function EnterpriseConsole({
   useEffect(() => setTab(initialTab), [initialTab]);
 
   useEffect(() => {
+    if (staffEmployee) return;
     load();
-    const id = setInterval(load, 5_000);
-    return () => clearInterval(id);
-  }, []);
+  }, [staffEmployee]);
 
   const summary = useMemo(() => {
     const total = data.runs.length;
@@ -625,7 +636,13 @@ export function EnterpriseConsole({
             </button>
           </div>
           <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-3 py-3 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
-            {MENU_GROUPS.map((group) => {
+            {(staffEmployee
+              ? MENU_GROUPS.filter((group) => group.id === "agent").map((group) => ({
+                  ...group,
+                  items: group.items.filter((item) => item === "coding"),
+                }))
+              : MENU_GROUPS
+            ).map((group) => {
               const groupLabel = locale === "zh" ? group.labelZh : group.labelEn;
               const isExpanded = expandedGroups.has(group.id);
               const activeInGroup = group.items.some(item => tab === item);
@@ -705,6 +722,14 @@ export function EnterpriseConsole({
           </nav>
           <div className="shrink-0 space-y-2 border-t border-white/10 p-4">
             <DisplayTimezoneSelect layout="card" tone="dark" />
+            {staffEmployee && (
+              <button
+                onClick={() => navigate("/market")}
+                className="w-full rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-sm font-medium text-violet-100 transition hover:bg-violet-500/20"
+              >
+                {locale === "zh" ? "Skills 市场" : "Skills Market"}
+              </button>
+            )}
             <button
               onClick={() => navigate("/")}
               className="w-full rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
@@ -805,6 +830,7 @@ export function EnterpriseConsole({
             {tab === "dimensions" && <DimensionPanel locale={locale} />}
             {tab === "settings" && <SystemConfigPage locale={locale} />}
             {tab === "costs" && <Costs cost={data.cost} />}
+            {tab === "audit" && <AgentActivityPanel locale={locale} />}
             {tab === "risk" && (
               <Risks
                 violations={data.violations}

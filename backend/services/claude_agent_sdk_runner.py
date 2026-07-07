@@ -95,6 +95,9 @@ async def run_agent_sdk(
     """Run a single hosted agent task via the embedded Claude Agent SDK."""
     from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, query
 
+    from infra import claude_agent_runs
+
+    run_id = str(run.get("run_id") or "")
     permission_mode = os.environ.get("EVOTOWN_CLAUDE_PERMISSION_MODE", "acceptEdits").strip() or "acceptEdits"
     options_kwargs: dict[str, Any] = {
         "cwd": workspace_root,
@@ -127,10 +130,31 @@ async def run_agent_sdk(
             for block in message.content:
                 text = getattr(block, "text", None)
                 if text:
-                    log_lines.append(str(text))
+                    text_str = str(text)
+                    log_lines.append(text_str)
+                    if run_id:
+                        try:
+                            claude_agent_runs.append_event(
+                                run_id,
+                                "assistant_message",
+                                {"text": text_str, "seq": len(log_lines)},
+                            )
+                        except Exception:
+                            pass
         elif isinstance(message, ResultMessage):
             if message.result:
-                log_lines.append(str(message.result))
+                result_str = str(message.result)
+                if result_str and (not log_lines or log_lines[-1] != result_str):
+                    log_lines.append(result_str)
+                    if run_id:
+                        try:
+                            claude_agent_runs.append_event(
+                                run_id,
+                                "assistant_message",
+                                {"text": result_str, "seq": len(log_lines), "final": True},
+                            )
+                        except Exception:
+                            pass
             if getattr(message, "errors", None):
                 log_lines.extend(str(item) for item in message.errors)
             if message.subtype == "success" and not message.is_error:

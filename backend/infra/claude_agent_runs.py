@@ -306,6 +306,60 @@ def list_stale_active_runs(*, timeout_sec: int, limit: int = 50) -> list[dict[st
     return [_run_from_row(row) for row in rows]
 
 
+def list_runs_for_agent(
+    agent_id: str,
+    *,
+    account_id: str | None = None,
+    max_rows: int = 500,
+) -> list[dict[str, Any]]:
+    """Load all runs for one agent (bounded) — used for session grouping."""
+    where = ["agent_id=?"]
+    params: list[Any] = [agent_id]
+    if account_id:
+        where.append("account_id=?")
+        params.append(account_id)
+    cap = max(1, min(max_rows, 500))
+    params.append(cap)
+    rows = _ensure_conn().execute(
+        f"SELECT * FROM claude_agent_runs WHERE {' AND '.join(where)} ORDER BY created_at ASC LIMIT ?",
+        params,
+    ).fetchall()
+    return [_run_from_row(row) for row in rows]
+
+
+def list_session_runs_page(
+    agent_id: str,
+    session_id: str,
+    *,
+    account_id: str | None = None,
+    limit: int = 100,
+    asc: bool = False,
+    before: str | None = None,
+    after: str | None = None,
+) -> dict[str, Any]:
+    """Return paginated runs for one conversation session."""
+    all_runs = list_runs_for_agent(agent_id, account_id=account_id)
+    run_ids_set = set(session_run_ids(all_runs, session_id))
+    if not run_ids_set:
+        return {"runs": [], "has_more": False}
+
+    chain = [r for r in all_runs if r["run_id"] in run_ids_set]
+    effective_limit = max(1, min(limit, 100))
+
+    if asc:
+        chain.sort(key=lambda r: r["created_at"])
+        if after:
+            chain = [r for r in chain if r["created_at"] > after]
+    else:
+        chain.sort(key=lambda r: r["created_at"], reverse=True)
+        if before:
+            chain = [r for r in chain if r["created_at"] < before]
+
+    has_more = len(chain) > effective_limit
+    page = chain[:effective_limit]
+    return {"runs": page, "has_more": has_more}
+
+
 def build_session_groups(runs: list[dict[str, Any]]) -> dict[str, list[str]]:
     """Map session root run_id -> all run_ids in the conversation chain."""
     by_id = {run["run_id"]: run for run in runs}
@@ -370,3 +424,96 @@ def delete_runs(run_ids: list[str]) -> list[str]:
         conn.execute("DELETE FROM claude_agent_runs WHERE run_id=?", (run_id,))
         deleted.append(run_id)
     return deleted
+
+
+def _time_filter(col: str, from_ts: str | None, to_ts: str | None) -> tuple[str, list[Any]]:
+    parts: list[str] = []
+    params: list[Any] = []
+    if from_ts:
+        parts.append(f"{col} >= ?")
+        params.append(from_ts)
+    if to_ts:
+        parts.append(f"{col} <= ?")
+        params.append(to_ts)
+    clause = (" AND " + " AND ".join(parts)) if parts else ""
+    return clause, params
+
+
+def count_runs_by_account(*, from_ts: str | None = None, to_ts: str | None = None) -> list[dict[str, Any]]:
+    clause, params = _time_filter("created_at", from_ts, to_ts)
+    rows = _ensure_conn().execute(
+        f"""
+        SELECT account_id, COUNT(*) AS run_count
+        FROM claude_agent_runs
+        WHERE account_id != ''{clause}
+        GROUP BY account_id
+        """,
+        params,
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_runs_in_range(
+    *,
+    from_ts: str | None = None,
+    to_ts: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    clause, params = _time_filter("created_at", from_ts, to_ts)
+    effective_limit = max(1, min(limit, 500))
+    params.extend([effective_limit, max(0, offset)])
+    rows = _ensure_conn().execute(
+        f"""
+        SELECT * FROM claude_agent_runs
+        WHERE 1=1{clause}
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+        """,
+        params,
+    ).fetchall()
+    return [_run_from_row(row) for row in rows]
+
+
+def list_runs_for_account(
+    account_id: str,
+    *,
+    from_ts: str | None = None,
+    to_ts: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    clause, params = _time_filter("created_at", from_ts, to_ts)
+    effective_limit = max(1, min(limit, 500))
+    effective_offset = max(0, offset)
+    count_params = [account_id, *params]
+    total_row = _ensure_conn().execute(
+        f"""
+        SELECT COUNT(*) AS total
+        FROM claude_agent_runs
+        WHERE account_id = ?{clause}
+        """,
+        count_params,
+    ).fetchone()
+    total = int(total_row["total"]) if total_row else 0
+
+    list_params = [account_id, *params, effective_limit + 1, effective_offset]
+    rows = _ensure_conn().execute(
+        f"""
+        SELECT * FROM claude_agent_runs
+        WHERE account_id = ?{clause}
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+        """,
+        list_params,
+    ).fetchall()
+    has_more = len(rows) > effective_limit
+    if has_more:
+        rows = rows[:effective_limit]
+    return {
+        "runs": [_run_from_row(row) for row in rows],
+        "total": total,
+        "has_more": has_more,
+        "limit": effective_limit,
+        "offset": effective_offset,
+    }

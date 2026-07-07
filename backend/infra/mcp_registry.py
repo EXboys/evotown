@@ -285,6 +285,7 @@ def _migrate_mcp_usage_log(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE mcp_usage_log ADD COLUMN {col} {col_def}")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_mcp_usage_run ON mcp_usage_log(run_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_mcp_usage_agent ON mcp_usage_log(agent_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_mcp_usage_account ON mcp_usage_log(account_id, called_at)")
 
 
 # ── MCP Service CRUD ──────────────────────────────────────────────────
@@ -937,6 +938,102 @@ def list_mcp_calls(service_id: str, *, limit: int = 50, offset: int = 0) -> list
         (service_id, limit, offset),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def _mcp_time_filter(from_ts: str | None, to_ts: str | None) -> tuple[str, list[Any]]:
+    parts: list[str] = []
+    params: list[Any] = []
+    if from_ts:
+        parts.append("called_at >= ?")
+        params.append(from_ts)
+    if to_ts:
+        parts.append("called_at <= ?")
+        params.append(to_ts)
+    clause = (" AND " + " AND ".join(parts)) if parts else ""
+    return clause, params
+
+
+def count_mcp_calls_by_account(*, from_ts: str | None = None, to_ts: str | None = None) -> list[dict[str, Any]]:
+    clause, params = _mcp_time_filter(from_ts, to_ts)
+    rows = _ensure_conn().execute(
+        f"""
+        SELECT account_id, COUNT(*) AS mcp_calls
+        FROM mcp_usage_log
+        WHERE account_id != ''{clause}
+        GROUP BY account_id
+        """,
+        params,
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def count_mcp_calls_by_run_ids(run_ids: list[str]) -> dict[str, int]:
+    if not run_ids:
+        return {}
+    placeholders = ",".join("?" for _ in run_ids)
+    rows = _ensure_conn().execute(
+        f"""
+        SELECT run_id, COUNT(*) AS mcp_calls
+        FROM mcp_usage_log
+        WHERE run_id IN ({placeholders})
+        GROUP BY run_id
+        """,
+        run_ids,
+    ).fetchall()
+    return {row["run_id"]: int(row["mcp_calls"]) for row in rows}
+
+
+def list_mcp_calls_for_account(
+    account_id: str,
+    *,
+    from_ts: str | None = None,
+    to_ts: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    clause, params = _mcp_time_filter(from_ts, to_ts)
+    effective_limit = max(1, min(limit, 500))
+    query_params = [account_id, *params, effective_limit, max(0, offset)]
+    rows = _ensure_conn().execute(
+        f"""
+        SELECT * FROM mcp_usage_log
+        WHERE account_id = ?{clause}
+        ORDER BY called_at DESC
+        LIMIT ? OFFSET ?
+        """,
+        query_params,
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_mcp_calls_in_range(
+    *,
+    from_ts: str | None = None,
+    to_ts: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    clause, params = _mcp_time_filter(from_ts, to_ts)
+    effective_limit = max(1, min(limit, 500))
+    query_params = [*params, effective_limit, max(0, offset)]
+    rows = _ensure_conn().execute(
+        f"""
+        SELECT * FROM mcp_usage_log
+        WHERE 1=1{clause}
+        ORDER BY called_at DESC
+        LIMIT ? OFFSET ?
+        """,
+        query_params,
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_mcp_calls_for_run(run_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
+    rows = _ensure_conn().execute(
+        "SELECT * FROM mcp_usage_log WHERE run_id = ? ORDER BY called_at ASC LIMIT ?",
+        (run_id, max(1, min(limit, 500))),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 # ── System Dimension Registry CRUD ────────────────────────────────────

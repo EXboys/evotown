@@ -228,6 +228,10 @@ def create_agent(
             "UPDATE agents SET key_id=?, raw_key=? WHERE agent_id=?",
             (key_id, raw_key, agent_id),
         )
+    if agent:
+        from infra import hosted_agent_engines
+
+        hosted_agent_engines.register_agent_engine(agent)
     return agent
 
 
@@ -363,7 +367,12 @@ def update_agent(
             """,
             (agent_id, new_owner),
         )
-    return get_agent(agent_id)
+    updated = get_agent(agent_id)
+    if updated is not None:
+        from infra import hosted_agent_engines
+
+        hosted_agent_engines.sync_agent_engine(updated)
+    return updated
 
 
 def agent_usage_bytes(agent: dict[str, Any]) -> int:
@@ -391,13 +400,32 @@ def is_agent_member(agent_id: str, account_id: str) -> bool:
     return row is not None
 
 
+def is_console_superuser(identity: dict[str, Any]) -> bool:
+    """IT admin: bootstrap token, staff role=admin, or legacy * scope."""
+    scopes = identity.get("scopes") or []
+    if "*" in scopes:
+        return True
+    if str(identity.get("role") or "").strip().lower() == "admin":
+        return True
+    if identity.get("source") == "admin_token":
+        return True
+    return False
+
+
 def can_access_agent(agent: dict[str, Any] | None, identity: dict[str, Any]) -> bool:
     if agent is None:
         return False
-    if "*" in (identity.get("scopes") or []):
+    if is_console_superuser(identity):
+        return True
+    scopes = identity.get("scopes") or []
+    if "*" in scopes:
         return True
     account_id = str(identity.get("account_id") or "")
-    return bool(account_id and agent.get("owner_account_id") == account_id)
+    if not account_id:
+        return False
+    if agent.get("owner_account_id") == account_id:
+        return True
+    return is_agent_member(str(agent.get("agent_id") or ""), account_id)
 
 
 def can_run_agent(agent: dict[str, Any] | None, identity: dict[str, Any]) -> bool:

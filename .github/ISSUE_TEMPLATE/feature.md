@@ -2,8 +2,9 @@
 name: Feature / improvement
 about: Track a scoped change before opening a PR
 title: "[area] Short description"
-labels: ""
-assignees: ""
+labels: ''
+assignees: ''
+
 ---
 
 ## 背景

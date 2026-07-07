@@ -92,6 +92,9 @@ export function SkillsAssignmentPanel({ accountId, accountName }: Props) {
 
   return (
     <div className="space-y-3">
+      <p className="text-xs text-slate-500">
+        勾选后点击「保存」；该账号名下所有云端 Agent 在下次 run 时会加载这些技能。
+      </p>
       <div className="flex items-center justify-between">
         <span className="text-sm text-slate-500">
           已选择 {assigned.length} 个技能

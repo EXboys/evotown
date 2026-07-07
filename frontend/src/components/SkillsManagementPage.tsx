@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { adminFetch } from "../hooks/useAdminToken";
 import { formatDateTimeShort } from "../lib/datetime";
+import { SkillAccountAssignSection, SkillBundlePublishSection } from "./SkillsDispatchSections";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -22,6 +24,7 @@ type TestRun = { id: number; skill_id: string; run_id: string; test_prompt: stri
 type WorkspaceSkill = { skill_id: string; name: string; description: string; scripts: string[]; };
 
 type SkillsTab = "all" | "draft" | "pending" | "approved" | "deprecated";
+type SkillsPageSection = "library" | "publish" | "assign";
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -46,12 +49,34 @@ const SOURCE_LABEL: Record<string, string> = { enterprise: "企业技能", exter
 // ── Component ──────────────────────────────────────────────────────────────
 
 export function SkillsManagementPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sectionFromUrl = searchParams.get("section");
+  const initialSection: SkillsPageSection =
+    sectionFromUrl === "publish" || sectionFromUrl === "assign" || sectionFromUrl === "library"
+      ? sectionFromUrl
+      : "library";
+
   const [skills, setSkills] = useState<SkillRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [tab, setTab] = useState<SkillsTab>("all");
+  const [pageSection, setPageSection] = useState<SkillsPageSection>(initialSection);
   const [filters, setFilters] = useState({ query: "", source_type: "", tag: "" });
+
+  const setSection = (next: SkillsPageSection) => {
+    setPageSection(next);
+    const params = new URLSearchParams(searchParams);
+    if (next === "library") params.delete("section");
+    else params.set("section", next);
+    setSearchParams(params, { replace: true });
+  };
+
+  useEffect(() => {
+    if (sectionFromUrl === "publish" || sectionFromUrl === "assign" || sectionFromUrl === "library") {
+      setPageSection(sectionFromUrl);
+    }
+  }, [sectionFromUrl]);
 
   // Detail
   const [detailSkill, setDetailSkill] = useState<SkillRecord | null>(null);
@@ -122,16 +147,48 @@ export function SkillsManagementPage() {
 
   return (
     <div className="space-y-5">
-      {/* Top bar */}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="text-sm text-slate-500">统一技能管理：Agent 创建 → 草稿 → 审核 → 入池 → 下发。企业技能 / 外部导入合流管理。</p>
-        <div className="flex gap-2">
-          <button type="button" onClick={loadSkills} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">{loading ? "刷新中…" : "刷新"}</button>
-          <button type="button" onClick={() => { setExtractOpen(true); setError(""); }} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100">⬇ 提取技能</button>
-          <button type="button" onClick={() => { setUploadOpen(true); setError(""); }} className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800">+ 上传技能</button>
+        <div>
+          <h2 className="text-lg font-semibold text-slate-950">技能</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            上传、审核、测试技能包；通过后通过「账号下发」或「发布 Bundle」给员工使用。
+          </p>
         </div>
+        {pageSection === "library" ? (
+          <div className="flex gap-2">
+            <button type="button" onClick={loadSkills} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">{loading ? "刷新中…" : "刷新"}</button>
+            <button type="button" onClick={() => { setExtractOpen(true); setError(""); }} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100">⬇ 提取技能</button>
+            <button type="button" onClick={() => { setUploadOpen(true); setError(""); }} className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800">+ 上传技能</button>
+          </div>
+        ) : null}
       </div>
 
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-1">
+        {([
+          { id: "library" as const, label: "技能库" },
+          { id: "assign" as const, label: "账号下发（云端 Agent）" },
+          { id: "publish" as const, label: "发布 Bundle（本机 sync）" },
+        ]).map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setSection(item.id)}
+            className={`rounded-t-lg px-4 py-2 text-sm font-medium transition-colors ${
+              pageSection === item.id
+                ? "border border-b-white border-slate-200 bg-white text-slate-950 -mb-px"
+                : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {pageSection === "publish" ? <SkillBundlePublishSection /> : null}
+      {pageSection === "assign" ? <SkillAccountAssignSection /> : null}
+
+      {pageSection === "library" ? (
+      <>
       {/* Stat cards */}
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="全部" value={counts.all} note="总技能数" />
@@ -232,6 +289,8 @@ export function SkillsManagementPage() {
       {uploadOpen && <UploadModal onClose={() => setUploadOpen(false)} onDone={(msg) => { setMessage(msg); loadSkills(); }} />}
       {testOpen && <TestModal skillId={testSkillId} onClose={() => setTestOpen(false)} onDone={(msg) => { setMessage(msg); }} />}
       {repairOpen && <RepairModal skillId={repairSkillId} skillName={repairSkillName} onClose={() => setRepairOpen(false)} onDone={(msg) => { setMessage(msg); }} />}
+      </>
+      ) : null}
     </div>
   );
 }

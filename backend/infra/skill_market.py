@@ -1086,7 +1086,7 @@ def trigger_skill_test(
 
     # Ensure test account exists
     account = accounts_store.get_account(test_account_id)
-    workspace_id: str = ""
+    agent_id: str = ""
     if account is None:
         raise ValueError(f"test account not found: {test_account_id}")
 
@@ -1095,12 +1095,12 @@ def trigger_skill_test(
     if skill_id not in current_skills:
         acct_skills.assign(test_account_id, [skill_id] + current_skills)
 
-    # Find a workspace for the test account
-    ws_list = agents.list_workspaces(owner_account_id=test_account_id, limit=1)
-    if not ws_list:
-        raise ValueError(f"no workspace found for test account: {test_account_id}")
-    workspace = ws_list[0]
-    workspace_id = workspace["workspace_id"]
+    # Find an agent sandbox for the test account
+    agent_list = agents.list_agents(owner_account_id=test_account_id, limit=1)
+    if not agent_list:
+        raise ValueError(f"no agent found for test account: {test_account_id}")
+    agent = agent_list[0]
+    agent_id = agent["agent_id"]
 
     # Build test prompt
     skill_name = skill.get("name", skill_id)
@@ -1113,7 +1113,7 @@ def trigger_skill_test(
 
     # Create the agent run
     run_id = claude_agent_runs.create_run(
-        workspace_id=workspace_id,
+        agent_id=agent_id,
         prompt=prompt,
         account_id=test_account_id,
         team_id=team_id,
@@ -1145,7 +1145,7 @@ def trigger_skill_test(
         "skill_id": skill_id,
         "run_id": run_id,
         "test_prompt": prompt,
-        "workspace_id": workspace_id,
+        "agent_id": agent_id,
         "account_id": test_account_id,
     }
 

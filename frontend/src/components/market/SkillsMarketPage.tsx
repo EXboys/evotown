@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
-import { adminFetch, isConsoleAuthenticated } from "../../hooks/useAdminToken";
+import { adminFetch, canAccessAdminConsole, isConsoleAuthenticated } from "../../hooks/useAdminToken";
 import { PublicSiteHeader } from "../PublicSiteHeader";
 import { EasyInstallWizard } from "./EasyInstallWizard";
 import { manifestUrl } from "../../lib/employeeConfig";
@@ -49,6 +49,7 @@ const MARKET_COPY = {
       eyebrow: "Skills Market",
       title: "企业 Agent 技能目录",
       descPrefix: "浏览、搜索已发布技能。上传与审核请至",
+      descEmployee: "浏览、搜索已发布技能。上传与审核请联系管理员。",
       admin: "管理后台",
       stats: { skills: "技能", downloads: "下载", runtimes: "Runtime" },
       searchPlaceholder: "搜索技能名称、描述...",
@@ -97,6 +98,7 @@ const MARKET_COPY = {
       eyebrow: "Skills Market",
       title: "Enterprise Agent Skills Catalog",
       descPrefix: "Browse and search published skills. Upload and review from",
+      descEmployee: "Browse and search published skills. Contact an admin to upload or review packages.",
       admin: "Admin Console",
       stats: { skills: "Skills", downloads: "Downloads", runtimes: "Runtimes" },
       searchPlaceholder: "Search skill name or description...",
@@ -215,6 +217,8 @@ function MarketCatalog() {
     runtimes: new Set(skills.flatMap((s) => s.runtime_targets)).size,
   }), [skills]);
 
+  const showAdminLink = canAccessAdminConsole();
+
   return (
     <MarketShell locale={locale} onLocaleChange={setLocale}>
       <section className="flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-5 shadow-sm md:px-6">
@@ -222,8 +226,14 @@ function MarketCatalog() {
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-600">{copy.catalog.eyebrow}</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950 md:text-3xl">{copy.catalog.title}</h1>
           <p className="mt-2 max-w-xl text-sm text-slate-600">
-            {copy.catalog.descPrefix}{" "}
-            <Link to="/skills" className="font-medium text-violet-700 hover:underline">{copy.catalog.admin}</Link>.
+            {showAdminLink ? (
+              <>
+                {copy.catalog.descPrefix}{" "}
+                <Link to="/skills" className="font-medium text-violet-700 hover:underline">{copy.catalog.admin}</Link>.
+              </>
+            ) : (
+              copy.catalog.descEmployee
+            )}
           </p>
         </div>
         <dl className="flex shrink-0 gap-6 text-center sm:gap-8">

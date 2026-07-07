@@ -14,6 +14,8 @@ psutil>=5.9.0
 tiktoken>=0.5.0
 # Hosted Claude Coding Agent (embeds Claude Code CLI binary)
 claude-agent-sdk>=0.2.93
+# Hosted Codex SDK (optional runtime; dry-run when not installed; PyPI is beta-only)
+openai-codex>=0.1.0b3
 # Auth — password hashing
 bcrypt>=4.0
 # Database drivers (testing + MCP dynamic services)

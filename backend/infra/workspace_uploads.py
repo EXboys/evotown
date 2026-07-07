@@ -66,7 +66,7 @@ def _safe_filename(name: str) -> str:
 
 
 def _ensure_quota(workspace: dict[str, Any], extra_bytes: int) -> None:
-    quota_mb = int(agent.get("storage_quota_mb") or 0)
+    quota_mb = int(workspace.get("storage_quota_mb") or 0)
     if quota_mb <= 0:
         return
     used = agents.agent_usage_bytes(workspace)

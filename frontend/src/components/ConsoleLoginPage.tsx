@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
-import { isConsoleAuthenticated, setConsoleApiKey, setStaffRole, setStaffToken } from "../hooks/useAdminToken";
+import { getStaffRole, isConsoleAuthenticated, setConsoleApiKey, setStaffRole, setStaffToken } from "../hooks/useAdminToken";
+import { resolveStaffPostLoginPath } from "../lib/staffRoutes";
 import { useSystemConfig } from "../hooks/useSystemConfig";
 
 type RegistrationStatus = {
@@ -60,7 +61,7 @@ export function ConsoleLoginPage() {
 
   useEffect(() => {
     if (isConsoleAuthenticated()) {
-      navigate(returnTo, { replace: true });
+      navigate(resolveStaffPostLoginPath(getStaffRole(), returnTo), { replace: true });
       return;
     }
     fetch("/api/v1/auth/registration-status")
@@ -164,10 +165,11 @@ export function ConsoleLoginPage() {
       if (!data.session_token) {
         throw new Error("登录成功但未返回 session。");
       }
+      const role = data.account?.role ?? "";
       setStaffToken(data.session_token);
-      setStaffRole(data.account?.role ?? "");
+      setStaffRole(role);
       setMessage(`已登录：${data.account?.name ?? loginName}`);
-      navigate(returnTo, { replace: true });
+      navigate(resolveStaffPostLoginPath(role, returnTo), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "登录失败");
     } finally {
@@ -219,7 +221,7 @@ export function ConsoleLoginPage() {
           <p className="text-sm uppercase tracking-[0.2em] text-slate-500">{brand} Console</p>
           <h1 className="mt-2 text-3xl font-semibold text-white">企业控制台登录</h1>
           <p className="mt-2 text-sm text-slate-400">
-            {mode === "staff" && "使用账号和密码登录。"}
+            {mode === "staff" && "使用账号和密码登录。员工账号登录后进入智能体工作台。"}
             {mode === "login" && "使用账号 API Key（evk_…）登录。"}
             {mode === "register" && "注册新账号（需管理员开启）。"}
           </p>

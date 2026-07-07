@@ -115,7 +115,7 @@ class WorkspaceCreate(BaseModel):
     owner_account_id: str = Field(default="", max_length=128)
     tenant_id: str = Field(default="", max_length=128)
     team_id: str = Field(default="", max_length=128)
-    model_policy: Literal["all", "routes_only"] = "routes_only"
+    model_policy: Literal["all", "routes_only"] = "all"
     category: Literal["employee", "department", "dedicated"] = "employee"
     template_id: str = Field(default="", max_length=128)
 
@@ -130,6 +130,7 @@ class WorkspaceUpdate(BaseModel):
 
 class WorkspaceProfileUpdate(BaseModel):
     agent_type: str = Field(default="", max_length=64)
+    runtime_engine: Literal["claude", "codex"] = "claude"
     soul: str = Field(default="", max_length=8000)
     paradigm: str = Field(default="", max_length=8000)
     standards: str = Field(default="", max_length=8000)
@@ -145,6 +146,13 @@ class ClaudeAgentRunCreate(BaseModel):
     mcp: list[str] = Field(default_factory=list)
     previous_run_id: str = Field(default="", max_length=64)
     attachments: list[str] = Field(default_factory=list, max_length=20)
+
+
+class AgentShareRequest(BaseModel):
+    paths: list[str] = Field(min_length=1, max_length=50)
+    target_agent_id: str = Field(min_length=1, max_length=128)
+    dest_prefix: str = Field(default="", max_length=256)
+    overwrite: bool = False
 
 
 class SetupAgentRequest(BaseModel):

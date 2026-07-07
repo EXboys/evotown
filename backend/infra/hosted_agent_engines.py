@@ -41,7 +41,6 @@ def register_agent_engine(agent: dict[str, Any]) -> dict[str, Any]:
         capabilities={
             "hosted": True,
             "agent_id": agent_id,
-            "owner_account_id": str(agent.get("owner_account_id") or ""),
             "agent_status": str(agent.get("status") or agents.AGENT_STATUS_ACTIVE),
         },
     )

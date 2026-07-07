@@ -1,7 +1,9 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
-const backendTarget = `http://127.0.0.1:${process.env.EVOTOWN_BACKEND_PORT || "8765"}`;
+const backendHost = process.env.EVOTOWN_BACKEND_HOST || "127.0.0.1";
+const backendPort = process.env.EVOTOWN_BACKEND_PORT || "8765";
+const backendTarget = `http://${backendHost}:${backendPort}`;
 
 export default defineConfig({
   plugins: [react()],

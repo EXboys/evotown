@@ -163,12 +163,15 @@ def process(args: dict, permissions: dict) -> dict[str, Any]:
             "error": f"版本 {latest.get('version', '?')} 正在审核中，请等待审核完成后再提交",
         }
 
-    # Read SKILL.md from workspace
+    # Read SKILL.md from workspace (directory named by skill name)
     agent = get_agent(agent_id)
     if agent is None:
         return {"ok": False, "data": None, "error": f"agent 不存在: {agent_id}"}
     ws_root = resolve_agent_path(agent)
-    skill_md_path = ws_root / "skills" / skill_id / "SKILL.md"
+    skill_name = (skill.get("name") or "").strip()
+    if not skill_name:
+        return {"ok": False, "data": None, "error": f"技能名称为空: {skill_id}"}
+    skill_md_path = ws_root / "skills" / skill_name / "SKILL.md"
 
     if not skill_md_path.is_file():
         return {"ok": False, "data": None, "error": f"SKILL.md 不存在: {skill_md_path}"}
@@ -180,7 +183,6 @@ def process(args: dict, permissions: dict) -> dict[str, Any]:
     errors: list[str] = []
     name = (fm.get("name") or "").strip()
     description = (fm.get("description") or "").strip()
-    version = (fm.get("version") or "0.1.0").strip()
 
     if not name:
         errors.append("name 不能为空")
@@ -212,12 +214,12 @@ def process(args: dict, permissions: dict) -> dict[str, Any]:
     # ── Submit version ──────────────────────────────────────────────
     ver_record = submit_skill_version(
         skill_id=skill_id,
-        version=version,
         description=description,
         requires_skills=json.dumps(requires_skills or [], ensure_ascii=False),
         submitted_by_agent_id=agent_id,
         submitted_by_account=account,
     )
+    submitted_version = ver_record.get("version", "1.0.0")
 
     # ── Record usage log ────────────────────────────────────────────
     record_skill_usage(
@@ -225,15 +227,15 @@ def process(args: dict, permissions: dict) -> dict[str, Any]:
         agent_id=agent_id,
         account=account,
         event="submit",
-        details={"version": version, "name": name},
+        details={"version": submitted_version, "name": name},
     )
 
     return {
         "ok": True,
         "data": {
             "skill_id": skill_id,
-            "version": version,
+            "version": submitted_version,
             "name": name,
-            "message": f"技能 '{name}' 版本 {version} 已提交审核",
+            "message": f"技能 '{name}' 版本 {submitted_version} 已提交审核",
         },
     }

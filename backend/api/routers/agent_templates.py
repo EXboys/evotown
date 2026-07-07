@@ -40,7 +40,11 @@ class TemplateUpdate(BaseModel):
 
 @router.get("/agent-templates", dependencies=[Depends(require_admin)])
 async def list_templates(category: str = ""):
-    return {"templates": agent_templates.list_templates(category)}
+    templates = agent_templates.list_templates(category)
+    # Enrich with agent count
+    for t in templates:
+        t["agent_count"] = agent_templates.count_template_agents(t["template_id"])
+    return {"templates": templates}
 
 
 @router.post("/agent-templates", dependencies=[Depends(require_admin)])
@@ -69,4 +73,26 @@ async def delete_template(template_id: str):
     if not agent_templates.delete_template(template_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="模板不存在")
     return {"ok": True}
+
+
+class SyncAgentsBody(BaseModel):
+    agent_ids: list[str] = Field(min_length=1)
+
+
+@router.get("/agent-templates/{template_id}/agents", dependencies=[Depends(require_admin)])
+async def list_template_agents(template_id: str):
+    tpl = agent_templates.get_template(template_id)
+    if tpl is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="模板不存在")
+    agents = agent_templates.list_template_agents(template_id)
+    return {"template_id": template_id, "agents": agents, "total": len(agents)}
+
+
+@router.post("/agent-templates/{template_id}/sync", dependencies=[Depends(require_admin)])
+async def sync_template_to_agents(template_id: str, body: SyncAgentsBody):
+    tpl = agent_templates.get_template(template_id)
+    if tpl is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="模板不存在")
+    result = agent_templates.sync_template_to_agents(template_id, body.agent_ids)
+    return result
 

@@ -26,6 +26,7 @@ export type GatewayRequest = {
   conversation_id?: string;
   api_key_label?: string;
   agent_id?: string;
+  agent_name?: string;
   account_id?: string;
   account_name?: string;
   team_id?: string;
@@ -67,7 +68,7 @@ export const GATEWAY_COPY = {
       conversations: "暂无会话记录。",
       data: "暂无数据",
     },
-    requestTable: { time: "时间", model: "模型", account: "账号", status: "状态", cost: "成本" },
+    requestTable: { time: "时间", model: "模型", agent: "Agent / 账号", status: "状态", cost: "成本" },
     tabs: {
       config: { label: "模型配置", desc: "上游模型与别名" },
       connect: { label: "员工接入", desc: "两行配置" },
@@ -114,7 +115,7 @@ export const GATEWAY_COPY = {
       conversations: "No conversations yet.",
       data: "No data",
     },
-    requestTable: { time: "Time", model: "Model", account: "Account", status: "Status", cost: "Cost" },
+    requestTable: { time: "Time", model: "Model", agent: "Agent / Account", status: "Status", cost: "Cost" },
     tabs: {
       config: { label: "Model Config", desc: "Upstream models & aliases" },
       connect: { label: "Employee Access", desc: "Two-line config" },
@@ -349,8 +350,8 @@ export function RecentRequestsTable({
         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
           <tr>
             <th className="px-3 py-2 font-semibold">{copy.requestTable.time}</th>
-            <th className="w-40 px-3 py-2 font-semibold">{copy.requestTable.model}</th>
-            <th className="w-24 px-3 py-2 font-semibold">{copy.requestTable.account}</th>
+            <th className="w-36 px-3 py-2 font-semibold">{copy.requestTable.model}</th>
+            <th className="w-28 px-3 py-2 font-semibold">{copy.requestTable.agent}</th>
             <th className="w-14 px-3 py-2 font-semibold">{copy.requestTable.status}</th>
             <th className="w-16 px-3 py-2 font-semibold">Tok</th>
             <th className="w-20 px-3 py-2 font-semibold">{copy.requestTable.cost}</th>
@@ -366,7 +367,12 @@ export function RecentRequestsTable({
                   <div className="truncate font-mono text-[10px] text-slate-400">via: {req.model_alias}</div>
                 )}
               </td>
-              <td className="truncate px-3 py-2 font-mono text-xs text-slate-600">{req.account_name || req.agent_id || "—"}</td>
+              <td className="px-3 py-2">
+                <div className="truncate font-mono text-xs text-slate-600">{req.agent_name || req.agent_id || "—"}</div>
+                {req.account_name && (
+                  <div className="truncate font-mono text-[10px] text-slate-400">{req.account_name}</div>
+                )}
+              </td>
               <td className="px-3 py-2 text-xs text-slate-600">{req.status_code ?? "—"}</td>
               <td className="px-3 py-2 text-xs text-slate-600">{req.total_tokens ?? 0}</td>
               <td className="px-3 py-2 font-mono text-xs text-slate-600">${asNumber(req.cost_usd).toFixed(4)}</td>

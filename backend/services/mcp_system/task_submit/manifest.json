@@ -1,0 +1,16 @@
+{
+  "name": "提交任务",
+  "description": "向任务池提交一个任务。Agent在运行过程中遇到问题或发现改进点时，可以提交任务到任务池供管理员审核后分配给执行者处理。",
+  "version": "1.0.0",
+  "service_type": "api",
+  "system": true,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "title": {"type": "string", "description": "任务标题，简要描述问题和需求"},
+      "description": {"type": "string", "description": "任务详细描述，包含上下文、期望效果等"},
+      "target_agent_id": {"type": "string", "description": "可选，指定执行此任务的agent workspace_id。留空则开放给所有agent竞争领取"}
+    },
+    "required": ["title", "description"]
+  }
+}

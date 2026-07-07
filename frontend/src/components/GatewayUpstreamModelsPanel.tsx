@@ -16,6 +16,8 @@ export type GatewayUpstreamModel = {
   enabled?: boolean;
   litellm_synced?: boolean;
   sync_error?: string;
+  is_vision?: boolean;
+  is_vision_default?: boolean;
 };
 
 type FormState = {
@@ -27,6 +29,7 @@ type FormState = {
   api_key: string;
   description: string;
   enabled: boolean;
+  is_vision: boolean;
 };
 
 const emptyForm: FormState = {
@@ -38,6 +41,7 @@ const emptyForm: FormState = {
   api_key: "",
   description: "",
   enabled: true,
+  is_vision: false,
 };
 
 function rowToForm(row: GatewayUpstreamModel): FormState {
@@ -50,6 +54,7 @@ function rowToForm(row: GatewayUpstreamModel): FormState {
     api_key: "",
     description: row.description || "",
     enabled: row.enabled !== false,
+    is_vision: row.is_vision || false,
   };
 }
 
@@ -114,6 +119,7 @@ export function GatewayUpstreamModelsPanel() {
           anthropic_api_base: form.anthropic_api_base,
           description: form.description,
           enabled: form.enabled,
+          is_vision: form.is_vision,
         };
         if (form.api_key.trim()) {
           payload.api_key = form.api_key.trim();
@@ -147,6 +153,7 @@ export function GatewayUpstreamModelsPanel() {
           api_key: form.api_key,
           description: form.description,
           enabled: form.enabled,
+          is_vision: form.is_vision,
         }),
       });
       const data = await res.json() as { detail?: string };
@@ -172,6 +179,22 @@ export function GatewayUpstreamModelsPanel() {
       await loadModels();
     } catch (err) {
       setError(err instanceof Error ? err.message : "删除失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setVisionDefault = async (modelId: string) => {
+    setBusy(true);
+    try {
+      const res = await adminFetch(`/api/gateway/v1/upstream-models/${modelId}/set-vision-default`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json() as { detail?: string };
+        throw new Error(data.detail || `设置失败 (${res.status})`);
+      }
+      await loadModels();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "设置默认视觉模型失败");
     } finally {
       setBusy(false);
     }
@@ -204,6 +227,7 @@ export function GatewayUpstreamModelsPanel() {
               <th className="hidden px-3 py-2.5 sm:table-cell">Base URL</th>
               <th className="hidden px-3 py-2.5 lg:table-cell">Anthropic Base</th>
               <th className="px-3 py-2.5">状态</th>
+              <th className="px-3 py-2.5 min-w-[120px]">视觉</th>
               <th className="w-28 px-3 py-2.5 text-right">操作</th>
             </tr>
           </thead>
@@ -232,6 +256,22 @@ export function GatewayUpstreamModelsPanel() {
                     {row.enabled ? "启用" : "禁用"}
                   </span>
                 </td>
+                <td className="px-3 py-2.5 min-w-[120px]">
+                  {row.is_vision ? (
+                    row.is_vision_default ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                        👁 默认视觉
+                      </span>
+                    ) : (
+                      <button type="button" disabled={busy} onClick={() => setVisionDefault(row.model_id)}
+                        className="text-xs text-slate-500 hover:text-blue-600">
+                        视觉 · 设为默认
+                      </button>
+                    )
+                  ) : (
+                    <span className="text-xs text-slate-300">—</span>
+                  )}
+                </td>
                 <td className="px-3 py-2.5 text-right">
                   <div className="flex justify-end gap-2">
                     <button type="button" disabled={busy} onClick={() => openEdit(row)} className="text-xs font-medium text-blue-600 hover:text-blue-800">
@@ -246,7 +286,7 @@ export function GatewayUpstreamModelsPanel() {
             ))}
             {!models.length && (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-slate-500">
+                <td colSpan={6} className="px-3 py-8 text-center text-slate-500">
                   暂无上游模型，点击「添加模型」开始配置。
                 </td>
               </tr>
@@ -334,6 +374,13 @@ export function GatewayUpstreamModelsPanel() {
           <label className="flex items-center gap-2 text-sm text-slate-600">
             <input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
             启用
+          </label>
+          <label className="flex items-start gap-2 text-sm text-slate-600">
+            <input type="checkbox" checked={form.is_vision} onChange={(e) => setForm({ ...form, is_vision: e.target.checked })} className="mt-0.5" />
+            <div>
+              <span className="font-medium text-slate-700">支持视觉识别</span>
+              <p className="text-xs text-slate-400">启用后可将此模型设为默认视觉模型，用于分析图片附件</p>
+            </div>
           </label>
           <div className="flex gap-2 border-t border-slate-100 pt-4">
             <button

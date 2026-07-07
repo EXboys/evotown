@@ -22,10 +22,9 @@ _VISION_INSTRUCTION = (
 
 
 def vision_model_name() -> str:
-    return (
-        os.environ.get("EVOTOWN_CLAUDE_VISION_MODEL", "").strip()
-        or os.environ.get("EVOTOWN_VISION_MODEL", "").strip()
-    )
+    from infra import gateway_models
+    vm = gateway_models.get_vision_model()
+    return vm["model_name"] if vm else ""
 
 
 def vision_enabled() -> bool:
@@ -100,16 +99,17 @@ async def describe_workspace_images(
     if not paths:
         return ""
 
-    model = vision_model_name()
-    if not model:
+    model_name = vision_model_name()
+    if not model_name:
         raise ValueError(
-            "未配置视觉模型：请在 .env 设置 EVOTOWN_CLAUDE_VISION_MODEL，"
-            "并在控制台 Gateway → 上游模型注册支持识图的模型（如 qwen-vl-plus）。"
+            "未配置视觉模型：请在 Gateway → 上游模型中标记支持视觉识别的模型，"
+            "并设为默认视觉模型。"
         )
 
-    managed = gateway_models.get_by_model_name(model)
+    from infra import gateway_models as gm
+    managed = gm.get_vision_model()
     if managed is None:
-        raise ValueError(f"视觉模型「{model}」未在 Gateway 上游模型中注册或未启用")
+        raise ValueError("默认视觉模型未在 Gateway 上游模型中注册或未启用")
 
     content: list[dict[str, Any]] = []
     prompt_line = _VISION_INSTRUCTION
@@ -130,11 +130,11 @@ async def describe_workspace_images(
         raise ValueError("图片附件不存在或无法读取")
 
     body = {
-        "model": model,
+        "model": model_name,
         "messages": [{"role": "user", "content": content}],
         "max_tokens": int(os.environ.get("EVOTOWN_CLAUDE_VISION_MAX_TOKENS", "2048")),
     }
-    url, headers, req = gateway_upstream.build_upstream_call(body, model)
+    url, headers, req = gateway_upstream.build_upstream_call(body, model_name)
     timeout = float(os.environ.get("EVOTOWN_CLAUDE_VISION_TIMEOUT_SEC", "120"))
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(url, headers=headers, json=req)

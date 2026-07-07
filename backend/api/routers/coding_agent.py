@@ -133,7 +133,12 @@ async def list_agents(
     if not owner and not _is_admin(identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account-bound session required")
     return {
-        "agents": agents.list_agents(owner_account_id=owner, status=status_filter, category=category, limit=limit),
+        "agents": agents.list_agents(
+            member_account_id=owner,
+            status=status_filter,
+            category=category,
+            limit=limit,
+        ),
         "viewer": {"is_admin": _is_admin(identity), "account_id": _account_id(identity)},
     }
 
@@ -142,7 +147,8 @@ async def list_agents(
 async def create_agent(body: WorkspaceCreate, identity: dict | None = Depends(require_console_read)):
     identity = _require_identity(identity)
     _require_scope(identity, "agent.write", "console.write")
-    owner = body.owner_account_id.strip() if _is_admin(identity) and body.owner_account_id.strip() else _account_id(identity)
+    admin_owner = (body.owner_account_id or body.account_id).strip()
+    owner = admin_owner if _is_admin(identity) and admin_owner else _account_id(identity)
     if not owner:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -163,7 +169,7 @@ async def create_agent(body: WorkspaceCreate, identity: dict | None = Depends(re
             )
 
         agent = agents.create_agent(
-            owner_account_id=owner,
+            account_id=owner,
             name=body.name,
             tenant_id=body.tenant_id or str(identity.get("org_id") or ""),
             team_id=body.team_id or str(identity.get("team_id") or ""),
@@ -198,8 +204,6 @@ async def update_agent(agent_id: str, body: WorkspaceUpdate, identity: dict | No
     identity = _require_identity(identity)
     _require_scope(identity, "agent.write", "console.write")
     agent = _load_agent_for_identity(agent_id, identity)
-    if not _is_admin(identity) and agent.get("owner_account_id") != _account_id(identity):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only the owner can update agent")
     if body.owner_account_id is not None and not _is_admin(identity):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -216,7 +220,6 @@ async def update_agent(agent_id: str, body: WorkspaceUpdate, identity: dict | No
             agent_id,
             name=body.name,
             status=body.status,
-            owner_account_id=body.owner_account_id,
             storage_quota_mb=body.storage_quota_mb,
             model_policy=body.model_policy,
         )
@@ -258,8 +261,6 @@ async def update_workspace_profile(
     identity = _require_identity(identity)
     _require_scope(identity, "agent.write", "console.write")
     agent = _load_agent_for_identity(agent_id, identity)
-    if not _is_admin(identity) and agent.get("owner_account_id") != _account_id(identity):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only the owner can update agent profile")
     # Lock: template-bound agent profiles can only be modified by admin
     if agent.get("template_id") and not _is_admin(identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="该智能体使用模板初始化，身份信息不可在工作区修改。请联系管理员在后台管理修改。")
@@ -458,7 +459,7 @@ async def create_agent_run(agent_id: str, body: ClaudeAgentRunCreate, identity: 
     if not agents.can_run_agent(agent, identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="agent run is not allowed for this agent")
 
-    account_id = _account_id(identity) or agent["owner_account_id"]
+    account_id = _account_id(identity)
     max_active = int(os.environ.get("EVOTOWN_CLAUDE_MAX_ACTIVE_RUNS_PER_ACCOUNT", "2") or "2")
     if max_active > 0 and claude_agent_runs.active_run_count(account_id) >= max_active:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="too many active hosted agent runs")
@@ -524,11 +525,10 @@ async def list_agent_sessions(agent_id: str, identity: dict | None = Depends(req
     _load_agent_for_identity(agent_id, identity)
 
     # Fetch all runs to build accurate session groups (max 500 to cap cost)
-    all_runs = claude_agent_runs.list_runs_for_agent(
+    runs = claude_agent_runs.list_runs_for_agent(
         agent_id,
         account_id=None if _is_admin(identity) else _account_id(identity),
     )
-    runs = all_runs
     groups = claude_agent_runs.build_session_groups(runs)
 
     sessions = []
@@ -576,6 +576,21 @@ async def list_session_runs(
         before=before,
         after=after,
     )
+    # When no cursor is provided (initial load of a session), return the
+    # full chain so the frontend can build an unbroken runChain.  Without
+    # this, large sessions only get the newest N runs and the chain breaks,
+    # leaving the root-run orphaned and its events as the only visible content.
+    if before is None and after is None:
+        all_runs = claude_agent_runs.list_runs_for_agent(
+            agent_id,
+            account_id=None if _is_admin(identity) else _account_id(identity),
+        )
+        run_ids_set = set(claude_agent_runs.session_run_ids(all_runs, session_id))
+        if not run_ids_set:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+        chain = [r for r in all_runs if r["run_id"] in run_ids_set]
+        chain.sort(key=lambda r: r["created_at"])
+        return {"runs": chain, "has_more": False}
     if not payload["runs"]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
     return payload
@@ -670,8 +685,6 @@ async def delete_workspace_session(
     identity = _require_identity(identity)
     _require_scope(identity, "console.write", "agent.write")
     agent = _load_agent_for_identity(agent_id, identity)
-    if not _is_admin(identity) and agent.get("owner_account_id") != _account_id(identity):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="only the agent owner can delete sessions")
 
     result = claude_agent_runs.list_runs(agent_id=agent_id, limit=500)
     runs = result["runs"]

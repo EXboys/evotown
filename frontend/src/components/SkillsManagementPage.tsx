@@ -1,8 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { useSearchParams } from "react-router-dom";
 import { adminFetch } from "../hooks/useAdminToken";
 import { formatDateTimeShort } from "../lib/datetime";
-import { SkillAccountAssignSection, SkillBundlePublishSection } from "./SkillsDispatchSections";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -11,10 +9,12 @@ type SkillRecord = {
   runtime_targets: string[]; package_url?: string; package_sha256?: string;
   status: "draft" | "pending" | "approved" | "deprecated" | "rejected";
   visibility: string; team_id?: string; tags?: string[];
-  source_type?: "enterprise" | "external"; source_run_id?: string;
+  source_type?: "enterprise" | "external" | "workspace"; source_run_id?: string;
   updated_at?: string; created_at?: string;
   versions?: Array<{ version: string; description: string; created_at: string }>;
   test_runs?: TestRun[];
+  pending_version?: { version_id: number; version: string; status: string; submitted_by_agent_id?: string; submitted_by_account?: string; submitted_at?: string } | null;
+  latest_version?: { version_id: number; version: string; status: string } | null;
 };
 
 type SkillCandidate = { candidate_id: string; name: string; description?: string; status: string; runtime_target: string; };
@@ -24,7 +24,12 @@ type TestRun = { id: number; skill_id: string; run_id: string; test_prompt: stri
 type WorkspaceSkill = { skill_id: string; name: string; description: string; scripts: string[]; };
 
 type SkillsTab = "all" | "draft" | "pending" | "approved" | "deprecated";
-type SkillsPageSection = "library" | "publish" | "assign";
+
+type DeployAgentInfo = {
+  agent_id: string; agent_name: string; account_id: string;
+  installed_version: string; market_version: string; is_modified: boolean;
+  selected?: boolean;
+};
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -49,34 +54,12 @@ const SOURCE_LABEL: Record<string, string> = { enterprise: "企业技能", exter
 // ── Component ──────────────────────────────────────────────────────────────
 
 export function SkillsManagementPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const sectionFromUrl = searchParams.get("section");
-  const initialSection: SkillsPageSection =
-    sectionFromUrl === "publish" || sectionFromUrl === "assign" || sectionFromUrl === "library"
-      ? sectionFromUrl
-      : "library";
-
   const [skills, setSkills] = useState<SkillRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [tab, setTab] = useState<SkillsTab>("all");
-  const [pageSection, setPageSection] = useState<SkillsPageSection>(initialSection);
   const [filters, setFilters] = useState({ query: "", source_type: "", tag: "" });
-
-  const setSection = (next: SkillsPageSection) => {
-    setPageSection(next);
-    const params = new URLSearchParams(searchParams);
-    if (next === "library") params.delete("section");
-    else params.set("section", next);
-    setSearchParams(params, { replace: true });
-  };
-
-  useEffect(() => {
-    if (sectionFromUrl === "publish" || sectionFromUrl === "assign" || sectionFromUrl === "library") {
-      setPageSection(sectionFromUrl);
-    }
-  }, [sectionFromUrl]);
 
   // Detail
   const [detailSkill, setDetailSkill] = useState<SkillRecord | null>(null);
@@ -89,6 +72,20 @@ export function SkillsManagementPage() {
   const [repairOpen, setRepairOpen] = useState(false);
   const [repairSkillId, setRepairSkillId] = useState("");
   const [repairSkillName, setRepairSkillName] = useState("");
+
+  // Deploy
+  const [deployOpen, setDeployOpen] = useState(false);
+  const [deploySkillId, setDeploySkillId] = useState("");
+  const [deploySkillName, setDeploySkillName] = useState("");
+  const [deployMarketVersion, setDeployMarketVersion] = useState("");
+  const [deployAgents, setDeployAgents] = useState<DeployAgentInfo[]>([]);
+  const [deployBusy, setDeployBusy] = useState(false);
+  const [deployForce, setDeployForce] = useState(false);
+  const [deployMessage, setDeployMessage] = useState("");
+
+  // Expanded agent lists per skill
+  const [expandedAgents, setExpandedAgents] = useState<Record<string, DeployAgentInfo[]>>({});
+  const [expandedSkillIds, setExpandedSkillIds] = useState<Set<string>>(new Set());
 
   const loadSkills = async () => {
     setLoading(true); setError("");
@@ -131,64 +128,93 @@ export function SkillsManagementPage() {
     } catch (err) { setError(err instanceof Error ? err.message : "操作失败"); }
   };
 
-  const handleReview = async (candidateId: string, decision: "approved" | "rejected") => {
+  const handleReview = async (versionId: number, decision: "approved" | "rejected") => {
     try {
-      await adminFetch(`/api/v1/skill-candidates/${encodeURIComponent(candidateId)}/review`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision, reviewer: "admin", reason: decision === "approved" ? "审核通过" : "审核拒绝", visibility: "team" }) });
+      await adminFetch(`/api/v1/skill-versions/${versionId}/review`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision, reviewer: "admin", reason: decision === "approved" ? "审核通过" : "审核拒绝" }) });
       setMessage(decision === "approved" ? "审核通过" : "已拒绝"); loadSkills();
     } catch (err) { setError(err instanceof Error ? err.message : "操作失败"); }
+  };
+
+  // Deploy
+  const openDeploy = async (skill: SkillRecord) => {
+    setDeploySkillId(skill.skill_id);
+    setDeploySkillName(skill.name);
+    setDeployMarketVersion(skill.version);
+    setDeployForce(false);
+    setDeployMessage("");
+    setDeployOpen(true);
+    setDeployBusy(true);
+    try {
+      const res = await adminFetch("/api/v1/skills/" + encodeURIComponent(skill.skill_id) + "/agent-versions");
+      const data = await res.json() as { agents?: DeployAgentInfo[] };
+      const agents = (data.agents || []).map(a => ({ ...a, selected: !a.is_modified }));
+      setDeployAgents(agents);
+    } catch { setDeployAgents([]); }
+    finally { setDeployBusy(false); }
+  };
+
+  const doDeploy = async () => {
+    const selected = deployAgents.filter(a => a.selected);
+    if (!selected.length) { setDeployMessage("请选择目标 Agent"); return; }
+    setDeployBusy(true); setDeployMessage("");
+    const results: string[] = [];
+    for (const agent of selected) {
+      try {
+        const res = await adminFetch("/api/v1/accounts/" + encodeURIComponent(agent.account_id) + "/skills", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ skills: [deploySkillId], force: deployForce }),
+        });
+        const d = await res.json();
+        const deployR = d.deploy_results?.[agent.agent_id]?.[0];
+        results.push(agent.agent_name + ": " + (deployR?.deployed ? "已更新" : deployR?.skipped ? "已跳过(版本不同)" : deployR?.reason || "失败"));
+      } catch { results.push(agent.agent_name + ": 请求失败"); }
+    }
+    setDeployMessage(results.join("\n"));
+    setDeployBusy(false);
+    if (results.some(r => r.includes("已更新"))) loadSkills();
+  };
+
+  const toggleAgentExpand = async (skillId: string) => {
+    const isExpanded = expandedSkillIds.has(skillId);
+    if (isExpanded) {
+      setExpandedSkillIds(prev => { const next = new Set(prev); next.delete(skillId); return next; });
+    } else {
+      setExpandedSkillIds(prev => new Set(prev).add(skillId));
+      if (!expandedAgents[skillId]) {
+        try {
+          const res = await adminFetch("/api/v1/skills/" + encodeURIComponent(skillId) + "/agent-versions");
+          const data = await res.json() as { agents?: DeployAgentInfo[] };
+          setExpandedAgents(prev => ({ ...prev, [skillId]: data.agents || [] }));
+        } catch { setExpandedAgents(prev => ({ ...prev, [skillId]: [] })); }
+      }
+    }
   };
 
   // ── Counts ───────────────────────────────────────────────────────────────
 
   const counts = { all: skills.length, draft: 0, pending: 0, approved: 0, rejected: 0, deprecated: 0 };
-  skills.forEach((s) => { const key = s.status as keyof typeof counts; if (key in counts) (counts as Record<string, number>)[key]++; });
+  skills.forEach((s) => {
+    // Pending count: skills with pending_version (submitted via MCP) or legacy skills.status=pending
+    if (s.pending_version) counts.pending++;
+    const key = s.status as keyof typeof counts;
+    if (key in counts) (counts as Record<string, number>)[key]++;
+  });
 
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-5">
+      {/* Top bar */}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-950">技能</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            上传、审核、测试技能包；通过后通过「账号下发」或「发布 Bundle」给员工使用。
-          </p>
+        <p className="text-sm text-slate-500">统一技能管理：Agent 创建 → 草稿 → 审核 → 入池 → 下发。企业技能 / 外部导入合流管理。</p>
+        <div className="flex gap-2">
+          <button type="button" onClick={loadSkills} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">{loading ? "刷新中…" : "刷新"}</button>
+          <button type="button" onClick={() => { setExtractOpen(true); setError(""); }} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100">⬇ 提取技能</button>
+          <button type="button" onClick={() => { setUploadOpen(true); setError(""); }} className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800">+ 上传技能</button>
         </div>
-        {pageSection === "library" ? (
-          <div className="flex gap-2">
-            <button type="button" onClick={loadSkills} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">{loading ? "刷新中…" : "刷新"}</button>
-            <button type="button" onClick={() => { setExtractOpen(true); setError(""); }} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100">⬇ 提取技能</button>
-            <button type="button" onClick={() => { setUploadOpen(true); setError(""); }} className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800">+ 上传技能</button>
-          </div>
-        ) : null}
       </div>
 
-      <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-1">
-        {([
-          { id: "library" as const, label: "技能库" },
-          { id: "assign" as const, label: "账号下发（云端 Agent）" },
-          { id: "publish" as const, label: "发布 Bundle（本机 sync）" },
-        ]).map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setSection(item.id)}
-            className={`rounded-t-lg px-4 py-2 text-sm font-medium transition-colors ${
-              pageSection === item.id
-                ? "border border-b-white border-slate-200 bg-white text-slate-950 -mb-px"
-                : "text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-
-      {pageSection === "publish" ? <SkillBundlePublishSection /> : null}
-      {pageSection === "assign" ? <SkillAccountAssignSection /> : null}
-
-      {pageSection === "library" ? (
-      <>
       {/* Stat cards */}
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="全部" value={counts.all} note="总技能数" />
@@ -255,16 +281,22 @@ export function SkillsManagementPage() {
                     <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1.5">
                         <button type="button" onClick={() => openDetail(skill.skill_id)} className="text-xs text-slate-500 hover:text-slate-800">详情</button>
-                        {skill.status === "draft" && <button type="button" onClick={() => handleSubmit(skill.skill_id)} className="text-xs text-emerald-600 hover:text-emerald-800">提交审核</button>}
-                        {skill.status === "pending" && (
+                        {skill.status === "draft" && skill.pending_version && (
                           <>
                             <button type="button" onClick={() => { setTestSkillId(skill.skill_id); setTestOpen(true); }} className="text-xs text-sky-600 hover:text-sky-800">测试</button>
-                            <button type="button" onClick={() => handleReview(`review_${skill.skill_id}`.slice(0, 128), "approved")} className="text-xs text-emerald-600 hover:text-emerald-800">通过</button>
-                            <button type="button" onClick={() => handleReview(`review_${skill.skill_id}`.slice(0, 128), "rejected")} className="text-xs text-red-600 hover:text-red-800">拒绝</button>
+                            <button type="button" onClick={() => handleReview(skill.pending_version!.version_id, "approved")} className="text-xs text-emerald-600 hover:text-emerald-800">通过</button>
+                            <button type="button" onClick={() => handleReview(skill.pending_version!.version_id, "rejected")} className="text-xs text-red-600 hover:text-red-800">拒绝</button>
+                          </>
+                        )}
+                        {skill.status === "pending" && !skill.pending_version && (
+                          <>
+                            <button type="button" onClick={() => { setTestSkillId(skill.skill_id); setTestOpen(true); }} className="text-xs text-sky-600 hover:text-sky-800">测试</button>
+                            <button type="button" onClick={() => handleSubmit(skill.skill_id)} className="text-xs text-amber-600 hover:text-amber-800">重新提交</button>
                           </>
                         )}
                         {skill.status === "approved" && (
                           <>
+                            <button type="button" onClick={() => openDeploy(skill)} className="text-xs text-indigo-600 hover:text-indigo-800">下发</button>
                             <button type="button" onClick={() => { setTestSkillId(skill.skill_id); setTestOpen(true); }} className="text-xs text-sky-600 hover:text-sky-800">测试</button>
                             <button type="button" onClick={() => { setRepairSkillId(skill.skill_id); setRepairSkillName(skill.name); setRepairOpen(true); }} className="text-xs text-amber-600 hover:text-amber-800">修复</button>
                             <button type="button" onClick={() => handleDeprecate(skill.skill_id)} className="text-xs text-red-600 hover:text-red-800">废弃</button>
@@ -273,7 +305,7 @@ export function SkillsManagementPage() {
                         {skill.status === "rejected" && <button type="button" onClick={() => handleSubmit(skill.skill_id)} className="text-xs text-amber-600 hover:text-amber-800">重新提交</button>}
                       </div>
                     </td>
-                  </tr>
+</tr>
                 ))}
               </tbody>
             </table>
@@ -282,15 +314,27 @@ export function SkillsManagementPage() {
       </div>
 
       {/* Detail drawer */}
-      {detailSkill && <DetailDrawer skill={detailSkill} onClose={() => setDetailSkill(null)} onTest={() => { setTestSkillId(detailSkill.skill_id); setTestOpen(true); }} onReview={(d) => handleReview(`review_${detailSkill.skill_id}`.slice(0, 128), d)} />}
+      {detailSkill && <DetailDrawer skill={detailSkill} onClose={() => setDetailSkill(null)} onTest={() => { setTestSkillId(detailSkill.skill_id); setTestOpen(true); }} onReview={(d) => { if (detailSkill.pending_version) handleReview(detailSkill.pending_version.version_id, d); }} />}
 
       {/* Modals */}
       {extractOpen && <ExtractModal onClose={() => setExtractOpen(false)} onDone={(msg) => { setMessage(msg); loadSkills(); }} />}
       {uploadOpen && <UploadModal onClose={() => setUploadOpen(false)} onDone={(msg) => { setMessage(msg); loadSkills(); }} />}
       {testOpen && <TestModal skillId={testSkillId} onClose={() => setTestOpen(false)} onDone={(msg) => { setMessage(msg); }} />}
       {repairOpen && <RepairModal skillId={repairSkillId} skillName={repairSkillName} onClose={() => setRepairOpen(false)} onDone={(msg) => { setMessage(msg); }} />}
-      </>
-      ) : null}
+      {deployOpen && (
+        <DeployModal
+          skillName={deploySkillName}
+          marketVersion={deployMarketVersion}
+          agents={deployAgents}
+          busy={deployBusy}
+          force={deployForce}
+          message={deployMessage}
+          onForceChange={setDeployForce}
+          onAgentToggle={(agentId) => setDeployAgents(prev => prev.map(a => a.agent_id === agentId ? { ...a, selected: !a.selected } : a))}
+          onDeploy={doDeploy}
+          onClose={() => setDeployOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -313,12 +357,18 @@ function DetailDrawer({ skill, onClose, onTest, onReview }: { skill: SkillRecord
           <p className="text-slate-500">{skill.description || "暂无描述"}</p>
           {(skill.tags || []).length > 0 && <div className="flex gap-1 flex-wrap">{(skill.tags || []).map((t: string) => <span key={t} className="px-1.5 py-0.5 rounded bg-slate-100 text-[10px] text-slate-600">{t}</span>)}</div>}
         </div>
-        {skill.status === "pending" && (
+        {skill.pending_version && (
           <div className="px-4 py-2 border-b border-slate-100 flex items-center gap-2 shrink-0 bg-amber-50">
-            <span className="text-xs text-amber-700 font-medium">待审核</span>
+            <span className="text-xs text-amber-700 font-medium">待审核 · v{skill.pending_version.version}</span>
+            {skill.pending_version.submitted_by_agent_id && <span className="text-[10px] text-amber-500">{skill.pending_version.submitted_by_agent_id}</span>}
             <button onClick={onTest} className="rounded border border-sky-200 bg-sky-50 px-2 py-1 text-xs text-sky-700 hover:bg-sky-100">🧪 运行测试</button>
             <button onClick={() => onReview("approved")} className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-100">✓ 通过</button>
             <button onClick={() => onReview("rejected")} className="rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100">✗ 拒绝</button>
+          </div>
+        )}
+        {!skill.pending_version && skill.status === "pending" && (
+          <div className="px-4 py-2 border-b border-slate-100 flex items-center gap-2 shrink-0 bg-amber-50">
+            <span className="text-xs text-amber-700 font-medium">待审核（旧流程）</span>
           </div>
         )}
         <div className="flex border-b border-slate-200 shrink-0">
@@ -536,6 +586,86 @@ function RepairModal({ skillId, skillName, onClose, onDone }: { skillId: string;
         {result && <pre className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3 whitespace-pre-wrap max-h-48 overflow-y-auto font-mono">{result}</pre>}
         {error && <p className="text-xs text-red-600">{error}</p>}
         <div className="flex justify-end gap-2 pt-2"><button onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">关闭</button><button onClick={repair} disabled={loading || !agentId} className="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50">{loading ? "修复中…" : "开始修复"}</button></div>
+      </div>
+    </div>
+  );
+}
+
+// Deploy Modal ---------------------------------------------------------
+
+function DeployModal({
+  skillName, marketVersion, agents, busy, force, message,
+  onForceChange, onAgentToggle, onDeploy, onClose,
+}: {
+  skillName: string; marketVersion: string; agents: DeployAgentInfo[];
+  busy: boolean; force: boolean; message: string;
+  onForceChange: (v: boolean) => void;
+  onAgentToggle: (agentId: string) => void;
+  onDeploy: () => void;
+  onClose: () => void;
+}) {
+  const totalAgents = agents.length;
+  const selectedCount = agents.filter(a => a.selected).length;
+  const modifiedCount = agents.filter(a => a.is_modified).length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
+      <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+          <div>
+            <h3 className="text-base font-semibold text-slate-900">下发技能 · {skillName}</h3>
+            <p className="text-xs text-slate-500">市场版本 v{marketVersion} · {totalAgents} 个 Agent 已绑定</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+        </div>
+
+        {modifiedCount > 0 && (
+          <div className="flex items-center gap-2 px-5 py-2 bg-amber-50 border-b border-amber-100 shrink-0">
+            <label className="flex items-center gap-2 text-xs text-amber-800 cursor-pointer">
+              <input type="checkbox" checked={force} onChange={e => onForceChange(e.target.checked)} className="accent-amber-600" />
+              强制覆盖 ({modifiedCount} 个 Agent 版本不同)
+            </label>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-1.5">
+          {agents.length === 0 ? (
+            <p className="text-xs text-slate-400 py-4 text-center">暂无已绑定该技能的 Agent</p>
+          ) : (
+            agents.map(a => (
+              <label key={a.agent_id} className={`flex items-center gap-3 rounded-lg border px-3 py-2 cursor-pointer transition ${a.selected ? "border-indigo-200 bg-indigo-50/50" : "border-slate-100 hover:bg-slate-50"}`}>
+                <input type="checkbox" checked={a.selected} onChange={() => onAgentToggle(a.agent_id)} className="accent-indigo-600 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm text-slate-800 truncate">{a.agent_name}</div>
+                  <div className="text-[10px] text-slate-400 font-mono truncate">{a.agent_id}</div>
+                </div>
+                <div className="text-right shrink-0">
+                  {a.is_modified ? (
+                    <span className="text-xs text-amber-600 font-medium">v{a.installed_version} != v{a.market_version}</span>
+                  ) : a.installed_version ? (
+                    <span className="text-xs text-emerald-600">v{a.installed_version}</span>
+                  ) : (
+                    <span className="text-xs text-slate-400">未安装</span>
+                  )}
+                </div>
+              </label>
+            ))
+          )}
+        </div>
+
+        {message && (
+          <div className="px-5 py-2 border-t border-slate-100 shrink-0">
+            <pre className="text-xs text-slate-600 whitespace-pre-wrap">{message}</pre>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 shrink-0">
+          <span className="text-xs text-slate-400">已选 {selectedCount}/{totalAgents} 个 Agent</span>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">取消</button>
+            <button onClick={onDeploy} disabled={busy || selectedCount === 0} className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{busy ? "下发中…" : `下发 (${selectedCount})`}</button>
+          </div>
+        </div>
       </div>
     </div>
   );

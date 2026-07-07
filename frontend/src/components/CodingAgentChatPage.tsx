@@ -12,27 +12,12 @@ import {
 import { adminFetch, getAdminToken, getConsoleApiKey, getStaffToken, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import { formatDateTimeShort, formatDateTimeFull, parseEvotownTimestamp } from "../lib/datetime";
 import { formatBytes, fileMeta } from "../lib/codingAgentUtils";
-import {
-  groupArtifacts,
-  isHtmlArtifactPath,
-  isUserVisibleArtifact,
-  sortPathsForShare,
-} from "../lib/workspaceArtifactGroups";
 import { WorkspaceFileList, type WorkspaceFileEntry } from "./WorkspaceFileList";
-import { AgentShareDialog } from "./AgentShareDialog";
 import { GatewayDrawer } from "./gateway/GatewayDrawer";
 
 type Agent = {
   agent_id: string; owner_account_id: string; name: string; root_path: string;
   status: "active" | "archived"; created_at: string; updated_at: string;
-  template_id?: string;
-};
-
-type AgentTemplateSummary = {
-  template_id: string;
-  has_agent_dir?: boolean;
-  agent_dir_root?: string;
-  agent_dir_prefix?: string;
 };
 
 type AgentRun = {
@@ -56,100 +41,10 @@ type AgentProfile = {
 const ATTACHMENT_ACCEPT =
   "image/*,.pdf,.txt,.md,.json,.csv,.yaml,.yml,.xml,.html,.htm,.py,.js,.ts,.tsx,.jsx,.css,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx";
 
-function runVisibleArtifacts(run: AgentRun) {
-  return (run.artifact_manifest || []).filter((a) => isUserVisibleArtifact(a.path));
-}
-
 function runAttachmentPaths(run: AgentRun): string[] {
   const raw = run.signals?.attachments;
   if (!Array.isArray(raw)) return [];
   return raw.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
-}
-
-function eventAssistantText(payload: Record<string, unknown> | undefined): string {
-  if (!payload) return "";
-  const text = typeof payload.text === "string" ? payload.text : "";
-  const summary = typeof payload.summary === "string" ? payload.summary : "";
-  return (text || summary).trim();
-}
-
-function streamingAssistantTexts(events: AgentRunEvent[]): string[] {
-  const texts: string[] = [];
-  const seen = new Set<string>();
-  for (const ev of events) {
-    if (ev.event_type !== "assistant_message") continue;
-    const t = eventAssistantText(ev.payload);
-    if (!t || seen.has(t)) continue;
-    seen.add(t);
-    texts.push(t);
-  }
-  return texts;
-}
-
-function runReplyFallback(run: AgentRun, events: AgentRunEvent[]): string {
-  if (streamingAssistantTexts(events).length) return "";
-  return (run.result_summary || "").trim();
-}
-
-function buildSessionGroups(runs: AgentRun[]): Map<string, string[]> {
-  const byId = new Map(runs.map((run) => [run.run_id, run]));
-  const rootByRun = new Map<string, string>();
-  for (const run of runs) {
-    let root = run.run_id;
-    let cur: AgentRun | undefined = run;
-    const seen = new Set<string>();
-    while (cur) {
-      const prevId = String((cur.signals?.previous_run_id as string) || "").trim();
-      if (!prevId || seen.has(prevId)) break;
-      seen.add(prevId);
-      const prev = byId.get(prevId);
-      if (!prev) break;
-      root = prevId;
-      cur = prev;
-    }
-    rootByRun.set(run.run_id, root);
-  }
-  const groups = new Map<string, string[]>();
-  for (const run of runs) {
-    const root = rootByRun.get(run.run_id) || run.run_id;
-    const chain = groups.get(root) || [];
-    chain.push(run.run_id);
-    groups.set(root, chain);
-  }
-  return groups;
-}
-
-function resolveSessionRoot(runs: AgentRun[], sessionId: string): string {
-  const id = sessionId.trim();
-  if (!id) return "";
-  const groups = buildSessionGroups(runs);
-  if (groups.has(id)) return id;
-  for (const [root, runIds] of groups) {
-    if (runIds.includes(id)) return root;
-  }
-  return runs.some((run) => run.run_id === id) ? id : "";
-}
-
-function runsInSession(runs: AgentRun[], sessionId: string): AgentRun[] {
-  const root = resolveSessionRoot(runs, sessionId);
-  if (!root) return [];
-  const runIds = new Set(buildSessionGroups(runs).get(root) || [root]);
-  return runs
-    .filter((run) => runIds.has(run.run_id))
-    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-}
-
-function AssistantReplyBlocks({ texts }: { texts: string[] }) {
-  if (!texts.length) return null;
-  return (
-    <>
-      {texts.map((text, index) => (
-        <div key={`${index}-${text.slice(0, 24)}`} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
-          <MarkdownContent>{text}</MarkdownContent>
-        </div>
-      ))}
-    </>
-  );
 }
 
 function isImageAttachmentPath(path: string): boolean {
@@ -225,7 +120,7 @@ function describeEvent(event: AgentRunEvent): { icon: string; title: string; det
     case "vision.ready": return { icon: "👁️", title: "视觉分析完成", detail: `${num("images") ?? 0} 张图片` };
     case "vision.error": return { icon: "⚠️", title: "视觉分析失败", detail: str("error") || "视觉模型不可用" };
     case "vision.skipped": return { icon: "ℹ️", title: "未启用视觉模型", detail: "" };
-    case "assistant_message": return { icon: "🤖", title: "Agent 返回", detail: (str("text") || str("summary"))?.slice(0, 80) || "" };
+    case "assistant_message": return { icon: "🤖", title: "Agent 返回", detail: str("text")?.slice(0, 80) || "" };
     case "tool_call": return { icon: "🔧", title: "调用工具", detail: str("tool") || "" };
     case "tool_result": {
       const err = payload["is_error"];
@@ -294,7 +189,7 @@ export function CodingAgentChatPage() {
   });
   const [assignedSkills, setAssignedSkills] = useState<SkillOption[]>([]);
   const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>([]);
-  const [rightOpen, setRightOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState("");
 
   // Detail
@@ -302,15 +197,14 @@ export function CodingAgentChatPage() {
   const [logExpanded, setLogExpanded] = useState(false);
   const [eventsExpanded, setEventsExpanded] = useState(false);
   const [filesExpanded, setFilesExpanded] = useState(false);
+  // Per-run expand state for historical runs (and last run too)
+  const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
   const [fileViewer, setFileViewer] = useState<{ path: string; content: string; size: number; truncated: boolean } | null>(null);
   const [fileLoading, setFileLoading] = useState("");
   const [fileError, setFileError] = useState<{ path: string; message: string; status?: number } | null>(null);
   const [agentFiles, setAgentFiles] = useState<WorkspaceFileEntry[]>([]);
   const [agentFilesTruncated, setAgentFilesTruncated] = useState(false);
   const [agentFilesLoading, setAgentFilesLoading] = useState(false);
-  const [filesBrowsePath, setFilesBrowsePath] = useState("");
-  const [selectedSharePaths, setSelectedSharePaths] = useState<Set<string>>(() => new Set());
-  const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [showSystemFiles, setShowSystemFiles] = useState(false);
 
   // Profile modal
@@ -325,9 +219,6 @@ export function CodingAgentChatPage() {
   const [devDirRoot, setDevDirRoot] = useState<"agent" | "shared" | "server" | "">("");
   const [devDirPrefix, setDevDirPrefix] = useState("");
 
-  type Session = { id: string; prompt: string; count: number; lastAt: string; lastStatus: AgentRun["status"] };
-  const [sessions, setSessions] = useState<Session[]>([]);
-
   useEffect(() => {
     if (!agentId) return;
     adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}`)
@@ -335,13 +226,8 @@ export function CodingAgentChatPage() {
         const ws = d.agent || d;
         if (ws.template_id) {
           adminFetch("/api/v1/agent-templates").then(r => r.json()).then(td => {
-            const tpl = ((td.templates || []) as AgentTemplateSummary[]).find(
-              (t) => t.template_id === ws.template_id,
-            );
-            if (tpl?.has_agent_dir) {
-              setDevDirRoot(tpl.agent_dir_root as "agent" | "shared" | "server");
-              setDevDirPrefix((tpl.agent_dir_prefix || "").replace(/\/$/, ""));
-            }
+            const tpl = (td.templates || []).find((t: { template_id?: string }) => t.template_id === ws.template_id);
+            if (tpl?.has_agent_dir) { setDevDirRoot(tpl.agent_dir_root as "agent" | "shared" | "server"); setDevDirPrefix((tpl.agent_dir_prefix || "").replace(/\/$/, "")); }
           }).catch(() => {});
         }
       }).catch(() => {});
@@ -349,37 +235,6 @@ export function CodingAgentChatPage() {
 
   const hasDevFiles = devDirRoot ? true : false;
   useEffect(() => { if (hasDevFiles) setRightOpen(true); }, [hasDevFiles]);
-
-  const [sessionLoading, setSessionLoading] = useState(false);
-
-  const mergeRuns = useCallback((incoming: AgentRun[]) => {
-    setRuns((prev) => {
-      const merged = new Map(prev.map((run) => [run.run_id, run]));
-      for (const run of incoming) merged.set(run.run_id, run);
-      return Array.from(merged.values()).sort(
-        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-      );
-    });
-  }, []);
-
-  const loadSessionRuns = useCallback(async (sessionId: string) => {
-    if (!agentId || !sessionId) return;
-    setSessionLoading(true);
-    try {
-      const data = await adminFetch(
-        `/api/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/runs?limit=${PAGE_SIZE}&asc=true`,
-      ).then((res) => readJson<{ runs?: AgentRun[]; has_more?: boolean }>(res));
-      mergeRuns(data.runs || []);
-      setHasMoreRuns(!!data.has_more);
-    } catch {
-      /* keep prior runs; thread may show partial data */
-    } finally {
-      setSessionLoading(false);
-    }
-  }, [agentId, mergeRuns]);
-
-  const loadSessionRunsRef = useRef(loadSessionRuns);
-  loadSessionRunsRef.current = loadSessionRuns;
 
   const loadDevDir = (dir: string) => {
     if (!agentId) return;
@@ -422,83 +277,39 @@ export function CodingAgentChatPage() {
   }, [prompt]);
 
   // Load
-  const toggleSharePath = (path: string) => {
-    setSelectedSharePaths((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  };
-
   const loadAgentFiles = useCallback(async (silent: boolean = false) => {
     if (!agentId) return;
     if (!silent) setAgentFilesLoading(true);
     try {
-      const params = new URLSearchParams();
-      params.set("include_dot", showSystemFiles ? "true" : "false");
-      if (filesBrowsePath) params.set("subdir", filesBrowsePath);
       const data = await adminFetch(
-        `/api/v1/agents/${encodeURIComponent(agentId)}/file-index?${params.toString()}`,
+        `/api/v1/agents/${encodeURIComponent(agentId)}/file-index?include_dot=${showSystemFiles ? "true" : "false"}`,
       ).then((res) => readJson<{ entries?: WorkspaceFileEntry[]; truncated?: boolean }>(res));
-      const prefix = filesBrowsePath.replace(/\/$/, "");
-      const entries = (data.entries || []).map((entry) => ({
-        ...entry,
-        path: prefix ? `${prefix}/${entry.path}`.replace(/\/+/g, "/") : entry.path,
-      }));
-      setAgentFiles(entries);
+      setAgentFiles(data.entries || []);
       setAgentFilesTruncated(Boolean(data.truncated));
     } catch { if (!silent) { setAgentFiles([]); setAgentFilesTruncated(false); } }
     finally { if (!silent) setAgentFilesLoading(false); }
-  }, [agentId, showSystemFiles, filesBrowsePath]);
+  }, [agentId, showSystemFiles]);
 
   const load = useCallback(async () => {
     if (!agentId) return;
     setLoading(true);
     try {
-      const [wsData, sessionsData] = await Promise.all([
-        adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}`).then((res) =>
-          readJson<{ agent: Agent; runs?: AgentRun[] }>(res),
-        ),
-        adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions`).then((res) =>
-          readJson<{ sessions?: Session[] }>(res),
-        ),
-      ]);
-      setAgent(wsData.agent);
-      setSessions(sessionsData.sessions || []);
-      if (wsData.runs?.length) mergeRuns(wsData.runs);
-      setError("");
-      void adminFetch(`/api/v1/agent/options?agent_id=${encodeURIComponent(agentId)}`)
-        .then((res) => res.json())
-        .then((opts) => {
-          setAssignedSkills((opts.skills || []) as SkillOption[]);
-          const dm = (opts.default_model as string) || "";
-          if (dm) setModel(dm);
-        })
-        .catch(() => {});
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "加载失败");
-    } finally {
-      setLoading(false);
-    }
-  }, [agentId, mergeRuns]);
-
-  const reloadSessions = useCallback(async () => {
-    if (!agentId) return;
-    try {
-      const data = await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions`).then((res) =>
-        readJson<{ sessions?: Session[] }>(res),
-      );
-      setSessions(data.sessions || []);
-    } catch {
-      /* ignore */
-    }
-  }, [agentId]);
-
-  const sessionRootId = useMemo(
-    () => (selectedRunId ? resolveSessionRoot(runs, selectedRunId) : ""),
-    [selectedRunId, runs],
-  );
+      const wsData = await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}`).then((res) => readJson<{ agent: Agent; runs?: AgentRun[] }>(res));
+      setAgent(wsData.agent); setError("");
+      const runData = await adminFetch(`/api/v1/agent-runs?agent_id=${encodeURIComponent(agentId)}&limit=${PAGE_SIZE}`).then((res) => readJson<{ runs?: AgentRun[]; has_more?: boolean }>(res));
+      const loaded = runData.runs || [];
+      setRuns(loaded);
+      setHasMoreRuns(!!runData.has_more);
+      void loadAgentFiles(true);
+      try {
+        const opts = await adminFetch(`/api/v1/agent/options?agent_id=${encodeURIComponent(agentId)}`).then((res) => res.json());
+        setAssignedSkills((opts.skills || []) as SkillOption[]);
+        const dm = (opts.default_model as string) || "";
+        if (dm) setModel(dm);
+      } catch { /* ignore */ }
+    } catch (err) { setError(err instanceof Error ? err.message : "加载失败"); }
+    finally { setLoading(false); }
+  }, [agentId, loadAgentFiles]);
 
   // Load more (older) runs — cursor-based, session-aware
   const loadMore = useCallback(async () => {
@@ -514,8 +325,8 @@ export function CodingAgentChatPage() {
     const prevHeight = container?.scrollHeight || 0;
     try {
       let url: string;
-      if (sessionRootId) {
-        url = `/api/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionRootId)}/runs?limit=${PAGE_SIZE}&before=${encodeURIComponent(oldest.created_at)}`;
+      if (selectedRunId) {
+        url = `/api/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(selectedRunId)}/runs?limit=${PAGE_SIZE}&before=${encodeURIComponent(oldest.created_at)}`;
       } else {
         url = `/api/v1/agent-runs?agent_id=${encodeURIComponent(agentId)}&limit=${PAGE_SIZE}&before=${encodeURIComponent(oldest.created_at)}`;
       }
@@ -528,62 +339,40 @@ export function CodingAgentChatPage() {
         if (container) container.scrollTop = container.scrollHeight - prevHeight;
       });
     } catch { /* ignore */ } finally { loadingMoreRef.current = false; }
-  }, [agentId, hasMoreRuns, runs, selectedRunId, sessionRootId]);
+  }, [agentId, hasMoreRuns, runs, selectedRunId]);
 
-  // Run chain — runs belonging to the selected session only
+  // Run chain — when a session is selected, runs are session-scoped
   const runChain = useMemo(() => {
     if (!selectedRunId) return [];
-    return runsInSession(runs, selectedRunId);
+    return [...runs].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   }, [selectedRunId, runs]);
-
-  const initialSessionPickedRef = useRef(false);
-  useEffect(() => {
-    initialSessionPickedRef.current = false;
-  }, [agentId]);
-  useEffect(() => {
-    if (initialSessionPickedRef.current || selectedRunId || loading || !sessions.length) return;
-    initialSessionPickedRef.current = true;
-    setSelectedRunId(sessions[0].id);
-  }, [selectedRunId, sessions, loading]);
-
-  useEffect(() => {
-    const root = sessionRootId || selectedRunId;
-    if (!root || loading) return;
-    void loadSessionRunsRef.current(root);
-  }, [sessionRootId, selectedRunId, loading, agentId]);
 
   // Events — SSE stream for running runs, one-time fetch for completed runs
   const sseRef = useRef<AbortController | null>(null);
-  const loadRef = useRef(load);
-  loadRef.current = load;
-  const reloadSessionsRef = useRef(reloadSessions);
-  reloadSessionsRef.current = reloadSessions;
-
-  const refreshActiveSession = useCallback(async (sessionId: string) => {
-    if (!agentId || !sessionId) return;
-    await Promise.all([loadSessionRunsRef.current(sessionId), reloadSessionsRef.current()]);
-  }, [agentId]);
-
-  const refreshActiveSessionRef = useRef(refreshActiveSession);
-  refreshActiveSessionRef.current = refreshActiveSession;
-  const sessionRootRef = useRef(sessionRootId);
-  sessionRootRef.current = sessionRootId;
   useEffect(() => {
     if (!selectedRunId || !runChain.length) return;
     let cancelled = false;
 
     // One-time fetch events for each run in the chain
     const fetchAllEvents = async () => {
-      await Promise.all(runChain.map(async (run) => {
+      let fetched = false;
+      for (const run of runChain) {
         if (cancelled) return;
-        if (eventsByRun[run.run_id]?.length) return;
+        // Skip runs that already have events loaded
+        if (eventsByRun[run.run_id]?.length) continue;
         try {
           const data = await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(run.run_id)}/events`).then((res) => readJson<{ events?: AgentRunEvent[] }>(res));
-          if (!cancelled) setEventsByRun((prev) => ({ ...prev, [run.run_id]: data.events || [] }));
-        } catch {
-          if (!cancelled) setEventsByRun((prev) => ({ ...prev, [run.run_id]: prev[run.run_id] || [] }));
-        }
-      }));
+          if (!cancelled) { setEventsByRun(prev => ({ ...prev, [run.run_id]: data.events || [] })); fetched = true; }
+        } catch { if (!cancelled) { setEventsByRun(prev => ({ ...prev, [run.run_id]: prev[run.run_id] || [] })); fetched = true; } }
+      }
+      // After events are loaded, scroll to bottom
+      if (fetched && !cancelled) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "instant" as ScrollBehavior });
+          });
+        });
+      }
     };
     void fetchAllEvents();
 
@@ -620,7 +409,8 @@ export function CodingAgentChatPage() {
             const lines = buffer.split("\n");
             buffer = lines.pop() || "";
 
-            for (const line of lines) {
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i];
               if (line.startsWith("data: ")) {
                 try {
                   const ev = JSON.parse(line.slice(6)) as AgentRunEvent;
@@ -633,21 +423,32 @@ export function CodingAgentChatPage() {
                   }
                 } catch { /* ignore parse errors */ }
               } else if (line.startsWith("event: done")) {
-                setEventsByRun(prev => {
-                  const existing = prev[runId] || [];
-                  const doneEvent: AgentRunEvent = {
-                    id: (existing.length + 1),
-                    run_id: runId,
-                    event_type: "run.done",
-                    seq: (existing.length + 1),
-                    ts: new Date().toISOString(),
-                    payload: { sse_closed: true },
-                  };
-                  return { ...prev, [runId]: [...existing, doneEvent] };
-                });
+                // Read the next data: line for terminal status
+                let doneStatus = "completed";
+                if (i + 1 < lines.length && lines[i + 1].startsWith("data: ")) {
+                  try {
+                    const doneData = JSON.parse(lines[i + 1].slice(6));
+                    doneStatus = doneData.status || "completed";
+                  } catch { /* keep default */ }
+                  i++; // skip the data: line we just consumed
+                }
+                // Update run status in the runs array
+                const finalStatus = (doneStatus || "succeeded") as AgentRun["status"];
+                setRuns(prev => prev.map(r => r.run_id === runId ? ({ ...r, status: finalStatus, finished_at: new Date().toISOString() } as AgentRun) : r));
+                // Add synthetic done event
                 if (!cancelled) {
-                  const root = sessionRootRef.current || selectedRunId;
-                  void refreshActiveSessionRef.current(root);
+                  setEventsByRun(prev => {
+                    const existing = prev[runId] || [];
+                    const doneEvent: AgentRunEvent = {
+                      id: (existing.length + 1),
+                      run_id: runId,
+                      event_type: "run.done",
+                      seq: (existing.length + 1),
+                      ts: new Date().toISOString(),
+                      payload: { status: doneStatus, sse_closed: true },
+                    };
+                    return { ...prev, [runId]: [...existing, doneEvent] };
+                  });
                 }
                 return; // stream done
               }
@@ -673,12 +474,27 @@ export function CodingAgentChatPage() {
     };
   }, [selectedRunId, runChain.map(r => r.run_id).join(',')]);
 
-  useEffect(() => { setFilesBrowsePath(""); }, [agentId]);
-
+  // When clicking a session, always fetch session runs (replace existing runs)
   useEffect(() => {
-    if (!agentId) return;
-    void loadAgentFiles(true);
-  }, [agentId, filesBrowsePath, showSystemFiles, loadAgentFiles]);
+    if (!agentId || !selectedRunId) return;
+    let cancelled = false;
+    Promise.all([
+      adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(selectedRunId)}/runs?limit=${PAGE_SIZE}`).then(res => res.json()),
+      adminFetch(`/api/v1/agent-runs/${encodeURIComponent(selectedRunId)}`).then(res => res.json()),
+    ]).then(([pageData, rootData]: [{ runs?: AgentRun[]; has_more?: boolean }, { run?: AgentRun }]) => {
+        if (cancelled) return;
+        const all = pageData.runs || [];
+        const rootRun = rootData.run;
+        if (rootRun && !all.some(r => r.run_id === rootRun.run_id)) {
+          all.push(rootRun);
+        }
+        if (!all.length) return;
+        setRuns(all);
+        setHasMoreRuns(!!pageData.has_more);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [agentId, selectedRunId]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -736,11 +552,14 @@ export function CodingAgentChatPage() {
     const el = threadRef.current;
     if (!el) return;
     const ro = new ResizeObserver(() => {
-      if (needsScrollRef.current) {
+      // Only consume needsScrollRef when there's actual content to scroll to
+      if (needsScrollRef.current && el.scrollHeight > el.clientHeight) {
         el.scrollTo({ top: el.scrollHeight, behavior: "instant" as ScrollBehavior });
         needsScrollRef.current = false;
         return;
       }
+      // Re-fire on next resize if needsScrollRef is still pending
+      if (needsScrollRef.current) return;
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
       if (atBottom) {
         el.scrollTo({ top: el.scrollHeight, behavior: "instant" as ScrollBehavior });
@@ -799,6 +618,24 @@ export function CodingAgentChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId, runChain.map((r) => `${runAttachmentPaths(r).join(",")}|${r.artifact_manifest?.map((a) => a.path).join(",") || ""}`).join(";")]);
 
+  // Sessions — loaded from dedicated endpoint (not computed from paginated runs)
+  type Session = { id: string; prompt: string; count: number; lastAt: string; lastStatus: AgentRun["status"] };
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const refreshSessions = useCallback(() => {
+    if (!agentId) return;
+    adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions`)
+      .then(res => res.json())
+      .then((data: { sessions?: Session[] }) => setSessions(data.sessions || []))
+      .catch(() => {});
+  }, [agentId]);
+  useEffect(() => { refreshSessions(); }, [refreshSessions]);
+
+  // 4-second polling for session list — picks up new sessions and status changes
+  useEffect(() => {
+    const id = setInterval(() => refreshSessions(), 4000);
+    return () => clearInterval(id);
+  }, [refreshSessions]);
+
   const saveSessionTitle = (sessionId: string, title: string) => {
     const next = { ...sessionTitles, [sessionId]: title.trim() || "" };
     setSessionTitles(next);
@@ -847,6 +684,11 @@ export function CodingAgentChatPage() {
     const picked = Array.from(event.target.files || []);
     event.target.value = "";
     if (!picked.length) return;
+    await uploadPickedFiles(picked);
+  };
+
+  // Shared upload logic — used by both file picker and Ctrl+V paste
+  const uploadPickedFiles = async (picked: File[]) => {
     const maxBytes = 10 * 1024 * 1024;
     const tooLarge = picked.filter((f) => f.size > maxBytes);
     if (tooLarge.length) { setError(`以下文件超过 10MB：${tooLarge.map((f) => f.name).join("、")}`); return; }
@@ -863,14 +705,19 @@ export function CodingAgentChatPage() {
     finally { setUploadingAttachments(false); }
   };
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData.files);
+    if (files.length > 0) {
+      e.preventDefault();
+      uploadPickedFiles(files);
+    }
+  };
+
   const startRun = async () => {
     if (!agentId) return;
     const sentPrompt = prompt.trim();
     const attachmentPaths = pendingAttachments.map((item) => item.path);
     if (!sentPrompt && !attachmentPaths.length) return;
-    const activeSessionRoot = sessionRootId || resolveSessionRoot(runs, selectedRunId) || "";
-    const chain = activeSessionRoot ? runsInSession(runs, activeSessionRoot) : [];
-    const previousRunId = chain.length ? chain[chain.length - 1].run_id : "";
     setBusy(true); setError("");
     try {
       const data = await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/runs`, {
@@ -878,38 +725,32 @@ export function CodingAgentChatPage() {
         body: JSON.stringify({
           prompt: sentPrompt || "请处理我上传的附件。",
           model,
-          previous_run_id: previousRunId,
+          previous_run_id: selectedRun?.run_id || selectedRunId || "",
           attachments: attachmentPaths,
         }),
       }).then((res) => readJson<{ run: AgentRun }>(res));
       const newRun: AgentRun = {
         ...data.run,
         prompt: data.run.prompt || sentPrompt || "请处理我上传的附件。",
-        signals: {
-          ...(data.run.signals || {}),
-          previous_run_id: ((data.run.signals?.previous_run_id as string) || "").trim() || previousRunId,
-          attachments: attachmentPaths,
-        },
+        signals: { ...(data.run.signals || {}), previous_run_id: ((data.run.signals?.previous_run_id as string) || "").trim() || (selectedRun?.run_id || selectedRunId || ""), attachments: attachmentPaths },
       };
-      const nextRoot = resolveSessionRoot([...runs, newRun], newRun.run_id) || newRun.run_id;
       setRuns((prev) => {
         const idx = prev.findIndex((run) => run.run_id === newRun.run_id);
         if (idx >= 0) { const next = [...prev]; next[idx] = newRun; return next; }
-        return [newRun, ...prev];
+        return [...prev, newRun];
       });
-      setSelectedRunId(nextRoot); setPrompt("");
+      setSelectedRunId(newRun.run_id); setPrompt("");
       for (const item of pendingAttachments) { if (item.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(item.previewUrl); }
       setPendingAttachments([]);
-      void reloadSessions();
-      void loadSessionRuns(nextRoot);
-      void loadAgentFiles(true);
+      void load();
+      refreshSessions();
     } catch (err) { setError(err instanceof Error ? err.message : "运行失败"); }
     finally { setBusy(false); }
   };
 
   const cancelRun = async (runId: string) => {
     setBusy(true); setError("");
-    try { await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }).then((res) => readJson(res)); await load(); }
+    try { await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }).then((res) => readJson(res)); await load(); refreshSessions(); }
     catch (err) { setError(err instanceof Error ? err.message : "取消失败"); }
     finally { setBusy(false); }
   };
@@ -921,6 +762,7 @@ export function CodingAgentChatPage() {
       await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }).then((res) => readJson(res));
       if (runChain[0]?.run_id === sessionId) setSelectedRunId("");
       await load();
+      refreshSessions();
     } catch (err) { setError(err instanceof Error ? err.message : "删除失败"); }
     finally { setBusy(false); }
   };
@@ -960,7 +802,7 @@ export function CodingAgentChatPage() {
       {leftOpen && (
         <aside className="flex w-64 shrink-0 flex-col border-r border-slate-200 bg-slate-50">
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-            <button type="button" onClick={() => navigate("/agent")} className="text-xs font-medium text-slate-500 hover:text-slate-800">← 返回</button>
+            <button type="button" onClick={() => navigate(-1)} className="text-xs font-medium text-slate-500 hover:text-slate-800">← 返回</button>
             <button type="button" onClick={() => setLeftOpen(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-200" title="收起">
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </button>
@@ -994,7 +836,7 @@ export function CodingAgentChatPage() {
                       const customTitle = sessionTitles[session.id] || "";
                       const displayTitle = customTitle || session.prompt;
                       const isEditing = editingSessionId === session.id;
-                      const isActive = session.id === sessionRootId;
+                      const isActive = runChain.some((r) => r.run_id === session.id || ((r.signals?.previous_run_id as string) || "").trim() === session.id);
                       return (
                         <div key={session.id} className={`flex items-stretch gap-0.5 rounded-lg border transition ${isActive ? "border-slate-300 bg-white" : "border-transparent hover:bg-slate-100"}`}>
                           <button type="button" onClick={() => { if (!isEditing) setSelectedRunId(session.id); }} className="min-w-0 flex-1 rounded-lg px-2.5 py-1.5 text-left">
@@ -1101,14 +943,10 @@ export function CodingAgentChatPage() {
               )}
               {runChain.map((run) => {
                 const isLast = run.run_id === selectedRun?.run_id;
+                const runRunning = run.status === "running" || run.status === "queued";
                 const runEvents = eventsByRun[run.run_id] || [];
-                const replyTexts = streamingAssistantTexts(runEvents);
-                const replyFallback = runReplyFallback(run, runEvents);
-                const hasReply = replyTexts.length > 0 || Boolean(replyFallback);
-                const runRunning = (run.status === "running" || run.status === "queued") && !hasReply && !run.error;
                 const attachments = runAttachmentPaths(run);
-                const visibleArtifacts = runVisibleArtifacts(run);
-                const isHtmlRun = visibleArtifacts.some((a) => isHtmlArtifactPath(a.path));
+                const isHtmlRun = (run.artifact_manifest || []).some((a) => /\.html?$/i.test(a.path) && !a.path.startsWith(".evotown/"));
                 return (
                   <div key={run.run_id}>
                     {/* User message */}
@@ -1141,7 +979,7 @@ export function CodingAgentChatPage() {
                         /* HTML tabs with URL bar */
                         <div className="mb-3">
                           <HtmlTabs
-                            artifacts={visibleArtifacts.filter((a) => isHtmlArtifactPath(a.path))}
+                            artifacts={(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && /\.html?$/i.test(a.path))}
                             agentId={agentId}
                             htmlContents={htmlContents}
                           />
@@ -1158,7 +996,7 @@ export function CodingAgentChatPage() {
                             <div className="mb-2 flex flex-wrap items-center gap-2">
                               {isLast && runRunning && <button type="button" onClick={() => void cancelRun(run.run_id)} disabled={busy} className="rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50">取消</button>}
                             </div>
-                            {runRunning ? (
+                            {runRunning && !run.result_summary && !run.error ? (
                               <div className="space-y-2">
                                 <div className="flex items-center gap-2 text-slate-500"><TypingDots /><span>Agent 正在执行…</span></div>
                                 {(() => {
@@ -1170,24 +1008,30 @@ export function CodingAgentChatPage() {
                                   }
                                   return null;
                                 })()}
-                                <AssistantReplyBlocks texts={replyTexts} />
+                                {runEvents.filter(e => e.event_type === "assistant_message").map((ev) => {
+                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || (ev.payload as Record<string,unknown> | undefined)?.summary as string || "";
+                                  if (!text.trim()) return null;
+                                  return (
+                                    <div key={ev.id} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+                                      <MarkdownContent>{text}</MarkdownContent>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             ) : isLast ? (
                               <div className="space-y-2">
-                                <AssistantReplyBlocks texts={replyTexts} />
-                                {!replyTexts.length && replyFallback ? (
-                                  <div className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
-                                    <MarkdownContent>{replyFallback}</MarkdownContent>
-                                  </div>
-                                ) : null}
-                                {run.status === "succeeded" && hasReply && (
+                                {runEvents.filter(e => e.event_type === "assistant_message").map((ev) => {
+                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || (ev.payload as Record<string,unknown> | undefined)?.summary as string || "";
+                                  if (!text.trim()) return null;
+                                  return (
+                                    <div key={ev.id} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+                                      <MarkdownContent>{text}</MarkdownContent>
+                                    </div>
+                                  );
+                                })}
+                                {run.status === "succeeded" && (
                                   <div className="rounded-xl border border-green-200 bg-green-50/50 px-3 py-2 text-xs text-green-700">
                                     ✅ 执行完成
-                                  </div>
-                                )}
-                                {run.status === "succeeded" && !hasReply && (
-                                  <div className="rounded-xl border border-green-200 bg-green-50/50 px-3 py-2 text-xs text-green-700">
-                                    ✅ 执行完成（无文本回复）
                                   </div>
                                 )}
                                 {run.status === "failed" && (
@@ -1203,13 +1047,16 @@ export function CodingAgentChatPage() {
                               </div>
                             ) : (
                               <div className="space-y-2">
-                                <AssistantReplyBlocks texts={replyTexts} />
-                                {!replyTexts.length && replyFallback ? (
-                                  <div className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
-                                    <MarkdownContent>{replyFallback}</MarkdownContent>
-                                  </div>
-                                ) : null}
-                                {run.status === "succeeded" && !hasReply && (
+                                {runEvents.filter(e => e.event_type === "assistant_message").map((ev) => {
+                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || (ev.payload as Record<string,unknown> | undefined)?.summary as string || "";
+                                  if (!text.trim()) return null;
+                                  return (
+                                    <div key={ev.id} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+                                      <MarkdownContent>{text}</MarkdownContent>
+                                    </div>
+                                  );
+                                })}
+                                {run.status === "succeeded" && (
                                   <div className="rounded-xl border border-green-200 bg-green-50/50 px-3 py-2 text-xs text-green-700">✅ 执行完成</div>
                                 )}
                                 {run.status === "failed" && (
@@ -1222,13 +1069,16 @@ export function CodingAgentChatPage() {
                             )}
                             {/* Webview inline — full width */}
                             {(() => {
-                              const allText = [...replyTexts, replyFallback].filter(Boolean).join("\n");
+                              const allText = runEvents
+                                .filter(e => e.event_type === "assistant_message")
+                                .map(e => (e.payload as Record<string,unknown> | undefined)?.text as string || (e.payload as Record<string,unknown> | undefined)?.summary as string || "")
+                                .join("\n");
                               return <WebviewIframes text={allText} />;
                             })()}
                             {/* Image/Video inline */}
-                            {isLast && visibleArtifacts.some((a) => /\.(png|jpg|jpeg|gif|webp|svg|mp4|webm)$/i.test(a.path)) && (
+                            {isLast && (run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && /\.(png|jpg|jpeg|gif|webp|svg|mp4|webm)$/i.test(a.path)).length > 0 && (
                               <div className="mt-3 space-y-2">
-                                {visibleArtifacts.filter((a) => /\.(png|jpg|jpeg|gif|webp|svg|mp4|webm)$/i.test(a.path)).map((a) => {
+                                {(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && /\.(png|jpg|jpeg|gif|webp|svg|mp4|webm)$/i.test(a.path)).map((a) => {
                                   const ext = a.path.split(".").pop()?.toLowerCase() || "";
                                   const isVideo = ext === "mp4" || ext === "webm";
                                   const blobUrl = mediaBlobUrls[a.path];
@@ -1237,20 +1087,26 @@ export function CodingAgentChatPage() {
                                 })}
                               </div>
                             )}
-                            {/* Toggles */}
-                            {isLast && (run.log_excerpt || runEvents.length > 0 || visibleArtifacts.length > 0) && (
+                            {/* Toggles — always shown for last run, expandable for historical runs */}
+                            {(isLast || expandedRuns.has(run.run_id)) && (run.log_excerpt || runEvents.length > 0 || ((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length > 0)) && (
                               <div className="mt-3 flex items-center gap-4 border-t border-slate-100 pt-3">
-                                {run.log_excerpt && <button type="button" onClick={() => setLogExpanded((v) => !v)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{logExpanded ? "▾" : "▸"}</span>执行日志</button>}
-                                {runEvents.length > 0 && <button type="button" onClick={() => setEventsExpanded((v) => !v)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{eventsExpanded ? "▾" : "▸"}</span>事件时间线</button>}
-                                {visibleArtifacts.length > 0 && <button type="button" onClick={() => setFilesExpanded((v) => !v)} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{filesExpanded ? "▾" : "▸"}</span>文件 ({visibleArtifacts.length})</button>}
+                                {run.log_excerpt && <button type="button" onClick={() => isLast ? setLogExpanded((v) => !v) : setExpandedRuns(prev => { const n = new Set(prev); n.delete(run.run_id); return n; })} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{(isLast ? logExpanded : true) ? "▾" : "▸"}</span>执行日志</button>}
+                                {runEvents.length > 0 && <button type="button" onClick={() => isLast ? setEventsExpanded((v) => !v) : setExpandedRuns(prev => { const n = new Set(prev); n.delete(run.run_id); return n; })} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{(isLast ? eventsExpanded : true) ? "▾" : "▸"}</span>事件时间线</button>}
+                                {((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length > 0) && <button type="button" onClick={() => isLast ? setFilesExpanded((v) => !v) : setExpandedRuns(prev => { const n = new Set(prev); n.delete(run.run_id); return n; })} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{(isLast ? filesExpanded : true) ? "▾" : "▸"}</span>文件 ({(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length})</button>}
                               </div>
                             )}
-                            {isLast && run.log_excerpt && logExpanded && <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">{formatLog(run.log_excerpt)}</pre>}
-                            {isLast && eventsExpanded && runEvents.length ? (
+                            {/* Expand button for collapsed historical runs */}
+                            {!isLast && !expandedRuns.has(run.run_id) && (run.log_excerpt || runEvents.length > 0) && (
+                              <button type="button" onClick={() => setExpandedRuns(prev => new Set(prev).add(run.run_id))} className="mt-2 flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600">
+                                <span>▸</span>查看详情
+                              </button>
+                            )}
+                            {(isLast ? logExpanded : expandedRuns.has(run.run_id)) && run.log_excerpt && <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">{formatLog(run.log_excerpt)}</pre>}
+                            {(isLast ? eventsExpanded : expandedRuns.has(run.run_id)) && runEvents.length ? (
                               <div className="mt-2 space-y-1">{runEvents.map((ev) => { const info = describeEvent(ev); const time = ev.ts ? parseEvotownTimestamp(ev.ts) : null; return <div key={`${ev.id}-${ev.seq}`} className="flex items-center gap-2 text-xs"><span className="shrink-0 font-mono text-[10px] text-slate-300 w-[52px]">{time ? time.toLocaleTimeString("zh-CN", {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : ""}</span><span>{info.icon}</span><span className="text-slate-600">{info.title}</span>{info.detail ? <span className="truncate text-slate-400">· {info.detail}</span> : null}</div>; })}</div>
                             ) : null}
-                            {isLast && filesExpanded && (
-                              <RunArtifactLinks artifacts={visibleArtifacts} agentId={agentId} />
+                            {(isLast ? filesExpanded : expandedRuns.has(run.run_id)) && (
+                              <div className="mt-2 space-y-1">{(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").map((a) => <a key={a.path} href={`/api/v1/agents/${encodeURIComponent(agentId)}/files?path=${encodeURIComponent(a.path)}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50"><span>{fileMeta(a.path).icon}</span><span className="truncate flex-1">{a.path.split("/").pop() || a.path}</span><span className="shrink-0 text-slate-400">{formatBytes(a.bytes)}</span><span className="shrink-0 text-slate-300">↓</span></a>)}</div>
                             )}
                           </div>
                         </div>
@@ -1258,10 +1114,6 @@ export function CodingAgentChatPage() {
                   </div>
                 );
               })}
-            </div>
-          ) : (loading || sessionLoading) && selectedRunId ? (
-            <div className="space-y-4 p-4">
-              {[0, 1].map((i) => (<div key={i} className="animate-pulse space-y-3"><div className="ml-auto h-16 w-2/3 max-w-[75%] rounded-2xl bg-slate-100" /><div className="h-24 w-4/5 max-w-[75%] rounded-2xl border border-slate-100 bg-white" /></div>))}
             </div>
           ) : loading ? (
             <div className="space-y-4 p-4">
@@ -1293,7 +1145,7 @@ export function CodingAgentChatPage() {
             </div>
           ) : null}
           <div className="rounded-2xl border border-slate-200 shadow-sm transition focus-within:border-slate-400 focus-within:ring-2 focus-within:ring-slate-100">
-            <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onCompositionStart={() => { imeComposingRef.current = true; }} onCompositionEnd={() => { imeComposingRef.current = false; }} onKeyDown={onPromptKeyDown} rows={1} placeholder="输入你的任务… (Enter 发送 · Shift+Enter 换行)" className="max-h-52 min-h-[3rem] w-full resize-none rounded-t-2xl px-4 pt-3 text-sm leading-relaxed outline-none" />
+            <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onCompositionStart={() => { imeComposingRef.current = true; }} onCompositionEnd={() => { imeComposingRef.current = false; }} onKeyDown={onPromptKeyDown} onPaste={handlePaste} rows={1} placeholder="输入你的任务… (Enter 发送 · Shift+Enter 换行 · Ctrl+V 粘贴附件)" className="max-h-52 min-h-[3rem] w-full resize-none rounded-t-2xl px-4 pt-3 text-sm leading-relaxed outline-none" />
             <div className="flex items-center justify-between gap-2 px-3 pb-3">
               <button type="button" onClick={() => fileInputRef.current?.click()} disabled={busy || uploadingAttachments} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">📎 {uploadingAttachments ? "上传中…" : "附件"}</button>
               <button type="button" onClick={() => void startRun()} disabled={busy || uploadingAttachments || (!prompt.trim() && !pendingAttachments.length)} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-900 disabled:opacity-50">{busy ? "提交中…" : "发送 →"}</button>
@@ -1303,79 +1155,31 @@ export function CodingAgentChatPage() {
       </main>
 
       {/* ── Right sidebar ── */}
-      {!rightOpen && (
-        <button type="button" onClick={() => setRightOpen(true)} className="absolute right-2 top-3 z-30 flex h-8 w-8 items-center justify-center rounded-full bg-white shadow-lg ring-1 ring-slate-200 hover:bg-slate-50" title="展开工作区文件"><svg className="h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
+      {hasDevFiles && !rightOpen && (
+        <button type="button" onClick={() => setRightOpen(true)} className="absolute right-2 top-3 z-30 flex h-8 w-8 items-center justify-center rounded-full bg-white shadow-lg ring-1 ring-slate-200 hover:bg-slate-50" title="展开工作目录"><svg className="h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
       )}
-      {rightOpen && (
+      {hasDevFiles && rightOpen && (
         <aside className="flex w-72 shrink-0 flex-col border-l border-slate-200 bg-slate-50">
           <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2.5">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">📂 工作区文件</span>
-            <div className="flex items-center gap-1">
-              {selectedSharePaths.size > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setShareDialogOpen(true)}
-                  className="rounded-md bg-indigo-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-indigo-700"
-                >
-                  分享 ({selectedSharePaths.size})
+            <div className="flex items-center gap-1 min-w-0">
+              {devDirPath ? (
+                <button type="button" onClick={() => { const parent = devDirPath.split("/").slice(0, -1).join("/"); void loadDevDir(parent); }} className="rounded p-0.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800" title="返回上一层">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
               ) : null}
-              <button type="button" onClick={() => setRightOpen(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-200" title="收起"><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19l-7-7-7-7" /></svg></button>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 truncate">📂 /{devDirPath || ""}</span>
             </div>
+            <button type="button" onClick={() => setRightOpen(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-200" title="收起"><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19l7-7-7-7" /></svg></button>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-3 [scrollbar-width:thin]">
-            <WorkspaceFileList
-              entries={agentFiles}
-              loading={agentFilesLoading}
-              truncated={agentFilesTruncated}
-              showSystemFiles={showSystemFiles}
-              onToggleSystemFiles={() => setShowSystemFiles((value) => !value)}
-              onOpenFile={(path) => void openFile(path)}
-              onEnterDir={(path) => setFilesBrowsePath(path)}
-              browsePath={filesBrowsePath}
-              onBrowseUp={() => {
-                const parent = filesBrowsePath.split("/").slice(0, -1).join("/");
-                setFilesBrowsePath(parent);
-              }}
-              grouped={!filesBrowsePath}
-              fileLoadingPath={fileLoading}
-              compact
-              selectable
-              selectedPaths={selectedSharePaths}
-              onToggleSelect={toggleSharePath}
-            />
-            {hasDevFiles ? (
-              <div className="mt-4 border-t border-slate-200 pt-3">
-                <div className="mb-2 flex items-center gap-1 min-w-0">
-                  {devDirPath ? (
-                    <button type="button" onClick={() => { const parent = devDirPath.split("/").slice(0, -1).join("/"); void loadDevDir(parent); }} className="rounded p-0.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800" title="返回上一层">
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                    </button>
-                  ) : null}
-                  <span className="truncate text-[11px] font-medium text-slate-500">模板目录 /{devDirPath || ""}</span>
-                </div>
-                {devDirLoading ? <div className="space-y-2 p-2">{[0, 1, 2].map((i) => <div key={i} className="h-4 animate-pulse rounded bg-slate-200" />)}</div>
-                  : devDirFiles.length > 0 ? <div className="space-y-0.5">
-                    {devDirFiles.map((f) => (f.is_dir ? <button key={f.path} type="button" onClick={() => void loadDevDir((devDirPath ? devDirPath + "/" : "") + f.path.replace(/\/$/, ""))} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-200"><span>📁</span><span className="truncate text-slate-700">{f.name}</span></button>
-                      : <button key={f.path} type="button" onClick={() => { const fullPath = [devDirPrefix, devDirPath, f.path].filter(Boolean).join("/"); void openFile(fullPath); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-200"><span>📄</span><span className="truncate text-slate-700">{f.name}</span><span className="shrink-0 text-[10px] text-slate-400">{formatBytes(f.size)}</span></button>))}
-                  </div> : <p className="px-2 py-2 text-center text-xs text-slate-400">模板目录为空</p>}
-              </div>
-            ) : null}
+          <div className="min-h-0 flex-1 overflow-y-auto p-2 [scrollbar-width:thin]">
+            {devDirLoading ? <div className="space-y-2 p-2">{[0,1,2].map(i => <div key={i} className="h-4 animate-pulse rounded bg-slate-200" />)}</div>
+            : devDirFiles.length > 0 ? <div className="space-y-0.5">
+              {devDirFiles.map(f => (f.is_dir ? <button key={f.path} type="button" onClick={() => void loadDevDir((devDirPath ? devDirPath + "/" : "") + f.path.replace(/\/$/, ""))} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-200"><span>📁</span><span className="truncate text-slate-700">{f.name}</span></button>
+              : <button key={f.path} type="button" onClick={() => { const fullPath = [devDirPrefix, devDirPath, f.path].filter(Boolean).join("/"); void openFile(fullPath); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-slate-200"><span>📄</span><span className="truncate text-slate-700">{f.name}</span><span className="shrink-0 text-[10px] text-slate-400">{formatBytes(f.size)}</span></button>))}
+            </div> : <p className="px-2 py-4 text-center text-xs text-slate-400">目录为空</p>}
           </div>
         </aside>
       )}
-
-      {shareDialogOpen && agentId ? (
-        <AgentShareDialog
-          sourceAgentId={agentId}
-          selectedPaths={sortPathsForShare([...selectedSharePaths])}
-          onClose={() => setShareDialogOpen(false)}
-          onSuccess={() => {
-            setSelectedSharePaths(new Set());
-            void loadAgentFiles(true);
-          }}
-        />
-      ) : null}
 
       {/* ── File viewer modal ── */}
       {fileViewer && (
@@ -1483,60 +1287,42 @@ function WebviewIframes({ text }: { text: string }) {
   const unique = [...new Set(urls)];
   return (
     <div className="mt-3 space-y-3">
-      {unique.map((url) => {
-        const filename = url.split("/").pop() || url;
-        return (
-          <div key={url} className="rounded-lg border border-slate-200 overflow-hidden">
-            <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
-              <span className="flex items-center gap-2 text-xs">
-                <span>🌐</span>
-                <span className="font-medium text-slate-700">{filename}</span>
-              </span>
-              <a href={url} target="_blank" rel="noreferrer" className="text-xs text-slate-500 hover:text-slate-700">
-                新窗口打开 ↗
-              </a>
-            </div>
-            <div className="w-full" style={{ height: "65vh", maxHeight: "560px" }}>
-              <iframe src={url} className="w-full h-full border-0" title={filename} sandbox="allow-scripts allow-same-origin" />
-            </div>
-          </div>
-        );
-      })}
+      {unique.map((url) => (
+        <WebviewFrame key={url} url={url} />
+      ))}
     </div>
   );
 }
 
-// ── RunArtifactLinks: grouped artifact download links ───────────────────────
+function WebviewFrame({ url }: { url: string }) {
+  const [tick, setTick] = useState(0);
+  const filename = url.split("/").pop() || url;
 
-type RunArtifact = { path: string; sha256?: string; bytes: number };
-
-function RunArtifactLinks({ artifacts, agentId }: { artifacts: RunArtifact[]; agentId: string }) {
-  const groups = groupArtifacts(artifacts);
-  if (!groups.length) return null;
+  const handleRefresh = () => setTick((t) => t + 1);
 
   return (
-    <div className="mt-2 space-y-3">
-      {groups.map((group) => (
-        <div key={group.key}>
-          <div className="px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">{group.label}</div>
-          <div className="space-y-1">
-            {group.items.map((a) => (
-              <a
-                key={a.path}
-                href={`/api/v1/agents/${encodeURIComponent(agentId)}/files?path=${encodeURIComponent(a.path)}`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
-              >
-                <span>{fileMeta(a.path).icon}</span>
-                <span className="truncate flex-1">{a.path.split("/").pop() || a.path}</span>
-                <span className="shrink-0 text-slate-400">{formatBytes(a.bytes)}</span>
-                <span className="shrink-0 text-slate-300">↓</span>
-              </a>
-            ))}
-          </div>
-        </div>
-      ))}
+    <div className="rounded-lg border border-slate-200 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
+        <span className="flex items-center gap-2 text-xs">
+          <span>🌐</span>
+          <span className="font-medium text-slate-700">{filename}</span>
+        </span>
+        <span className="flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            className="text-xs text-slate-500 hover:text-slate-700 cursor-pointer"
+            title="刷新（绕过缓存）"
+          >
+            🔄 刷新
+          </button>
+          <a href={url} target="_blank" rel="noreferrer" className="text-xs text-slate-500 hover:text-slate-700">
+            新窗口打开 ↗
+          </a>
+        </span>
+      </div>
+      <div className="w-full" style={{ height: "65vh", maxHeight: "560px" }}>
+        <iframe key={tick} src={url} className="w-full h-full border-0" title={filename} sandbox="allow-scripts allow-same-origin" />
+      </div>
     </div>
   );
 }

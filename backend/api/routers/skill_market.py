@@ -16,6 +16,8 @@ from domain.models import (
     SkillPackageUpload,
 )
 from infra import skill_market
+from pydantic import BaseModel as _BaseModel, Field as _Field
+from typing import Literal
 
 router = APIRouter(prefix="/api/v1", tags=["skill-market"])
 
@@ -149,9 +151,28 @@ async def review_skill_candidate(candidate_id: str, body: SkillCandidateReview):
     return {"reviewed": True, "candidate": candidate}
 
 
-# ── New unified skill management endpoints ────────────────────────────────────
+# ── Skill version review (new flow: agent MCP submit → admin review via skill_versions) ──
 
-from pydantic import BaseModel as _BaseModel, Field as _Field
+class SkillVersionReviewBody(_BaseModel):
+    decision: Literal["approved", "rejected"]
+    reviewer: str = _Field(default="admin", min_length=1, max_length=128)
+    reason: str = _Field(default="", max_length=2000)
+
+
+@router.post("/skill-versions/{version_id}/review", dependencies=[Depends(require_admin)])
+async def review_skill_version(version_id: int, body: SkillVersionReviewBody):
+    version = skill_market.review_skill_version(
+        version_id,
+        decision=body.decision,
+        reviewer=body.reviewer,
+        reason=body.reason,
+    )
+    if version is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="version not found")
+    return {"reviewed": True, "version": version}
+
+
+# ── New unified skill management endpoints ────────────────────────────────────
 
 
 class DraftSkillBody(_BaseModel):
@@ -226,4 +247,56 @@ async def trigger_skill_test(skill_id: str, body: SkillTestBody):
 @router.get("/skills/{skill_id}/test-runs", dependencies=[Depends(require_admin)])
 async def get_skill_test_runs(skill_id: str):
     return {"skill_id": skill_id, "test_runs": skill_market.get_skill_test_runs(skill_id)}
+
+
+@router.get("/skills/{skill_id}/agent-versions", dependencies=[Depends(require_admin)])
+async def get_skill_agent_versions(skill_id: str):
+    """Return each agent's locally installed version of this skill vs market version."""
+    import yaml
+    from infra import account_skills as acct_skills, agents as agents_store
+
+    skill = skill_market.get_skill(skill_id)
+    market_version = (skill.get("version") or "").strip() if skill else ""
+
+    # Find accounts that have this skill
+    account_ids = acct_skills.list_accounts_for_skill(skill_id)
+    results: list[dict] = []
+    seen_agents: set[str] = set()
+
+    for account_id in account_ids:
+        agents_list = agents_store.list_agents(
+            member_account_id=account_id,
+            owner_account_id=account_id,
+            limit=200,
+        )
+        for agent in agents_list:
+            aid = agent["agent_id"]
+            if aid in seen_agents:
+                continue
+            seen_agents.add(aid)
+
+            root = agents_store.resolve_agent_path(agent)
+            skill_md = root / ".evotown" / "skills" / skill_id / "SKILL.md"
+            installed_version = ""
+            if skill_md.is_file():
+                try:
+                    content = skill_md.read_text(encoding="utf-8")
+                    if content.startswith("---"):
+                        parts = content.split("---", 2)
+                        if len(parts) >= 3:
+                            fm = yaml.safe_load(parts[1]) or {}
+                            installed_version = str(fm.get("version", "")).strip()
+                except Exception:
+                    pass
+
+            results.append({
+                "agent_id": aid,
+                "agent_name": agent.get("name", ""),
+                "account_id": account_id,
+                "installed_version": installed_version,
+                "market_version": market_version,
+                "is_modified": bool(installed_version and installed_version != market_version),
+            })
+
+    return {"skill_id": skill_id, "market_version": market_version, "agents": results}
 

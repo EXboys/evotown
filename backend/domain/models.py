@@ -112,6 +112,7 @@ class EngineRegister(BaseModel):
 
 class WorkspaceCreate(BaseModel):
     name: str = Field(default="Personal Sandbox", min_length=1, max_length=128)
+    account_id: str = Field(default="", max_length=128)
     owner_account_id: str = Field(default="", max_length=128)
     tenant_id: str = Field(default="", max_length=128)
     team_id: str = Field(default="", max_length=128)
@@ -123,9 +124,9 @@ class WorkspaceCreate(BaseModel):
 class WorkspaceUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     status: Literal["active", "archived"] | None = None
-    owner_account_id: str | None = Field(default=None, max_length=128)
     storage_quota_mb: int | None = Field(default=None, ge=0, le=1048576)
     model_policy: Literal["all", "routes_only"] | None = None
+    owner_account_id: str | None = Field(default=None, max_length=128)
 
 
 class WorkspaceProfileUpdate(BaseModel):
@@ -545,6 +546,7 @@ class GatewayUpstreamModelCreate(BaseModel):
     provider_label: str = Field(default="", max_length=128)
     description: str = Field(default="", max_length=512)
     enabled: bool = True
+    is_vision: bool = False
 
 
 class GatewayUpstreamModelUpdate(BaseModel):
@@ -557,6 +559,7 @@ class GatewayUpstreamModelUpdate(BaseModel):
     provider_label: str | None = Field(default=None, max_length=128)
     description: str | None = Field(default=None, max_length=512)
     enabled: bool | None = None
+    is_vision: bool | None = None
 
 
 class OidcExchange(BaseModel):

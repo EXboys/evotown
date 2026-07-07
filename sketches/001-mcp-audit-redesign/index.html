@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCP 审核改造原型</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    color: #1a1a1a;
+    background: #f1f5f9;
+    line-height: 1.5;
+  }
+  /* Smooth drawer slide */
+  .drawer-enter { transform: translateX(100%); }
+  .drawer-enter-active { transform: translateX(0); transition: transform 0.25s ease-out; }
+  .drawer-exit { transform: translateX(0); }
+  .drawer-exit-active { transform: translateX(100%); transition: transform 0.2s ease-in; }
+  /* Status dot pulse */
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  .pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+</style>
+</head>
+<body class="p-8">
+
+<div class="max-w-7xl mx-auto space-y-6">
+
+  <!-- Header -->
+  <section class="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-violet-600 to-purple-700 p-6 text-white shadow-sm">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div class="max-w-2xl">
+        <div class="text-xs font-semibold uppercase tracking-[0.2em] text-violet-200">MCP</div>
+        <h2 class="mt-2 text-2xl font-semibold tracking-tight">MCP 服务管理</h2>
+        <p class="mt-2 text-sm text-violet-100">管理 MCP 服务注册、编辑和启停状态。</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs text-violet-100">
+          <span class="w-2 h-2 rounded-full bg-amber-400 pulse-dot"></span>
+          待审核 <strong class="text-white">3</strong>
+        </span>
+        <button class="rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/20">刷新</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Tab bar + search -->
+  <div class="flex items-center gap-4 flex-wrap">
+    <div class="flex rounded-lg border border-slate-200 bg-white p-1">
+      <button class="rounded-md px-4 py-1.5 text-sm font-medium bg-violet-600 text-white shadow-sm">内部 MCP</button>
+      <button class="rounded-md px-4 py-1.5 text-sm font-medium text-slate-600 hover:text-slate-900">外部 MCP</button>
+      <button class="rounded-md px-4 py-1.5 text-sm font-medium text-slate-600 hover:text-slate-900">系统 MCP</button>
+    </div>
+    <div class="flex items-center gap-2 flex-1 min-w-0">
+      <input placeholder="名称模糊 / ID 精准" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400 w-full max-w-xs">
+      <button class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">搜索</button>
+    </div>
+  </div>
+
+  <!-- ★ Main Table with audit status column ★ -->
+  <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-slate-200 bg-slate-50 text-left text-xs font-medium uppercase text-slate-500">
+          <th class="px-4 py-3">名称</th>
+          <th class="px-4 py-3">服务 ID</th>
+          <th class="px-4 py-3">版本</th>
+          <th class="px-4 py-3">数据权限</th>
+          <th class="px-4 py-3">分类路径</th>
+          <th class="px-4 py-3">来源</th>
+          <th class="px-4 py-3">已绑定</th>
+          <th class="px-4 py-3">24h调用</th>
+          <th class="px-4 py-3">服务状态</th>
+          <th class="px-4 py-3">
+            <!-- ★ NEW: 审核状态列 ★ -->
+            <span class="relative">审核状态
+              <span class="absolute -top-1 -right-4 w-3.5 h-3.5 rounded-full bg-red-500 flex items-center justify-center text-[9px] text-white font-bold">3</span>
+            </span>
+          </th>
+          <th class="px-4 py-3">操作</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+
+        <!-- ★ Row 1: 有待审核 → 显示通过/驳回按钮 ★ -->
+        <tr class="hover:bg-slate-50/50">
+          <td class="px-4 py-3 font-medium text-slate-900">
+            <div class="flex items-center gap-2">
+              mcp_shop_order
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-400 pulse-dot" title="有待审核"></span>
+            </div>
+          </td>
+          <td class="px-4 py-3 font-mono text-xs text-slate-500">svc_order_v2</td>
+          <td class="px-4 py-3 text-xs font-mono text-slate-500">1.2.0</td>
+          <td class="px-4 py-3 max-w-[120px] truncate text-xs text-slate-500">shop_id, region</td>
+          <td class="px-4 py-3 font-mono text-xs text-slate-400">business/order</td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">内部</span>
+          </td>
+          <td class="px-4 py-3 text-center text-xs text-violet-600 underline cursor-pointer">12</td>
+          <td class="px-4 py-3 text-center text-xs text-violet-600 underline cursor-pointer">347</td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">在线</span>
+          </td>
+          <!-- ★ NEW: 审核状态 — 待审核 Badge ★ -->
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-500 pulse-dot"></span>
+              待审核
+            </span>
+          </td>
+          <!-- ★ NEW: 操作列直接显示通过/驳回 + 详情 ★ -->
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-1.5">
+              <button onclick="document.getElementById('drawer-mcp-detail').classList.remove('hidden')" class="rounded-md bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 transition-colors">详情</button>
+              <button class="rounded-md bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700 hover:bg-green-100 transition-colors">通过</button>
+              <button class="rounded-md bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100 transition-colors">驳回</button>
+            </div>
+          </td>
+        </tr>
+
+        <!-- Row 2: 也有待审核 -->
+        <tr class="hover:bg-slate-50/50">
+          <td class="px-4 py-3 font-medium text-slate-900">
+            <div class="flex items-center gap-2">
+              mcp_user_profile
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-400 pulse-dot" title="有待审核"></span>
+            </div>
+          </td>
+          <td class="px-4 py-3 font-mono text-xs text-slate-500">svc_user_v1</td>
+          <td class="px-4 py-3 text-xs font-mono text-slate-500">2.1.0</td>
+          <td class="px-4 py-3 max-w-[120px] truncate text-xs text-slate-500">user_id</td>
+          <td class="px-4 py-3 font-mono text-xs text-slate-400">platform/user</td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">内部</span>
+          </td>
+          <td class="px-4 py-3 text-center text-xs text-violet-600 underline cursor-pointer">8</td>
+          <td class="px-4 py-3 text-center text-xs text-violet-600 underline cursor-pointer">156</td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">在线</span>
+          </td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-500 pulse-dot"></span>
+              待审核
+            </span>
+          </td>
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-1.5">
+              <button onclick="document.getElementById('drawer-mcp-detail').classList.remove('hidden')" class="rounded-md bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 transition-colors">详情</button>
+              <button class="rounded-md bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700 hover:bg-green-100 transition-colors">通过</button>
+              <button class="rounded-md bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100 transition-colors">驳回</button>
+            </div>
+          </td>
+        </tr>
+
+        <!-- Row 3: 无待审核 → 只有详情/编辑/删除 -->
+        <tr class="hover:bg-slate-50/50">
+          <td class="px-4 py-3 font-medium text-slate-900">mcp_inventory_sync</td>
+          <td class="px-4 py-3 font-mono text-xs text-slate-500">svc_inv_sync</td>
+          <td class="px-4 py-3 text-xs font-mono text-slate-500">3.0.1</td>
+          <td class="px-4 py-3 max-w-[120px] truncate text-xs text-slate-500">warehouse_id</td>
+          <td class="px-4 py-3 font-mono text-xs text-slate-400">ops/inventory</td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">内部</span>
+          </td>
+          <td class="px-4 py-3 text-center text-xs text-violet-600 underline cursor-pointer">3</td>
+          <td class="px-4 py-3 text-center text-xs text-violet-600 underline cursor-pointer">89</td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">在线</span>
+          </td>
+          <!-- ★ 审核状态：无待审 → 「已通过」★ -->
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">已通过</span>
+          </td>
+          <!-- ★ 操作列：无审核按钮 ★ -->
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-1.5">
+              <button onclick="document.getElementById('drawer-mcp-detail').classList.remove('hidden')" class="rounded-md border border-slate-200 px-2.5 py-1 text-xs text-violet-600 hover:bg-violet-50 transition-colors">详情</button>
+              <button class="text-xs text-violet-600 hover:text-violet-800">编辑</button>
+              <button class="text-xs text-red-500 hover:text-red-700">删除</button>
+            </div>
+          </td>
+        </tr>
+
+        <!-- Row 4: 也有待审核，但服务本身是离线 -->
+        <tr class="hover:bg-slate-50/50">
+          <td class="px-4 py-3 font-medium text-slate-900">
+            <div class="flex items-center gap-2">
+              mcp_payment_gateway
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-400 pulse-dot" title="有待审核"></span>
+            </div>
+          </td>
+          <td class="px-4 py-3 font-mono text-xs text-slate-500">svc_pay_v3</td>
+          <td class="px-4 py-3 text-xs font-mono text-slate-500">1.5.2</td>
+          <td class="px-4 py-3 max-w-[120px] truncate text-xs text-slate-500">merchant_id,channel</td>
+          <td class="px-4 py-3 font-mono text-xs text-slate-400">finance/payment</td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">内部</span>
+          </td>
+          <td class="px-4 py-3 text-center text-xs text-violet-600 underline cursor-pointer">5</td>
+          <td class="px-4 py-3 text-center text-xs text-violet-600 underline cursor-pointer">0</td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500">离线</span>
+          </td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-500 pulse-dot"></span>
+              待审核
+            </span>
+          </td>
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-1.5">
+              <button onclick="document.getElementById('drawer-mcp-detail').classList.remove('hidden')" class="rounded-md bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 transition-colors">详情</button>
+              <button class="rounded-md bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700 hover:bg-green-100 transition-colors">通过</button>
+              <button class="rounded-md bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100 transition-colors">驳回</button>
+            </div>
+          </td>
+        </tr>
+
+        <!-- Row 5: 已驳回 -->
+        <tr class="hover:bg-slate-50/50">
+          <td class="px-4 py-3 font-medium text-slate-900">mcp_legacy_report</td>
+          <td class="px-4 py-3 font-mono text-xs text-slate-500">svc_rpt_old</td>
+          <td class="px-4 py-3 text-xs font-mono text-slate-500">0.9.5</td>
+          <td class="px-4 py-3 max-w-[120px] truncate text-xs text-slate-500">-</td>
+          <td class="px-4 py-3 font-mono text-xs text-slate-400">report/legacy</td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">内部</span>
+          </td>
+          <td class="px-4 py-3 text-center text-xs text-violet-600 underline cursor-pointer">0</td>
+          <td class="px-4 py-3 text-center text-xs text-violet-600 underline cursor-pointer">0</td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-400">已废弃</span>
+          </td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-600">已驳回</span>
+          </td>
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-1.5">
+              <button onclick="document.getElementById('drawer-mcp-detail').classList.remove('hidden')" class="rounded-md border border-slate-200 px-2.5 py-1 text-xs text-violet-600 hover:bg-violet-50 transition-colors">详情</button>
+              <button class="text-xs text-slate-500 hover:text-slate-700">查看</button>
+            </div>
+          </td>
+        </tr>
+
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Legend -->
+  <div class="flex items-center gap-4 text-xs text-slate-400">
+    <span class="flex items-center gap-1.5">
+      <span class="w-1.5 h-1.5 rounded-full bg-amber-400 pulse-dot"></span> 名称旁亮点 = 有待审核子表记录
+    </span>
+    <span>|</span>
+    <span>审核状态列：根据子表最新记录动态计算（不存字段）</span>
+  </div>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- ★ DETAIL DRAWER ★ -->
+  <!-- ═══════════════════════════════════════════ -->
+  <div id="drawer-mcp-detail" class="hidden fixed inset-0 z-50 flex justify-end">
+    <!-- Backdrop -->
+    <div class="absolute inset-0 bg-black/30" onclick="this.parentElement.classList.add('hidden')"></div>
+    <!-- Drawer panel -->
+    <div class="relative w-full max-w-2xl bg-white border-l border-slate-200 shadow-2xl flex flex-col h-full overflow-hidden" style="animation: slideIn 0.25s ease-out;">
+      <style>
+        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+      </style>
+
+      <!-- Drawer header -->
+      <div class="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 shrink-0 bg-slate-50/50">
+        <div>
+          <h3 class="text-sm font-semibold text-slate-900">MCP 服务详情 — mcp_shop_order</h3>
+          <p class="text-xs text-slate-400 mt-0.5">svc_order_v2</p>
+        </div>
+        <button onclick="document.getElementById('drawer-mcp-detail').classList.add('hidden')" class="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
+      </div>
+
+      <!-- Drawer body (scrollable) -->
+      <div class="flex-1 overflow-y-auto p-5 space-y-5">
+
+        <!-- ★ Section 1: MCP 完整字段信息 ★ -->
+        <div>
+          <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">基本信息</h4>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="bg-slate-50 rounded-lg px-3 py-2.5">
+              <div class="text-[10px] text-slate-400 uppercase tracking-wide">名称</div>
+              <div class="text-sm font-medium text-slate-900 mt-0.5">mcp_shop_order</div>
+            </div>
+            <div class="bg-slate-50 rounded-lg px-3 py-2.5">
+              <div class="text-[10px] text-slate-400 uppercase tracking-wide">服务 ID</div>
+              <div class="text-sm font-mono text-slate-700 mt-0.5">svc_order_v2</div>
+            </div>
+            <div class="bg-slate-50 rounded-lg px-3 py-2.5">
+              <div class="text-[10px] text-slate-400 uppercase tracking-wide">来源</div>
+              <div class="text-sm text-slate-700 mt-0.5"><span class="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0 text-xs font-medium text-sky-700">内部</span></div>
+            </div>
+            <div class="bg-slate-50 rounded-lg px-3 py-2.5">
+              <div class="text-[10px] text-slate-400 uppercase tracking-wide">服务状态</div>
+              <div class="text-sm mt-0.5"><span class="inline-flex items-center rounded-full border border-green-200 bg-green-50 px-2 py-0 text-xs font-medium text-green-700">在线</span></div>
+            </div>
+            <div class="bg-slate-50 rounded-lg px-3 py-2.5">
+              <div class="text-[10px] text-slate-400 uppercase tracking-wide">分类路径</div>
+              <div class="text-sm font-mono text-slate-700 mt-0.5">business/order</div>
+            </div>
+            <div class="bg-slate-50 rounded-lg px-3 py-2.5">
+              <div class="text-[10px] text-slate-400 uppercase tracking-wide">当前版本</div>
+              <div class="text-sm font-mono text-slate-700 mt-0.5">1.2.0</div>
+            </div>
+          </div>
+
+          <!-- Full-width fields -->
+          <div class="mt-3 space-y-3">
+            <div class="bg-slate-50 rounded-lg px-3 py-2.5">
+              <div class="text-[10px] text-slate-400 uppercase tracking-wide">描述</div>
+              <div class="text-sm text-slate-700 mt-0.5">商品订单查询与操作 MCP 服务，支持按 shop_id、订单状态、时间范围查询</div>
+            </div>
+            <div class="bg-slate-50 rounded-lg px-3 py-2.5">
+              <div class="text-[10px] text-slate-400 uppercase tracking-wide">端点 URL</div>
+              <div class="text-sm font-mono text-slate-600 mt-0.5 break-all">https://api.example.com/mcp/svc_order_v2</div>
+            </div>
+            <div class="bg-slate-50 rounded-lg px-3 py-2.5">
+              <div class="text-[10px] text-slate-400 uppercase tracking-wide">数据权限维度</div>
+              <div class="text-sm text-slate-700 mt-0.5">shop_id, region</div>
+            </div>
+            <div class="bg-slate-50 rounded-lg px-3 py-2.5">
+              <div class="text-[10px] text-slate-400 uppercase tracking-wide">数据表</div>
+              <div class="text-sm font-mono text-slate-600 mt-0.5">orders, order_items, order_status_log</div>
+            </div>
+
+            <!-- Input/Output schema (collapsed by default) -->
+            <details class="group">
+              <summary class="cursor-pointer text-xs font-medium text-violet-600 hover:text-violet-800 select-none">▶ 查看 Input Schema</summary>
+              <pre class="mt-2 bg-slate-50 rounded-lg p-3 text-xs font-mono text-slate-600 overflow-x-auto">{
+  "type": "object",
+  "properties": {
+    "shop_id": { "type": "string" },
+    "status": { "enum": ["pending","shipped","done"] },
+    "date_from": { "type": "string", "format": "date" },
+    "date_to": { "type": "string", "format": "date" }
+  },
+  "required": ["shop_id"]
+}</pre>
+            </details>
+            <details class="group">
+              <summary class="cursor-pointer text-xs font-medium text-violet-600 hover:text-violet-800 select-none">▶ 查看 Output Schema</summary>
+              <pre class="mt-2 bg-slate-50 rounded-lg p-3 text-xs font-mono text-slate-600 overflow-x-auto">{
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "order_id": { "type": "string" },
+      "status": { "type": "string" },
+      "total_amount": { "type": "number" },
+      "created_at": { "type": "string" }
+    }
+  }
+}</pre>
+            </details>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div class="bg-slate-50 rounded-lg px-3 py-2.5">
+                <div class="text-[10px] text-slate-400 uppercase tracking-wide">创建时间</div>
+                <div class="text-sm text-slate-700 mt-0.5">2026-01-15 14:30</div>
+              </div>
+              <div class="bg-slate-50 rounded-lg px-3 py-2.5">
+                <div class="text-[10px] text-slate-400 uppercase tracking-wide">更新时间</div>
+                <div class="text-sm text-slate-700 mt-0.5">2026-06-17 09:12</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Divider -->
+        <div class="border-t border-slate-100"></div>
+
+        <!-- ★ Section 2: 审核记录子明细表 ★ -->
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400">审核记录</h4>
+            <span class="text-[10px] text-slate-400">共 3 条</span>
+          </div>
+          <div class="overflow-hidden rounded-lg border border-slate-200">
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="border-b border-slate-100 bg-slate-50 text-left text-[11px] font-medium text-slate-500">
+                  <th class="px-3 py-2">申请时间</th>
+                  <th class="px-3 py-2">版本</th>
+                  <th class="px-3 py-2">提交智能体</th>
+                  <th class="px-3 py-2">申请人</th>
+                  <th class="px-3 py-2">状态</th>
+                  <th class="px-3 py-2">审核时间</th>
+                  <th class="px-3 py-2">审核人</th>
+                  <th class="px-3 py-2">备注</th>
+                  <th class="px-3 py-2 w-24">操作</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-50">
+                <!-- ★ 待审核记录：可操作 ★ -->
+                <tr class="bg-amber-50/30 hover:bg-amber-50/60">
+                  <td class="px-3 py-2 text-slate-600">2026-06-18 10:25</td>
+                  <td class="px-3 py-2 font-mono text-slate-800 font-medium">1.2.0</td>
+                  <td class="px-3 py-2 font-mono text-[10px] text-slate-400">ag_7f3a2b...</td>
+                  <td class="px-3 py-2 text-slate-600">zhangsan@ecethink</td>
+                  <td class="px-3 py-2">
+                    <span class="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0 text-[10px] font-medium text-amber-700">
+                      <span class="w-1 h-1 rounded-full bg-amber-500"></span> 待审核
+                    </span>
+                  </td>
+                  <td class="px-3 py-2 text-slate-400">-</td>
+                  <td class="px-3 py-2 text-slate-400">-</td>
+                  <td class="px-3 py-2 text-slate-400 max-w-[100px] truncate">新增 output schema: refund_info</td>
+                  <td class="px-3 py-2">
+                    <div class="flex gap-1">
+                      <button class="text-[10px] text-green-600 hover:text-green-800 font-medium bg-green-50 rounded px-1.5 py-0.5 hover:bg-green-100">通过</button>
+                      <button class="text-[10px] text-red-500 hover:text-red-700 font-medium bg-red-50 rounded px-1.5 py-0.5 hover:bg-red-100">驳回</button>
+                    </div>
+                  </td>
+                </tr>
+                <!-- 已通过 -->
+                <tr class="hover:bg-slate-50/50">
+                  <td class="px-3 py-2 text-slate-500">2026-06-10 16:42</td>
+                  <td class="px-3 py-2 font-mono text-slate-600">1.1.0</td>
+                  <td class="px-3 py-2 font-mono text-[10px] text-slate-400">ag_9c1d8e...</td>
+                  <td class="px-3 py-2 text-slate-500">lisi@ecethink</td>
+                  <td class="px-3 py-2">
+                    <span class="inline-flex items-center rounded-full border border-green-200 bg-green-50 px-1.5 py-0 text-[10px] font-medium text-green-700">已通过</span>
+                  </td>
+                  <td class="px-3 py-2 text-slate-500">2026-06-11 09:30</td>
+                  <td class="px-3 py-2 text-slate-500">admin</td>
+                  <td class="px-3 py-2 text-slate-400 max-w-[100px] truncate">新增 date_range 参数</td>
+                  <td class="px-3 py-2 text-slate-300">-</td>
+                </tr>
+                <!-- 已驳回 -->
+                <tr class="hover:bg-slate-50/50">
+                  <td class="px-3 py-2 text-slate-500">2026-06-05 11:10</td>
+                  <td class="px-3 py-2 font-mono text-slate-600">1.0.1</td>
+                  <td class="px-3 py-2 font-mono text-[10px] text-slate-400">ag_2b6f1a...</td>
+                  <td class="px-3 py-2 text-slate-500">wangwu@ecethink</td>
+                  <td class="px-3 py-2">
+                    <span class="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-1.5 py-0 text-[10px] font-medium text-red-600">已驳回</span>
+                  </td>
+                  <td class="px-3 py-2 text-slate-500">2026-06-05 14:22</td>
+                  <td class="px-3 py-2 text-slate-500">admin</td>
+                  <td class="px-3 py-2 text-slate-500 max-w-[100px] truncate">schema 不完整，缺少 required 声明</td>
+                  <td class="px-3 py-2 text-slate-300">-</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Divider -->
+        <div class="border-t border-slate-100"></div>
+
+        <!-- ★ Section 3: 绑定 & 调用统计 ★ -->
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bg-violet-50 rounded-lg px-3 py-2.5">
+            <div class="text-[10px] text-violet-400 uppercase tracking-wide">已绑定智能体</div>
+            <div class="text-lg font-semibold text-violet-700 mt-0.5">12</div>
+          </div>
+          <div class="bg-emerald-50 rounded-lg px-3 py-2.5">
+            <div class="text-[10px] text-emerald-400 uppercase tracking-wide">24h 调用次数</div>
+            <div class="text-lg font-semibold text-emerald-700 mt-0.5">347</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Drawer footer -->
+      <div class="border-t border-slate-200 px-5 py-3 shrink-0 bg-white flex justify-end gap-2">
+        <button onclick="document.getElementById('drawer-mcp-detail').classList.add('hidden')" class="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">关闭</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

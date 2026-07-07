@@ -38,6 +38,15 @@ DEFAULTS: list[tuple[str, str, str | None, str, str, str, str | None]] = [
     ("EVOTOWN_CLAUDE_RUN_TIMEOUT_SEC", "3600", "EVOTOWN_CLAUDE_RUN_TIMEOUT_SEC", "system", "运行超时(秒)", "number", None),
     ("EVOTOWN_CLAUDE_MAX_TURNS", "100", "EVOTOWN_CLAUDE_MAX_TURNS", "system", "最大轮次", "number", None),
     (
+        "EVOTOWN_CLAUDE_CONTEXT_ROUNDS",
+        "10",
+        "EVOTOWN_CLAUDE_CONTEXT_ROUNDS",
+        "system",
+        "对话上下文轮数",
+        "number",
+        None,
+    ),
+    (
         "agent_default_model_policy",
         "routes_only",
         None,

@@ -53,7 +53,7 @@ async def process_next_hosted_job() -> bool:
     if acked:
         broadcast_dispatch_job(acked, action="acked")
 
-    account_id = str(agent.get("owner_account_id") or "")
+    account_id = str(agents.get_agent_owner(agent_id) or "")
     max_active = _max_active_runs_per_account()
     if max_active > 0 and claude_agent_runs.active_run_count(account_id) >= max_active:
         failed = agent_dispatch.fail_job(job_id, summary="too many active hosted agent runs for agent owner")

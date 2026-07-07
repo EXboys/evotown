@@ -6,7 +6,7 @@ Agent calls:
 Flow:
     1. Generate skill_id = sk_{uuid12}
     2. INSERT skills (status=draft)
-    3. Create workspace skeleton: skills/sk_xxx/{SKILL.md, scripts/, references/}
+    3. Create workspace skeleton: skills/{name}/{SKILL.md, scripts/, references/}
     4. Record usage log
     5. Return skill_id + path
 """
@@ -60,12 +60,12 @@ def process(args: dict, permissions: dict) -> dict[str, Any]:
         created_by=account,
     )
 
-    # ── Create workspace skeleton ──────────────────────────────────
+    # ── Create workspace skeleton (directory named by skill name) ───
     agent = get_agent(agent_id)
     if agent is None:
         return {"ok": False, "data": None, "error": f"agent 不存在: {agent_id}"}
     ws_root = resolve_agent_path(agent)
-    skill_dir = ws_root / "skills" / skill_id
+    skill_dir = ws_root / "skills" / name
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "scripts").mkdir(parents=True, exist_ok=True)
     (skill_dir / "references").mkdir(parents=True, exist_ok=True)
@@ -94,7 +94,7 @@ def process(args: dict, permissions: dict) -> dict[str, Any]:
             "skill_id": skill_id,
             "name": name,
             "category": category or "",
-            "path": f"skills/{skill_id}/",
+            "path": f"skills/{name}/",
             "message": f"技能 '{name}' 已创建",
         },
     }

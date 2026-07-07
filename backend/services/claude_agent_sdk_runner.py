@@ -91,13 +91,14 @@ async def run_agent_sdk(
     prompt: str,
     model: str,
     run: dict[str, Any],
-) -> tuple[int, str]:
-    """Run a single hosted agent task via the embedded Claude Agent SDK."""
+    resume_session_id: str = "",
+) -> tuple[int, str, str]:
+    """Run a single hosted agent task via the embedded Claude Agent SDK.
+
+    Returns (exit_code, output, claude_session_id).
+    """
     from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, query
 
-    from infra import claude_agent_runs
-
-    run_id = str(run.get("run_id") or "")
     permission_mode = os.environ.get("EVOTOWN_CLAUDE_PERMISSION_MODE", "acceptEdits").strip() or "acceptEdits"
     options_kwargs: dict[str, Any] = {
         "cwd": workspace_root,
@@ -112,8 +113,12 @@ async def run_agent_sdk(
             "EVOTOWN_WORKSPACE_ROOT": str(workspace_root),
             "EVOTOWN_CLAUDE_MODEL": model,
         },
-        "extra_args": {"bare": None},
     }
+
+    # Resume previous Claude session when available (native context management)
+    if resume_session_id:
+        options_kwargs["resume"] = resume_session_id
+
     system_prompt = _system_prompt(workspace_root)
     if system_prompt is not None:
         options_kwargs["system_prompt"] = system_prompt
@@ -125,46 +130,68 @@ async def run_agent_sdk(
 
     log_lines: list[str] = []
     exit_code = 1
-    async for message in query(prompt=prompt, options=options):
-        if isinstance(message, AssistantMessage):
-            for block in message.content:
-                text = getattr(block, "text", None)
-                if text:
-                    text_str = str(text)
-                    log_lines.append(text_str)
-                    if run_id:
-                        try:
-                            claude_agent_runs.append_event(
-                                run_id,
-                                "assistant_message",
-                                {"text": text_str, "seq": len(log_lines)},
-                            )
-                        except Exception:
-                            pass
-        elif isinstance(message, ResultMessage):
-            if message.result:
-                result_str = str(message.result)
-                if result_str and (not log_lines or log_lines[-1] != result_str):
-                    log_lines.append(result_str)
-                    if run_id:
-                        try:
-                            claude_agent_runs.append_event(
-                                run_id,
-                                "assistant_message",
-                                {"text": result_str, "seq": len(log_lines), "final": True},
-                            )
-                        except Exception:
-                            pass
-            if getattr(message, "errors", None):
-                log_lines.extend(str(item) for item in message.errors)
-            if message.subtype == "success" and not message.is_error:
-                exit_code = 0
-            else:
-                exit_code = 1
+    claude_session_id = ""
+    run_id = str(run.get("run_id") or "")
+    _emitted_texts: set[str] = set()  # dedup across blocks/rounds
+
+    def _emit(text: str) -> None:
+        """Persist intermediate text as an event for SSE streaming (deduped)."""
+        stripped = text.strip()
+        if not stripped:
+            return
+        # Skip exact duplicates (SDK sometimes emits same text in multiple blocks or
+        # repeats full conversation in ResultMessage.result)
+        if stripped in _emitted_texts:
+            return
+        _emitted_texts.add(stripped)
+        log_lines.append(text)
+        if run_id:
+            try:
+                from infra import claude_agent_runs as _evt
+                _evt.append_event(run_id, "assistant_message", {"text": text})
+            except Exception:
+                pass
+
+    async def _query():
+        nonlocal exit_code, claude_session_id
+        async for message in query(prompt=prompt, options=options):
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    text = getattr(block, "text", None)
+                    if text:
+                        _emit(str(text))
+            elif isinstance(message, ResultMessage):
+                # Don't emit .result — it's the full accumulated text already
+                # emitted via AssistantMessage blocks above. Only log errors.
+                if getattr(message, "errors", None):
+                    for item in message.errors:
+                        _emit(str(item))
+                if message.subtype == "success" and not message.is_error:
+                    exit_code = 0
+                else:
+                    exit_code = 1
+                claude_session_id = getattr(message, "session_id", "") or ""
+
+    # Try resume first; if stale/broken, silently fall back to fresh session
+    try:
+        await _query()
+    except Exception:
+        # Stale session — retry without resume
+        if resume_session_id:
+            log_lines.clear()
+            log_lines.append(f"(session {resume_session_id[:12]}... expired, starting fresh)")
+            resume_session_id = ""
+            options_kwargs.pop("resume", None)
+            options = ClaudeAgentOptions(**options_kwargs)
+            exit_code = 1
+            claude_session_id = ""
+            await _query()
+        else:
+            raise
 
     output = "\n".join(line for line in log_lines if line).strip()
     if len(output) > 65536:
         output = output[-65536:]
     if not output:
         output = "Claude Agent SDK run completed."
-    return exit_code, output
+    return exit_code, output, claude_session_id

@@ -43,7 +43,7 @@ def _ensure_conn() -> sqlite3.Connection:
         """
         CREATE TABLE IF NOT EXISTS agents (
             agent_id         TEXT PRIMARY KEY,
-            owner_account_id TEXT NOT NULL,
+            owner_account_id TEXT NOT NULL DEFAULT '',
             tenant_id        TEXT NOT NULL DEFAULT '',
             team_id          TEXT NOT NULL DEFAULT '',
             name             TEXT NOT NULL,
@@ -58,7 +58,7 @@ def _ensure_conn() -> sqlite3.Connection:
             created_at       TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_agents_owner ON agents(owner_account_id, status);
+        CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
         CREATE INDEX IF NOT EXISTS idx_agents_tenant ON agents(tenant_id);
 
         CREATE TABLE IF NOT EXISTS agent_members (
@@ -92,11 +92,30 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE agents ADD COLUMN key_id TEXT NOT NULL DEFAULT ''")
     if "raw_key" not in cols:
         conn.execute("ALTER TABLE agents ADD COLUMN raw_key TEXT NOT NULL DEFAULT ''")
+    # Data migration: backfill agent_members.role='owner' for existing agents.
+    # Every agent's owner_account_id already has a corresponding agent_members row
+    # (created with role='member' by legacy create_agent).  Upgrade those to 'owner'.
+    mig_cols = {row["name"] for row in conn.execute("PRAGMA table_info(agent_members)").fetchall()}
+    if "role" in mig_cols:
+        conn.execute(
+            "UPDATE agent_members SET role='owner' "
+            "WHERE role='member' AND agent_id IN (SELECT agent_id FROM agents WHERE owner_account_id != '')"
+        )
+    # Drop legacy index if it exists
+    try:
+        conn.execute("DROP INDEX IF EXISTS idx_agents_owner")
+    except sqlite3.OperationalError:
+        pass
 
 
 def _agent_from_row(row: sqlite3.Row) -> dict[str, Any]:
     d = dict(row)
     d.pop("raw_key", None)  # never expose raw key in API responses
+    # Backward compat: populate owner_account_id from agent_members if the column is empty
+    if not d.get("owner_account_id"):
+        owner = get_agent_owner(str(d.get("agent_id") or ""))
+        if owner:
+            d["owner_account_id"] = owner
     tid = d.get("template_id", "")
     if tid:
         try:
@@ -148,7 +167,7 @@ def _agent_dir(agent_id: str) -> Path:
 
 def create_agent(
     *,
-    owner_account_id: str,
+    account_id: str,
     name: str,
     tenant_id: str = "",
     team_id: str = "",
@@ -158,8 +177,8 @@ def create_agent(
     agent_type: str = "coding-agent",
     key_id: str = "",
 ) -> dict[str, Any]:
-    if not owner_account_id.strip():
-        raise ValueError("owner_account_id is required")
+    if not account_id.strip():
+        raise ValueError("account_id is required")
     if model_policy not in ("all", "routes_only"):
         raise ValueError("model_policy must be 'all' or 'routes_only'")
     if template_id:
@@ -185,17 +204,17 @@ def create_agent(
             agent_id, owner_account_id, tenant_id, team_id, name, agent_type, root_path,
             visibility, status, model_policy, category, template_id, key_id, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'private', 'active', ?, ?, ?, ?, datetime('now'), datetime('now'))
+        VALUES (?, '', ?, ?, ?, ?, ?, 'private', 'active', ?, ?, ?, ?, datetime('now'), datetime('now'))
         """,
-        (agent_id, owner_account_id.strip(), tenant_id.strip(), team_id.strip(),
+        (agent_id, tenant_id.strip(), team_id.strip(),
          resolved_name, agent_type, agent_id, model_policy, category, template_id, key_id),
     )
     conn.execute(
         """
         INSERT OR REPLACE INTO agent_members (agent_id, account_id, role, created_at)
-        VALUES (?, ?, 'member', datetime('now'))
+        VALUES (?, ?, 'owner', datetime('now'))
         """,
-        (agent_id, owner_account_id.strip()),
+        (agent_id, account_id.strip()),
     )
     agent = get_agent(agent_id) or {}
     if template_id:
@@ -284,7 +303,7 @@ def _upsert_agent_profile(agent_id: str, template_id: str, tpl: dict[str, Any]) 
 
 def list_agents(
     *,
-    owner_account_id: str | None = None,
+    member_account_id: str | None = None,
     status: str | None = AGENT_STATUS_ACTIVE,
     category: str | None = None,
     limit: int = 100,
@@ -292,19 +311,21 @@ def list_agents(
     conn = _ensure_conn()
     where: list[str] = []
     params: list[Any] = []
-    if owner_account_id:
-        where.append("owner_account_id=?")
-        params.append(owner_account_id)
+    join_clause = ""
+    if member_account_id:
+        join_clause = " JOIN agent_members m ON m.agent_id = agents.agent_id"
+        where.append("m.account_id=?")
+        params.append(member_account_id)
     if status:
-        where.append("status=?")
+        where.append("agents.status=?")
         params.append(status)
     if category:
-        where.append("category=?")
+        where.append("agents.category=?")
         params.append(category)
     params.append(max(1, min(limit, 500)))
     clause = "WHERE " + " AND ".join(where) if where else ""
     rows = conn.execute(
-        f"SELECT * FROM agents {clause} ORDER BY updated_at DESC, created_at DESC LIMIT ?",
+        f"SELECT agents.* FROM agents{join_clause} {clause} ORDER BY agents.updated_at DESC, agents.created_at DESC LIMIT ?",
         params,
     ).fetchall()
     return [_agent_from_row(row) for row in rows]
@@ -323,7 +344,6 @@ def update_agent(
     *,
     name: str | None = None,
     status: str | None = None,
-    owner_account_id: str | None = None,
     storage_quota_mb: int | None = None,
     model_policy: str | None = None,
 ) -> dict[str, Any] | None:
@@ -334,11 +354,6 @@ def update_agent(
         if status not in {AGENT_STATUS_ACTIVE, AGENT_STATUS_ARCHIVED}:
             raise ValueError("invalid agent status")
         updates["status"] = status
-    if owner_account_id is not None:
-        new_owner = owner_account_id.strip()
-        if not new_owner:
-            raise ValueError("owner_account_id cannot be empty")
-        updates["owner_account_id"] = new_owner
     if storage_quota_mb is not None:
         if storage_quota_mb < 0:
             raise ValueError("storage_quota_mb cannot be negative")
@@ -357,16 +372,6 @@ def update_agent(
         f"UPDATE agents SET {sets}, updated_at=datetime('now') WHERE agent_id=?",
         values,
     )
-    if "owner_account_id" in updates:
-        new_owner = updates["owner_account_id"]
-        conn.execute(
-            """
-            INSERT INTO agent_members (agent_id, account_id, role, created_at)
-            VALUES (?, ?, 'member', datetime('now'))
-            ON CONFLICT(agent_id, account_id) DO UPDATE SET role='member'
-            """,
-            (agent_id, new_owner),
-        )
     updated = get_agent(agent_id)
     if updated is not None:
         from infra import hosted_agent_engines
@@ -423,8 +428,6 @@ def can_access_agent(agent: dict[str, Any] | None, identity: dict[str, Any]) -> 
     account_id = str(identity.get("account_id") or "")
     if not account_id:
         return False
-    if agent.get("owner_account_id") == account_id:
-        return True
     return is_agent_member(str(agent.get("agent_id") or ""), account_id)
 
 
@@ -458,12 +461,21 @@ def resolve_agent_path(agent: dict[str, Any], relative_path: str = ".") -> Path:
 
 # ── Agent ↔ Account bindings (M:N) ─────────────────────────────
 
-def bind_account_to_agent(account_id: str, agent_id: str) -> dict[str, Any] | None:
+def get_agent_owner(agent_id: str) -> str:
+    """Return the account_id of the agent's owner (role='owner'), or '' if none."""
+    row = _ensure_conn().execute(
+        "SELECT account_id FROM agent_members WHERE agent_id=? AND role='owner' LIMIT 1",
+        (agent_id,),
+    ).fetchone()
+    return str(row["account_id"]) if row else ""
+
+
+def bind_account_to_agent(account_id: str, agent_id: str, role: str = "member") -> dict[str, Any] | None:
     conn = _ensure_conn()
     try:
         conn.execute(
-            "INSERT OR IGNORE INTO agent_members (agent_id, account_id, role) VALUES (?, ?, 'member')",
-            (agent_id, account_id),
+            "INSERT OR IGNORE INTO agent_members (agent_id, account_id, role) VALUES (?, ?, ?)",
+            (agent_id, account_id, role),
         )
     except sqlite3.IntegrityError:
         return None

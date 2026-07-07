@@ -113,6 +113,7 @@ class EngineRegister(BaseModel):
 class WorkspaceCreate(BaseModel):
     name: str = Field(default="Personal Sandbox", min_length=1, max_length=128)
     account_id: str = Field(default="", max_length=128)
+    owner_account_id: str = Field(default="", max_length=128)
     tenant_id: str = Field(default="", max_length=128)
     team_id: str = Field(default="", max_length=128)
     model_policy: Literal["all", "routes_only"] = "all"
@@ -125,6 +126,7 @@ class WorkspaceUpdate(BaseModel):
     status: Literal["active", "archived"] | None = None
     storage_quota_mb: int | None = Field(default=None, ge=0, le=1048576)
     model_policy: Literal["all", "routes_only"] | None = None
+    owner_account_id: str | None = Field(default=None, max_length=128)
 
 
 class WorkspaceProfileUpdate(BaseModel):

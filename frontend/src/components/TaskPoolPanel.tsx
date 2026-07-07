@@ -185,8 +185,8 @@ export function TaskPoolPanel({ refreshTrigger = 0 }: { refreshTrigger?: number 
       setMessage("任务已确认，状态更新为待执行");
       setTimeout(() => setMessage(""), 3000);
       loadTasks();
-    } catch (err: any) {
-      setError(err.message || "操作失败");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "操作失败");
     } finally {
       setConfirming(false);
     }
@@ -218,8 +218,8 @@ export function TaskPoolPanel({ refreshTrigger = 0 }: { refreshTrigger?: number 
       setMessage("任务已退回，Agent 将重新评估");
       setTimeout(() => setMessage(""), 3000);
       loadTasks();
-    } catch (err: any) {
-      setError(err.message || "操作失败");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "操作失败");
     } finally {
       setReturning(false);
     }
@@ -247,8 +247,8 @@ export function TaskPoolPanel({ refreshTrigger = 0 }: { refreshTrigger?: number 
       loadTasks();
       setMessage("任务创建成功");
       setTimeout(() => setMessage(""), 3000);
-    } catch (err: any) {
-      setError(err.message || "创建失败");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "创建失败");
     } finally {
       setCreating(false);
     }

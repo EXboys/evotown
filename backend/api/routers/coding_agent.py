@@ -142,7 +142,6 @@ async def list_agents(
     return {
         "agents": agents.list_agents(
             member_account_id=owner,
-            owner_account_id=None,
             status=status_filter,
             category=category,
             limit=limit,
@@ -155,7 +154,8 @@ async def list_agents(
 async def create_agent(body: WorkspaceCreate, identity: dict | None = Depends(require_console_read)):
     identity = _require_identity(identity)
     _require_scope(identity, "agent.write", "console.write")
-    owner = body.owner_account_id.strip() if _is_admin(identity) and body.owner_account_id.strip() else _account_id(identity)
+    admin_owner = (body.owner_account_id or body.account_id).strip()
+    owner = admin_owner if _is_admin(identity) and admin_owner else _account_id(identity)
     if not owner:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -176,7 +176,7 @@ async def create_agent(body: WorkspaceCreate, identity: dict | None = Depends(re
             )
 
         agent = agents.create_agent(
-            owner_account_id=owner,
+            account_id=owner,
             name=body.name,
             tenant_id=body.tenant_id or str(identity.get("org_id") or ""),
             team_id=body.team_id or str(identity.get("team_id") or ""),
@@ -227,7 +227,6 @@ async def update_agent(agent_id: str, body: WorkspaceUpdate, identity: dict | No
             agent_id,
             name=body.name,
             status=body.status,
-            owner_account_id=body.owner_account_id,
             storage_quota_mb=body.storage_quota_mb,
             model_policy=body.model_policy,
         )

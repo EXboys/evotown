@@ -226,7 +226,7 @@ export function CodingAgentChatPage() {
         const ws = d.agent || d;
         if (ws.template_id) {
           adminFetch("/api/v1/agent-templates").then(r => r.json()).then(td => {
-            const tpl = (td.templates || []).find((t: any) => t.template_id === ws.template_id);
+            const tpl = (td.templates || []).find((t: { template_id?: string }) => t.template_id === ws.template_id);
             if (tpl?.has_agent_dir) { setDevDirRoot(tpl.agent_dir_root as "agent" | "shared" | "server"); setDevDirPrefix((tpl.agent_dir_prefix || "").replace(/\/$/, "")); }
           }).catch(() => {});
         }
@@ -1279,7 +1279,7 @@ function FileErrorModal({ err, onClose }: { err: { path: string; message: string
 
 // ── WebviewIframes: detect webview URLs in text and embed as iframes ──────────
 
-const WEBVIEW_URL_RE = /\/api\/v1\/webview\/([^\s\)]+)/gi;
+const WEBVIEW_URL_RE = /\/api\/v1\/webview\/([^\s)]+)/gi;
 
 function WebviewIframes({ text }: { text: string }) {
   const urls = Array.from(text.matchAll(WEBVIEW_URL_RE), (m) => m[0]);

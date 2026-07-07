@@ -21,6 +21,7 @@ from infra import skill_signing
 
 _backend_dir = Path(__file__).resolve().parent.parent
 _arena_skills_dir = _backend_dir / "arena_skills"
+_custom_skills_dir = _backend_dir / "data" / "custom-skills"
 _evotown_data = _backend_dir.parent / "data"
 
 
@@ -773,9 +774,10 @@ def _is_builtin_skill(skill: dict[str, Any]) -> bool:
 
 
 def _builtin_skill_source(skill_id: str) -> Path | None:
-    src = _arena_skills_dir / skill_id
-    if src.is_dir() and (src / "SKILL.md").is_file():
-        return src
+    for base in (_arena_skills_dir, _custom_skills_dir):
+        src = base / skill_id
+        if src.is_dir() and (src / "SKILL.md").is_file():
+            return src
     return None
 
 

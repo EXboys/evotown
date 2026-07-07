@@ -37,7 +37,7 @@ from infra.persistence import load_state
 from api.routers import (
     agents,
     accounts,
-    account_skills,
+    agent_skills,
     agent_dispatch,
     audit,
     config,
@@ -342,7 +342,7 @@ app.include_router(agent_dispatch.router)
 app.include_router(audit.router)
 app.include_router(coding_agent.router)
 app.include_router(accounts.router)
-app.include_router(account_skills.router)
+app.include_router(agent_skills.router)
 app.include_router(console_auth.router)
 app.include_router(gateway.router)
 app.include_router(gateway.anthropic_router)

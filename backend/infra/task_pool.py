@@ -6,13 +6,14 @@ Table lives in system.db alongside system_config.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
+import threading
 import uuid
+
 from pathlib import Path
 from typing import Any
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,28 @@ def _task_from_row(row: sqlite3.Row) -> dict[str, Any]:
 
 
 # ── CRUD ────────────────────────────────────────────────────────────
+
+_CREATE_RATE_BUCKETS: dict[str, list[float]] = {}
+_CREATE_RATE_LOCK = threading.Lock()
+
+
+def check_create_rate_limit(submitter_key: str) -> None:
+    """Per-submitter sliding-window limit for HTTP task creation."""
+    import time
+
+    from fastapi import HTTPException
+
+    limit = int(os.environ.get("EVOTOWN_TASK_CREATE_RPM", "30") or "30")
+    if limit <= 0 or not submitter_key.strip():
+        return
+    now = time.monotonic()
+    window = 60.0
+    with _CREATE_RATE_LOCK:
+        bucket = [t for t in _CREATE_RATE_BUCKETS.get(submitter_key, []) if t > now - window]
+        if len(bucket) >= limit:
+            raise HTTPException(status_code=429, detail="task_create_rate_limit_exceeded")
+        bucket.append(now)
+        _CREATE_RATE_BUCKETS[submitter_key] = bucket
 
 
 def create_task(

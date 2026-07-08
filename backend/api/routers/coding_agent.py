@@ -89,25 +89,18 @@ async def get_agent_options(
 
     skills: list[dict] = []
     try:
-        from infra import account_skills, skill_market
-
-        skill_account_id = _account_id(identity)
+        from infra import agent_skills, skill_market
         if agent_id:
-            ws = agents.get_agent(agent_id)
-            if ws is not None and agents.can_access_agent(ws, identity):
-                owner = str(ws.get("owner_account_id") or "").strip()
-                if owner:
-                    skill_account_id = owner
-        assigned = account_skills.list_for_account(skill_account_id) if skill_account_id else []
-        for sid in assigned:
-            skill = skill_market.get_market_skill(sid)
-            if skill:
-                skills.append({
-                    "id": skill.get("skill_id") or skill.get("id") or skill.get("name", ""),
-                    "name": skill.get("name") or skill.get("skill_id", ""),
-                    "version": skill.get("version", ""),
-                    "summary": skill.get("summary") or skill.get("description", ""),
-                })
+            assigned = agent_skills.list_for_agent(agent_id)
+            for sid in assigned:
+                skill = skill_market.get_market_skill(sid)
+                if skill:
+                    skills.append({
+                        "id": skill.get("skill_id") or skill.get("id") or skill.get("name", ""),
+                        "name": skill.get("name") or skill.get("skill_id", ""),
+                        "version": skill.get("version", ""),
+                        "summary": skill.get("summary") or skill.get("description", ""),
+                    })
     except Exception:
         skills = []
 
@@ -142,7 +135,6 @@ async def list_agents(
     return {
         "agents": agents.list_agents(
             member_account_id=owner,
-            owner_account_id=None,
             status=status_filter,
             category=category,
             limit=limit,
@@ -155,11 +147,11 @@ async def list_agents(
 async def create_agent(body: WorkspaceCreate, identity: dict | None = Depends(require_console_read)):
     identity = _require_identity(identity)
     _require_scope(identity, "agent.write", "console.write")
-    owner = body.owner_account_id.strip() if _is_admin(identity) and body.owner_account_id.strip() else _account_id(identity)
+    owner = body.account_id.strip() if _is_admin(identity) and body.account_id.strip() else _account_id(identity)
     if not owner:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="owner_account_id is required when using admin token",
+            detail="account_id is required when using admin token",
         )
     try:
         # Resolve model_policy: system_config default overrides Pydantic default
@@ -176,7 +168,7 @@ async def create_agent(body: WorkspaceCreate, identity: dict | None = Depends(re
             )
 
         agent = agents.create_agent(
-            owner_account_id=owner,
+            account_id=owner,
             name=body.name,
             tenant_id=body.tenant_id or str(identity.get("org_id") or ""),
             team_id=body.team_id or str(identity.get("team_id") or ""),
@@ -211,11 +203,6 @@ async def update_agent(agent_id: str, body: WorkspaceUpdate, identity: dict | No
     identity = _require_identity(identity)
     _require_scope(identity, "agent.write", "console.write")
     agent = _load_agent_for_identity(agent_id, identity)
-    if body.owner_account_id is not None and not _is_admin(identity):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="only an admin can reassign the agent owner",
-        )
     # Validate: switching to routes_only requires at least one enabled route alias
     if body.model_policy == "routes_only" and claude_code_runner.count_route_aliases() == 0:
         raise HTTPException(
@@ -227,7 +214,6 @@ async def update_agent(agent_id: str, body: WorkspaceUpdate, identity: dict | No
             agent_id,
             name=body.name,
             status=body.status,
-            owner_account_id=body.owner_account_id,
             storage_quota_mb=body.storage_quota_mb,
             model_policy=body.model_policy,
         )

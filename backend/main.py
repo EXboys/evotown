@@ -37,7 +37,7 @@ from infra.persistence import load_state
 from api.routers import (
     agents,
     accounts,
-    account_skills,
+    agent_skills,
     agent_dispatch,
     audit,
     config,
@@ -60,6 +60,7 @@ from api.routers import webview as webview_router
 from api.routers import chronicle as chronicle_router
 from api.routers import snapshot as snapshot_router
 from api.routers import system_config as system_config_router
+from api.routers import task_pool as task_pool_router
 from infra import system_config as system_config_infra
 from fastapi.responses import FileResponse
 from log_watcher import start_watching
@@ -343,7 +344,7 @@ app.include_router(agent_dispatch.router)
 app.include_router(audit.router)
 app.include_router(coding_agent.router)
 app.include_router(accounts.router)
-app.include_router(account_skills.router)
+app.include_router(agent_skills.router)
 app.include_router(console_auth.router)
 app.include_router(gateway.router)
 app.include_router(gateway.anthropic_router)
@@ -367,6 +368,7 @@ app.include_router(webview_router.router)
 app.include_router(chronicle_router.router)
 app.include_router(snapshot_router.router)
 app.include_router(system_config_router.router)
+app.include_router(task_pool_router.router)
 # 兼容前端可能使用的 /api 前缀（解决 /config/experiment、/monitor/task_history、/chronicle 404）
 app.include_router(config.router, prefix="/api")
 app.include_router(monitor.router, prefix="/api")

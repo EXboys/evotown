@@ -160,15 +160,34 @@ def deploy_skill_to_agent_workspace(
     return {"deployed": True, "skipped": False, "version": market_version, "reason": "ok"}
 
 
+def add_skills(agent_id: str, skill_ids: list[str]) -> None:
+    """Append skills to an agent's existing assignments."""
+    conn = _ensure_conn()
+    for sid in skill_ids:
+        sid = sid.strip()
+        if sid:
+            conn.execute(
+                "INSERT OR IGNORE INTO agent_skills (agent_id, skill_id) VALUES (?, ?)",
+                (agent_id, sid),
+            )
+
+
 def set_agent_skills(
     agent_id: str,
     skill_ids: list[str],
     *,
     force: bool = False,
+    mode: str = "replace",
 ) -> dict[str, Any]:
-    """Assign skills to an agent (DB binding + file deployment)."""
+    """Assign skills to an agent (DB binding + file deployment).
+
+    mode: "replace" (default) replaces all existing skills; "append" adds without removing.
+    """
     # 1. DB assignment
-    assign(agent_id, skill_ids)
+    if mode == "append":
+        add_skills(agent_id, skill_ids)
+    else:
+        assign(agent_id, skill_ids)
 
     # 2. Deploy files
     results: list[dict[str, Any]] = []
@@ -181,3 +200,72 @@ def set_agent_skills(
         "skills": list_for_agent(agent_id),
         "deploy_results": results,
     }
+
+
+def get_skill_deploy_status(skill_id: str) -> list[dict[str, Any]]:
+    """Return deployment status of a skill across all agents.
+
+    Each entry: {agent_id, agent_name, category, deployed: bool, version: str|null, is_latest: bool}
+    """
+    import yaml
+    from infra import agents as agents_store, skill_market
+
+    # Get market version
+    skill = skill_market.get_skill(skill_id)
+    market_version = (skill.get("version") or "").strip() if skill else ""
+
+    # Get all agents
+    all_agents = agents_store.list_agents(limit=500)
+    deployed_agent_ids = set(list_agents_for_skill(skill_id))
+
+    result = []
+    for agent in all_agents:
+        agent_id = agent["agent_id"]
+        deployed = agent_id in deployed_agent_ids
+        installed_version = ""
+        is_latest = False
+
+        if deployed:
+            root = agents_store.resolve_agent_path(agent)
+            skill_md = root / ".skills" / skill_id / "SKILL.md"
+            if skill_md.is_file():
+                try:
+                    content = skill_md.read_text(encoding="utf-8")
+                    if content.startswith("---"):
+                        parts = content.split("---", 2)
+                        if len(parts) >= 3:
+                            fm = yaml.safe_load(parts[1]) or {}
+                            installed_version = str(fm.get("version", "")).strip()
+                except Exception:
+                    pass
+            is_latest = bool(market_version and installed_version == market_version)
+
+        result.append({
+            "agent_id": agent_id,
+            "agent_name": agent.get("name", agent.get("display_name", agent_id)),
+            "category": agent.get("category", "employee"),
+            "deployed": deployed,
+            "version": installed_version,
+            "is_latest": is_latest,
+        })
+
+    return result
+
+
+def undeploy_skill_from_agent(agent_id: str, skill_id: str) -> dict[str, Any]:
+    """Remove skill binding and delete files from agent workspace."""
+    import shutil
+    from infra import agents as agents_store
+
+    # 1. Remove DB binding
+    revoke(agent_id, skill_id)
+
+    # 2. Delete files
+    agent = agents_store.get_agent(agent_id)
+    if agent:
+        root = agents_store.resolve_agent_path(agent)
+        dest = root / ".skills" / skill_id
+        if dest.exists():
+            shutil.rmtree(dest)
+
+    return {"agent_id": agent_id, "skill_id": skill_id, "undeployed": True}

@@ -25,9 +25,15 @@ type WorkspaceSkill = { skill_id: string; name: string; description: string; scr
 
 type SkillsTab = "all" | "draft" | "pending" | "approved" | "deprecated";
 
+type CategoryTab = "employee" | "department" | "dedicated";
+
 type DeployAgentInfo = {
-  agent_id: string; agent_name: string; account_id: string;
-  installed_version: string; market_version: string; is_modified: boolean;
+  agent_id: string;
+  agent_name: string;
+  category: string;
+  deployed: boolean;
+  version: string;
+  is_latest: boolean;
   selected?: boolean;
 };
 
@@ -50,6 +56,10 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
 };
 
 const SOURCE_LABEL: Record<string, string> = { enterprise: "企业技能", external: "外部导入" };
+
+const CATEGORY_LABELS: Record<string, string> = {
+  employee: "员工", department: "部门", dedicated: "专属",
+};
 
 // ── Component ──────────────────────────────────────────────────────────────
 
@@ -80,12 +90,16 @@ export function SkillsManagementPage() {
   const [deployMarketVersion, setDeployMarketVersion] = useState("");
   const [deployAgents, setDeployAgents] = useState<DeployAgentInfo[]>([]);
   const [deployBusy, setDeployBusy] = useState(false);
-  const [deployForce, setDeployForce] = useState(false);
   const [deployMessage, setDeployMessage] = useState("");
+  const [deployCategory, setDeployCategory] = useState<CategoryTab>("employee");
 
-  // Expanded agent lists per skill
-  const [expandedAgents, setExpandedAgents] = useState<Record<string, DeployAgentInfo[]>>({});
-  const [expandedSkillIds, setExpandedSkillIds] = useState<Set<string>>(new Set());
+  // Undeploy
+  const [undeployOpen, setUndeployOpen] = useState(false);
+  const [undeploySkillId, setUndeploySkillId] = useState("");
+  const [undeploySkillName, setUndeploySkillName] = useState("");
+  const [undeployAgents, setUndeployAgents] = useState<DeployAgentInfo[]>([]);
+  const [undeployBusy, setUndeployBusy] = useState(false);
+  const [undeployMessage, setUndeployMessage] = useState("");
 
   const loadSkills = async () => {
     setLoading(true); setError("");
@@ -135,20 +149,21 @@ export function SkillsManagementPage() {
     } catch (err) { setError(err instanceof Error ? err.message : "操作失败"); }
   };
 
-  // Deploy
+  // ── Deploy ──────────────────────────────────────────────────────────────
+
   const openDeploy = async (skill: SkillRecord) => {
     setDeploySkillId(skill.skill_id);
     setDeploySkillName(skill.name);
     setDeployMarketVersion(skill.version);
-    setDeployForce(false);
     setDeployMessage("");
-    setDeployOpen(true);
+    setDeployCategory("employee");
     setDeployBusy(true);
+    setDeployOpen(true);
     try {
-      const res = await adminFetch("/api/v1/skills/" + encodeURIComponent(skill.skill_id) + "/agent-versions");
-      const data = await res.json() as { agents?: DeployAgentInfo[] };
-      const agents = (data.agents || []).map(a => ({ ...a, selected: !a.is_modified }));
-      setDeployAgents(agents);
+      const res = await adminFetch(`/api/v1/skills/${encodeURIComponent(skill.skill_id)}/agent-deployments`);
+      const data = await res.json();
+      const deployments = (data.deployments || []) as DeployAgentInfo[];
+      setDeployAgents(deployments);
     } catch { setDeployAgents([]); }
     finally { setDeployBusy(false); }
   };
@@ -160,156 +175,175 @@ export function SkillsManagementPage() {
     const results: string[] = [];
     for (const agent of selected) {
       try {
-        const res = await adminFetch("/api/v1/accounts/" + encodeURIComponent(agent.account_id) + "/skills", {
+        const res = await adminFetch(`/api/v1/agents/${encodeURIComponent(agent.agent_id)}/skills`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ skills: [deploySkillId], force: deployForce }),
+          body: JSON.stringify({ skills: [deploySkillId], force: true, mode: "append" }),
         });
         const d = await res.json();
-        const deployR = d.deploy_results?.[agent.agent_id]?.[0];
-        results.push(agent.agent_name + ": " + (deployR?.deployed ? "已更新" : deployR?.skipped ? "已跳过(版本不同)" : deployR?.reason || "失败"));
+        const deployResult = d.deploy_results?.[0];
+        results.push(agent.agent_name + ": " + (deployResult?.deployed ? "已下发" : deployResult?.reason || "失败"));
       } catch { results.push(agent.agent_name + ": 请求失败"); }
     }
     setDeployMessage(results.join("\n"));
     setDeployBusy(false);
-    if (results.some(r => r.includes("已更新"))) loadSkills();
+    if (results.some(r => r.includes("已下发"))) loadSkills();
   };
 
-  const toggleAgentExpand = async (skillId: string) => {
-    const isExpanded = expandedSkillIds.has(skillId);
-    if (isExpanded) {
-      setExpandedSkillIds(prev => { const next = new Set(prev); next.delete(skillId); return next; });
-    } else {
-      setExpandedSkillIds(prev => new Set(prev).add(skillId));
-      if (!expandedAgents[skillId]) {
-        try {
-          const res = await adminFetch("/api/v1/skills/" + encodeURIComponent(skillId) + "/agent-versions");
-          const data = await res.json() as { agents?: DeployAgentInfo[] };
-          setExpandedAgents(prev => ({ ...prev, [skillId]: data.agents || [] }));
-        } catch { setExpandedAgents(prev => ({ ...prev, [skillId]: [] })); }
-      }
+  // ── Undeploy ────────────────────────────────────────────────────────────
+
+  const openUndeploy = async (skill: SkillRecord) => {
+    setUndeploySkillId(skill.skill_id);
+    setUndeploySkillName(skill.name);
+    setUndeployMessage("");
+    setUndeployBusy(true);
+    setUndeployOpen(true);
+    try {
+      const res = await adminFetch(`/api/v1/skills/${encodeURIComponent(skill.skill_id)}/agent-deployments`);
+      const data = await res.json();
+      const deployments = (data.deployments || []) as DeployAgentInfo[];
+      // Only show deployed agents
+      setUndeployAgents(deployments.filter(d => d.deployed));
+    } catch { setUndeployAgents([]); }
+    finally { setUndeployBusy(false); }
+  };
+
+  const doUndeploy = async () => {
+    const selected = undeployAgents.filter(a => a.selected);
+    if (!selected.length) { setUndeployMessage("请选择要取消下发的 Agent"); return; }
+    setUndeployBusy(true); setUndeployMessage("");
+    const results: string[] = [];
+    for (const agent of selected) {
+      try {
+        const res = await adminFetch(
+          `/api/v1/agents/${encodeURIComponent(agent.agent_id)}/skills/${encodeURIComponent(undeploySkillId)}`,
+          { method: "DELETE" }
+        );
+        if (res.ok) {
+          results.push(agent.agent_name + ": 已取消");
+        } else {
+          const body = await res.json().catch(() => ({}));
+          results.push(agent.agent_name + ": " + ((body as { detail?: string }).detail || "失败"));
+        }
+      } catch { results.push(agent.agent_name + ": 请求失败"); }
     }
+    setUndeployMessage(results.join("\n"));
+    setUndeployBusy(false);
+    if (results.some(r => r.includes("已取消"))) loadSkills();
   };
 
-  // ── Counts ───────────────────────────────────────────────────────────────
+  // ── Counts ──────────────────────────────────────────────────────────────
 
-  const counts = { all: skills.length, draft: 0, pending: 0, approved: 0, rejected: 0, deprecated: 0 };
-  skills.forEach((s) => {
-    // Pending count: skills with pending_version (submitted via MCP) or legacy skills.status=pending
-    if (s.pending_version) counts.pending++;
-    const key = s.status as keyof typeof counts;
-    if (key in counts) (counts as Record<string, number>)[key]++;
-  });
+  const counts = {
+    all: skills.length,
+    draft: skills.filter(s => s.status === "draft").length,
+    pending: skills.filter(s => s.status === "pending").length,
+    approved: skills.filter(s => s.status === "approved").length,
+    deprecated: skills.filter(s => s.status === "deprecated").length,
+  };
 
-  // ── Render ───────────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-5">
-      {/* Top bar */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      {/* Header */}
+      <div>
+        <h2 className="text-lg font-semibold text-slate-950">技能管理</h2>
         <p className="text-sm text-slate-500">统一技能管理：Agent 创建 → 草稿 → 审核 → 入池 → 下发。企业技能 / 外部导入合流管理。</p>
-        <div className="flex gap-2">
-          <button type="button" onClick={loadSkills} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">{loading ? "刷新中…" : "刷新"}</button>
+        <div className="mt-3 flex items-center gap-2">
           <button type="button" onClick={() => { setExtractOpen(true); setError(""); }} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100">⬇ 提取技能</button>
           <button type="button" onClick={() => { setUploadOpen(true); setError(""); }} className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800">+ 上传技能</button>
         </div>
       </div>
 
-      {/* Stat cards */}
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      {/* Stats + filters */}
+      <div className="grid gap-4 sm:grid-cols-5">
         <StatCard label="全部" value={counts.all} note="总技能数" />
-        <StatCard label="草稿" value={counts.draft} note="待完善" />
-        <StatCard label="待审核" value={counts.pending} note="候选" />
-        <StatCard label="已通过" value={counts.approved} note="可下发" />
-        <StatCard label="已废弃" value={counts.deprecated} note="deprecated" />
-      </section>
-
-      {/* Messages */}
-      {message && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{message}<button onClick={() => setMessage("")} className="ml-2 text-emerald-500 hover:text-emerald-700">✕</button></div>}
-      {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}<button onClick={() => setError("")} className="ml-2 text-red-500 hover:text-red-700">✕</button></div>}
-
-      {/* Tabs */}
-      <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-1">
-        {(["all", "draft", "pending", "approved", "deprecated"] as SkillsTab[]).map((item) => (
-          <button key={item} type="button" onClick={() => setTab(item)}
-            className={`rounded-t-lg px-4 py-2 text-sm font-medium transition-colors ${tab === item ? "border border-b-white border-slate-200 bg-white text-slate-950 -mb-px" : "text-slate-500 hover:text-slate-800"}`}>
-            {STATUS_META[item]?.label || (item === "all" ? "全部" : item)}
-            {item !== "all" && counts[item] > 0 && <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800">{counts[item]}</span>}
-          </button>
-        ))}
+        <StatCard label="草稿" value={counts.draft} note="" />
+        <StatCard label="待审核" value={counts.pending} note="" />
+        <StatCard label="已通过" value={counts.approved} note="" />
+        <StatCard label="已废弃" value={counts.deprecated} note="" />
       </div>
 
-      {/* Filter bar + table */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <form onSubmit={handleSearch} className="mb-4 flex flex-wrap gap-2">
-          <input className="min-w-[160px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder="搜索名称或描述" value={filters.query} onChange={(e) => setFilters({ ...filters, query: e.target.value })} />
-          <select className="rounded-lg border border-slate-200 px-3 py-2 text-sm" value={filters.source_type} onChange={(e) => setFilters({ ...filters, source_type: e.target.value })}>
+      {/* Tabs + search */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+          {(["all", "draft", "pending", "approved", "deprecated"] as SkillsTab[]).map((t) => (
+            <button key={t} onClick={() => setTab(t)} className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${tab === t ? "bg-white text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}>
+              {t === "all" ? "全部" : t === "draft" ? "草稿" : t === "pending" ? "待审核" : t === "approved" ? "已通过" : "已废弃"}
+            </button>
+          ))}
+        </div>
+        <form onSubmit={handleSearch} className="flex gap-2">
+          <select value={filters.source_type} onChange={(e) => setFilters({ ...filters, source_type: e.target.value })} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-600">
             <option value="">全部来源</option><option value="enterprise">企业技能</option><option value="external">外部导入</option>
           </select>
-          <input className="w-24 rounded-lg border border-slate-200 px-3 py-2 text-sm" placeholder="tag" value={filters.tag} onChange={(e) => setFilters({ ...filters, tag: e.target.value })} />
-          <button type="submit" className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-medium text-white">筛选</button>
+          <input value={filters.query} onChange={(e) => setFilters({ ...filters, query: e.target.value })} placeholder="搜索..." className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs" />
+          <button type="submit" className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-200">搜索</button>
         </form>
+      </div>
 
+      {/* Messages */}
+      {message && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message} <button onClick={() => setMessage("")} className="ml-2 text-emerald-400 hover:text-emerald-600">✕</button></div>}
+      {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error} <button onClick={() => setError("")} className="ml-2 text-red-400 hover:text-red-600">✕</button></div>}
+
+      {/* Table */}
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         {loading ? (
-          <div className="py-12 text-center text-sm text-slate-400">加载中…</div>
+          <div className="py-12 text-center text-sm text-slate-500">加载中…</div>
         ) : skills.length === 0 ? (
           <div className="py-12 text-center text-sm text-slate-500">暂无技能。点击「提取技能」从 Agent 工作区提取，或「上传技能」导入外部包。</div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-slate-200">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="px-3 py-2.5">技能</th>
-                  <th className="hidden px-3 py-2.5 lg:table-cell">来源</th>
-                  <th className="hidden px-3 py-2.5 md:table-cell">Runtime</th>
-                  <th className="px-3 py-2.5">状态</th>
-                  <th className="w-36 px-3 py-2.5 text-right">操作</th>
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-3 py-2.5">技能</th>
+                <th className="hidden px-3 py-2.5 lg:table-cell">来源</th>
+                <th className="px-3 py-2.5">状态</th>
+                <th className="px-3 py-2.5 text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {skills.map((skill) => (
+                <tr key={skill.skill_id} className="cursor-pointer hover:bg-slate-50" onClick={() => openDetail(skill.skill_id)}>
+                  <td className="px-3 py-2.5">
+                    <div className="font-medium text-slate-800">{skill.name}</div>
+                    <div className="text-[10px] font-mono text-slate-400">{skill.skill_id} · v{skill.version}</div>
+                  </td>
+                  <td className="hidden px-3 py-2.5 text-xs text-slate-600 lg:table-cell">{SOURCE_LABEL[skill.source_type || ""] || skill.source_type || "—"}</td>
+                  <td className="px-3 py-2.5"><Badge className={STATUS_META[skill.status]?.className || ""}>{STATUS_META[skill.status]?.label || skill.status}</Badge></td>
+                  <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex justify-end gap-1.5">
+                      <button type="button" onClick={() => openDetail(skill.skill_id)} className="text-xs text-slate-500 hover:text-slate-800">详情</button>
+                      {skill.status === "draft" && skill.pending_version && (
+                        <>
+                          <button type="button" onClick={() => { setTestSkillId(skill.skill_id); setTestOpen(true); }} className="text-xs text-sky-600 hover:text-sky-800">测试</button>
+                          <button type="button" onClick={() => handleReview(skill.pending_version!.version_id, "approved")} className="text-xs text-emerald-600 hover:text-emerald-800">通过</button>
+                          <button type="button" onClick={() => handleReview(skill.pending_version!.version_id, "rejected")} className="text-xs text-red-600 hover:text-red-800">拒绝</button>
+                        </>
+                      )}
+                      {skill.status === "pending" && !skill.pending_version && (
+                        <>
+                          <button type="button" onClick={() => { setTestSkillId(skill.skill_id); setTestOpen(true); }} className="text-xs text-sky-600 hover:text-sky-800">测试</button>
+                          <button type="button" onClick={() => handleSubmit(skill.skill_id)} className="text-xs text-amber-600 hover:text-amber-800">重新提交</button>
+                        </>
+                      )}
+                      {skill.status === "approved" && (
+                        <>
+                          <button type="button" onClick={() => openDeploy(skill)} className="text-xs text-indigo-600 hover:text-indigo-800">下发</button>
+                          <button type="button" onClick={() => openUndeploy(skill)} className="text-xs text-red-600 hover:text-red-800">取消下发</button>
+                          <button type="button" onClick={() => { setTestSkillId(skill.skill_id); setTestOpen(true); }} className="text-xs text-sky-600 hover:text-sky-800">测试</button>
+                          <button type="button" onClick={() => { setRepairSkillId(skill.skill_id); setRepairSkillName(skill.name); setRepairOpen(true); }} className="text-xs text-amber-600 hover:text-amber-800">修复</button>
+                          <button type="button" onClick={() => handleDeprecate(skill.skill_id)} className="text-xs text-red-600 hover:text-red-800">废弃</button>
+                        </>
+                      )}
+                      {skill.status === "rejected" && <button type="button" onClick={() => handleSubmit(skill.skill_id)} className="text-xs text-amber-600 hover:text-amber-800">重新提交</button>}
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {skills.map((skill) => (
-                  <tr key={skill.skill_id} className="cursor-pointer hover:bg-slate-50/50" onClick={() => openDetail(skill.skill_id)}>
-                    <td className="px-3 py-2.5">
-                      <div className="font-medium text-slate-900">{skill.name}</div>
-                      <div className="font-mono text-xs text-slate-500">{skill.skill_id} · v{skill.version}</div>
-                      {skill.description && <div className="text-xs text-slate-400 line-clamp-1">{skill.description}</div>}
-                      {skill.tags?.length ? <div className="text-xs text-slate-400">{skill.tags.join(", ")}</div> : null}
-                    </td>
-                    <td className="hidden px-3 py-2.5 text-xs text-slate-600 lg:table-cell">{SOURCE_LABEL[skill.source_type || ""] || skill.source_type || "—"}</td>
-                    <td className="hidden px-3 py-2.5 text-xs text-slate-600 md:table-cell">{skill.runtime_targets?.join(", ") || "all"}</td>
-                    <td className="px-3 py-2.5"><Badge className={STATUS_META[skill.status]?.className || ""}>{STATUS_META[skill.status]?.label || skill.status}</Badge></td>
-                    <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex justify-end gap-1.5">
-                        <button type="button" onClick={() => openDetail(skill.skill_id)} className="text-xs text-slate-500 hover:text-slate-800">详情</button>
-                        {skill.status === "draft" && skill.pending_version && (
-                          <>
-                            <button type="button" onClick={() => { setTestSkillId(skill.skill_id); setTestOpen(true); }} className="text-xs text-sky-600 hover:text-sky-800">测试</button>
-                            <button type="button" onClick={() => handleReview(skill.pending_version!.version_id, "approved")} className="text-xs text-emerald-600 hover:text-emerald-800">通过</button>
-                            <button type="button" onClick={() => handleReview(skill.pending_version!.version_id, "rejected")} className="text-xs text-red-600 hover:text-red-800">拒绝</button>
-                          </>
-                        )}
-                        {skill.status === "pending" && !skill.pending_version && (
-                          <>
-                            <button type="button" onClick={() => { setTestSkillId(skill.skill_id); setTestOpen(true); }} className="text-xs text-sky-600 hover:text-sky-800">测试</button>
-                            <button type="button" onClick={() => handleSubmit(skill.skill_id)} className="text-xs text-amber-600 hover:text-amber-800">重新提交</button>
-                          </>
-                        )}
-                        {skill.status === "approved" && (
-                          <>
-                            <button type="button" onClick={() => openDeploy(skill)} className="text-xs text-indigo-600 hover:text-indigo-800">下发</button>
-                            <button type="button" onClick={() => { setTestSkillId(skill.skill_id); setTestOpen(true); }} className="text-xs text-sky-600 hover:text-sky-800">测试</button>
-                            <button type="button" onClick={() => { setRepairSkillId(skill.skill_id); setRepairSkillName(skill.name); setRepairOpen(true); }} className="text-xs text-amber-600 hover:text-amber-800">修复</button>
-                            <button type="button" onClick={() => handleDeprecate(skill.skill_id)} className="text-xs text-red-600 hover:text-red-800">废弃</button>
-                          </>
-                        )}
-                        {skill.status === "rejected" && <button type="button" onClick={() => handleSubmit(skill.skill_id)} className="text-xs text-amber-600 hover:text-amber-800">重新提交</button>}
-                      </div>
-                    </td>
-</tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
 
@@ -322,17 +356,28 @@ export function SkillsManagementPage() {
       {testOpen && <TestModal skillId={testSkillId} onClose={() => setTestOpen(false)} onDone={(msg) => { setMessage(msg); }} />}
       {repairOpen && <RepairModal skillId={repairSkillId} skillName={repairSkillName} onClose={() => setRepairOpen(false)} onDone={(msg) => { setMessage(msg); }} />}
       {deployOpen && (
-        <DeployModal
+        <DeployModalV2
           skillName={deploySkillName}
           marketVersion={deployMarketVersion}
           agents={deployAgents}
           busy={deployBusy}
-          force={deployForce}
           message={deployMessage}
-          onForceChange={setDeployForce}
+          category={deployCategory}
+          onCategoryChange={setDeployCategory}
           onAgentToggle={(agentId) => setDeployAgents(prev => prev.map(a => a.agent_id === agentId ? { ...a, selected: !a.selected } : a))}
           onDeploy={doDeploy}
           onClose={() => setDeployOpen(false)}
+        />
+      )}
+      {undeployOpen && (
+        <UndeployModal
+          skillName={undeploySkillName}
+          agents={undeployAgents}
+          busy={undeployBusy}
+          message={undeployMessage}
+          onAgentToggle={(agentId) => setUndeployAgents(prev => prev.map(a => a.agent_id === agentId ? { ...a, selected: !a.selected } : a))}
+          onUndeploy={doUndeploy}
+          onClose={() => setUndeployOpen(false)}
         />
       )}
     </div>
@@ -380,49 +425,21 @@ function DetailDrawer({ skill, onClose, onTest, onReview }: { skill: SkillRecord
         </div>
         <div className="flex-1 overflow-y-auto p-4">
           {detailTab === "content" && (
-            <div className="space-y-3">
-              <div><p className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">描述</p><pre className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-700 leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto">{skill.description || "暂无"}</pre></div>
-              <dl className="text-xs space-y-1 text-slate-600"><div className="flex gap-2"><dt className="text-slate-400 w-20 shrink-0">技能ID</dt><dd className="font-mono">{skill.skill_id}</dd></div><div className="flex gap-2"><dt className="text-slate-400 w-20 shrink-0">版本</dt><dd>{skill.version}</dd></div><div className="flex gap-2"><dt className="text-slate-400 w-20 shrink-0">创建</dt><dd>{skill.created_at ? formatDateTimeShort(skill.created_at) : "—"}</dd></div></dl>
+            <div className="space-y-3 text-xs text-slate-600">
+              <dl className="space-y-1"><div className="flex gap-2"><dt className="text-slate-400 w-20 shrink-0">技能ID</dt><dd className="font-mono">{skill.skill_id}</dd></div><div className="flex gap-2"><dt className="text-slate-400 w-20 shrink-0">版本</dt><dd>{skill.version}</dd></div><div className="flex gap-2"><dt className="text-slate-400 w-20 shrink-0">创建</dt><dd>{skill.created_at ? formatDateTimeShort(skill.created_at) : "—"}</dd></div></dl>
             </div>
           )}
           {detailTab === "versions" && (
             <div className="space-y-2">
-              {(skill.versions || []).length === 0 ? (
-                <p className="text-xs text-slate-500">暂无版本历史</p>
-              ) : (
-                (skill.versions || []).map((v, i) => (
-                  <div key={i} className="rounded-lg border border-slate-200 p-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-slate-900">v{v.version}</span>
-                      <span className="text-[10px] text-slate-500">{v.created_at ? formatDateTimeShort(v.created_at) : ""}</span>
-                    </div>
-                    {v.description && <p className="text-[11px] text-slate-600 mt-1">{v.description}</p>}
-                  </div>
-                ))
-              )}
+              {skill.latest_version && <p className="text-xs text-slate-500">最新版本: <span className="font-mono text-slate-700">v{skill.latest_version.version}</span></p>}
+              {(skill.versions || []).length === 0 && <p className="text-xs text-slate-400">暂无版本记录</p>}
+              {(skill.versions || []).map((v, i) => <div key={i} className="rounded-lg border border-slate-200 p-2 text-xs"><span className="font-mono text-slate-700">v{v.version}</span><span className="ml-2 text-slate-400">{v.created_at ? formatDateTimeShort(v.created_at) : "—"}</span><p className="text-slate-500 mt-1">{v.description || "—"}</p></div>)}
             </div>
           )}
           {detailTab === "tests" && (
             <div className="space-y-2">
-              {(skill.test_runs || []).length === 0 ? (
-                <p className="text-xs text-slate-500">暂无测试记录</p>
-              ) : (
-                (skill.test_runs || []).map((tr) => {
-                  const runColor = tr.run_status === "succeeded" ? "text-emerald-600" : tr.run_status === "failed" ? "text-red-600" : "text-slate-600";
-                  const badgeClass = tr.run_status === "succeeded" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : tr.run_status === "failed" ? "border-red-200 bg-red-50 text-red-700" : "border-slate-200 bg-slate-100 text-slate-600";
-                  const badgeLabel = tr.run_status === "succeeded" ? "✓ 通过" : tr.run_status === "failed" ? "✗ 失败" : tr.run_status;
-                  return (
-                    <div key={tr.id} className="rounded-lg border border-slate-200 p-3">
-                      <div className="flex items-center justify-between">
-                        <span className={`text-xs font-mono ${runColor}`}>{tr.run_id}</span>
-                        <Badge className={badgeClass}>{badgeLabel}</Badge>
-                      </div>
-                      {tr.run_result && <pre className="mt-2 text-[10px] text-slate-500 bg-slate-50 rounded p-2 max-h-32 overflow-y-auto whitespace-pre-wrap">{tr.run_result.slice(0, 500)}</pre>}
-                      <p className="text-[10px] text-slate-400 mt-1">{tr.created_at ? formatDateTimeShort(tr.created_at) : ""}</p>
-                    </div>
-                  );
-                })
-              )}
+              {(skill.test_runs || []).length === 0 && <p className="text-xs text-slate-400">暂无测试记录</p>}
+              {(skill.test_runs || []).map((r, i) => <div key={i} className="rounded-lg border border-slate-200 p-2 text-xs"><span className={`font-mono ${r.run_status === "succeeded" ? "text-emerald-600" : r.run_status === "failed" ? "text-red-600" : "text-slate-500"}`}>{r.run_status}</span><span className="ml-2 text-slate-400">{r.created_at ? formatDateTimeShort(r.created_at) : "—"}</span><p className="text-slate-500 mt-1">{r.test_prompt || "—"}</p></div>)}
             </div>
           )}
         </div>
@@ -434,43 +451,38 @@ function DetailDrawer({ skill, onClose, onTest, onReview }: { skill: SkillRecord
 // ── Extract Modal ───────────────────────────────────────────────────────────
 
 function ExtractModal({ onClose, onDone }: { onClose: () => void; onDone: (msg: string) => void; }) {
-  const [accountId, setAccountId] = useState("");
-  const [skills, setSkills] = useState<WorkspaceSkill[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [agents, setAgents] = useState<Array<{ agent_id: string; name: string }>>([]);
+  const [agentId, setAgentId] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [result, setResult] = useState("");
 
-  const scan = async () => {
-    if (!accountId.trim()) return; setLoading(true); setError(""); setSkills([]);
+  useEffect(() => { adminFetch("/api/v1/agents?limit=200").then((r) => r.json().catch(() => ({}))).then((d) => setAgents((d.agents || []) as Array<{ agent_id: string; name: string }>)).catch(() => {}); }, []);
+
+  const extract = async () => {
+    if (!agentId) return; setLoading(true);
     try {
-      const res = await adminFetch(`/api/v1/accounts/${encodeURIComponent(accountId.trim())}/workspace-skills`);
-      const data = await res.json();
-      setSkills((data.skills || []) as WorkspaceSkill[]);
-    } catch (err) { setError(err instanceof Error ? err.message : "扫描失败"); }
+      const res = await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/workspace-skills`);
+      const data = await res.json().catch(() => ({}));
+      const skills = (data.skills || []) as WorkspaceSkill[];
+      let count = 0;
+      for (const skill of skills) {
+        await adminFetch("/api/v1/skills/draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ skill_id: skill.skill_id, name: skill.name, description: skill.description, source_type: "workspace", agent_id: agentId }) });
+        count++;
+      }
+      onDone(`已提取 ${count} 个技能到草稿箱`); onClose();
+    } catch (err) { setResult(err instanceof Error ? err.message : "提取失败"); }
     finally { setLoading(false); }
   };
-
-  const confirm = async () => {
-    let count = 0;
-    for (const sid of selected) {
-      const ws = skills.find((s) => s.skill_id === sid); if (!ws) continue;
-      try { await adminFetch("/api/v1/skills/draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ skill_id: ws.skill_id, name: ws.name || ws.skill_id, description: ws.description || "", source_type: "enterprise" }) }); count++; } catch { /* skip dup */ }
-    }
-    onDone(`已提取 ${count} 个技能到草稿箱`); onClose();
-  };
-
-  const toggle = (id: string) => { const next = new Set(selected); if (next.has(id)) next.delete(id); else next.add(id); setSelected(next); };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
       <div className="relative w-full max-w-md bg-white border border-slate-200 rounded-xl shadow-xl p-5 space-y-4">
-        <h3 className="text-sm font-semibold text-slate-900">提取工作区技能</h3>
-        <div className="flex gap-2"><input type="text" value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder="网关账号 ID" className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm" onKeyDown={(e) => { if (e.key === "Enter") scan(); }} /><button onClick={scan} disabled={loading || !accountId.trim()} className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50">{loading ? "扫描中…" : "扫描"}</button></div>
-        {error && <p className="text-xs text-red-600">{error}</p>}
-        {skills.length > 0 && <div className="space-y-1.5 max-h-64 overflow-y-auto">{skills.map((s) => <label key={s.skill_id} className="flex items-start gap-2 p-2 rounded border border-slate-200 cursor-pointer hover:bg-slate-50"><input type="checkbox" checked={selected.has(s.skill_id)} onChange={() => toggle(s.skill_id)} className="mt-0.5" /><div><p className="text-xs font-medium text-slate-900">{s.name}</p><p className="text-[10px] text-slate-500">{s.description || "无描述"}</p></div></label>)}</div>}
-        {skills.length === 0 && !loading && accountId && <p className="text-xs text-slate-500 text-center">未发现技能</p>}
-        <div className="flex justify-end gap-2 pt-2"><button onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">取消</button><button onClick={confirm} disabled={selected.size === 0} className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50">提取选中 ({selected.size})</button></div>
+        <h3 className="text-sm font-semibold text-slate-900">⬇ 从 Agent 提取技能</h3>
+        <p className="text-xs text-slate-500">扫描选定 Agent 工作区中的技能目录，导入到技能草稿箱。</p>
+        <div><select value={agentId} onChange={(e) => setAgentId(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"><option value="">-- 选择 Agent --</option>{agents.map((a) => <option key={a.agent_id} value={a.agent_id}>{a.name || a.agent_id}</option>)}</select></div>
+        {result && <p className="text-xs text-red-600">{result}</p>}
+        <div className="flex justify-end gap-2 pt-2"><button onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">取消</button><button onClick={extract} disabled={loading || !agentId} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">{loading ? "提取中…" : "提取"}</button></div>
       </div>
     </div>
   );
@@ -591,62 +603,170 @@ function RepairModal({ skillId, skillName, onClose, onDone }: { skillId: string;
   );
 }
 
-// Deploy Modal ---------------------------------------------------------
+// ── Deploy Modal V2 (new: tabs + deployed/undeployed groups) ───────────────
 
-function DeployModal({
-  skillName, marketVersion, agents, busy, force, message,
-  onForceChange, onAgentToggle, onDeploy, onClose,
+function DeployModalV2({
+  skillName, marketVersion, agents, busy, message, category,
+  onCategoryChange, onAgentToggle, onDeploy, onClose,
 }: {
   skillName: string; marketVersion: string; agents: DeployAgentInfo[];
-  busy: boolean; force: boolean; message: string;
-  onForceChange: (v: boolean) => void;
+  busy: boolean; message: string; category: CategoryTab;
+  onCategoryChange: (v: CategoryTab) => void;
   onAgentToggle: (agentId: string) => void;
   onDeploy: () => void;
   onClose: () => void;
 }) {
-  const totalAgents = agents.length;
-  const selectedCount = agents.filter(a => a.selected).length;
-  const modifiedCount = agents.filter(a => a.is_modified).length;
+  const filtered = agents.filter(a => a.category === category);
+  const deployed = filtered.filter(a => a.deployed);
+  const notDeployed = filtered.filter(a => !a.deployed);
+  const totalSelected = agents.filter(a => a.selected).length;
+  const willUpdate = deployed.filter(a => a.selected && !a.is_latest).length;
+  const willDeploy = notDeployed.filter(a => a.selected).length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-      <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
           <div>
             <h3 className="text-base font-semibold text-slate-900">下发技能 · {skillName}</h3>
-            <p className="text-xs text-slate-500">市场版本 v{marketVersion} · {totalAgents} 个 Agent 已绑定</p>
+            <p className="text-xs text-slate-500">市场版本 v{marketVersion}</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
         </div>
 
-        {modifiedCount > 0 && (
-          <div className="flex items-center gap-2 px-5 py-2 bg-amber-50 border-b border-amber-100 shrink-0">
-            <label className="flex items-center gap-2 text-xs text-amber-800 cursor-pointer">
-              <input type="checkbox" checked={force} onChange={e => onForceChange(e.target.checked)} className="accent-amber-600" />
-              强制覆盖 ({modifiedCount} 个 Agent 版本不同)
-            </label>
+        {/* Category tabs */}
+        <div className="flex gap-1 px-5 py-2 border-b border-slate-100 shrink-0">
+          {(Object.entries(CATEGORY_LABELS) as [CategoryTab, string][]).map(([cat, label]) => {
+            const count = agents.filter(a => a.category === cat).length;
+            return (
+              <button
+                key={cat}
+                onClick={() => onCategoryChange(cat)}
+                className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${category === cat ? "bg-slate-950 text-white" : "text-slate-500 hover:bg-slate-100"}`}
+              >
+                {label} ({count})
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Summary line */}
+        {(willUpdate > 0 || willDeploy > 0) && (
+          <div className="px-5 py-2 bg-indigo-50 border-b border-indigo-100 text-xs text-indigo-700 shrink-0">
+            {willUpdate > 0 && <span>{willUpdate} 个将更新 · </span>}
+            {willDeploy > 0 && <span>{willDeploy} 个将下发</span>}
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-1.5">
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
+          {deployed.length > 0 && (
+            <div>
+              <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-1.5">已下发 — 勾选 = 更新到 v{marketVersion}</p>
+              <div className="space-y-1">
+                {deployed.map(a => (
+                  <label key={a.agent_id} className={`flex items-center gap-3 rounded-lg border px-3 py-2 transition ${a.is_latest ? "opacity-50 cursor-not-allowed" : a.selected ? "border-indigo-200 bg-indigo-50/50 cursor-pointer" : "border-slate-100 hover:bg-slate-50 cursor-pointer"}`}>
+                    <input type="checkbox" checked={a.selected} onChange={() => onAgentToggle(a.agent_id)} disabled={a.is_latest} className="accent-indigo-600 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-slate-800 truncate">{a.agent_name}</div>
+                      <div className="text-[10px] text-slate-400 font-mono truncate">{a.agent_id}</div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      {a.is_latest ? (
+                        <span className="text-xs text-slate-400">v{a.version} (最新)</span>
+                      ) : (
+                        <span className="text-xs text-amber-600 font-medium">v{a.version} → v{marketVersion}</span>
+                      )}
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {notDeployed.length > 0 && (
+            <div>
+              <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-1.5">未下发 — 勾选 = 首次下发</p>
+              <div className="space-y-1">
+                {notDeployed.map(a => (
+                  <label key={a.agent_id} className={`flex items-center gap-3 rounded-lg border px-3 py-2 cursor-pointer transition ${a.selected ? "border-indigo-200 bg-indigo-50/50" : "border-slate-100 hover:bg-slate-50"}`}>
+                    <input type="checkbox" checked={a.selected} onChange={() => onAgentToggle(a.agent_id)} className="accent-indigo-600 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-slate-800 truncate">{a.agent_name}</div>
+                      <div className="text-[10px] text-slate-400 font-mono truncate">{a.agent_id}</div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-xs text-slate-400">未安装</span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {message && (
+          <div className="px-5 py-2 border-t border-slate-100 shrink-0">
+            <pre className="text-xs text-slate-600 whitespace-pre-wrap">{message}</pre>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 shrink-0">
+          <span className="text-xs text-slate-400">已选 {totalSelected} 个 Agent</span>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">取消</button>
+            <button onClick={onDeploy} disabled={busy || totalSelected === 0} className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{busy ? "下发中…" : `确认下发 (${totalSelected})`}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Undeploy Modal ─────────────────────────────────────────────────────────
+
+function UndeployModal({
+  skillName, agents, busy, message,
+  onAgentToggle, onUndeploy, onClose,
+}: {
+  skillName: string; agents: DeployAgentInfo[];
+  busy: boolean; message: string;
+  onAgentToggle: (agentId: string) => void;
+  onUndeploy: () => void;
+  onClose: () => void;
+}) {
+  const selected = agents.filter(a => a.selected);
+  const count = selected.length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+          <div>
+            <h3 className="text-base font-semibold text-slate-900">取消下发 · {skillName}</h3>
+            <p className="text-xs text-slate-500">以下 Agent 已安装此技能，勾选后将删除文件并解绑</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+        </div>
+
+        {count > 0 && (
+          <div className="px-5 py-2 bg-red-50 border-b border-red-100 text-xs text-red-700 shrink-0">
+            ⚠ 将删除 {count} 个 Agent 的技能文件 + 绑定关系
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-1">
           {agents.length === 0 ? (
-            <p className="text-xs text-slate-400 py-4 text-center">暂无已绑定该技能的 Agent</p>
+            <p className="text-xs text-slate-400 py-4 text-center">暂无可取消下发的 Agent</p>
           ) : (
             agents.map(a => (
-              <label key={a.agent_id} className={`flex items-center gap-3 rounded-lg border px-3 py-2 cursor-pointer transition ${a.selected ? "border-indigo-200 bg-indigo-50/50" : "border-slate-100 hover:bg-slate-50"}`}>
-                <input type="checkbox" checked={a.selected} onChange={() => onAgentToggle(a.agent_id)} className="accent-indigo-600 shrink-0" />
+              <label key={a.agent_id} className={`flex items-center gap-3 rounded-lg border px-3 py-2 cursor-pointer transition ${a.selected ? "border-red-200 bg-red-50/50" : "border-slate-100 hover:bg-slate-50"}`}>
+                <input type="checkbox" checked={a.selected} onChange={() => onAgentToggle(a.agent_id)} className="accent-red-600 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm text-slate-800 truncate">{a.agent_name}</div>
                   <div className="text-[10px] text-slate-400 font-mono truncate">{a.agent_id}</div>
                 </div>
                 <div className="text-right shrink-0">
-                  {a.is_modified ? (
-                    <span className="text-xs text-amber-600 font-medium">v{a.installed_version} != v{a.market_version}</span>
-                  ) : a.installed_version ? (
-                    <span className="text-xs text-emerald-600">v{a.installed_version}</span>
-                  ) : (
-                    <span className="text-xs text-slate-400">未安装</span>
-                  )}
+                  <span className="text-xs text-slate-500">v{a.version}</span>
                 </div>
               </label>
             ))
@@ -660,10 +780,10 @@ function DeployModal({
         )}
 
         <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 shrink-0">
-          <span className="text-xs text-slate-400">已选 {selectedCount}/{totalAgents} 个 Agent</span>
+          <span className="text-xs text-slate-400">已选 {count}/{agents.length} 个 Agent</span>
           <div className="flex gap-2">
             <button onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">取消</button>
-            <button onClick={onDeploy} disabled={busy || selectedCount === 0} className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{busy ? "下发中…" : `下发 (${selectedCount})`}</button>
+            <button onClick={onUndeploy} disabled={busy || count === 0} className="rounded-lg bg-red-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">{busy ? "取消下发中…" : `确认取消 (${count})`}</button>
           </div>
         </div>
       </div>

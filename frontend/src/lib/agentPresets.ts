@@ -4,7 +4,7 @@ export type AgentTypePreset = {
   soul: string;
   paradigm: string;
   standards: string;
-  /** Skill id hints — only applied when those skills exist in the account catalog */
+  /** Skill id hints — only applied when those skills exist in the agent catalog */
   skillHints?: string[];
 };
 

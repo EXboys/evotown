@@ -75,6 +75,7 @@ function App() {
         <Route path="/costs" element={<EnterpriseConsole initialTab="costs" />} />
         <Route path="/risk" element={<EnterpriseConsole initialTab="risk" />} />
         <Route path="/console/audit" element={<EnterpriseConsole initialTab="audit" />} />
+        <Route path="/console/taskpool" element={<EnterpriseConsole initialTab="taskpool" />} />
         <Route path="/arena" element={<ArenaApp />} />
         <Route path="/task-history" element={<TaskHistoryPage />} />
         <Route path="/chronicle" element={<ChronicleBook />} />

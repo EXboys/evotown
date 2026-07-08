@@ -135,20 +135,19 @@ def _arena_skills_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "arena_skills"
 
 
-def _skill_manifest(account_id: str = "") -> dict[str, Any]:
-    """Build a skill manifest for one account based on assigned skills."""
-    from infra import account_skills as acct_skills
+def _skill_manifest(agent_id: str = "") -> dict[str, Any]:
+    """Build a skill manifest for one agent based on assigned skills."""
+    from infra import agent_skills as agt_skills
 
-    if account_id.strip():
-        assigned = acct_skills.list_for_account(account_id.strip())
-        # Build manifest from assigned skills (may be empty)
+    if agent_id.strip():
+        assigned = agt_skills.list_for_agent(agent_id.strip())
         skills: list[dict[str, Any]] = []
         for sid in assigned:
             entry = skill_market.get_market_skill(sid)
             if entry:
                 skills.append(entry)
         return {
-            "bundle_id": f"account-{account_id[:8]}",
+            "bundle_id": f"agent-{agent_id[:8]}",
             "version": "1.0.0",
             "channel": "assigned",
             "runtime_targets": ["custom"],
@@ -647,7 +646,7 @@ def build_shared_context(
     run_id: str = "",
 ) -> dict[str, Any]:
     hits = _knowledge_hits(prompt, team_id=team_id)
-    skills = _filter_skill_manifest(_skill_manifest(account_id), list(selected_skills or []))
+    skills = _filter_skill_manifest(_skill_manifest(agent_id), list(selected_skills or []))
     mcp = _resolve_mcp_context(agent_id, run_id=run_id)
     return {
         "skills": skills,
@@ -705,10 +704,12 @@ def _write_context_files(
     ]
 
     manifest: list[dict[str, Any]] = []
-    # Also write CLAUDE.md at workspace root for Claude Code native identity
+    # Write CLAUDE.md only on first run — let SDK auto-memory manage it after that.
+    # Overwriting it every run destroys any memory the SDK persisted.
     ccm_lines = [l for l in agent_md.split("\n") if "Run ID:" not in l and "Workspace ID:" not in l and "Model:" not in l and "TASK ID:" not in l]
     claude_md_path = root / "CLAUDE.md"
-    claude_md_path.write_text("\n".join(ccm_lines), encoding="utf-8")
+    if not claude_md_path.exists():
+        claude_md_path.write_text("\n".join(ccm_lines), encoding="utf-8")
 
     for relative, content in files:
         path = agents.resolve_agent_path(workspace, f".evotown/{relative}")
@@ -861,12 +862,39 @@ async def _run_agent(
     if backend == "sdk":
         from services import claude_agent_sdk_runner
 
-        exit_code, output = await claude_agent_sdk_runner.run_agent_sdk(
+        # Look up claude_session_id from previous run for native session resume
+        resume_session_id = ""
+        previous_run_id = str((run.get("signals") or {}).get("previous_run_id") or "").strip()
+        if previous_run_id:
+            prev_run = claude_agent_runs.get_run(previous_run_id)
+            if prev_run:
+                prev_signals = prev_run.get("signals") or {}
+                resume_session_id = str(prev_signals.get("claude_session_id") or "").strip()
+
+        # Fallback: when no previous_run_id (new conversation), resume the
+        # agent's most recent session so SDK auto-memory carries forward.
+        if not resume_session_id:
+            agent_id = str(run.get("agent_id") or "")
+            if agent_id:
+                recent = claude_agent_runs.list_runs(agent_id=agent_id, limit=2)
+                if isinstance(recent, dict):
+                    latest_runs = recent.get("runs") or []
+                    for candidate in latest_runs:
+                        if candidate.get("run_id") != run.get("run_id"):
+                            latest_sig = candidate.get("signals") or {}
+                            resume_session_id = str(latest_sig.get("claude_session_id") or "").strip()
+                            break
+
+        exit_code, output, claude_session_id = await claude_agent_sdk_runner.run_agent_sdk(
             workspace_root=workspace_root,
             prompt=prompt,
             model=model,
             run=run,
+            resume_session_id=resume_session_id,
         )
+        # Store session_id in signals for next resume; raw_output stays empty
+        signals = run.setdefault("signals", {})
+        signals["claude_session_id"] = claude_session_id
         return exit_code, output, "", backend
     if backend == "cli":
         exit_code, output, raw_output = await _run_configured_command(
@@ -941,8 +969,17 @@ def _cli_subprocess_env(*, workspace_root: Path, run: dict[str, Any], model: str
     signals = run.get("signals") or {}
     gateway_env = claude_agent_sdk_runner.gateway_sdk_env(agent_id=str(run.get("agent_id") or ""))
     api_key = gateway_env.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    # ── Strip sensitive env vars before passing to agent subprocess ──
+    _STRIP_ENV_PREFIXES = (
+        "ADMIN_", "EVOTOWN_DATABASE_MCP_", "EVOTOWN_DEV_",
+        "EVOTOWN_ENGINE_INGEST_",
+    )
+    stripped_env = {
+        k: v for k, v in os.environ.items()
+        if not any(k.startswith(p) for p in _STRIP_ENV_PREFIXES)
+    }
     env: dict[str, str] = {
-        **{k: str(v) for k, v in os.environ.items()},
+        **stripped_env,
         "NODE_TLS_REJECT_UNAUTHORIZED": "0",
         "CLAUDE_CODE_SIMPLE": "1",
         "ANTHROPIC_API_KEY": api_key,
@@ -1130,7 +1167,7 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
         prompt = _append_vision_to_prompt(prompt, vision_text, image_paths)
 
     identity = _runner_identity(run)
-    skill_account_id = str(workspace.get("owner_account_id") or identity.get("account_id") or "")
+    skill_account_id = agents.get_agent_owner(workspace["agent_id"]) or str(identity.get("account_id") or "")
 
     shared_context = build_shared_context(
         prompt=run["prompt"],
@@ -1282,12 +1319,12 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
     claude_agent_runs.append_event(
         run_id,
         "assistant_message" if status == "succeeded" else "run.error",
-        {"exit_code": exit_code, "summary": summary[:1000], "text": summary[:1000]},
+        {"exit_code": exit_code, "summary": summary, "text": summary},
     )
     updated = claude_agent_runs.update_run_status(
         run_id,
         status=status,
-        log_excerpt=raw_output,
+        log_excerpt=raw_output or output,
         result_summary=summary,
         error="" if status == "succeeded" else summary,
         artifact_manifest=artifacts,

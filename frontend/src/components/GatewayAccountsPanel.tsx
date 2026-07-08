@@ -1,8 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 
 import { GatewayDrawer } from "./gateway/GatewayDrawer";
-import { SkillsAssignmentPanel } from "./SkillsAssignmentPanel";
 import { OrgDrawer } from "./gateway/OrgDrawer";
 import { adminFetch } from "../hooks/useAdminToken";
 import {
@@ -841,20 +839,6 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
                       ))}
                     </div>
                   )}
-                </div>
-              </div>
-
-              <div className="border-t border-slate-100 pt-4">
-                <h3 className="text-sm font-semibold text-slate-900">技能下发</h3>
-                <p className="mt-1 text-xs text-slate-500">
-                  为该账号勾选技能；其云端 Agent 下次运行任务时会自动挂载。本机 OpenClaw 请用
-                  {" "}<Link to="/skills" className="font-medium text-violet-700 hover:underline">技能 → 发布 Bundle</Link>。
-                </p>
-                <div className="mt-3">
-                  <SkillsAssignmentPanel
-                    accountId={selectedAccount.account_id}
-                    accountName={selectedAccount.name}
-                  />
                 </div>
               </div>
             </div>

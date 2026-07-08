@@ -197,8 +197,10 @@ export function CodingAgentChatPage() {
   const [logExpanded, setLogExpanded] = useState(false);
   const [eventsExpanded, setEventsExpanded] = useState(false);
   const [filesExpanded, setFilesExpanded] = useState(false);
-  // Per-run expand state for historical runs (and last run too)
-  const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
+  // Per-run toggle state for historical runs (last run uses the boolean states above)
+  const [expandedLogRuns, setExpandedLogRuns] = useState<Set<string>>(new Set());
+  const [expandedEventsRuns, setExpandedEventsRuns] = useState<Set<string>>(new Set());
+  const [expandedFilesRuns, setExpandedFilesRuns] = useState<Set<string>>(new Set());
   const [fileViewer, setFileViewer] = useState<{ path: string; content: string; size: number; truncated: boolean } | null>(null);
   const [fileLoading, setFileLoading] = useState("");
   const [fileError, setFileError] = useState<{ path: string; message: string; status?: number } | null>(null);
@@ -435,6 +437,15 @@ export function CodingAgentChatPage() {
                 // Update run status in the runs array
                 const finalStatus = (doneStatus || "succeeded") as AgentRun["status"];
                 setRuns(prev => prev.map(r => r.run_id === runId ? ({ ...r, status: finalStatus, finished_at: new Date().toISOString() } as AgentRun) : r));
+                // Re-fetch full run data to get log_excerpt / result_summary / error
+                adminFetch(`/api/v1/agent-runs/${encodeURIComponent(runId)}`)
+                  .then(res => res.json().catch(() => ({})))
+                  .then((data: { run?: AgentRun }) => {
+                    if (!cancelled && data.run) {
+                      setRuns(prev => prev.map(r => r.run_id === runId ? { ...r, ...data.run } : r));
+                    }
+                  })
+                  .catch(() => {});
                 // Add synthetic done event
                 if (!cancelled) {
                   setEventsByRun(prev => {
@@ -742,7 +753,6 @@ export function CodingAgentChatPage() {
       setSelectedRunId(newRun.run_id); setPrompt("");
       for (const item of pendingAttachments) { if (item.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(item.previewUrl); }
       setPendingAttachments([]);
-      void load();
       refreshSessions();
     } catch (err) { setError(err instanceof Error ? err.message : "运行失败"); }
     finally { setBusy(false); }
@@ -996,77 +1006,43 @@ export function CodingAgentChatPage() {
                             <div className="mb-2 flex flex-wrap items-center gap-2">
                               {isLast && runRunning && <button type="button" onClick={() => void cancelRun(run.run_id)} disabled={busy} className="rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50">取消</button>}
                             </div>
-                            {runRunning && !run.result_summary && !run.error ? (
-                              <div className="space-y-2">
-                                <div className="flex items-center gap-2 text-slate-500"><TypingDots /><span>Agent 正在执行…</span></div>
-                                {(() => {
-                                  const toolEvents = runEvents.filter(e => e.event_type === "tool_call" || e.event_type === "tool_result");
-                                  const lastTool = toolEvents[toolEvents.length - 1];
-                                  if (lastTool) {
-                                    const info = describeEvent(lastTool);
-                                    return <div className="flex items-center gap-1 text-[11px] text-slate-400"><span>{info.icon}</span><span>{info.detail}</span></div>;
-                                  }
-                                  return null;
-                                })()}
-                                {runEvents.filter(e => e.event_type === "assistant_message").map((ev) => {
+                            <div className="space-y-2">
+                              {runRunning && <div className="flex items-center gap-2 text-slate-500"><TypingDots /><span>Agent 正在执行…</span></div>}
+                              {runRunning && (() => {
+                                const toolEvents = runEvents.filter(e => e.event_type === "tool_call" || e.event_type === "tool_result");
+                                const lastTool = toolEvents[toolEvents.length - 1];
+                                if (lastTool) {
+                                  const info = describeEvent(lastTool);
+                                  return <div className="flex items-center gap-1 text-[11px] text-slate-400"><span>{info.icon}</span><span>{info.detail}</span></div>;
+                                }
+                                return null;
+                              })()}
+                              {(() => {
+                                const assistantMsgs = runEvents.filter(e => e.event_type === "assistant_message").filter(ev => {
                                   const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || (ev.payload as Record<string,unknown> | undefined)?.summary as string || "";
-                                  if (!text.trim()) return null;
+                                  return text.trim();
+                                });
+                                const lastMsgId = assistantMsgs.length > 0 ? assistantMsgs[assistantMsgs.length - 1].id : -1;
+                                return assistantMsgs.map((ev) => {
+                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || (ev.payload as Record<string,unknown> | undefined)?.summary as string || "";
+                                  const isConclusion = !runRunning && ev.id === lastMsgId;
                                   return (
-                                    <div key={ev.id} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+                                    <div key={ev.id} className={`rounded-xl border px-3 py-2 text-xs leading-relaxed ${isConclusion ? "border-blue-100 bg-blue-50/50 text-slate-600" : "border-slate-200 bg-slate-50 text-slate-500"}`}>
                                       <MarkdownContent>{text}</MarkdownContent>
                                     </div>
                                   );
-                                })}
-                              </div>
-                            ) : isLast ? (
-                              <div className="space-y-2">
-                                {runEvents.filter(e => e.event_type === "assistant_message").map((ev) => {
-                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || (ev.payload as Record<string,unknown> | undefined)?.summary as string || "";
-                                  if (!text.trim()) return null;
-                                  return (
-                                    <div key={ev.id} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
-                                      <MarkdownContent>{text}</MarkdownContent>
-                                    </div>
-                                  );
-                                })}
-                                {run.status === "succeeded" && (
-                                  <div className="rounded-xl border border-green-200 bg-green-50/50 px-3 py-2 text-xs text-green-700">
-                                    ✅ 执行完成
-                                  </div>
-                                )}
-                                {run.status === "failed" && (
-                                  <div className="rounded-xl border border-red-200 bg-red-50/50 px-3 py-2 text-xs text-red-700">
-                                    ❌ 执行失败{(run.error ? `：${run.error.slice(0, 200)}` : "")}
-                                  </div>
-                                )}
-                                {run.status === "cancelled" && (
-                                  <div className="rounded-xl border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs text-amber-700">
-                                    ⏹ 已取消
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="space-y-2">
-                                {runEvents.filter(e => e.event_type === "assistant_message").map((ev) => {
-                                  const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || (ev.payload as Record<string,unknown> | undefined)?.summary as string || "";
-                                  if (!text.trim()) return null;
-                                  return (
-                                    <div key={ev.id} className="rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs leading-relaxed text-slate-600">
-                                      <MarkdownContent>{text}</MarkdownContent>
-                                    </div>
-                                  );
-                                })}
-                                {run.status === "succeeded" && (
-                                  <div className="rounded-xl border border-green-200 bg-green-50/50 px-3 py-2 text-xs text-green-700">✅ 执行完成</div>
-                                )}
-                                {run.status === "failed" && (
-                                  <div className="rounded-xl border border-red-200 bg-red-50/50 px-3 py-2 text-xs text-red-700">❌ 执行失败{(run.error ? `：${run.error.slice(0, 200)}` : "")}</div>
-                                )}
-                                {run.status === "cancelled" && (
-                                  <div className="rounded-xl border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs text-amber-700">⏹ 已取消</div>
-                                )}
-                              </div>
-                            )}
+                                });
+                              })()}
+                              {!runRunning && run.status === "succeeded" && (
+                                <div className="rounded-xl border border-green-200 bg-green-50/50 px-3 py-2 text-xs text-green-700">✅ 执行完成</div>
+                              )}
+                              {!runRunning && run.status === "failed" && (
+                                <div className="rounded-xl border border-red-200 bg-red-50/50 px-3 py-2 text-xs text-red-700">❌ 执行失败{(run.error ? `：${run.error.slice(0, 200)}` : "")}</div>
+                              )}
+                              {!runRunning && run.status === "cancelled" && (
+                                <div className="rounded-xl border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs text-amber-700">⏹ 已取消</div>
+                              )}
+                            </div>
                             {/* Webview inline — full width */}
                             {(() => {
                               const allText = runEvents
@@ -1087,25 +1063,43 @@ export function CodingAgentChatPage() {
                                 })}
                               </div>
                             )}
-                            {/* Toggles — always shown for last run, expandable for historical runs */}
-                            {(isLast || expandedRuns.has(run.run_id)) && (run.log_excerpt || runEvents.length > 0 || ((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length > 0)) && (
+                            {/* Toggles — always shown, each section expands independently */}
+                            {(run.log_excerpt || runEvents.length > 0 || ((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length > 0)) && (
                               <div className="mt-3 flex items-center gap-4 border-t border-slate-100 pt-3">
-                                {run.log_excerpt && <button type="button" onClick={() => isLast ? setLogExpanded((v) => !v) : setExpandedRuns(prev => { const n = new Set(prev); n.delete(run.run_id); return n; })} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{(isLast ? logExpanded : true) ? "▾" : "▸"}</span>执行日志</button>}
-                                {runEvents.length > 0 && <button type="button" onClick={() => isLast ? setEventsExpanded((v) => !v) : setExpandedRuns(prev => { const n = new Set(prev); n.delete(run.run_id); return n; })} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{(isLast ? eventsExpanded : true) ? "▾" : "▸"}</span>事件时间线</button>}
-                                {((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length > 0) && <button type="button" onClick={() => isLast ? setFilesExpanded((v) => !v) : setExpandedRuns(prev => { const n = new Set(prev); n.delete(run.run_id); return n; })} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"><span>{(isLast ? filesExpanded : true) ? "▾" : "▸"}</span>文件 ({(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length})</button>}
+                                {((isLast && runRunning) || run.log_excerpt) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => isLast ? setLogExpanded((v) => !v) : setExpandedLogRuns(prev => { const n = new Set(prev); if (n.has(run.run_id)) n.delete(run.run_id); else n.add(run.run_id); return n; })}
+                                    className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"
+                                  >
+                                    <span>{(isLast ? logExpanded : expandedLogRuns.has(run.run_id)) ? "▾" : "▸"}</span>执行日志
+                                  </button>
+                                )}
+                                {runEvents.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => isLast ? setEventsExpanded((v) => !v) : setExpandedEventsRuns(prev => { const n = new Set(prev); if (n.has(run.run_id)) n.delete(run.run_id); else n.add(run.run_id); return n; })}
+                                    className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"
+                                  >
+                                    <span>{(isLast ? eventsExpanded : expandedEventsRuns.has(run.run_id)) ? "▾" : "▸"}</span>事件时间线
+                                  </button>
+                                )}
+                                {((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length > 0) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => isLast ? setFilesExpanded((v) => !v) : setExpandedFilesRuns(prev => { const n = new Set(prev); if (n.has(run.run_id)) n.delete(run.run_id); else n.add(run.run_id); return n; })}
+                                    className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"
+                                  >
+                                    <span>{(isLast ? filesExpanded : expandedFilesRuns.has(run.run_id)) ? "▾" : "▸"}</span>文件 ({(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length})
+                                  </button>
+                                )}
                               </div>
                             )}
-                            {/* Expand button for collapsed historical runs */}
-                            {!isLast && !expandedRuns.has(run.run_id) && (run.log_excerpt || runEvents.length > 0) && (
-                              <button type="button" onClick={() => setExpandedRuns(prev => new Set(prev).add(run.run_id))} className="mt-2 flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600">
-                                <span>▸</span>查看详情
-                              </button>
-                            )}
-                            {(isLast ? logExpanded : expandedRuns.has(run.run_id)) && run.log_excerpt && <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">{formatLog(run.log_excerpt)}</pre>}
-                            {(isLast ? eventsExpanded : expandedRuns.has(run.run_id)) && runEvents.length ? (
+                            {(isLast ? logExpanded : expandedLogRuns.has(run.run_id)) && (run.log_excerpt ? <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">{formatLog(run.log_excerpt)}</pre> : runRunning ? <div className="mt-2 space-y-1">{runEvents.map((ev) => { const info = describeEvent(ev); const time = ev.ts ? parseEvotownTimestamp(ev.ts) : null; return <div key={`log-${ev.id}-${ev.seq}`} className="flex items-center gap-2 text-xs"><span className="shrink-0 font-mono text-[10px] text-slate-300 w-[52px]">{time ? time.toLocaleTimeString("zh-CN", {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : ""}</span><span>{info.icon}</span><span className="text-slate-600">{info.title}</span>{info.detail ? <span className="truncate text-slate-400">· {info.detail}</span> : null}</div>; })}</div> : <p className="mt-2 text-xs text-slate-400">暂无日志</p>)}
+                            {(isLast ? eventsExpanded : expandedEventsRuns.has(run.run_id)) && runEvents.length ? (
                               <div className="mt-2 space-y-1">{runEvents.map((ev) => { const info = describeEvent(ev); const time = ev.ts ? parseEvotownTimestamp(ev.ts) : null; return <div key={`${ev.id}-${ev.seq}`} className="flex items-center gap-2 text-xs"><span className="shrink-0 font-mono text-[10px] text-slate-300 w-[52px]">{time ? time.toLocaleTimeString("zh-CN", {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : ""}</span><span>{info.icon}</span><span className="text-slate-600">{info.title}</span>{info.detail ? <span className="truncate text-slate-400">· {info.detail}</span> : null}</div>; })}</div>
                             ) : null}
-                            {(isLast ? filesExpanded : expandedRuns.has(run.run_id)) && (
+                            {(isLast ? filesExpanded : expandedFilesRuns.has(run.run_id)) && (
                               <div className="mt-2 space-y-1">{(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").map((a) => <a key={a.path} href={`/api/v1/agents/${encodeURIComponent(agentId)}/files?path=${encodeURIComponent(a.path)}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50"><span>{fileMeta(a.path).icon}</span><span className="truncate flex-1">{a.path.split("/").pop() || a.path}</span><span className="shrink-0 text-slate-400">{formatBytes(a.bytes)}</span><span className="shrink-0 text-slate-300">↓</span></a>)}</div>
                             )}
                           </div>
@@ -1279,7 +1273,7 @@ function FileErrorModal({ err, onClose }: { err: { path: string; message: string
 
 // ── WebviewIframes: detect webview URLs in text and embed as iframes ──────────
 
-const WEBVIEW_URL_RE = /\/api\/v1\/webview\/([^\s\)]+)/gi;
+const WEBVIEW_URL_RE = /\/api\/v1\/webview\/[\w\/\.\-\%\+\~\#\?\&\=_@:]+/gi;
 
 function WebviewIframes({ text }: { text: string }) {
   const urls = Array.from(text.matchAll(WEBVIEW_URL_RE), (m) => m[0]);

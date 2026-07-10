@@ -23,7 +23,6 @@ import { DatabasePanel } from "./DatabasePanel";
 import { McpPanel } from "./McpPanel";
 import { RolePanel } from "./RolePanel";
 import { AgentTemplatePanel } from "./AgentTemplatePanel";
-import { DispatchPanel } from "./DispatchPanel";
 import { AgentActivityPanel } from "./AgentActivityPanel";
 import { DimensionPanel } from "./DimensionPanel";
 import SystemConfigPage from "./SystemConfigPage";
@@ -211,7 +210,6 @@ const NAV_ITEMS: ConsoleTab[] = [
   "gateway",
   "accounts",
   "engines",
-  "dispatch",
   "coding",
   "runs",
   "assets",
@@ -224,8 +222,8 @@ const NAV_ITEMS: ConsoleTab[] = [
   "costs",
   "risk",
   "audit",
-  "taskpool",
   "taskboard",
+  "taskpool",
 ];
 
 type MenuGroup = {
@@ -239,7 +237,7 @@ type MenuGroup = {
 const MENU_GROUPS: MenuGroup[] = [
   { id: "home", labelZh: "首页", labelEn: "Home", items: ["dashboard"], link: "/dashboard" },
   { id: "agent", labelZh: "智能体中心", labelEn: "Agent Center", items: ["coding", "runs", "engines", "roles", "templates", "taskboard", "taskpool"] },
-  { id: "capability", labelZh: "能力中心", labelEn: "Capabilities", items: ["skills", "knowledge", "mcp", "databases", "dispatch"] },
+  { id: "capability", labelZh: "能力中心", labelEn: "Capabilities", items: ["skills", "knowledge", "mcp", "databases"] },
   { id: "model", labelZh: "模型管理", labelEn: "Models", items: ["gateway", "policies", "costs", "risk", "assets"] },
   { id: "admin", labelZh: "系统管理", labelEn: "System", items: ["accounts", "audit", "dimensions", "settings"] },
 ];
@@ -271,7 +269,7 @@ const CONSOLE_COPY = {
       risk: { label: "风控", desc: "Risk" },
       audit: { label: "追溯", desc: "Audit" },
       taskpool: { label: "任务池", desc: "Task Pool" },
-      taskboard: { label: "任务看板", desc: "Kanban" },
+      taskboard: { label: "任务看板", desc: "派活 · Kanban" },
     },
     shell: {
       eyebrow: "Management Console",
@@ -335,7 +333,7 @@ const CONSOLE_COPY = {
       risk: { label: "Risk", desc: "Events" },
       audit: { label: "Audit", desc: "Activity" },
       taskpool: { label: "Task Pool", desc: "Tasks" },
-      taskboard: { label: "Task Board", desc: "Kanban" },
+      taskboard: { label: "Task Board", desc: "Dispatch · Kanban" },
     },
     shell: {
       eyebrow: "Management Console",
@@ -818,14 +816,14 @@ export function EnterpriseConsole({
             </nav>
           </header>
 
-          <div className={tab === "dispatch" ? "flex min-h-0 flex-col px-5 py-4 lg:px-8" : "px-5 py-6 lg:px-8"}>
+          <div className={tab === "taskboard" || tab === "dispatch" ? "flex min-h-0 flex-col px-5 py-4 lg:px-8" : "px-5 py-6 lg:px-8"}>
             {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{copy.shell.loadFailed}: {error}</div>}
 
             {tab === "dashboard" && <Dashboard data={data} summary={summary} copy={copy.dashboard} locale={locale} onTab={setRoute} onRun={openRun} />}
             {tab === "gateway" && <GatewayConsole data={data} locale={locale} />}
             {tab === "accounts" && <GatewayAccountsPanel locale={locale} />}
             {tab === "engines" && <Engines engines={data.engines} runs={data.runs} violations={data.violations} />}
-            {tab === "dispatch" && <DispatchPanel engines={data.engines} onRefresh={load} />}
+            {(tab === "dispatch" || tab === "taskboard") && <TaskBoardPanel engines={data.engines} onRefresh={load} />}
             {tab === "coding" && <CodingAgentPage locale={locale} initialAgentId={initialAgentId} />}
             {tab === "runs" && <Runs runs={data.runs} selectedRun={selectedRun} events={events} loading={eventsLoading} onRun={openRun} onAssetSubmitted={() => setRoute("assets")} />}
             {tab === "skills" && <SkillsConsole locale={locale} />}
@@ -841,7 +839,6 @@ export function EnterpriseConsole({
             {tab === "costs" && <Costs cost={data.cost} />}
             {tab === "audit" && <AgentActivityPanel locale={locale} />}
             {tab === "taskpool" && <TaskPoolPanel />}
-            {tab === "taskboard" && <TaskBoardPanel />}
             {tab === "risk" && (
               <Risks
                 violations={data.violations}

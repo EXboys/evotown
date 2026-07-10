@@ -57,7 +57,7 @@ function App() {
         <Route path="/gateway" element={<EnterpriseConsole initialTab="gateway" />} />
         <Route path="/accounts" element={<EnterpriseConsole initialTab="accounts" />} />
         <Route path="/engines" element={<EnterpriseConsole initialTab="engines" />} />
-        <Route path="/dispatch" element={<EnterpriseConsole initialTab="dispatch" />} />
+        <Route path="/dispatch" element={<Navigate to="/console/taskboard" replace />} />
         <Route path="/agent" element={<EnterpriseConsole initialTab="coding" />} />
         <Route path="/agent/agents/:agentId" element={<CodingAgentChatPage />} />
         <Route path="/runs" element={<EnterpriseConsole initialTab="runs" />} />

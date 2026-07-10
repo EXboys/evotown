@@ -77,9 +77,12 @@ Auth: `require_console_read`; non-admin users must have access to the requested 
 
 ## Frontend
 
-Route: `/console/taskboard` — Kanban panel in Enterprise Console (Agent Center nav group).
+Route: `/console/taskboard` — Kanban + 派活表单合一（Agent Center）。
 
-MVP is **read-only** (no drag-to-change-status).
+- 顶部：选引擎 / 写任务 / 派发（原 `DispatchPanel` 能力）
+- 下方：四列看板；订阅 `dispatch_job_updated` 刷新
+- `/dispatch` 重定向到 `/console/taskboard`
+- MVP 看板为 **只读列**（无拖拽改状态）
 
 ## Future work
 

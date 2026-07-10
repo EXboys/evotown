@@ -367,7 +367,7 @@ class CodingAgentApiTest(unittest.TestCase):
             patch("services.claude_agent_sdk_runner.sdk_available", return_value=True),
             patch(
                 "services.claude_agent_sdk_runner.run_agent_sdk",
-                new=AsyncMock(return_value=(0, "Updated README via embedded SDK.")),
+                new=AsyncMock(return_value=(0, "Updated README via embedded SDK.", "sess_test_123")),
             ),
         ):
             updated = asyncio.run(claude_code_runner.run_claude_agent(run_id))

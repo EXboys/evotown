@@ -51,6 +51,7 @@ from api.routers import (
     monitor,
     tasks,
     task_pool,
+    task_board,
     websocket,
     replay,
 )
@@ -343,6 +344,7 @@ app.include_router(engine_ingest.router)
 app.include_router(policies.router)
 app.include_router(assets.router)
 app.include_router(agent_dispatch.router)
+app.include_router(task_board.router)
 app.include_router(audit.router)
 app.include_router(coding_agent.router)
 app.include_router(accounts.router)

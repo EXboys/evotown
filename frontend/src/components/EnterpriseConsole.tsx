@@ -15,7 +15,6 @@ import {
 import { GatewayAccountsPanel } from "./GatewayAccountsPanel";
 import { GATEWAY_COPY, GatewayConsole, RecentRequestsTable } from "./GatewayConsole";
 import { SkillsConsole } from "./SkillsConsole";
-import { SkillsManagementPage } from "./SkillsManagementPage";
 import { PoliciesPanel } from "./PoliciesPanel";
 import { AssetsPanel } from "./AssetsPanel";
 import { CodingAgentPage } from "./CodingAgentPage";
@@ -824,7 +823,7 @@ export function EnterpriseConsole({
             {tab === "dispatch" && <DispatchPanel engines={data.engines} onRefresh={load} />}
             {tab === "coding" && <CodingAgentPage locale={locale} initialAgentId={initialAgentId} />}
             {tab === "runs" && <Runs runs={data.runs} selectedRun={selectedRun} events={events} loading={eventsLoading} onRun={openRun} onAssetSubmitted={() => setRoute("assets")} />}
-            {tab === "skills" && <SkillsManagementPage />}
+            {tab === "skills" && <SkillsConsole locale={locale} />}
             {tab === "assets" && <AssetsPanel />}
             {tab === "policies" && <PoliciesPanel locale={locale} />}
             {tab === "knowledge" && <KnowledgePanel locale={locale} />}

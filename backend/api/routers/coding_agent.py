@@ -152,7 +152,7 @@ async def create_agent(body: WorkspaceCreate, identity: dict | None = Depends(re
     if not owner:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="owner_account_id is required when using admin token",
+            detail="account_id is required when using admin token",
         )
     try:
         # Resolve model_policy: system_config default overrides Pydantic default
@@ -204,11 +204,6 @@ async def update_agent(agent_id: str, body: WorkspaceUpdate, identity: dict | No
     identity = _require_identity(identity)
     _require_scope(identity, "agent.write", "console.write")
     agent = _load_agent_for_identity(agent_id, identity)
-    if body.owner_account_id is not None and not _is_admin(identity):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="only an admin can reassign the agent owner",
-        )
     # Validate: switching to routes_only requires at least one enabled route alias
     if body.model_policy == "routes_only" and claude_code_runner.count_route_aliases() == 0:
         raise HTTPException(

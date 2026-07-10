@@ -236,7 +236,9 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialAgentId?: s
         method: "POST",
         body: JSON.stringify(body),
       }).then((res) => readJson<{ agent: Agent }>(res));
-      window.location.assign(`/agent/agents/${encodeURIComponent(data.agent.agent_id)}`);
+      setMessage(`✅ 已创建「${data.agent.name}」`); setAgentName(""); setCreateTemplateId(""); setCreating(false);
+      void load();
+      setBusy(false);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "创建失败");
       setBusy(false);
@@ -421,11 +423,11 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialAgentId?: s
                     </span>
                     <button
                       type="button"
-                      title="技能下发"
+                      title="已绑定技能"
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
-                        setSkillsWsId(agent.owner_account_id);
+                        setSkillsWsId(agent.agent_id);
                         setSkillsWsName(agent.name);
                       }}
                       className="rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs text-indigo-700 hover:bg-indigo-100"
@@ -697,11 +699,11 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialAgentId?: s
       {skillsWsId && (
         <GatewayDrawer
           open={true}
-          title={`技能下发 · ${skillsWsName}`}
+          title={`已绑定技能 · ${skillsWsName}`}
           onClose={() => { setSkillsWsId(null); setSkillsWsName(""); }}>
           <SkillsAssignmentPanel
-            accountId={skillsWsId}
-            accountName={skillsWsName}
+            agentId={skillsWsId}
+            agentName={skillsWsName}
           />
         </GatewayDrawer>
       )}

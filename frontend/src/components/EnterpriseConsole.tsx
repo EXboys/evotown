@@ -28,6 +28,7 @@ import { DispatchPanel } from "./DispatchPanel";
 import { AgentActivityPanel } from "./AgentActivityPanel";
 import { DimensionPanel } from "./DimensionPanel";
 import SystemConfigPage from "./SystemConfigPage";
+import { TaskPoolPanel } from "./TaskPoolPanel";
 import { DisplayTimezoneSelect } from "./DisplayTimezoneSelect";
 import { LanguageToggle } from "./LanguageToggle";
 import { adminFetch, clearConsoleSession, isConsoleAuthenticated, isStaffEmployee } from "../hooks/useAdminToken";
@@ -36,7 +37,7 @@ import { useSystemConfig } from "../hooks/useSystemConfig";
 import { formatDateTimeShort } from "../lib/datetime";
 import { useLocale, type Locale } from "../lib/i18n";
 
-type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "templates" | "dimensions" | "settings" | "costs" | "risk" | "audit";
+type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "templates" | "dimensions" | "settings" | "costs" | "risk" | "audit" | "taskpool";
 
 type EngineRecord = {
   engine_id: string;
@@ -201,6 +202,7 @@ const TAB_ROUTE: Record<ConsoleTab, string> = {
   costs: "/costs",
   risk: "/risk",
   audit: "/console/audit",
+  taskpool: "/console/taskpool",
 };
 
 const NAV_ITEMS: ConsoleTab[] = [
@@ -221,6 +223,7 @@ const NAV_ITEMS: ConsoleTab[] = [
   "costs",
   "risk",
   "audit",
+  "taskpool",
 ];
 
 type MenuGroup = {
@@ -233,7 +236,7 @@ type MenuGroup = {
 
 const MENU_GROUPS: MenuGroup[] = [
   { id: "home", labelZh: "首页", labelEn: "Home", items: ["dashboard"], link: "/dashboard" },
-  { id: "agent", labelZh: "智能体中心", labelEn: "Agent Center", items: ["coding", "runs", "engines", "roles", "templates"] },
+  { id: "agent", labelZh: "智能体中心", labelEn: "Agent Center", items: ["coding", "runs", "engines", "roles", "templates", "taskpool"] },
   { id: "capability", labelZh: "能力中心", labelEn: "Capabilities", items: ["skills", "knowledge", "mcp", "databases", "dispatch"] },
   { id: "model", labelZh: "模型管理", labelEn: "Models", items: ["gateway", "policies", "costs", "risk", "assets"] },
   { id: "admin", labelZh: "系统管理", labelEn: "System", items: ["accounts", "audit", "dimensions", "settings"] },
@@ -265,6 +268,7 @@ const CONSOLE_COPY = {
       costs: { label: "成本", desc: "Costs" },
       risk: { label: "风控", desc: "Risk" },
       audit: { label: "追溯", desc: "Audit" },
+      taskpool: { label: "任务池", desc: "Task Pool" },
     },
     shell: {
       eyebrow: "Management Console",
@@ -327,6 +331,7 @@ const CONSOLE_COPY = {
       costs: { label: "Costs", desc: "Usage" },
       risk: { label: "Risk", desc: "Events" },
       audit: { label: "Audit", desc: "Activity" },
+      taskpool: { label: "Task Pool", desc: "Tasks" },
     },
     shell: {
       eyebrow: "Management Console",
@@ -831,6 +836,7 @@ export function EnterpriseConsole({
             {tab === "settings" && <SystemConfigPage locale={locale} />}
             {tab === "costs" && <Costs cost={data.cost} />}
             {tab === "audit" && <AgentActivityPanel locale={locale} />}
+            {tab === "taskpool" && <TaskPoolPanel />}
             {tab === "risk" && (
               <Risks
                 violations={data.violations}

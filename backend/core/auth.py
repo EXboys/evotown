@@ -38,6 +38,7 @@ WORKSPACE_SCOPE_READ = "workspace.read"
 WORKSPACE_SCOPE_WRITE = "workspace.write"
 AGENT_SCOPE_RUN = "agent.run"
 AGENT_SCOPE_ADMIN = "agent.admin"
+TASK_SCOPE_SUBMIT = "task.submit"
 DEFAULT_CONSOLE_KEY_SCOPES = [
     GATEWAY_SCOPE_CHAT,
     CONSOLE_SCOPE_READ,
@@ -45,6 +46,7 @@ DEFAULT_CONSOLE_KEY_SCOPES = [
     WORKSPACE_SCOPE_READ,
     WORKSPACE_SCOPE_WRITE,
     AGENT_SCOPE_RUN,
+    TASK_SCOPE_SUBMIT,
 ]
 LEGACY_GATEWAY_SCOPES = [GATEWAY_SCOPE_CHAT]
 
@@ -74,6 +76,13 @@ def has_console_write(scopes: list[str]) -> bool:
 
 def has_console_read(scopes: list[str]) -> bool:
     return CONSOLE_SCOPE_READ in scopes or CONSOLE_SCOPE_WRITE in scopes
+
+
+def has_task_submit(scopes: list[str]) -> bool:
+    return "*" in scopes or TASK_SCOPE_SUBMIT in scopes
+
+
+_ALLOWED_TASK_SUBMIT_STAFF_ROLES = frozenset({"admin", "employee"})
 
 
 def session_from_api_key(raw_key: str) -> dict[str, Any] | None:
@@ -597,12 +606,13 @@ STAFF_EMPLOYEE_SCOPES = [
     AGENT_SCOPE_RUN,
     "agent.read",
     "agent.write",
+    TASK_SCOPE_SUBMIT,
 ]
 
 
 def staff_session_scopes(role: str) -> list[str]:
     if role == "admin":
-        return [CONSOLE_SCOPE_READ, CONSOLE_SCOPE_WRITE]
+        return [CONSOLE_SCOPE_READ, CONSOLE_SCOPE_WRITE, TASK_SCOPE_SUBMIT]
     return list(STAFF_EMPLOYEE_SCOPES)
 
 
@@ -678,24 +688,98 @@ async def get_optional_admin_identity(
     credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
 ) -> dict[str, Any] | None:
     """Validate optional auth for task_pool endpoints. Returns identity dict with submitter_type/submitter_id, or None."""
+    return _resolve_task_submitter_identity(key, credentials)
+
+
+def session_from_api_key_for_task_pool(raw_key: str) -> dict[str, Any] | None:
+    """Resolve API keys that carry task.submit (console keys need not include console.read)."""
+    record = accounts_store.lookup_api_key(raw_key, touch_last_used=True)
+    if record is None:
+        return None
+    scopes = _scopes_list(record.get("scopes"))
+    if not has_task_submit(scopes):
+        return None
+    identity = _identity_from_record(record)
+    identity["auth_kind"] = "api_key"
+    identity["submitter_type"] = "api_key"
+    identity["submitter_id"] = str(identity.get("account_id") or "")
+    return identity
+
+
+def _resolve_task_submitter_identity(
+    key: str | None,
+    credentials: HTTPAuthorizationCredentials | None,
+) -> dict[str, Any] | None:
     admin_token = _get_configured_token()
     if admin_token and key and key == admin_token:
-        return {"submitter_type": "admin", "submitter_id": "", "scopes": ["*"]}
+        return {
+            "auth_kind": "admin",
+            "submitter_type": "admin",
+            "submitter_id": "",
+            "scopes": ["*"],
+        }
     if credentials is not None and credentials.scheme.lower() == "bearer":
         token = credentials.credentials
         staff = get_staff_session(token)
         if staff is not None:
+            role = str(staff.get("role") or "employee")
             return {
+                "auth_kind": "staff",
                 "submitter_type": "employee",
                 "submitter_id": staff.get("account_id", ""),
+                "role": role,
                 "scopes": staff.get("scopes", []),
             }
-        session = session_from_api_key(token)
-        if session is not None:
-            return {
-                "submitter_type": "api_key",
-                "submitter_id": session.get("account_id", ""),
-                "scopes": session.get("scopes", []),
-            }
+        return session_from_api_key_for_task_pool(token)
     return None
+
+
+def _authorize_task_submit(identity: dict[str, Any]) -> None:
+    scopes = _scopes_list(identity.get("scopes"))
+    auth_kind = str(identity.get("auth_kind") or "")
+
+    if auth_kind == "admin" and "*" in scopes:
+        return
+
+    if auth_kind == "staff":
+        role = str(identity.get("role") or "employee").strip().lower()
+        if role not in _ALLOWED_TASK_SUBMIT_STAFF_ROLES:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only staff accounts with role admin or employee can submit tasks.",
+            )
+        if not has_task_submit(scopes):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Missing required scope: {TASK_SCOPE_SUBMIT}",
+            )
+        return
+
+    if auth_kind == "api_key":
+        if not has_task_submit(scopes):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"API key missing required scope: {TASK_SCOPE_SUBMIT}",
+            )
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Not authorized to submit tasks.",
+    )
+
+
+async def require_task_submitter_identity(
+    key: str | None = Security(_HEADER_SCHEME),
+    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
+) -> dict[str, Any]:
+    """Require authenticated identity authorized to submit tasks to the pool."""
+    identity = _resolve_task_submitter_identity(key, credentials)
+    if identity is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required. Sign in or provide X-Admin-Token / Bearer token.",
+        )
+    _authorize_task_submit(identity)
+    return identity
 

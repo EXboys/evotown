@@ -49,7 +49,10 @@ class WorkspaceVisionTest(unittest.TestCase):
             api_base="https://vision.example.com/v1",
             api_key="sk-test",
             litellm_model="qwen-vl-plus",
+            is_vision=True,
         )
+        vision_model = gateway_models.list_models()[0]
+        gateway_models.set_vision_default(vision_model["model_id"])
         root = agents.resolve_agent_path(ws)
         rel = "uploads/test.jpg"
         img_path = root / rel

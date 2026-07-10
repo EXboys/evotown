@@ -1,8 +1,8 @@
 """Task pool API router — CRUD + atomic claim.
 
 Auth:
-  - Create (portal)    : open (employee submits)
-  - Create (MCP)       : via MCP bridge (internal call)
+  - Create (portal)    : staff role admin|employee, or API key with task.submit scope (+ rate limit)
+  - Create (MCP)       : via MCP bridge (internal call, not this router)
   - List/Get/Update    : admin only
   - Claim              : X-Task-Pool-Key header (shared secret for Hermes)
 """
@@ -13,9 +13,11 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel, Field
 
 from infra import task_pool
-from core.auth import require_admin, get_optional_admin_identity
+from core.auth import require_admin, require_task_submitter_identity
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["task-pool"])
+
+_ALLOWED_SOURCES = {task_pool.SOURCE_PORTAL, task_pool.SOURCE_ADMIN}
 
 
 # ── Pydantic models ─────────────────────────────────────────────────
@@ -48,23 +50,39 @@ class ClaimRequest(BaseModel):
     claim_mode: str = task_pool.CLAIM_MODE_EXECUTE
 
 
-# ── Public: create task ─────────────────────────────────────────────
+def _is_task_pool_admin(identity: dict) -> bool:
+    if identity.get("auth_kind") == "admin":
+        return True
+    return identity.get("auth_kind") == "staff" and str(identity.get("role") or "").lower() == "admin"
+
+
+def _resolve_submitter(identity: dict, body: TaskCreate) -> tuple[str, str, str]:
+    """Derive submitter fields server-side; ignore client spoofing for non-admin callers."""
+    if _is_task_pool_admin(identity):
+        submitter_type = (body.submitter_type or identity.get("submitter_type") or "admin").strip() or "admin"
+        submitter_id = (body.submitter_id or identity.get("submitter_id") or "").strip()
+        source = body.source if body.source in _ALLOWED_SOURCES else task_pool.SOURCE_ADMIN
+        return submitter_type, submitter_id, source
+
+    return (
+        str(identity["submitter_type"]),
+        str(identity["submitter_id"]),
+        task_pool.SOURCE_PORTAL,
+    )
+
+
+# ── Authenticated: create task ──────────────────────────────────────
 
 
 @router.post("")
 async def create_task(
     body: TaskCreate,
-    identity: dict | None = Depends(get_optional_admin_identity),
+    identity: dict = Depends(require_task_submitter_identity),
 ):
-    """Submit a new task to the pool. Open to all, but captures authenticated submitter when available."""
-    submitter_type = body.submitter_type
-    submitter_id = body.submitter_id
-
-    # When authenticated user creates task and frontend didn't explicitly set submitter,
-    # use the authenticated identity as submitter
-    if identity and not body.submitter_id:
-        submitter_type = identity["submitter_type"]
-        submitter_id = identity["submitter_id"]
+    """Submit a new task to the pool. Requires authenticated identity."""
+    submitter_type, submitter_id, source = _resolve_submitter(identity, body)
+    rate_key = f"{submitter_type}:{submitter_id or identity.get('submitter_type', 'unknown')}"
+    task_pool.check_create_rate_limit(rate_key)
 
     try:
         t = task_pool.create_task(
@@ -72,13 +90,15 @@ async def create_task(
             description=body.description,
             submitter_type=submitter_type,
             submitter_id=submitter_id,
-            source=body.source,
+            source=source,
             target_agent_id=body.target_agent_id,
             priority=body.priority,
         )
         return {"ok": True, "task": t}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, str(e)) from e
 
 
 # ── Admin: list / get / update ──────────────────────────────────────

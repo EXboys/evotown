@@ -50,6 +50,7 @@ from api.routers import (
     integrations,
     monitor,
     tasks,
+    task_pool,
     websocket,
     replay,
 )
@@ -335,6 +336,7 @@ app.add_middleware(
 
 app.include_router(agents.router)
 app.include_router(tasks.router)
+app.include_router(task_pool.router)
 app.include_router(config.router)
 app.include_router(dispatcher.router)
 app.include_router(engine_ingest.router)

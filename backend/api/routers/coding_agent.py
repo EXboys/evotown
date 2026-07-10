@@ -90,17 +90,17 @@ async def get_agent_options(
     skills: list[dict] = []
     try:
         from infra import agent_skills, skill_market
-        if agent_id:
-            assigned = agent_skills.list_for_agent(agent_id)
-            for sid in assigned:
-                skill = skill_market.get_market_skill(sid)
-                if skill:
-                    skills.append({
-                        "id": skill.get("skill_id") or skill.get("id") or skill.get("name", ""),
-                        "name": skill.get("name") or skill.get("skill_id", ""),
-                        "version": skill.get("version", ""),
-                        "summary": skill.get("summary") or skill.get("description", ""),
-                    })
+
+        assigned = agent_skills.list_for_agent(agent_id) if agent_id else []
+        for sid in assigned:
+            skill = skill_market.get_market_skill(sid)
+            if skill:
+                skills.append({
+                    "id": skill.get("skill_id") or skill.get("id") or skill.get("name", ""),
+                    "name": skill.get("name") or skill.get("skill_id", ""),
+                    "version": skill.get("version", ""),
+                    "summary": skill.get("summary") or skill.get("description", ""),
+                })
     except Exception:
         skills = []
 
@@ -147,7 +147,8 @@ async def list_agents(
 async def create_agent(body: WorkspaceCreate, identity: dict | None = Depends(require_console_read)):
     identity = _require_identity(identity)
     _require_scope(identity, "agent.write", "console.write")
-    owner = body.account_id.strip() if _is_admin(identity) and body.account_id.strip() else _account_id(identity)
+    admin_owner = (body.owner_account_id or body.account_id).strip()
+    owner = admin_owner if _is_admin(identity) and admin_owner else _account_id(identity)
     if not owner:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

@@ -29,6 +29,7 @@ CONSOLE_SCOPE_WRITE = "console.write"
 WORKSPACE_SCOPE_READ = "workspace.read"
 WORKSPACE_SCOPE_WRITE = "workspace.write"
 AGENT_SCOPE_RUN = "agent.run"
+TASK_SCOPE_SUBMIT = "task.submit"
 DEFAULT_CONSOLE_KEY_SCOPES = [
     "gateway.chat",
     CONSOLE_SCOPE_READ,
@@ -36,6 +37,7 @@ DEFAULT_CONSOLE_KEY_SCOPES = [
     WORKSPACE_SCOPE_READ,
     WORKSPACE_SCOPE_WRITE,
     AGENT_SCOPE_RUN,
+    TASK_SCOPE_SUBMIT,
 ]
 ROOT_ORG_ID = 'org_root'
 

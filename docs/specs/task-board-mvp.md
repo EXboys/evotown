@@ -54,21 +54,24 @@ When a dispatch job has a linked `run_id`, board status follows the hosted run.
 ## API
 
 ```
-GET /api/v1/task-board?agent_id=<optional>&limit=200
+GET /api/v1/task-board?agent_id=<optional>&limit=10
 ```
 
-Response:
+Default `limit=10` returns the newest nodes across columns. Increase `limit` to expand.
+Response includes `has_more` when older nodes exist.
 
 ```json
 {
   "agent_id": "ws_abc",
   "columns": {
-    "queued": [...],
+    "queued": [{ "agent_id": "...", "agent_name": "销售助手", "...": "..." }],
     "running": [...],
     "done": [...],
     "failed": [...]
   },
-  "total": 12,
+  "total": 8,
+  "limit": 10,
+  "has_more": true,
   "board_statuses": ["queued", "running", "done", "failed"]
 }
 ```

@@ -14,6 +14,7 @@ type Agent = {
 type TaskNode = {
   node_id: string;
   agent_id: string;
+  agent_name?: string;
   source_type: "dispatch_job" | "hosted_run";
   source_id: string;
   title: string;
@@ -34,6 +35,8 @@ type BoardResponse = {
   agent_id: string;
   columns: BoardColumns;
   total: number;
+  limit: number;
+  has_more: boolean;
   board_statuses: TaskNode["board_status"][];
 };
 
@@ -83,9 +86,12 @@ function isHostedEngine(engineId: string) {
   return engineId.startsWith("hosted-ws-");
 }
 
+const PAGE_SIZE = 10;
+
 function TaskCard({ node }: { node: TaskNode }) {
   const title = node.title?.trim() || node.message.slice(0, 80) || node.source_id;
   const subtitle = node.title?.trim() ? node.message.slice(0, 120) : "";
+  const agentLabel = node.agent_name?.trim() || node.agent_id || "未绑定 agent";
   return (
     <article className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex items-start justify-between gap-2">
@@ -96,6 +102,21 @@ function TaskCard({ node }: { node: TaskNode }) {
         <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600">
           {SOURCE_LABEL[node.source_type]}
         </span>
+      </div>
+      <div className="mt-2">
+        {node.agent_id ? (
+          <Link
+            to={`/agent/agents/${node.agent_id}`}
+            className="inline-flex max-w-full items-center truncate rounded-md bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100 hover:text-slate-950"
+            title={node.agent_id}
+          >
+            {agentLabel}
+          </Link>
+        ) : (
+          <span className="inline-flex rounded-md bg-slate-50 px-2 py-0.5 text-[11px] text-slate-400 ring-1 ring-slate-200">
+            {agentLabel}
+          </span>
+        )}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
         <span className="font-mono">{node.source_id.slice(0, 14)}…</span>
@@ -117,8 +138,10 @@ export function TaskBoardPanel({ engines: enginesProp = [], onRefresh }: Props) 
   const [engines, setEngines] = useState<FleetEngine[]>(enginesProp);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentId, setAgentId] = useState("");
+  const [limit, setLimit] = useState(PAGE_SIZE);
   const [board, setBoard] = useState<BoardResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
@@ -158,19 +181,23 @@ export function TaskBoardPanel({ engines: enginesProp = [], onRefresh }: Props) 
     setAgents(active);
   }, []);
 
-  const loadBoard = useCallback(async (selectedAgentId: string, quiet = false) => {
+  const loadBoard = useCallback(async (selectedAgentId: string, pageLimit: number, quiet = false) => {
     if (!quiet) setLoading(true);
     setError("");
-    const query = selectedAgentId ? `?agent_id=${encodeURIComponent(selectedAgentId)}` : "";
-    const res = await adminFetch(`/api/v1/task-board${query}`);
+    const params = new URLSearchParams();
+    params.set("limit", String(pageLimit));
+    if (selectedAgentId) params.set("agent_id", selectedAgentId);
+    const res = await adminFetch(`/api/v1/task-board?${params.toString()}`);
     if (!res.ok) {
       setError(`加载看板失败 (${res.status})`);
       setBoard(null);
       setLoading(false);
+      setLoadingMore(false);
       return;
     }
     setBoard((await res.json()) as BoardResponse);
     setLoading(false);
+    setLoadingMore(false);
   }, []);
 
   useEffect(() => {
@@ -179,7 +206,8 @@ export function TaskBoardPanel({ engines: enginesProp = [], onRefresh }: Props) 
   }, [loadAgents, loadEngines]);
 
   useEffect(() => {
-    void loadBoard(agentId);
+    setLimit(PAGE_SIZE);
+    void loadBoard(agentId, PAGE_SIZE);
   }, [agentId, loadBoard]);
 
   useEffect(() => {
@@ -212,11 +240,11 @@ export function TaskBoardPanel({ engines: enginesProp = [], onRefresh }: Props) 
 
   useEffect(() => {
     const onUpdate = () => {
-      void loadBoard(agentId, true);
+      void loadBoard(agentId, limit, true);
     };
     evotownEvents.on("dispatch_job_updated", onUpdate);
     return () => evotownEvents.off("dispatch_job_updated", onUpdate);
-  }, [agentId, loadBoard]);
+  }, [agentId, limit, loadBoard]);
 
   const columns = useMemo(() => {
     const empty: BoardColumns = { queued: [], running: [], done: [], failed: [] };
@@ -286,7 +314,7 @@ export function TaskBoardPanel({ engines: enginesProp = [], onRefresh }: Props) 
         text: form.chain ? "已入队，成功后自动 handoff 到下一团队" : "任务已入队，看板将刷新",
       });
       setForm((f) => ({ ...f, message: "", title: "", chain_message: "" }));
-      await loadBoard(agentId, true);
+      await loadBoard(agentId, limit, true);
       onRefresh?.();
     } finally {
       setSubmitting(false);
@@ -337,7 +365,7 @@ export function TaskBoardPanel({ engines: enginesProp = [], onRefresh }: Props) 
           </select>
           <button
             type="button"
-            onClick={() => void loadBoard(agentId)}
+            onClick={() => void loadBoard(agentId, limit)}
             className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             刷新
@@ -567,7 +595,27 @@ export function TaskBoardPanel({ engines: enginesProp = [], onRefresh }: Props) 
         </div>
       ) : (
         <>
-          <div className="text-sm text-slate-500">共 {board?.total ?? 0} 个节点</div>
+          <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
+            <span>
+              显示最新 {board?.total ?? 0} 条
+              {board?.has_more ? "（还有更早的任务）" : ""}
+            </span>
+            {board?.has_more && (
+              <button
+                type="button"
+                disabled={loadingMore}
+                onClick={() => {
+                  const next = limit + PAGE_SIZE;
+                  setLoadingMore(true);
+                  setLimit(next);
+                  void loadBoard(agentId, next, true);
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                {loadingMore ? "加载中…" : `展开更多（+${PAGE_SIZE}）`}
+              </button>
+            )}
+          </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {(Object.keys(COLUMN_META) as TaskNode["board_status"][]).map((status) => {
               const meta = COLUMN_META[status];

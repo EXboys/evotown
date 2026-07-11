@@ -311,8 +311,13 @@ def sync_recent(*, limit: int = 500) -> int:
 def list_board(
     *,
     agent_id: str | None = None,
-    limit: int = 200,
-) -> dict[str, list[dict[str, Any]]]:
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Return board columns plus pagination metadata.
+
+    Fetches the newest ``limit`` nodes (across all statuses), then groups them.
+    ``has_more`` is true when at least one older node exists beyond the page.
+    """
     sync_recent(limit=max(limit, 200))
 
     where: list[str] = []
@@ -322,7 +327,7 @@ def list_board(
         params.append(agent_id)
     clause = "WHERE " + " AND ".join(where) if where else ""
     effective_limit = max(1, min(limit, 500))
-    params.append(effective_limit)
+    params.append(effective_limit + 1)
 
     rows = _ensure_conn().execute(
         f"""
@@ -334,6 +339,10 @@ def list_board(
         params,
     ).fetchall()
 
+    has_more = len(rows) > effective_limit
+    if has_more:
+        rows = rows[:effective_limit]
+
     grouped: dict[str, list[dict[str, Any]]] = {status: [] for status in BOARD_STATUSES}
     for row in rows:
         node = _node_from_row(row)
@@ -341,7 +350,12 @@ def list_board(
         if status not in grouped:
             status = "queued"
         grouped[status].append(node)
-    return grouped
+    return {
+        "columns": grouped,
+        "has_more": has_more,
+        "total": len(rows),
+        "limit": effective_limit,
+    }
 
 
 def get_node(node_id: str) -> dict[str, Any] | None:

@@ -595,26 +595,9 @@ export function TaskBoardPanel({ engines: enginesProp = [], onRefresh }: Props) 
         </div>
       ) : (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
-            <span>
-              显示最新 {board?.total ?? 0} 条
-              {board?.has_more ? "（还有更早的任务）" : ""}
-            </span>
-            {board?.has_more && (
-              <button
-                type="button"
-                disabled={loadingMore}
-                onClick={() => {
-                  const next = limit + PAGE_SIZE;
-                  setLoadingMore(true);
-                  setLimit(next);
-                  void loadBoard(agentId, next, true);
-                }}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                {loadingMore ? "加载中…" : `展开更多（+${PAGE_SIZE}）`}
-              </button>
-            )}
+          <div className="text-sm text-slate-500">
+            显示最新 <span className="font-medium text-slate-800">{board?.total ?? 0}</span> 条
+            {board?.has_more ? " · 还有更早的任务" : " · 已全部加载"}
           </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {(Object.keys(COLUMN_META) as TaskNode["board_status"][]).map((status) => {
@@ -644,6 +627,27 @@ export function TaskBoardPanel({ engines: enginesProp = [], onRefresh }: Props) 
               );
             })}
           </div>
+          {board?.has_more ? (
+            <div className="flex justify-center pt-1">
+              <button
+                type="button"
+                disabled={loadingMore}
+                onClick={() => {
+                  const next = limit + PAGE_SIZE;
+                  setLoadingMore(true);
+                  setLimit(next);
+                  void loadBoard(agentId, next, true);
+                }}
+                className="rounded-xl border border-slate-300 bg-white px-6 py-2.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+              >
+                {loadingMore ? "加载中…" : `展开更多（再加载 ${PAGE_SIZE} 条）`}
+              </button>
+            </div>
+          ) : (
+            (board?.total ?? 0) > 0 && (
+              <div className="text-center text-xs text-slate-400">没有更多任务了</div>
+            )
+          )}
         </>
       )}
     </div>

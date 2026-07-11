@@ -84,6 +84,12 @@ class TaskBoardApiTest(unittest.TestCase):
         self.assertEqual(body["agent_id"], agent_id)
         columns = body["columns"]
         self.assertGreaterEqual(body["total"], 2)
+        self.assertIn("has_more", body)
+        self.assertIn("limit", body)
+        for status_nodes in body["columns"].values():
+            for node in status_nodes:
+                if node.get("agent_id") == agent_id:
+                    self.assertEqual(node.get("agent_name"), "Board Agent")
 
         queued_ids = {n["source_id"] for n in columns["queued"]}
         running_ids = {n["source_id"] for n in columns["running"]}

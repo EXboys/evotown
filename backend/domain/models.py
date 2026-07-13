@@ -149,6 +149,20 @@ class ClaudeAgentRunCreate(BaseModel):
     attachments: list[str] = Field(default_factory=list, max_length=20)
 
 
+class AgentExternalTriggerRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=32000)
+    session_id: str = Field(default="", max_length=64)
+    skills: list[str] = Field(default_factory=list)
+    model: str = Field(default="", max_length=128)
+    attachments: list[str] = Field(default_factory=list, max_length=20)
+
+
+class ApiResponse(BaseModel):
+    code: int
+    message: str
+    data: Any | None = None
+
+
 class AgentShareRequest(BaseModel):
     paths: list[str] = Field(min_length=1, max_length=50)
     target_agent_id: str = Field(min_length=1, max_length=128)

@@ -1,4 +1,5 @@
-"""Console self-service registration and session endpoints."""
+"""Staff (account + password) login and session endpoints."""
+
 from __future__ import annotations
 
 import os
@@ -9,27 +10,17 @@ from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials
 
 from core.auth import (
-    DEFAULT_CONSOLE_KEY_SCOPES,
     _BEARER_SCHEME,
     create_staff_session,
     destroy_staff_session,
-    require_console_session,
     require_staff_session,
-    session_from_api_key,
 )
-from domain.models import ConsoleLogin, ConsoleRegister, OidcExchange, StaffLogin
+from domain.models import StaffLogin
 from infra import accounts as accounts_store
 from infra import oidc as oidc_store
 from infra import agents as agents_store
 
 router = APIRouter(prefix="/api/v1/auth", tags=["console-auth"])
-
-LOCAL_DEPLOY_KEY_LABEL = "local-deploy"
-EMPLOYEE_GATEWAY_SCOPES = [
-    accounts_store.GATEWAY_SCOPE_CHAT,
-    accounts_store.CONSOLE_SCOPE_READ,
-    accounts_store.AGENT_SCOPE_RUN,
-]
 
 
 def _resolve_public_base_url(request: Request | None) -> str:
@@ -45,45 +36,6 @@ def _resolve_public_base_url(request: Request | None) -> str:
     return f"{proto}://{host}".rstrip("/")
 
 
-def _gateway_credentials_payload(*, request: Request, account_id: str, api_key: str = "") -> dict:
-    base = _resolve_public_base_url(request) or "https://evotown.company.internal"
-    keys = accounts_store.list_api_keys(account_id=account_id, status="active", limit=50)
-    gateway_keys = [
-        k for k in keys
-        if accounts_store.GATEWAY_SCOPE_CHAT in (k.get("scopes") or [])
-    ]
-    local_keys = [k for k in gateway_keys if str(k.get("label") or "").startswith(LOCAL_DEPLOY_KEY_LABEL)]
-    ref = local_keys[0] if local_keys else (gateway_keys[0] if gateway_keys else None)
-    return {
-        "evotown_url": base,
-        "gateway_base_url": f"{base}/api/gateway/v1",
-        "skills_manifest_url": (
-            f"{base}/api/v1/market/bundles/default-agent-skills/manifest?runtime_target=openclaw"
-        ),
-        "api_key": api_key,
-        "has_key": bool(api_key or ref),
-        "key_prefix": str(ref.get("key_prefix") or "") if ref else "",
-        "key_label": str(ref.get("label") or "") if ref else "",
-    }
-
-
-def _public_register_allowed() -> bool:
-    if os.environ.get("EVOTOWN_ALLOW_PUBLIC_REGISTER", "").strip().lower() in {"1", "true", "yes", "on"}:
-        return True
-    return accounts_store.count_accounts(status=None) == 0
-
-
-def _session_payload(identity: dict) -> dict:
-    return {
-        "account_id": identity.get("account_id", ""),
-        "account_name": identity.get("account_name", ""),
-        "org_id": identity.get("org_id", ""),
-        "key_id": identity.get("key_id", ""),
-        "key_label": identity.get("key_label", ""),
-        "scopes": identity.get("scopes", []),
-    }
-
-
 def _console_login_url() -> str:
     explicit = os.environ.get("EVOTOWN_CONSOLE_LOGIN_URL", "").strip()
     if explicit:
@@ -92,43 +44,7 @@ def _console_login_url() -> str:
     return f"{public}/login" if public else "/login"
 
 
-@router.post("/register")
-async def register_console_account(body: ConsoleRegister):
-    if not _public_register_allowed():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Public registration is disabled. Ask an administrator to create your account.",
-        )
-    account = accounts_store.create_account(
-        name=body.name,
-        org_id=body.org_id or accounts_store.ROOT_ORG_ID,
-        owner_email=body.owner_email,
-        notes="self-service registration",
-    )
-    key_record, secret = accounts_store.create_api_key(
-        account["account_id"],
-        label="console-login",
-        scopes=list(DEFAULT_CONSOLE_KEY_SCOPES),
-    )
-    return {
-        "registered": True,
-        "account": account,
-        "api_key": secret,
-        "key": key_record,
-        "warning": "Store this API key now. It will not be shown again.",
-    }
-
-
-@router.post("/login")
-async def login_console(body: ConsoleLogin):
-    session = session_from_api_key(body.api_key.strip())
-    if session is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid API key or missing console scope.",
-        )
-    return {"authenticated": True, "session": _session_payload(session)}
-
+# ── Staff login (account + password) ────────────────────────────────
 
 @router.post("/staff-login")
 async def staff_login(body: StaffLogin):
@@ -181,19 +97,21 @@ async def staff_logout(
     return {"ok": True}
 
 
-@router.get("/me")
-async def console_me(session: dict = Depends(require_console_session)):
-    return {"session": _session_payload(session)}
+# ── Agent discovery for staff sessions ──────────────────────────────
 
-
-@router.get("/registration-status")
-async def registration_status():
+@router.get("/my-agents")
+async def my_agents(session: dict = Depends(require_staff_session)):
+    """Return agents bound to the currently logged-in staff account."""
+    account_id = session.get("account_id", "")
+    ag_list = agents_store.list_account_agents(account_id)
     return {
-        "public_registration_allowed": _public_register_allowed(),
-        "account_count": accounts_store.count_accounts(status=None),
-        "oidc": oidc_store.public_config(),
+        "agents": ag_list,
+        "account_id": account_id,
+        "account_name": session.get("account_name", ""),
     }
 
+
+# ── OIDC SSO ────────────────────────────────────────────────────────
 
 @router.get("/oidc/status")
 async def oidc_status():
@@ -232,78 +150,10 @@ async def oidc_callback(code: str, state: str):
     email = str(claims.get("email") or "").strip()
     name = str(claims.get("name") or claims.get("preferred_username") or email or sub).strip()
     account = oidc_store.account_for_oidc(sub=sub, email=email, name=name)
-    _key_record, secret = accounts_store.create_api_key(
-        account["account_id"],
-        label="oidc-login",
-        scopes=list(DEFAULT_CONSOLE_KEY_SCOPES),
-    )
-    login_code = oidc_store.issue_login_code(api_key=secret, account_id=account["account_id"])
-    return_to = state_row.get("redirect_uri") or "/dashboard"
+    staff_token = create_staff_session(account)
+    return_to = state_row.get("redirect_uri") or "/agent"
     login_url = _console_login_url()
-    return RedirectResponse(f"{login_url}?oidc_code={login_code}&return={return_to}", status_code=302)
-
-
-@router.post("/oidc/exchange")
-async def oidc_exchange(body: OidcExchange):
-    row = oidc_store.consume_login_code(body.code.strip())
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid or expired OIDC login code.",
-        )
-    session = session_from_api_key(row["api_key"])
-    if session is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="OIDC session key is invalid.",
-        )
-    return {
-        "authenticated": True,
-        "api_key": row["api_key"],
-        "session": _session_payload(session),
-        "warning": "Store this API key if you need CLI access. Browser session is active.",
-    }
-
-
-# ── Agent discovery for staff sessions ──────────────────────────────
-
-@router.get("/my-gateway-credentials")
-async def my_gateway_credentials(request: Request, session: dict = Depends(require_console_session)):
-    """Account-level gateway config for local OpenClaw/Hermes deploy (independent of cloud agents)."""
-    account_id = str(session.get("account_id") or "")
-    if not account_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account session required")
-    return {"credentials": _gateway_credentials_payload(request=request, account_id=account_id)}
-
-
-@router.post("/my-gateway-credentials/issue")
-async def issue_my_gateway_credentials(request: Request, session: dict = Depends(require_console_session)):
-    """Issue or rotate the employee local-deploy API key for the logged-in account."""
-    account_id = str(session.get("account_id") or "")
-    if not account_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account session required")
-    for key in accounts_store.list_api_keys(account_id=account_id, status="active", limit=100):
-        label = str(key.get("label") or "")
-        if label == LOCAL_DEPLOY_KEY_LABEL or label.startswith(f"{LOCAL_DEPLOY_KEY_LABEL}-"):
-            accounts_store.revoke_api_key(str(key.get("key_id") or ""))
-    _record, secret = accounts_store.create_api_key(
-        account_id,
-        label=LOCAL_DEPLOY_KEY_LABEL,
-        scopes=list(EMPLOYEE_GATEWAY_SCOPES),
+    return RedirectResponse(
+        f"{login_url}?staff_token={staff_token}&return={return_to}",
+        status_code=302,
     )
-    return {
-        "credentials": _gateway_credentials_payload(request=request, account_id=account_id, api_key=secret),
-        "warning": "Store this API key now. It will not be shown again.",
-    }
-
-
-@router.get("/my-agents")
-async def my_agents(session: dict = Depends(require_staff_session)):
-    """Return agents bound to the currently logged-in staff account."""
-    account_id = session.get("account_id", "")
-    ag_list = agents_store.list_account_agents(account_id)
-    return {
-        "agents": ag_list,
-        "account_id": account_id,
-        "account_name": session.get("account_name", ""),
-    }

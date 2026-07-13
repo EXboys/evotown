@@ -6,7 +6,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 
-from core.auth import require_console_read, require_console_session
+from core.auth import require_console_read, require_staff_session
 from infra import skill_market
 
 router = APIRouter(prefix="/api/v1/market", tags=["skills-market"])
@@ -60,7 +60,7 @@ async def get_market_bundle_manifest(
     bundle_id: str,
     channel: str = "stable",
     runtime_target: str | None = None,
-    session: dict = Depends(require_console_session),
+    session: dict = Depends(require_staff_session),
 ):
     manifest = skill_market.get_bundle_manifest(
         bundle_id,

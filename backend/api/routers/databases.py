@@ -6,7 +6,7 @@ import os
 from fastapi import APIRouter, Depends, HTTPException, Security, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 
-from core.auth import has_console_write, require_admin, require_console_read, session_from_api_key
+from core.auth import has_console_write, require_admin, require_console_read, session_from_api_key_for_mcp
 from domain.models import (
     DatabaseAccessGrantCreate,
     DatabaseConnectionCreate,
@@ -34,7 +34,7 @@ async def require_mcp_or_admin(
         token = credentials.credentials.strip()
         if service and token == service:
             return
-        session = session_from_api_key(token)
+        session = session_from_api_key_for_mcp(token)
         if session is not None and has_console_write(session.get("scopes") or []):
             return
     admin_token = os.environ.get("ADMIN_TOKEN", "").strip()
@@ -83,7 +83,7 @@ async def mcp_database_catalog(
     """Runtime / skill MCP layer: list databases the caller may use (no credentials)."""
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="bearer API key required")
-    session = session_from_api_key(credentials.credentials)
+    session = session_from_api_key_for_mcp(credentials.credentials)
     if session is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invalid API key")
     return {"connections": database_registry.list_accessible_connections(session)}

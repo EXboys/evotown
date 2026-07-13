@@ -15,6 +15,7 @@ type SkillRecord = {
   test_runs?: TestRun[];
   pending_version?: { version_id: number; version: string; status: string; submitted_by_agent_id?: string; submitted_by_account?: string; submitted_at?: string } | null;
   latest_version?: { version_id: number; version: string; status: string } | null;
+  required_skills?: Array<{ skill_id: string; name: string; version: string }>;
 };
 
 type SkillCandidate = { candidate_id: string; name: string; description?: string; status: string; runtime_target: string; };
@@ -427,6 +428,19 @@ function DetailDrawer({ skill, onClose, onTest, onReview }: { skill: SkillRecord
           {detailTab === "content" && (
             <div className="space-y-3 text-xs text-slate-600">
               <dl className="space-y-1"><div className="flex gap-2"><dt className="text-slate-400 w-20 shrink-0">技能ID</dt><dd className="font-mono">{skill.skill_id}</dd></div><div className="flex gap-2"><dt className="text-slate-400 w-20 shrink-0">版本</dt><dd>{skill.version}</dd></div><div className="flex gap-2"><dt className="text-slate-400 w-20 shrink-0">创建</dt><dd>{skill.created_at ? formatDateTimeShort(skill.created_at) : "—"}</dd></div></dl>
+              {(skill.required_skills || []).length > 0 && (
+                <div>
+                  <dt className="text-slate-400 text-xs mb-1">依赖技能</dt>
+                  <dd className="flex flex-wrap gap-1">
+                    {(skill.required_skills || []).map((dep) => (
+                      <span key={dep.skill_id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-50 border border-indigo-100 text-[10px] text-indigo-700" title={dep.skill_id}>
+                        {dep.name}
+                        {dep.version && <span className="text-indigo-400">v{dep.version}</span>}
+                      </span>
+                    ))}
+                  </dd>
+                </div>
+              )}
             </div>
           )}
           {detailTab === "versions" && (
@@ -705,8 +719,14 @@ function DeployModalV2({
         </div>
 
         {message && (
-          <div className="px-5 py-2 border-t border-slate-100 shrink-0">
-            <pre className="text-xs text-slate-600 whitespace-pre-wrap">{message}</pre>
+          <div className={`px-5 py-3 border-t shrink-0 text-sm font-medium whitespace-pre-wrap ${
+            message.includes("失败") || message.includes("请求失败")
+              ? "bg-red-50 text-red-700 border-red-100"
+              : message.includes("已下发")
+                ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                : "bg-amber-50 text-amber-700 border-amber-100"
+          }`}>
+            {message}
           </div>
         )}
 
@@ -774,8 +794,14 @@ function UndeployModal({
         </div>
 
         {message && (
-          <div className="px-5 py-2 border-t border-slate-100 shrink-0">
-            <pre className="text-xs text-slate-600 whitespace-pre-wrap">{message}</pre>
+          <div className={`px-5 py-3 border-t shrink-0 text-sm font-medium whitespace-pre-wrap ${
+            message.includes("失败") || message.includes("请求失败")
+              ? "bg-red-50 text-red-700 border-red-100"
+              : message.includes("已取消")
+                ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                : "bg-amber-50 text-amber-700 border-amber-100"
+          }`}>
+            {message}
           </div>
         )}
 

@@ -223,7 +223,43 @@ async def get_skill_detail(skill_id: str):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="skill not found")
         skill["versions"] = skill_market.list_skill_versions(skill_id)
     skill["test_runs"] = skill_market.get_skill_test_runs(skill_id)
+
+    # Resolve requires_skills from latest version into {skill_id, name, version} list
+    skill["required_skills"] = _resolve_required_skills(skill)
+
     return {"skill": skill}
+
+
+def _resolve_required_skills(skill: dict) -> list[dict]:
+    """Extract requires_skills from latest version and resolve skill names."""
+    latest = skill_market.get_latest_skill_version(skill["skill_id"])
+    if not latest:
+        return []
+    deps_raw = latest.get("requires_skills", "[]")
+    if isinstance(deps_raw, str):
+        import json as _json
+        try:
+            dep_ids = _json.loads(deps_raw)
+        except Exception:
+            return []
+    elif isinstance(deps_raw, list):
+        dep_ids = deps_raw
+    else:
+        return []
+    if not dep_ids:
+        return []
+    result = []
+    for dep_id in dep_ids:
+        dep_id = dep_id.strip()
+        if not dep_id:
+            continue
+        dep_skill = skill_market.get_skill(dep_id)
+        result.append({
+            "skill_id": dep_id,
+            "name": dep_skill.get("name", dep_id) if dep_skill else dep_id,
+            "version": dep_skill.get("version", "") if dep_skill else "",
+        })
+    return result
 
 
 class SkillTestBody(_BaseModel):

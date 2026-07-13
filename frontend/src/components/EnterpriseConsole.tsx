@@ -508,9 +508,9 @@ export function EnterpriseConsole({
       navigate(STAFF_EMPLOYEE_HOME, { replace: true });
       return;
     }
-    adminFetch("/api/v1/auth/me")
-      .then((r) => r.ok ? r.json() as Promise<{ session?: { account_name?: string } }> : null)
-      .then((data) => setSessionName(data?.session?.account_name || ""))
+    adminFetch("/api/v1/auth/staff-me")
+      .then((r) => r.ok ? r.json() as Promise<{ account?: { account_name?: string } }> : null)
+      .then((data) => setSessionName(data?.account?.account_name || ""))
       .catch(() => setSessionName(""));
   }, [navigate, staffEmployee, initialTab]);
 

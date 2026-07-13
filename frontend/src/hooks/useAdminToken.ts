@@ -1,53 +1,12 @@
 /**
- * Console authentication via account API keys (evk_…).
+ * Console authentication via staff session token (account + password login).
  *
- * Legacy X-Admin-Token is still supported when explicitly stored for bootstrap.
- * No browser prompt — unauthenticated users are redirected to /login.
+ * No API key login — all users must use account + password.
+ * Unauthenticated users are redirected to /login.
  */
 
-const SESSION_KEY = "evotown_console_api_key";
-const LEGACY_ADMIN_KEY = "evotown_admin_token";
 const STAFF_TOKEN_KEY = "evotown_staff_token";
-
-export function getConsoleApiKey(): string {
-  if (typeof window === "undefined") return "";
-  return sessionStorage.getItem(SESSION_KEY)?.trim() ?? "";
-}
-
-export function setConsoleApiKey(key: string): void {
-  if (typeof window === "undefined") return;
-  const trimmed = key.trim();
-  if (trimmed) {
-    sessionStorage.setItem(SESSION_KEY, trimmed);
-  } else {
-    sessionStorage.removeItem(SESSION_KEY);
-  }
-}
-
-export function clearConsoleApiKey(): void {
-  if (typeof window === "undefined") return;
-  sessionStorage.removeItem(SESSION_KEY);
-}
-
-export function getAdminToken(): string {
-  if (typeof window === "undefined") return "";
-  return sessionStorage.getItem(LEGACY_ADMIN_KEY)?.trim() ?? "";
-}
-
-export function setAdminToken(token: string): void {
-  if (typeof window === "undefined") return;
-  const trimmed = token.trim();
-  if (trimmed) {
-    sessionStorage.setItem(LEGACY_ADMIN_KEY, trimmed);
-  } else {
-    sessionStorage.removeItem(LEGACY_ADMIN_KEY);
-  }
-}
-
-export function clearAdminToken(): void {
-  if (typeof window === "undefined") return;
-  sessionStorage.removeItem(LEGACY_ADMIN_KEY);
-}
+const STAFF_ROLE_KEY = "evotown_staff_role";
 
 // ── Staff session token (account + password login) ──────────────────
 
@@ -65,8 +24,6 @@ export function setStaffToken(token: string): void {
     sessionStorage.removeItem(STAFF_TOKEN_KEY);
   }
 }
-
-const STAFF_ROLE_KEY = "evotown_staff_role";
 
 export function getStaffRole(): string {
   if (typeof window === "undefined") return "";
@@ -86,19 +43,14 @@ export function isAdmin(): boolean {
   return getStaffRole() === "admin";
 }
 
-/** Staff 账号密码登录且角色为员工（非 API Key / ADMIN_TOKEN 管理员）。 */
+/** Staff 账号密码登录且角色为员工。 */
 export function isStaffEmployee(): boolean {
-  return Boolean(getStaffToken()) && !isAdmin() && !getAdminToken();
+  return Boolean(getStaffToken()) && !isAdmin();
 }
 
 /** 是否应展示企业后台入口（导航、页内链接等）。 */
 export function canAccessAdminConsole(): boolean {
-  if (getAdminToken()) return true;
-  if (isStaffEmployee()) return false;
-  if (isAdmin()) return true;
-  // API Key 登录（非 staff session）— 控制台登录通常带 write scope
-  if (getConsoleApiKey() && !getStaffToken()) return true;
-  return false;
+  return isAdmin();
 }
 
 export function clearStaffToken(): void {
@@ -107,14 +59,12 @@ export function clearStaffToken(): void {
 }
 
 export function clearConsoleSession(): void {
-  clearConsoleApiKey();
-  clearAdminToken();
   clearStaffToken();
   setStaffRole("");
 }
 
 export function isConsoleAuthenticated(): boolean {
-  return Boolean(getConsoleApiKey() || getAdminToken() || getStaffToken());
+  return Boolean(getStaffToken());
 }
 
 export function authHeaders(): HeadersInit {
@@ -122,12 +72,7 @@ export function authHeaders(): HeadersInit {
   if (staffToken) {
     return { Authorization: `Bearer ${staffToken}` };
   }
-  const apiKey = getConsoleApiKey();
-  if (apiKey) {
-    return { Authorization: `Bearer ${apiKey}` };
-  }
-  const adminToken = getAdminToken();
-  return adminToken ? { "X-Admin-Token": adminToken } : {};
+  return {};
 }
 
 function redirectToLogin(): void {
@@ -139,17 +84,15 @@ function redirectToLogin(): void {
 
 /**
  * Fetch wrapper for console/admin APIs.
- * Uses Bearer evk_ key when signed in; falls back to legacy admin token if set.
+ * Uses Bearer staff session token when signed in.
  */
 export async function adminFetch(
   url: string,
   init: RequestInit = {},
 ): Promise<Response> {
   const staffToken = getStaffToken();
-  const apiKey = getConsoleApiKey();
-  const adminToken = getAdminToken();
 
-  if (!staffToken && !apiKey && !adminToken) {
+  if (!staffToken) {
     redirectToLogin();
     return new Response(JSON.stringify({ detail: "Not authenticated" }), {
       status: 401,
@@ -158,20 +101,14 @@ export async function adminFetch(
   }
 
   const headers = new Headers(init.headers);
-  if (staffToken) {
-    headers.set("Authorization", `Bearer ${staffToken}`);
-  } else if (apiKey) {
-    headers.set("Authorization", `Bearer ${apiKey}`);
-  } else if (adminToken) {
-    headers.set("X-Admin-Token", adminToken);
-  }
+  headers.set("Authorization", `Bearer ${staffToken}`);
   if (init.body && !headers.has("Content-Type") && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
 
   const res = await fetch(url, { ...init, headers });
 
-  // 403 = 已认证但权限不足（如仅有 console.read）；勿清 session，避免登录后闪回 /login
+  // 401 = session expired
   if (res.status === 401) {
     clearConsoleSession();
     redirectToLogin();

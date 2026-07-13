@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
-import { adminFetch, getConsoleApiKey, getAdminToken } from "../../hooks/useAdminToken";
+import { adminFetch, getStaffToken } from "../../hooks/useAdminToken";
 import type { GatewayModelRoute } from "../GatewayModelRoutesPanel";
 
 type ChatResult = {
@@ -16,7 +16,7 @@ type ChatResult = {
 };
 
 function gatewayBearer(): string {
-  return getConsoleApiKey() || getAdminToken();
+  return getStaffToken();
 }
 
 async function gatewayChatFetch(body: Record<string, unknown>): Promise<{ res: Response; latencyMs: number }> {

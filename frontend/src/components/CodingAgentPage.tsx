@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { adminFetch, getAdminToken } from "../hooks/useAdminToken";
+import { adminFetch, isAdmin } from "../hooks/useAdminToken";
 import { formatDateTimeShort } from "../lib/datetime";
 import type { Locale } from "../lib/i18n";
 import { GatewayDrawer } from "./gateway/GatewayDrawer";
@@ -162,7 +162,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialAgentId?: s
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"active" | "archived">("active");
 
-  const [viewer, setViewer] = useState<Viewer>({ is_admin: Boolean(getAdminToken()), account_id: "" });
+  const [viewer, setViewer] = useState<Viewer>({ is_admin: isAdmin(), account_id: "" });
 
   const [editing, setEditing] = useState<Agent | null>(null);
   const [editName, setEditName] = useState("");
@@ -173,7 +173,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialAgentId?: s
   const [editMembers, setEditMembers] = useState<Array<{ account_id: string; account_name?: string; login_name?: string; role: string; bound_at: string }>>([]);
   const [pageMode, setPageMode] = useState<"cloud" | "local">("cloud");
 
-  const isAdmin = viewer.is_admin || Boolean(getAdminToken());
+  const isAdminLocal = viewer.is_admin || isAdmin();
 
   const runsByAgent = useMemo(() => {
     const map = new Map<string, AgentRun[]>();
@@ -282,7 +282,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialAgentId?: s
     if (!editing) return;
     const payload: Record<string, unknown> = {};
     if (editName.trim() && editName.trim() !== editing.name) payload.name = editName.trim();
-    if (isAdmin) {
+    if (isAdminLocal) {
       const quota = Number(editQuota);
       if (Number.isFinite(quota) && quota >= 0 && quota !== (editing.storage_quota_mb ?? 0)) {
         payload.storage_quota_mb = quota;
@@ -497,7 +497,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialAgentId?: s
               }}
               className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
-            {isAdmin && tab !== "employee" && (
+            {isAdminLocal && tab !== "employee" && (
               <>
                 <label className="mt-4 block text-sm font-medium text-slate-700">身份模板</label>
                 <select
@@ -516,7 +516,7 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialAgentId?: s
                 </select>
                 <p className="mt-1 text-xs text-slate-400">选择模板后自动初始化智能体身份信息，创建后不可更改</p>
               </>)}
-            {isAdmin && (
+            {isAdminLocal && (
               <>
                 <label className="mt-4 block text-sm font-medium text-slate-700">模型策略</label>
                 <div className="mt-2 flex gap-3">
@@ -615,15 +615,15 @@ export function CodingAgentPage({ locale }: { locale: Locale; initialAgentId?: s
               type="number"
               min={0}
               value={editQuota}
-              disabled={!isAdmin}
+              disabled={!isAdminLocal}
               onChange={(event) => setEditQuota(event.target.value)}
               className={`mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 ${
-                isAdmin ? "" : "cursor-not-allowed bg-slate-50 text-slate-500"
+                isAdminLocal ? "" : "cursor-not-allowed bg-slate-50 text-slate-500"
               }`}
             />
             <p className="mt-1 text-xs text-slate-400">{copy.quotaHint}</p>
 
-            {isAdmin && (
+            {isAdminLocal && (
               <>
                 <label className="mt-4 block text-sm font-medium text-slate-700">模型策略</label>
                 <div className="mt-2 flex gap-3">

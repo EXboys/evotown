@@ -83,7 +83,11 @@ const AGENT_NAV_ITEM: NavItem = {
 
 function navItemsForUser(signedIn: boolean, adminUser: boolean): NavItem[] {
   if (adminUser) {
-    return [...BASE_NAV_ITEMS, ADMIN_NAV_ITEM];
+    return [...BASE_NAV_ITEMS, AGENT_NAV_ITEM, ADMIN_NAV_ITEM];
+  }
+  if (signedIn) {
+    // Employee: show agent workspace entry
+    return [...BASE_NAV_ITEMS, AGENT_NAV_ITEM];
   }
   return BASE_NAV_ITEMS;
 }

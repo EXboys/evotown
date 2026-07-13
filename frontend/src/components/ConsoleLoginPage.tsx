@@ -1,23 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
-import { getStaffRole, isConsoleAuthenticated, setConsoleApiKey, setStaffRole, setStaffToken } from "../hooks/useAdminToken";
+import { getStaffRole, setStaffRole, setStaffToken } from "../hooks/useAdminToken";
 import { resolveStaffPostLoginPath } from "../lib/staffRoutes";
 import { useSystemConfig } from "../hooks/useSystemConfig";
 
-type RegistrationStatus = {
-  public_registration_allowed?: boolean;
-  account_count?: number;
-  oidc?: { enabled?: boolean };
-};
-
-type SessionInfo = {
-  account_id: string;
-  account_name: string;
-  org_id?: string;
-  key_label?: string;
-  scopes?: string[];
-};
+type OidcConfig = { enabled?: boolean };
 
 function formatApiDetail(detail: unknown, fallback: string): string {
   if (typeof detail === "string" && detail.trim()) return detail;
@@ -45,99 +33,45 @@ export function ConsoleLoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const returnTo = searchParams.get("return") || "/";
-  const [mode, setMode] = useState<"login" | "staff" | "register">("staff");
-  const [apiKey, setApiKey] = useState("");
   const [loginName, setLoginName] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [registerForm, setRegisterForm] = useState({ name: "", owner_email: "", org_id: "" });
-  const [registrationAllowed, setRegistrationAllowed] = useState(true);
   const sysConfig = useSystemConfig();
   const brand = sysConfig.brand_name || "Evotown";
   const [oidcEnabled, setOidcEnabled] = useState(false);
-  const [createdKey, setCreatedKey] = useState<string | null>(null);
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // Handle OIDC staff_token from SSO callback
   useEffect(() => {
-    if (isConsoleAuthenticated()) {
-      navigate(resolveStaffPostLoginPath(getStaffRole(), returnTo), { replace: true });
-      return;
+    const staffToken = searchParams.get("staff_token");
+    if (staffToken) {
+      // Fetch staff info to get role
+      fetch("/api/v1/auth/staff-me", {
+        headers: { Authorization: `Bearer ${staffToken}` },
+      })
+        .then(async (r) => {
+          const data = await r.json() as { account?: { role?: string } };
+          if (r.ok && data.account) {
+            const role = data.account.role ?? "";
+            setStaffToken(staffToken);
+            setStaffRole(role);
+            navigate(returnTo, { replace: true });
+          }
+        })
+        .catch(() => {
+          setError("SSO 登录失败，请重试。");
+        });
     }
-    fetch("/api/v1/auth/registration-status")
-      .then((r) => r.json() as Promise<RegistrationStatus>)
+  }, [searchParams, navigate, returnTo]);
+
+  useEffect(() => {
+    fetch("/api/v1/auth/oidc/status")
+      .then((r) => r.json() as Promise<OidcConfig>)
       .then((data) => {
-        setRegistrationAllowed(Boolean(data.public_registration_allowed));
-        setOidcEnabled(Boolean(data.oidc?.enabled));
+        setOidcEnabled(Boolean(data.enabled));
       })
-      .catch(() => setRegistrationAllowed(true));
-  }, [navigate, returnTo]);
-
-  useEffect(() => {
-    const oidcCode = searchParams.get("oidc_code");
-    if (!oidcCode) return;
-    let cancelled = false;
-    setBusy(true);
-    setError("");
-    fetch("/api/v1/auth/oidc/exchange", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: oidcCode }),
-    })
-      .then(async (res) => {
-        const data = await res.json() as { api_key?: string; session?: SessionInfo; detail?: string };
-        if (!res.ok) {
-          throw new Error(formatApiDetail(data.detail, `SSO 登录失败 (${res.status})`));
-        }
-        if (!data.api_key) {
-          throw new Error("SSO 未返回 API Key");
-        }
-        if (!cancelled) {
-          finishLogin(data.api_key, data.session);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "SSO 登录失败");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setBusy(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
-
-  const finishLogin = (key: string, session?: SessionInfo) => {
-    setConsoleApiKey(key);
-    setMessage(session ? `已登录：${session.account_name}` : "已登录");
-    navigate(returnTo, { replace: true });
-  };
-
-  const submitLogin = async (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    setMessage("");
-    try {
-      const res = await fetch("/api/v1/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ api_key: apiKey.trim() }),
-      });
-      const data = await res.json() as { session?: SessionInfo; detail?: unknown };
-      if (!res.ok) {
-        throw new Error(formatApiDetail(data.detail, `登录失败 (${res.status})`));
-      }
-      finishLogin(apiKey.trim(), data.session);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "登录失败");
-    } finally {
-      setBusy(false);
-    }
-  };
+      .catch(() => {});
+  }, []);
 
   const submitStaffLogin = async (event: FormEvent) => {
     event.preventDefault();
@@ -147,7 +81,6 @@ export function ConsoleLoginPage() {
     }
     setBusy(true);
     setError("");
-    setMessage("");
     try {
       const res = await fetch("/api/v1/auth/staff-login", {
         method: "POST",
@@ -168,7 +101,6 @@ export function ConsoleLoginPage() {
       const role = data.account?.role ?? "";
       setStaffToken(data.session_token);
       setStaffRole(role);
-      setMessage(`已登录：${data.account?.name ?? loginName}`);
       navigate(resolveStaffPostLoginPath(role, returnTo), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "登录失败");
@@ -177,206 +109,79 @@ export function ConsoleLoginPage() {
     }
   };
 
-  const submitRegister = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!registerForm.name.trim()) {
-      setError("请填写账号名称。");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    setMessage("");
-    try {
-      const res = await fetch("/api/v1/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(registerForm),
-      });
-      const data = await res.json() as {
-        api_key?: string;
-        account?: { name?: string };
-        detail?: string;
-      };
-      if (!res.ok) {
-        throw new Error(formatApiDetail(data.detail, `注册失败 (${res.status})`));
-      }
-      if (!data.api_key) {
-        throw new Error("注册成功但未返回 API Key。");
-      }
-      setCreatedKey(data.api_key);
-      setApiKey(data.api_key);
-      setMessage(`账号「${data.account?.name ?? registerForm.name}」已创建。请保存下方 API Key 并继续登录。`);
-      setMode("login");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "注册失败");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-slate-950 px-4 py-10 text-slate-100">
-      <div className="mx-auto max-w-lg">
+    <div className="min-h-screen bg-slate-50 px-4 py-10 text-slate-900">
+      <div className="mx-auto max-w-sm">
         <div className="mb-8 text-center">
-          <p className="text-sm uppercase tracking-[0.2em] text-slate-500">{brand} Console</p>
-          <h1 className="mt-2 text-3xl font-semibold text-white">企业控制台登录</h1>
-          <p className="mt-2 text-sm text-slate-400">
-            {mode === "staff" && "使用账号和密码登录。员工账号登录后进入智能体工作台。"}
-            {mode === "login" && "使用账号 API Key（evk_…）登录。"}
-            {mode === "register" && "注册新账号（需管理员开启）。"}
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{brand}</p>
+          <h1 className="mt-3 text-2xl font-semibold text-slate-950">员工登录</h1>
+          <p className="mt-2 text-sm text-slate-500">使用企业账号和密码登录智能体工作台</p>
         </div>
 
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-xl">
-          <div className="mb-6 flex rounded-xl bg-slate-950 p-1">
-            <button
-              type="button"
-              onClick={() => setMode("staff")}
-              className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium ${mode === "staff" ? "bg-white text-slate-950" : "text-slate-400 hover:text-white"}`}
-            >
-              账号密码
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("login")}
-              className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium ${mode === "login" ? "bg-white text-slate-950" : "text-slate-400 hover:text-white"}`}
-            >
-              API Key
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("register")}
-              disabled={!registrationAllowed}
-              className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium ${mode === "register" ? "bg-white text-slate-950" : "text-slate-400 hover:text-white"} disabled:cursor-not-allowed disabled:opacity-40`}
-            >
-              注册账号
-            </button>
-          </div>
-
-          {message && <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">{message}</div>}
-          {error && <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
-
-          {mode === "staff" && (
-            <form onSubmit={submitStaffLogin} className="space-y-4">
-              {oidcEnabled && (
-                <a
-                  href={`/api/v1/auth/oidc/start?return_to=${encodeURIComponent(returnTo)}`}
-                  className="flex w-full items-center justify-center rounded-lg border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700"
-                >
-                  企业 SSO 登录
-                </a>
-              )}
-              <label className="block text-sm">
-                <span className="mb-2 block font-medium text-slate-300">登录名</span>
-                <input
-                  type="text"
-                  value={loginName}
-                  onChange={(e) => setLoginName(e.target.value)}
-                  placeholder="admin"
-                  autoComplete="username"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-2 block font-medium text-slate-300">密码</span>
-                <input
-                  type="password"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  placeholder="密码"
-                  autoComplete="current-password"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
-                />
-              </label>
-              <button
-                type="submit"
-                disabled={busy || !loginName.trim() || !loginPassword}
-                className="w-full rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-slate-100 disabled:opacity-50"
-              >
-                {busy ? "登录中..." : "登录"}
-              </button>
-            </form>
-          )}
-
-          {mode === "login" ? (
-            <form onSubmit={submitLogin} className="space-y-4">
-              {oidcEnabled && (
-                <a
-                  href={`/api/v1/auth/oidc/start?return_to=${encodeURIComponent(returnTo)}`}
-                  className="flex w-full items-center justify-center rounded-lg border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700"
-                >
-                  企业 SSO 登录
-                </a>
-              )}
-              {oidcEnabled && (
-                <div className="relative text-center text-xs text-slate-500">
-                  <span className="bg-slate-900 px-2">或使用 API Key</span>
-                </div>
-              )}
-              <label className="block text-sm">
-                <span className="mb-2 block font-medium text-slate-300">API Key</span>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="evk_xxxxxxxxxxxxxxxx"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-sm text-white"
-                />
-              </label>
-              <button
-                type="submit"
-                disabled={busy || !apiKey.trim()}
-                className="w-full rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-slate-100 disabled:opacity-50"
-              >
-                {busy ? "登录中..." : "登录"}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={submitRegister} className="space-y-4">
-              {!registrationAllowed && (
-                <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
-                  公开注册已关闭，请联系管理员在账号页为你创建账号并签发 API Key。
-                </p>
-              )}
-              <input
-                value={registerForm.name}
-                onChange={(e) => setRegisterForm({ ...registerForm, name: e.target.value })}
-                placeholder="账号名称 *"
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
-              />
-              <input
-                value={registerForm.owner_email}
-                onChange={(e) => setRegisterForm({ ...registerForm, owner_email: e.target.value })}
-                placeholder="邮箱（可选）"
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
-              />
-              <input
-                value={registerForm.org_id}
-                onChange={(e) => setRegisterForm({ ...registerForm, org_id: e.target.value })}
-                placeholder="组织 ID（可选）"
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
-              />
-              <button
-                type="submit"
-                disabled={busy || !registrationAllowed}
-                className="w-full rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-slate-100 disabled:opacity-50"
-              >
-                {busy ? "注册中..." : "注册并获取 API Key"}
-              </button>
-            </form>
-          )}
-
-          {createdKey && (
-            <div className="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-              <p className="text-sm font-medium text-amber-100">请立即保存 API Key（只显示一次）</p>
-              <div className="mt-2 break-all rounded-lg bg-slate-950 p-3 font-mono text-xs text-amber-50">{createdKey}</div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          {error && (
+            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {error}
             </div>
           )}
+
+          {oidcEnabled && (
+            <>
+              <a
+                href={`/api/v1/auth/oidc/start?return_to=${encodeURIComponent(returnTo)}`}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="11" width="18" height="11" rx="2" />
+                  <path d="M7 11V7a5 5 0 0110 0v4" />
+                </svg>
+                企业 SSO 登录
+              </a>
+              <div className="my-5 flex items-center gap-3 text-xs text-slate-400">
+                <span className="h-px flex-1 bg-slate-200" />
+                或使用账号密码
+                <span className="h-px flex-1 bg-slate-200" />
+              </div>
+            </>
+          )}
+
+          <form onSubmit={submitStaffLogin} className="space-y-4">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">登录名</span>
+              <input
+                type="text"
+                value={loginName}
+                onChange={(e) => setLoginName(e.target.value)}
+                placeholder="admin"
+                autoComplete="username"
+                className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:outline-none focus:ring-3 focus:ring-indigo-100"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">密码</span>
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                placeholder="密码"
+                autoComplete="current-password"
+                className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:outline-none focus:ring-3 focus:ring-indigo-100"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={busy || !loginName.trim() || !loginPassword}
+              className="w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 transition disabled:opacity-40"
+            >
+              {busy ? "登录中..." : "登 录"}
+            </button>
+          </form>
         </div>
 
-        <div className="mt-6 flex items-center justify-between text-sm text-slate-500">
-          <Link to="/" className="hover:text-slate-300">首页</Link>
-          <Link to="/arena" className="hover:text-slate-300">协作地图</Link>
+        <div className="mt-6 text-center text-sm">
+          <Link to="/" className="text-slate-500 hover:text-slate-700 transition">
+            ← 返回首页
+          </Link>
         </div>
       </div>
     </div>

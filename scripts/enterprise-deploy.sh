@@ -4,6 +4,7 @@
 # 用法（在 evotown 仓库根目录）：
 #   ./scripts/enterprise-deploy.sh
 #   EVOTOWN_PUBLIC_URL=https://evotown.company.internal ./scripts/enterprise-deploy.sh
+#   ./scripts/enterprise-deploy.sh --check   # 生产巡检（health / gateway / SQLite）
 #
 set -euo pipefail
 
@@ -151,6 +152,108 @@ wait_for_health() {
   die "超时：$base/health 不可达。请检查 docker compose logs backend frontend"
 }
 
+check_backend_health() {
+  local base="${PUBLIC_URL%/}"
+  local body
+  body="$(curl -fsS "$base/health")" || return 1
+  python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("status")=="ok"' <<<"$body"
+}
+
+check_gateway_health() {
+  local base="${PUBLIC_URL%/}"
+  local body
+  body="$(curl -fsS "$base/api/gateway/v1/health")" || return 1
+  python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("status")=="ok"' <<<"$body"
+}
+
+check_data_writable() {
+  docker compose exec -T backend python3 <<'PY'
+import os
+import sqlite3
+from pathlib import Path
+
+data = Path(os.environ.get("EVOTOWN_DATA_DIR", "/app/data"))
+data.mkdir(parents=True, exist_ok=True)
+probe = data / ".healthcheck_write_probe"
+probe.write_text("ok", encoding="utf-8")
+probe.unlink()
+
+db = data / "gateway.db"
+if db.exists():
+    conn = sqlite3.connect(str(db))
+    conn.execute("SELECT 1")
+    conn.close()
+    print(f"gateway.db ok ({db})")
+else:
+    test_db = data / ".healthcheck_sqlite_probe"
+    conn = sqlite3.connect(str(test_db))
+    conn.execute("CREATE TABLE IF NOT EXISTS t (x INT)")
+    conn.execute("INSERT INTO t VALUES (1)")
+    conn.close()
+    test_db.unlink()
+    print(f"sqlite write ok ({data}; gateway.db not yet created)")
+
+print(f"data dir writable: {data}")
+PY
+}
+
+check_docker_backend_healthy() {
+  local status
+  status="$(docker compose ps backend --format '{{.Health}}' 2>/dev/null | head -1)"
+  [[ "$status" == "healthy" ]]
+}
+
+run_ops_health_check() {
+  local base="${PUBLIC_URL%/}"
+  local failed=0
+
+  log "Evotown 生产巡检：$base"
+  log "文档：docs/zh-CN/ENTERPRISE_DEPLOY_RUNBOOK.md"
+
+  if ! docker compose ps --status running 2>/dev/null | grep -qE '(^| )backend( |$)'; then
+    die "backend 容器未运行。请先：docker compose --profile litellm up -d"
+  fi
+
+  log "[1/4] Backend GET /health"
+  if check_backend_health; then
+    log "  OK"
+  else
+    log "  FAIL"
+    failed=1
+  fi
+
+  log "[2/4] Gateway GET /api/gateway/v1/health"
+  if check_gateway_health; then
+    local litellm_ok
+    litellm_ok="$(curl -fsS "$base/api/gateway/v1/health" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("litellm_configured"))')"
+    log "  OK (litellm_configured=${litellm_ok})"
+  else
+    log "  FAIL"
+    failed=1
+  fi
+
+  log "[3/4] SQLite 数据目录 /app/data 可写"
+  if check_data_writable; then
+    log "  OK"
+  else
+    log "  FAIL"
+    failed=1
+  fi
+
+  log "[4/4] Docker backend healthcheck"
+  if check_docker_backend_healthy; then
+    log "  OK"
+  else
+    log "  FAIL (expected healthy; got: $(docker compose ps backend --format '{{.Health}}' 2>/dev/null | head -1 || echo unknown))"
+    failed=1
+  fi
+
+  if [[ "$failed" -ne 0 ]]; then
+    die "巡检未通过。请查看 docker compose logs backend frontend litellm"
+  fi
+  log "全部检查通过"
+}
+
 create_employee_key() {
   local base="${PUBLIC_URL%/}"
   local admin="${ADMIN_TOKEN:?ADMIN_TOKEN missing}"
@@ -269,6 +372,18 @@ EOF
 }
 
 main() {
+  if [[ "${1:-}" == "--check" ]]; then
+    [[ -f "$ENV_FILE" ]] || die "缺少 $ENV_FILE，请先运行部署或从模板创建"
+    # shellcheck disable=SC1090
+    set -a
+    # shellcheck source=/dev/null
+    source "$ENV_FILE"
+    set +a
+    PUBLIC_URL="${EVOTOWN_PUBLIC_URL:-$PUBLIC_URL}"
+    run_ops_health_check
+    return 0
+  fi
+
   log "Evotown 企业一键部署（目录：$ROOT）"
   ensure_env
 

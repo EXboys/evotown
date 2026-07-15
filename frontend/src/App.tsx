@@ -57,7 +57,7 @@ function App() {
         <Route path="/gateway" element={<EnterpriseConsole initialTab="gateway" />} />
         <Route path="/accounts" element={<EnterpriseConsole initialTab="accounts" />} />
         <Route path="/engines" element={<EnterpriseConsole initialTab="engines" />} />
-        <Route path="/dispatch" element={<EnterpriseConsole initialTab="dispatch" />} />
+        <Route path="/dispatch" element={<Navigate to="/console/taskboard" replace />} />
         <Route path="/agent" element={<EnterpriseConsole initialTab="coding" />} />
         <Route path="/agent/agents/:agentId" element={<CodingAgentChatPage />} />
         <Route path="/runs" element={<EnterpriseConsole initialTab="runs" />} />
@@ -76,6 +76,7 @@ function App() {
         <Route path="/risk" element={<EnterpriseConsole initialTab="risk" />} />
         <Route path="/console/audit" element={<EnterpriseConsole initialTab="audit" />} />
         <Route path="/console/taskpool" element={<EnterpriseConsole initialTab="taskpool" />} />
+        <Route path="/console/taskboard" element={<EnterpriseConsole initialTab="taskboard" />} />
         <Route path="/arena" element={<ArenaApp />} />
         <Route path="/task-history" element={<TaskHistoryPage />} />
         <Route path="/chronicle" element={<ChronicleBook />} />

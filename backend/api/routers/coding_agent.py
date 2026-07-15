@@ -9,8 +9,9 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 
 from core.auth import check_prompt_injection, require_console_read, validate_soul_content
-from domain.models import AgentShareRequest, ClaudeAgentRunCreate, WorkspaceCreate, WorkspaceProfileUpdate, WorkspaceUpdate
+from domain.models import AgentExternalTriggerRequest, AgentShareRequest, ApiResponse, ClaudeAgentRunCreate, WorkspaceCreate, WorkspaceProfileUpdate, WorkspaceUpdate
 from infra import claude_agent_runs, workspace_files, workspace_profile, workspace_share, workspace_uploads, agents
+from infra import accounts as accounts_store
 from services import claude_code_runner
 
 router = APIRouter(prefix="/api/v1", tags=["agent"])
@@ -24,6 +25,23 @@ def _is_admin(identity: dict | None) -> bool:
 
 def _account_id(identity: dict | None) -> str:
     return str((identity or {}).get("account_id") or "")
+
+
+def _require_api_key(request: Request) -> dict:
+    """验证 Bearer token → account API key，返回 key 记录。"""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="API key无效或缺失")
+    raw_key = auth_header[len("Bearer "):].strip()
+    if not raw_key:
+        raise HTTPException(status_code=401, detail="API key无效或缺失")
+    key = accounts_store.lookup_api_key(raw_key, touch_last_used=True)
+    if key is None:
+        raise HTTPException(status_code=401, detail="API key无效或已过期")
+    scopes: list[str] = key.get("scopes") or []
+    if "agent.run" not in scopes and "*" not in scopes:
+        raise HTTPException(status_code=403, detail="API key缺少 agent.run 权限")
+    return key
 
 
 def _require_identity(identity: dict | None) -> dict:
@@ -91,7 +109,7 @@ async def get_agent_options(
     try:
         from infra import agent_skills, skill_market
 
-        assigned = agent_skills.list_for_agent(agent_id) if agent_id else []
+        assigned = agent_skills.list_for_agent_with_deps(agent_id) if agent_id else []
         for sid in assigned:
             skill = skill_market.get_market_skill(sid)
             if skill:
@@ -483,6 +501,111 @@ async def create_agent_run(agent_id: str, body: ClaudeAgentRunCreate, identity: 
     )
     claude_code_runner.schedule_run(run["run_id"])
     return {"run": run}
+
+
+@router.post("/agents/{agent_id}/trigger")
+async def external_trigger_agent(
+    agent_id: str,
+    body: AgentExternalTriggerRequest,
+    request: Request,
+):
+    # 1. API key 认证
+    key_record: dict | None = None
+    try:
+        key_record = _require_api_key(request)
+    except HTTPException:
+        return {"code": 401, "message": "API key无效或已过期", "data": None}
+
+    account_id = key_record.get("account_id", "")
+
+    # 2. 校验 agent 是否存在
+    agent = agents.get_agent(agent_id)
+    if agent is None:
+        return {"code": 404, "message": "Agent不存在", "data": None}
+
+    # 3. 校验该 account 是否有权访问此 agent
+    if not agents.can_access_agent(agent, {"account_id": account_id}):
+        return {"code": 403, "message": "无权访问该Agent", "data": None}
+
+    # 4. 并发限制
+    max_active = int(os.environ.get("EVOTOWN_CLAUDE_MAX_ACTIVE_RUNS_PER_ACCOUNT", "2") or "2")
+    if max_active > 0 and claude_agent_runs.active_run_count(account_id) >= max_active:
+        return {"code": 429, "message": "当前运行中任务数已达上限", "data": None}
+
+    # 5. 解析 session_id → previous_run_id
+    previous_run_id = ""
+    session_id = body.session_id.strip()
+    if session_id:
+        session_runs = claude_agent_runs.list_runs(
+            agent_id=agent_id,
+            account_id=account_id,
+            limit=100,
+        )
+        run_ids_set = set(claude_agent_runs.session_run_ids(session_runs["runs"], session_id))
+        if run_ids_set:
+            chain = [r for r in session_runs["runs"] if r["run_id"] in run_ids_set]
+            chain.sort(key=lambda r: r.get("created_at", ""))
+            previous_run_id = chain[-1].get("run_id", "") if chain else ""
+        else:
+            session_id = ""
+
+    # 6. 解析 skills / model
+    profile = workspace_profile.get_profile(agent)
+    run_skills = list(body.skills or []) or list(profile.get("default_skills") or [])
+    run_model = claude_code_runner.resolve_run_model(body.model or profile.get("default_model") or "")
+
+    # 7. 标准化 attachments
+    attachment_paths: list[str] = []
+    for raw in (body.attachments or []):
+        rel = str(raw).strip().replace("\\", "/").lstrip("/")
+        if not rel:
+            continue
+        if not rel.startswith("uploads/"):
+            return {"code": 400, "message": f"无效附件路径: {rel}", "data": None}
+        try:
+            target = agents.resolve_agent_path(agent, rel)
+        except ValueError as exc:
+            return {"code": 400, "message": str(exc), "data": None}
+        if not target.is_file():
+            return {"code": 404, "message": f"附件不存在: {rel}", "data": None}
+        attachment_paths.append(rel)
+
+    # 8. 创建 run
+    try:
+        run = claude_agent_runs.create_run(
+            agent_id=agent_id,
+            account_id=account_id,
+            prompt=body.prompt,
+            tenant_id=agent.get("tenant_id", ""),
+            team_id=agent.get("team_id", ""),
+            model=run_model,
+            signals={
+                "workspace_name": agent.get("name", ""),
+                "selected_skills": run_skills,
+                "previous_run_id": previous_run_id,
+                "attachments": attachment_paths,
+                "runtime_engine": str(profile.get("runtime_engine") or "claude").strip().lower(),
+                "source": "external_api",
+            },
+        )
+    except Exception as e:
+        return {"code": 500, "message": f"创建执行任务失败: {str(e)}", "data": None}
+
+    # 9. 调度执行
+    claude_code_runner.schedule_run(run["run_id"])
+
+    # 10. 返回
+    return_session = session_id or run["run_id"]
+    return {
+        "code": 200,
+        "message": "成功",
+        "data": {
+            "run_id": run["run_id"],
+            "session_id": return_session,
+            "status": run.get("status", "queued"),
+            "created_at": run.get("created_at", ""),
+        },
+    }
 
 
 @router.get("/agent-runs")

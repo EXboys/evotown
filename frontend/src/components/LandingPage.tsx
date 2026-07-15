@@ -152,11 +152,11 @@ export function LandingPage() {
       .catch(() => {});
   }, []);
 
-  // 已登录用户加载自己的智能体（工作区）
+  // 已登录用户加载自己的智能体（通过 account-agent 绑定关系）
   useEffect(() => {
     if (!isConsoleAuthenticated()) return;
     setWorkspacesLoading(true);
-    adminFetch("/api/v1/agents?include_all=false&limit=50")
+    adminFetch("/api/v1/auth/my-agents")
       .then((r) => r.json())
       .then((d) => setWorkspaces((d.agents || []) as typeof workspaces))
       .catch(() => setWorkspaces([]))

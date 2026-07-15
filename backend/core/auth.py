@@ -39,15 +39,6 @@ WORKSPACE_SCOPE_WRITE = "workspace.write"
 AGENT_SCOPE_RUN = "agent.run"
 AGENT_SCOPE_ADMIN = "agent.admin"
 TASK_SCOPE_SUBMIT = "task.submit"
-DEFAULT_CONSOLE_KEY_SCOPES = [
-    GATEWAY_SCOPE_CHAT,
-    CONSOLE_SCOPE_READ,
-    CONSOLE_SCOPE_WRITE,
-    WORKSPACE_SCOPE_READ,
-    WORKSPACE_SCOPE_WRITE,
-    AGENT_SCOPE_RUN,
-    TASK_SCOPE_SUBMIT,
-]
 LEGACY_GATEWAY_SCOPES = [GATEWAY_SCOPE_CHAT]
 
 
@@ -83,20 +74,8 @@ def has_task_submit(scopes: list[str]) -> bool:
 
 
 _ALLOWED_TASK_SUBMIT_STAFF_ROLES = frozenset({"admin", "employee"})
-
-
-def session_from_api_key(raw_key: str) -> dict[str, Any] | None:
-    record = accounts_store.lookup_api_key(raw_key, touch_last_used=True)
-    if record is None:
-        return None
-    scopes = _scopes_list(record.get("scopes"))
-    if not has_console_read(scopes):
-        return None
-    return _identity_from_record(record)
-
-
 def session_from_api_key_for_mcp(raw_key: str) -> dict[str, Any] | None:
-    """Like session_from_api_key but also accepts agent.run scope (for agent MCP calls)."""
+    """Validate an API key for agent MCP calls (accepts agent.run or console.read scope)."""
     record = accounts_store.lookup_api_key(raw_key, touch_last_used=True)
     if record is None:
         return None
@@ -158,29 +137,6 @@ async def require_admin(
     )
 
 
-async def require_console_session(
-    credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
-) -> dict[str, Any]:
-    if credentials is None or credentials.scheme.lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing bearer token.",
-        )
-    token = credentials.credentials
-    # Check staff session first
-    staff = get_staff_session(token)
-    if staff is not None:
-        return staff
-    # Fall back to API key
-    session = session_from_api_key(token)
-    if session is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid API key or missing console scope.",
-        )
-    return session
-
-
 async def require_console_read(
     key: str | None = Security(_HEADER_SCHEME),
     credentials: HTTPAuthorizationCredentials | None = Security(_BEARER_SCHEME),
@@ -195,8 +151,14 @@ async def require_console_read(
         staff = get_staff_session(token)
         if staff is not None:
             return staff
+        # Staff session token exists but is expired → 401 to trigger login redirect
+        if accounts_store.staff_session_exists(token):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Staff session expired. Please log in again.",
+            )
         # Fall back to API key
-        session = session_from_api_key(token)
+        session = session_from_api_key_for_mcp(token)
         if session is not None:
             return session
         raise HTTPException(
@@ -293,7 +255,7 @@ async def require_admin_or_ingest(
             return "ingest"
         if engine_ingest_store.lookup_engine_id_for_ingest_token(raw):
             return "ingest"
-        if session_from_api_key(raw) is not None:
+        if session_from_api_key_for_mcp(raw) is not None:
             return "console"
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -676,9 +638,16 @@ async def require_staff_session(
         )
     session = get_staff_session(credentials.credentials)
     if session is None:
+        from infra import accounts as accounts_store
+
+        if accounts_store.staff_session_exists(credentials.credentials):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Staff session expired. Please log in again.",
+            )
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid or expired staff session.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid staff session token.",
         )
     return session
 

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { getConsoleApiKey } from "../../hooks/useAdminToken";
+import { getStaffToken } from "../../hooks/useAdminToken";
 import {
   buildAgentEnv,
   buildGatewayEnv,
@@ -69,7 +69,7 @@ export function EmployeeConfigPanel({
   const [advancedOpen, setAdvancedOpen] = useState(mode === "full" && !compact);
 
   const baseUrl = getEvotownPublicUrl();
-  const sessionKey = getConsoleApiKey();
+  const sessionKey = getStaffToken();
   const apiKey = apiKeyOverride?.trim() || sessionKey;
   const hasEmployeeKey = Boolean(apiKey && apiKey.startsWith("evk_"));
 

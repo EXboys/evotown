@@ -19,9 +19,10 @@ type AccountKeyTableProps = {
   busy: boolean;
   onEdit: (key: GatewayApiKey) => void;
   onRevoke: (keyId: string) => void;
+  onRegenerate: (key: GatewayApiKey) => void;
 };
 
-export function AccountKeyTable({ keys, busy, onEdit, onRevoke }: AccountKeyTableProps) {
+export function AccountKeyTable({ keys, busy, onEdit, onRevoke, onRegenerate }: AccountKeyTableProps) {
   if (!keys.length) {
     return (
       <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center text-sm text-slate-500">
@@ -85,6 +86,14 @@ export function AccountKeyTable({ keys, busy, onEdit, onRevoke }: AccountKeyTabl
                           className="text-xs font-medium text-blue-600 hover:text-blue-800"
                         >
                           编辑
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => onRegenerate(key)}
+                          className="text-xs font-medium text-amber-600 hover:text-amber-800"
+                        >
+                          重新生成
                         </button>
                         <button
                           type="button"

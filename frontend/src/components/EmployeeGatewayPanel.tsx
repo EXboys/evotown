@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { adminFetch, getConsoleApiKey } from "../hooks/useAdminToken";
+import { adminFetch, getStaffToken } from "../hooks/useAdminToken";
 import {
   buildAgentEnvFileContent,
   buildGatewayEnv,
@@ -71,7 +71,7 @@ export function EmployeeGatewayPanel() {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
 
-  const sessionApiKey = getConsoleApiKey();
+  const sessionApiKey = getStaffToken();
 
   const load = useCallback(async () => {
     setLoading(true);

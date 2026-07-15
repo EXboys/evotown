@@ -669,17 +669,41 @@ def save_staff_session(session: dict) -> None:
             session["expires_at"],
         ),
     )
+    # Opportunistic cleanup of stale expired rows
+    _purge_expired_rows_if_needed(conn)
+
+
+def _purge_expired_rows_if_needed(conn: sqlite3.Connection) -> None:
+    """Lazily purge expired sessions roughly every 100 writes."""
+    import time as _time
+    import random as _random
+    if _random.randint(1, 100) == 1:
+        conn.execute("DELETE FROM staff_sessions WHERE expires_at < ?", (_time.time(),))
+
+
+def staff_session_exists(token: str) -> bool:
+    """Check if a staff session token exists in the DB (regardless of expiry)."""
+    conn = _ensure_conn()
+    row = conn.execute("SELECT 1 FROM staff_sessions WHERE token=?", (token,)).fetchone()
+    return row is not None
 
 
 def load_staff_session(token: str) -> dict | None:
+    """Return session dict if valid, None if not found or expired.
+
+    Use is_staff_session_expired() to distinguish the two None cases."""
     conn = _ensure_conn()
     row = conn.execute("SELECT * FROM staff_sessions WHERE token=?", (token,)).fetchone()
     if row is None:
         return None
     import time as _time
     if _time.time() > row["expires_at"]:
-        conn.execute("DELETE FROM staff_sessions WHERE token=?", (token,))
+        # Expired — leave row for is_staff_session_expired() to detect; purged lazily
         return None
+    # Sliding window: extend expiration on each successful validation
+    _ttl = int(os.environ.get("EVOTOWN_STAFF_SESSION_TTL", "86400"))
+    new_expiry = _time.time() + _ttl
+    conn.execute("UPDATE staff_sessions SET expires_at=? WHERE token=?", (new_expiry, token))
     return {
         "account_id": row["account_id"],
         "account_name": row["account_name"],
@@ -687,8 +711,26 @@ def load_staff_session(token: str) -> dict | None:
         "org_id": row["org_id"],
         "role": row["role"],
         "scopes": json.loads(row["scopes"]),
-        "expires_at": row["expires_at"],
+        "expires_at": new_expiry,
     }
+
+
+def is_staff_session_expired(token: str) -> bool:
+    """True if the token exists in staff_sessions but has expired."""
+    conn = _ensure_conn()
+    row = conn.execute("SELECT expires_at FROM staff_sessions WHERE token=?", (token,)).fetchone()
+    if row is None:
+        return False
+    import time as _time
+    return _time.time() > row["expires_at"]
+
+
+def purge_expired_staff_sessions() -> int:
+    """Delete all expired staff session rows. Returns count of deleted rows."""
+    conn = _ensure_conn()
+    import time as _time
+    cursor = conn.execute("DELETE FROM staff_sessions WHERE expires_at < ?", (_time.time(),))
+    return cursor.rowcount
 
 
 def destroy_staff_session(token: str) -> None:

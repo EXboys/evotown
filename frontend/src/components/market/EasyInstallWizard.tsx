@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { getConsoleApiKey } from "../../hooks/useAdminToken";
+import { getStaffToken } from "../../hooks/useAdminToken";
 import {
   buildAgentEnvFileContent,
   buildInstallShellScript,
@@ -88,7 +88,7 @@ export function EasyInstallWizard({ apiKeyOverride, className = "", layout = "si
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const baseUrl = getEvotownPublicUrl();
-  const sessionKey = getConsoleApiKey();
+  const sessionKey = getStaffToken();
   const apiKey = (apiKeyOverride?.trim() || pastedKey.trim() || sessionKey).trim();
   const hasValidKey = apiKey.startsWith("evk_");
 

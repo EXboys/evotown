@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import { GatewayDrawer } from "./gateway/GatewayDrawer";
 import { OrgDrawer } from "./gateway/OrgDrawer";
+import { AccountKeyTable } from "./accounts/AccountKeyTable";
 import { adminFetch } from "../hooks/useAdminToken";
 import {
   fetchGatewayOrgs,
@@ -34,6 +35,28 @@ type WorkspaceInfo = {
 };
 
 type DrawerMode = null | "account-create" | "account-edit";
+
+type KeyRecord = {
+  key_id: string;
+  account_id: string;
+  label: string;
+  key_prefix: string;
+  scopes: string[];
+  status: "active" | "revoked";
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+  monthly_token_limit?: number;
+  monthly_cost_limit_usd?: number;
+};
+
+type KeyForm = {
+  label: string;
+  scopes: string[];
+  expires_at: string;
+  monthly_token_limit: number;
+  monthly_cost_limit_usd: number;
+};
 
 type AccountForm = {
   name: string;
@@ -211,6 +234,21 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
   const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set());
 
+  // API Key management
+  const [accountKeys, setAccountKeys] = useState<KeyRecord[]>([]);
+  const [keysLoading, setKeysLoading] = useState(false);
+  const [keyDrawerOpen, setKeyDrawerOpen] = useState(false);
+  const [editingKey, setEditingKey] = useState<KeyRecord | null>(null);
+  const [newKeySecret, setNewKeySecret] = useState<string | null>(null);
+  const [keyCopied, setKeyCopied] = useState(false);
+  const [keyForm, setKeyForm] = useState<KeyForm>({
+    label: "",
+    scopes: ["agent.run"],
+    expires_at: "",
+    monthly_token_limit: 0,
+    monthly_cost_limit_usd: 0,
+  });
+
   const ROOT_ORG_ID = "org_root";
 
   const loadOrgs = useCallback(async () => {
@@ -258,6 +296,144 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
     }
   }, []);
 
+  const loadAccountKeys = useCallback(async (accountId: string) => {
+    setKeysLoading(true);
+    try {
+      const res = await adminFetch(`/api/v1/accounts/${encodeURIComponent(accountId)}/keys?status_filter=active`);
+      if (res.status === 200) {
+        const data = await res.json();
+        setAccountKeys(data.keys || []);
+      }
+    } catch {
+      setAccountKeys([]);
+    } finally {
+      setKeysLoading(false);
+    }
+  }, []);
+
+  const resetKeyForm = () => {
+    setKeyForm({
+      label: "",
+      scopes: ["agent.run"],
+      expires_at: "",
+      monthly_token_limit: 0,
+      monthly_cost_limit_usd: 0,
+    });
+  };
+
+  const openCreateKeyDrawer = () => {
+    setEditingKey(null);
+    setNewKeySecret(null);
+    resetKeyForm();
+    setKeyDrawerOpen(true);
+  };
+
+  const openEditKeyDrawer = (key: KeyRecord) => {
+    setEditingKey(key);
+    setNewKeySecret(null);
+    setKeyForm({
+      label: key.label || "",
+      scopes: key.scopes || ["agent.run"],
+      expires_at: key.expires_at || "",
+      monthly_token_limit: key.monthly_token_limit || 0,
+      monthly_cost_limit_usd: key.monthly_cost_limit_usd || 0,
+    });
+    setKeyDrawerOpen(true);
+  };
+
+  const handleCreateKey = async () => {
+    if (!selectedAccount) return;
+    setKeysLoading(true);
+    try {
+      const res = await adminFetch(
+        `/api/v1/accounts/${selectedAccount.account_id}/keys`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            label: keyForm.label || undefined,
+            scopes: keyForm.scopes,
+            expires_at: keyForm.expires_at || undefined,
+            monthly_token_limit: keyForm.monthly_token_limit || 0,
+            monthly_cost_limit_usd: keyForm.monthly_cost_limit_usd || 0,
+          }),
+        }
+      );
+      if (res.status === 200) {
+        const data = await res.json();
+        setNewKeySecret(data.secret || null);
+        loadAccountKeys(selectedAccount.account_id);
+      }
+    } finally {
+      setKeysLoading(false);
+    }
+  };
+
+  const handleEditKey = async () => {
+    if (!editingKey) return;
+    setKeysLoading(true);
+    try {
+      const res = await adminFetch(`/api/v1/keys/${editingKey.key_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: keyForm.label || undefined,
+          scopes: keyForm.scopes,
+          expires_at: keyForm.expires_at || undefined,
+          monthly_token_limit: keyForm.monthly_token_limit || 0,
+          monthly_cost_limit_usd: keyForm.monthly_cost_limit_usd || 0,
+        }),
+      });
+      if (res.status === 200) {
+        setKeyDrawerOpen(false);
+        setEditingKey(null);
+        resetKeyForm();
+        if (selectedAccount) loadAccountKeys(selectedAccount.account_id);
+      }
+    } finally {
+      setKeysLoading(false);
+    }
+  };
+
+  const handleRevokeKey = async (keyId: string) => {
+    setKeysLoading(true);
+    try {
+      await adminFetch(`/api/v1/keys/${keyId}/revoke`, { method: "POST" });
+      if (selectedAccount) loadAccountKeys(selectedAccount.account_id);
+    } finally {
+      setKeysLoading(false);
+    }
+  };
+
+  const handleRegenerateKey = async (key: KeyRecord) => {
+    if (!selectedAccount) return;
+    setKeysLoading(true);
+    // 1. revoke old
+    await adminFetch(`/api/v1/keys/${key.key_id}/revoke`, { method: "POST" });
+    // 2. create new with same settings
+    const res = await adminFetch(
+      `/api/v1/accounts/${selectedAccount.account_id}/keys`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: key.label || undefined,
+          scopes: key.scopes || ["agent.run"],
+          expires_at: key.expires_at || undefined,
+          monthly_token_limit: key.monthly_token_limit || 0,
+          monthly_cost_limit_usd: key.monthly_cost_limit_usd || 0,
+        }),
+      }
+    );
+    if (res.status === 200) {
+      const data = await res.json();
+      setNewKeySecret(data.secret || null);
+      setKeyDrawerOpen(true);
+      loadAccountKeys(selectedAccount.account_id);
+    }
+    setKeysLoading(false);
+  };
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -280,13 +456,16 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
     } finally {
       setLoading(false);
     }
-  }, [loadBoundWorkspaces, selectedAccountId]);
+  }, [loadBoundWorkspaces, loadAccountKeys, selectedAccountId]);
 
   useEffect(() => { load(); loadOrgs(); loadAllWorkspaces(); }, []);
 
   useEffect(() => {
-    if (selectedAccountId) loadBoundWorkspaces(selectedAccountId);
-  }, [selectedAccountId, loadBoundWorkspaces]);
+    if (selectedAccountId) {
+      loadBoundWorkspaces(selectedAccountId);
+      loadAccountKeys(selectedAccountId);
+    }
+  }, [selectedAccountId, loadBoundWorkspaces, loadAccountKeys]);
 
   const closeDrawer = () => {
     setDrawer(null);
@@ -841,6 +1020,27 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
                   )}
                 </div>
               </div>
+
+              {/* API Key 管理 */}
+              <div className="border-t border-slate-100 pt-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-slate-900">API Key</h3>
+                  <button type="button" disabled={keysLoading}
+                    onClick={openCreateKeyDrawer}
+                    className="rounded-lg border border-blue-200 px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50">
+                    + 签发 Key
+                  </button>
+                </div>
+                <div className="mt-3">
+                  <AccountKeyTable
+                    keys={accountKeys}
+                    busy={keysLoading}
+                    onEdit={openEditKeyDrawer}
+                    onRevoke={handleRevokeKey}
+                    onRegenerate={handleRegenerateKey}
+                  />
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -959,6 +1159,101 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
             </button>
           </div>
         </form>
+      </GatewayDrawer>
+
+      {/* API Key 签发/编辑 抽屉 */}
+      <GatewayDrawer
+        open={keyDrawerOpen}
+        title={editingKey ? "编辑 API Key" : "签发 API Key"}
+        onClose={() => { setKeyDrawerOpen(false); setEditingKey(null); setNewKeySecret(null); resetKeyForm(); }}>
+
+        {newKeySecret ? (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <p className="text-sm font-medium text-amber-800">请立即复制并保管此 Key，关闭后将无法再次查看</p>
+              <div className="mt-2 flex items-center gap-2">
+                <pre className="flex-1 break-all rounded-lg bg-white p-3 font-mono text-sm text-slate-900">{newKeySecret}</pre>
+                <button type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(newKeySecret);
+                    setKeyCopied(true);
+                    setTimeout(() => setKeyCopied(false), 2000);
+                  }}
+                  className="shrink-0 rounded-lg bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm ring-1 ring-slate-200 hover:bg-slate-100 transition-colors">
+                  {keyCopied ? "已复制 ✓" : "复制"}
+                </button>
+              </div>
+            </div>
+            <button type="button"
+              onClick={() => { setKeyDrawerOpen(false); setNewKeySecret(null); resetKeyForm(); }}
+              className="w-full rounded-lg border border-slate-200 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              我已保存，关闭
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={(e) => { e.preventDefault(); editingKey ? handleEditKey() : handleCreateKey(); }} className="space-y-4">
+            <label className="block text-sm">
+              <span className="font-medium text-slate-700">标签</span>
+              <input type="text" value={keyForm.label}
+                onChange={(e) => setKeyForm({ ...keyForm, label: e.target.value })}
+                placeholder="e.g. 外部调用"
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+            </label>
+
+            <label className="block text-sm">
+              <span className="font-medium text-slate-700">权限范围</span>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {["agent.run", "gateway.chat", "console.read", "workspace.read"].map((scope) => (
+                  <label key={scope} className="flex items-center gap-1 text-xs">
+                    <input type="checkbox" checked={keyForm.scopes.includes(scope)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setKeyForm({ ...keyForm, scopes: [...keyForm.scopes, scope] });
+                        } else {
+                          setKeyForm({ ...keyForm, scopes: keyForm.scopes.filter(s => s !== scope) });
+                        }
+                      }} />
+                    {scope}
+                  </label>
+                ))}
+              </div>
+            </label>
+
+            <label className="block text-sm">
+              <span className="font-medium text-slate-700">过期时间（留空则长期有效）</span>
+              <input type="datetime-local" value={keyForm.expires_at}
+                onChange={(e) => setKeyForm({ ...keyForm, expires_at: e.target.value })}
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+            </label>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-sm">
+                <span className="font-medium text-slate-700">月度 Token 限制</span>
+                <input type="number" value={keyForm.monthly_token_limit || ""}
+                  onChange={(e) => setKeyForm({ ...keyForm, monthly_token_limit: Number(e.target.value) || 0 })}
+                  placeholder="0 = 不限"
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium text-slate-700">月度费用限制 (USD)</span>
+                <input type="number" step="0.01" value={keyForm.monthly_cost_limit_usd || ""}
+                  onChange={(e) => setKeyForm({ ...keyForm, monthly_cost_limit_usd: Number(e.target.value) || 0 })}
+                  placeholder="0 = 不限"
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button type="button" disabled={keysLoading}
+                onClick={() => setKeyDrawerOpen(false)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">取消</button>
+              <button type="submit" disabled={keysLoading}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                {editingKey ? "保存" : "签发"}
+              </button>
+            </div>
+          </form>
+        )}
       </GatewayDrawer>
 
       {/* Org drawer */}

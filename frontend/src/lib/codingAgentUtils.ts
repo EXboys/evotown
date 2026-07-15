@@ -19,3 +19,31 @@ export function fileMeta(path: string): { icon: string; label: string } {
   }
   return { icon: "📁", label: "File" };
 }
+
+const PREVIEWABLE_TEXT_EXTS = new Set([
+  ".txt", ".log", ".json", ".md", ".csv",
+  ".py", ".js", ".ts", ".tsx", ".jsx", ".css", ".scss", ".less",
+  ".yaml", ".yml", ".xml", ".toml", ".ini", ".cfg", ".conf",
+  ".sh", ".bash", ".zsh", ".fish",
+  ".html", ".htm",
+]);
+
+const PREVIEWABLE_IMAGE_EXTS = new Set([
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".avif",
+]);
+
+export function isPreviewableFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return PREVIEWABLE_TEXT_EXTS.has(lower.slice(lower.lastIndexOf("."))) ||
+    PREVIEWABLE_IMAGE_EXTS.has(lower.slice(lower.lastIndexOf(".")));
+}
+
+export function isPreviewableHtml(path: string): boolean {
+  const lower = path.toLowerCase();
+  return lower.endsWith(".html") || lower.endsWith(".htm");
+}
+
+export function isPreviewableImage(path: string): boolean {
+  const lower = path.toLowerCase();
+  return PREVIEWABLE_IMAGE_EXTS.has(lower.slice(lower.lastIndexOf(".")));
+}

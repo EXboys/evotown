@@ -149,6 +149,20 @@ class ClaudeAgentRunCreate(BaseModel):
     attachments: list[str] = Field(default_factory=list, max_length=20)
 
 
+class AgentExternalTriggerRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=32000)
+    session_id: str = Field(default="", max_length=64)
+    skills: list[str] = Field(default_factory=list)
+    model: str = Field(default="", max_length=128)
+    attachments: list[str] = Field(default_factory=list, max_length=20)
+
+
+class ApiResponse(BaseModel):
+    code: int
+    message: str
+    data: Any | None = None
+
+
 class AgentShareRequest(BaseModel):
     paths: list[str] = Field(min_length=1, max_length=50)
     target_agent_id: str = Field(min_length=1, max_length=128)
@@ -422,16 +436,6 @@ class GatewayApiKeyUpdate(BaseModel):
     burst_rpm_limit: int | None = Field(default=None, ge=0)
 
 
-class ConsoleRegister(BaseModel):
-    name: str = Field(min_length=1, max_length=128)
-    owner_email: str = Field(default="", max_length=256)
-    org_id: str = Field(default="", max_length=128)
-
-
-class ConsoleLogin(BaseModel):
-    api_key: str = Field(min_length=8, max_length=256)
-
-
 class StaffLogin(BaseModel):
     login_name: str = Field(min_length=1, max_length=128)
     password: str = Field(min_length=1, max_length=256)
@@ -560,10 +564,6 @@ class GatewayUpstreamModelUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=512)
     enabled: bool | None = None
     is_vision: bool | None = None
-
-
-class OidcExchange(BaseModel):
-    code: str = Field(min_length=8, max_length=256)
 
 
 class GatewayOrgCreate(BaseModel):

@@ -140,7 +140,7 @@ def _skill_manifest(agent_id: str = "") -> dict[str, Any]:
     from infra import agent_skills as agt_skills
 
     if agent_id.strip():
-        assigned = agt_skills.list_for_agent(agent_id.strip())
+        assigned = agt_skills.list_for_agent_with_deps(agent_id.strip())
         skills: list[dict[str, Any]] = []
         for sid in assigned:
             entry = skill_market.get_market_skill(sid)

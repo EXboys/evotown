@@ -9,7 +9,7 @@ import {
   sortContextArtifacts,
 } from "./ContextFileViewer";
 
-import { adminFetch, getAdminToken, getConsoleApiKey, getStaffToken, isConsoleAuthenticated } from "../hooks/useAdminToken";
+import { adminFetch, getStaffToken, isConsoleAuthenticated } from "../hooks/useAdminToken";
 import { formatDateTimeShort, formatDateTimeFull, parseEvotownTimestamp } from "../lib/datetime";
 import { formatBytes, fileMeta } from "../lib/codingAgentUtils";
 import { WorkspaceFileList, type WorkspaceFileEntry } from "./WorkspaceFileList";
@@ -49,6 +49,32 @@ function runAttachmentPaths(run: AgentRun): string[] {
 
 function isImageAttachmentPath(path: string): boolean {
   return /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(path);
+}
+
+const PREVIEWABLE_TEXT_EXTS = new Set([
+  ".txt", ".md", ".json", ".py", ".js", ".ts", ".tsx", ".jsx",
+  ".css", ".scss", ".less", ".xml", ".yaml", ".yml", ".toml", ".csv",
+  ".log", ".sh", ".bash", ".env", ".gitignore", ".rs", ".go", ".java",
+  ".c", ".h", ".cpp", ".sql", ".vue", ".svelte", ".rb", ".php", ".ini",
+  ".cfg", ".conf", ".lock", ".dockerfile", ".makefile", ".gradle",
+  ".properties", ".rst", ".tex", ".r", ".R", ".jl", ".kt", ".swift",
+  ".dart", ".lua", ".pl", ".pm", ".scala", ".clj", ".cljs", ".edn",
+  ".elm", ".hs", ".lhs", ".erl", ".hrl", ".ex", ".exs", ".fs", ".fsx",
+  ".ml", ".mli", ".tf", ".tfvars", ".cmake", ".nim", ".zig",
+]);
+
+const PREVIEWABLE_IMAGE_EXTS = new Set([
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico",
+]);
+
+function isHtmlFile(path: string): boolean {
+  return /\.html?$/i.test(path);
+}
+
+function isPreviewableFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  const ext = lower.slice(lower.lastIndexOf("."));
+  return PREVIEWABLE_TEXT_EXTS.has(ext) || PREVIEWABLE_IMAGE_EXTS.has(ext) || isHtmlFile(path);
 }
 
 function formatLog(raw: string): string {
@@ -350,6 +376,9 @@ export function CodingAgentChatPage() {
   }, [selectedRunId, runs]);
 
   // Events — SSE stream for running runs, one-time fetch for completed runs
+  // Refs for SSE reconnect and fallback polling
+  const sseReconnectRef = useRef<Record<string, number>>({});
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sseRef = useRef<AbortController | null>(null);
   useEffect(() => {
     if (!selectedRunId || !runChain.length) return;
@@ -378,101 +407,142 @@ export function CodingAgentChatPage() {
     };
     void fetchAllEvents();
 
-    // SSE for running runs — push new events in real time
+    // SSE for running runs — push new events in real time with auto-reconnect
     const runningRunIds = runChain.filter(r => r.status === "running" || r.status === "queued").map(r => r.run_id);
 
-    if (runningRunIds.length > 0) {
-      const abort = new AbortController();
-      sseRef.current = abort;
+    const streamRun = async (runId: string, attempt: number = 1) => {
+      const MAX_RECONNECT = 5;
+      if (cancelled || attempt > MAX_RECONNECT) return;
 
-      const streamRun = async (runId: string) => {
-        try {
-          const staffToken = getStaffToken();
-          const apiKey = getConsoleApiKey();
-          const adminToken = getAdminToken();
-          const headers: Record<string, string> = {};
-          if (staffToken) headers["Authorization"] = `Bearer ${staffToken}`;
-          else if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
-          else if (adminToken) headers["X-Admin-Token"] = adminToken;
+      try {
+        const staffToken = getStaffToken();
+        const headers: Record<string, string> = {};
+        if (staffToken) headers["Authorization"] = `Bearer ${staffToken}`;
 
-          const res = await fetch(`/api/v1/agent-runs/${encodeURIComponent(runId)}/stream`, { headers, signal: abort.signal });
-          if (!res.ok || !res.body) return;
+        // Use a per-run AbortController so reconnect doesn't clash with cleanup
+        const runAbort = new AbortController();
+        // Track latest controller per runId
+        const prevAbort = sseReconnectRef.current[runId] ? undefined : sseRef.current;
+        sseRef.current = runAbort;
 
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
+        const res = await fetch(`/api/v1/agent-runs/${encodeURIComponent(runId)}/stream`, { headers, signal: runAbort.signal });
+        if (!res.ok || !res.body) {
+          // Server refused stream — try reconnect
+          if (!cancelled && attempt < MAX_RECONNECT) {
+            const delay = Math.min(1000 * Math.pow(2, attempt - 1), 16000);
+            await new Promise(r => setTimeout(r, delay));
+            if (!cancelled) {
+              sseReconnectRef.current[runId] = attempt + 1;
+              void streamRun(runId, attempt + 1);
+            }
+          }
+          return;
+        }
 
-          while (true) {
-            if (cancelled || abort.signal.aborted) break;
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
+        // Reset reconnect counter on successful connection
+        sseReconnectRef.current[runId] = 0;
 
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
 
-            for (let i = 0; i < lines.length; i++) {
-              const line = lines[i];
-              if (line.startsWith("data: ")) {
-                try {
-                  const ev = JSON.parse(line.slice(6)) as AgentRunEvent;
-                  if (!cancelled) {
-                    setEventsByRun(prev => {
-                      const existing = prev[runId] || [];
-                      if (existing.some(e => e.id === ev.id)) return prev;
-                      return { ...prev, [runId]: [...existing, ev] };
-                    });
-                  }
-                } catch { /* ignore parse errors */ }
-              } else if (line.startsWith("event: done")) {
-                // Read the next data: line for terminal status
-                let doneStatus = "completed";
-                if (i + 1 < lines.length && lines[i + 1].startsWith("data: ")) {
-                  try {
-                    const doneData = JSON.parse(lines[i + 1].slice(6));
-                    doneStatus = doneData.status || "completed";
-                  } catch { /* keep default */ }
-                  i++; // skip the data: line we just consumed
-                }
-                // Update run status in the runs array
-                const finalStatus = (doneStatus || "succeeded") as AgentRun["status"];
-                setRuns(prev => prev.map(r => r.run_id === runId ? ({ ...r, status: finalStatus, finished_at: new Date().toISOString() } as AgentRun) : r));
-                // Re-fetch full run data to get log_excerpt / result_summary / error
-                adminFetch(`/api/v1/agent-runs/${encodeURIComponent(runId)}`)
-                  .then(res => res.json().catch(() => ({})))
-                  .then((data: { run?: AgentRun }) => {
-                    if (!cancelled && data.run) {
-                      setRuns(prev => prev.map(r => r.run_id === runId ? { ...r, ...data.run } : r));
-                    }
-                  })
-                  .catch(() => {});
-                // Add synthetic done event
+        while (true) {
+          if (cancelled || runAbort.signal.aborted) break;
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (line.startsWith("data: ")) {
+              try {
+                const ev = JSON.parse(line.slice(6)) as AgentRunEvent;
                 if (!cancelled) {
                   setEventsByRun(prev => {
                     const existing = prev[runId] || [];
-                    const doneEvent: AgentRunEvent = {
-                      id: (existing.length + 1),
-                      run_id: runId,
-                      event_type: "run.done",
-                      seq: (existing.length + 1),
-                      ts: new Date().toISOString(),
-                      payload: { status: doneStatus, sse_closed: true },
-                    };
-                    return { ...prev, [runId]: [...existing, doneEvent] };
+                    if (existing.some(e => e.id === ev.id)) return prev;
+                    return { ...prev, [runId]: [...existing, ev] };
                   });
                 }
-                return; // stream done
+              } catch { /* ignore parse errors */ }
+            } else if (line.startsWith("event: done")) {
+              // Read the next data: line for terminal status
+              // Default to "succeeded" — "completed" is NOT a valid AgentRun status
+              // and would fall through all display checks, leaving the bubble stuck.
+              let doneStatus = "succeeded";
+              if (i + 1 < lines.length && lines[i + 1].startsWith("data: ")) {
+                try {
+                  const doneData = JSON.parse(lines[i + 1].slice(6));
+                  doneStatus = doneData.status || "completed";
+                } catch { /* keep default */ }
+                i++; // skip the data: line we just consumed
               }
+              // Update run status in the runs array
+              const finalStatus = (doneStatus || "succeeded") as AgentRun["status"];
+              setRuns(prev => prev.map(r => r.run_id === runId ? ({ ...r, status: finalStatus, finished_at: new Date().toISOString() } as AgentRun) : r));
+              // Re-fetch full run data to get log_excerpt / result_summary / error / artifact_manifest
+              // Retry up to 2 times with 500ms delay (artifact_manifest is critical for file toggle visibility)
+              let refreshed = false;
+              for (let retry = 0; retry < 3 && !refreshed; retry++) {
+                if (retry > 0) await new Promise(r => setTimeout(r, 500));
+                try {
+                  const refreshRes = await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(runId)}`);
+                  const refreshData = await refreshRes.json().catch(() => ({})) as { run?: AgentRun };
+                  if (!cancelled && refreshData.run) {
+                    setRuns(prev => prev.map(r => r.run_id === runId ? { ...r, ...refreshData.run } : r));
+                    refreshed = true;
+                  }
+                  // Also re-fetch events to catch any missed events
+                  try {
+                    const eventsData = await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(runId)}/events`).then((res) => readJson<{ events?: AgentRunEvent[] }>(res));
+                    if (!cancelled && eventsData.events?.length) {
+                      setEventsByRun(prev => ({ ...prev, [runId]: eventsData.events || [] }));
+                    }
+                  } catch { /* best-effort events refresh */ }
+                } catch {
+                  if (retry === 2) console.warn(`SSE done: failed to re-fetch run ${runId} after 3 attempts`);
+                }
+              }
+              // Add synthetic done event
+              if (!cancelled) {
+                setEventsByRun(prev => {
+                  const existing = prev[runId] || [];
+                  const doneEvent: AgentRunEvent = {
+                    id: (existing.length + 1),
+                    run_id: runId,
+                    event_type: "run.done",
+                    seq: (existing.length + 1),
+                    ts: new Date().toISOString(),
+                    payload: { status: doneStatus, sse_closed: true },
+                  };
+                  return { ...prev, [runId]: [...existing, doneEvent] };
+                });
+              }
+              return; // stream done
             }
           }
-        } catch (err) {
-          if (!cancelled && !(err instanceof DOMException && err.name === "AbortError")) {
-            // ignore — EventSource-like auto-reconnect isn't built in here,
-            // but the next status change on the run list will trigger a reload
-          }
         }
-      };
+      } catch (err) {
+        // Auto-reconnect on error (not manual abort)
+        const isAbort = err instanceof DOMException && err.name === "AbortError";
+        if (!cancelled && !isAbort && attempt < MAX_RECONNECT) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 16000);
+          await new Promise(r => setTimeout(r, delay));
+          if (!cancelled) {
+            sseReconnectRef.current[runId] = attempt + 1;
+            void streamRun(runId, attempt + 1);
+          }
+        } else if (!cancelled && !isAbort) {
+          // Max reconnects exhausted — fallback polling will catch it
+          console.warn(`SSE reconnect exhausted for run ${runId} after ${attempt} attempts`);
+        }
+      }
+    };
 
+    if (runningRunIds.length > 0) {
       for (const rid of runningRunIds) {
         void streamRun(rid);
       }
@@ -482,6 +552,7 @@ export function CodingAgentChatPage() {
       cancelled = true;
       sseRef.current?.abort();
       sseRef.current = null;
+      sseReconnectRef.current = {};
     };
   }, [selectedRunId, runChain.map(r => r.run_id).join(',')]);
 
@@ -583,6 +654,72 @@ export function CodingAgentChatPage() {
   const selectedRun = useMemo(() => (runChain.length > 0 ? runChain[runChain.length - 1] : null), [runChain]);
   const isRunning = selectedRun?.status === "running" || selectedRun?.status === "queued";
 
+  // Fallback polling — detect run completion when SSE is disconnected
+  useEffect(() => {
+    if (!selectedRun || !isRunning) return;
+    let cancelled = false;
+
+    const POLL_INTERVAL_MS = 10000; // 10 seconds
+    let lastEventCount = totalEventCount;
+
+    const poll = async () => {
+      if (cancelled) return;
+      const runId = selectedRun.run_id;
+
+      try {
+        const data = await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(runId)}`).then((res) => readJson<{ run?: AgentRun }>(res));
+        if (cancelled || !data.run) return;
+
+        const newStatus = data.run.status;
+        const isTerminal = newStatus === "succeeded" || newStatus === "failed" || newStatus === "cancelled";
+
+        if (isTerminal) {
+          // Run finished — update status and re-fetch everything
+          setRuns(prev => prev.map(r => r.run_id === runId ? { ...r, ...data.run } : r));
+
+          // Re-fetch all events to get final state
+          try {
+            const eventsData = await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(runId)}/events`).then((res) => readJson<{ events?: AgentRunEvent[] }>(res));
+            if (!cancelled && eventsData.events?.length) {
+              setEventsByRun(prev => ({ ...prev, [runId]: eventsData.events || [] }));
+            }
+          } catch { /* best-effort */ }
+
+          // Clear polling since run is done
+          if (pollTimerRef.current) {
+            clearInterval(pollTimerRef.current);
+            pollTimerRef.current = null;
+          }
+        } else if (newStatus === "running" || newStatus === "queued") {
+          // Still running — check if SSE might be stuck (no new events for 30s)
+          const currentEventCount = (eventsByRun[runId]?.length || 0);
+          if (currentEventCount === lastEventCount && sseReconnectRef.current[runId] !== undefined && sseReconnectRef.current[runId]! >= 5) {
+            // SSE reconnects exhausted + no new events — force re-fetch events via HTTP
+            try {
+              const eventsData = await adminFetch(`/api/v1/agent-runs/${encodeURIComponent(runId)}/events`).then((res) => readJson<{ events?: AgentRunEvent[] }>(res));
+              if (!cancelled && eventsData.events?.length) {
+                setEventsByRun(prev => ({ ...prev, [runId]: eventsData.events || [] }));
+              }
+            } catch { /* best-effort */ }
+          }
+          lastEventCount = currentEventCount;
+        }
+      } catch { /* polling error — will retry next interval */ }
+    };
+
+    pollTimerRef.current = setInterval(poll, POLL_INTERVAL_MS);
+    // Also poll immediately on mount
+    void poll();
+
+    return () => {
+      cancelled = true;
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, [selectedRun?.run_id, isRunning, totalEventCount]);
+
   // Media
   useEffect(() => {
     if (!agentId || !runChain.length) return;
@@ -682,6 +819,16 @@ export function CodingAgentChatPage() {
     finally { setFileLoading(""); }
   };
 
+  // Preview file from artifact manifest — text→fileViewer, image→lightbox, HTML→new tab
+  const handlePreviewFile = (path: string) => {
+    if (isHtmlFile(path)) {
+      const serveUrl = `/api/v1/agents/${encodeURIComponent(agentId)}/serve/${encodeURIComponent(path)}`;
+      window.open(serveUrl, "_blank", "noreferrer");
+      return;
+    }
+    void openFile(path);
+  };
+
   // Upload / send
   const uploadAgentFiles = async (files: File[]) => {
     if (!agentId || !files.length) return [] as AgentUpload[];
@@ -750,7 +897,12 @@ export function CodingAgentChatPage() {
         if (idx >= 0) { const next = [...prev]; next[idx] = newRun; return next; }
         return [...prev, newRun];
       });
-      setSelectedRunId(newRun.run_id); setPrompt("");
+      // Only change selectedRunId when starting a brand-new conversation.
+      // For continuation messages in an existing session, keep selectedRunId
+      // pointing to the session root to avoid unnecessary SSE abort/reconnect
+      // cycles and session-fetch cascades that can lose event:done.
+      if (!selectedRunId) setSelectedRunId(newRun.run_id);
+      setPrompt("");
       for (const item of pendingAttachments) { if (item.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(item.previewUrl); }
       setPendingAttachments([]);
       refreshSessions();
@@ -957,6 +1109,41 @@ export function CodingAgentChatPage() {
                 const runEvents = eventsByRun[run.run_id] || [];
                 const attachments = runAttachmentPaths(run);
                 const isHtmlRun = (run.artifact_manifest || []).some((a) => /\.html?$/i.test(a.path) && !a.path.startsWith(".evotown/"));
+                // Merge artifact manifest files + user-uploaded attachments (deduped)
+                const nonHtmlArtifacts = (run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json" && !/\.html?$/i.test(a.path));
+                const htmlArtifacts = (run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json" && /\.html?$/i.test(a.path));
+                const attachmentPaths = runAttachmentPaths(run);
+                const artifactPathSet = new Set([...nonHtmlArtifacts, ...htmlArtifacts].map(a => a.path));
+                // Extract webview URLs from event text
+                const allTextForWebview = runEvents
+                  .filter(e => e.event_type === "assistant_message")
+                  .map(e => (e.payload as Record<string,unknown> | undefined)?.text as string || (e.payload as Record<string,unknown> | undefined)?.summary as string || "")
+                  .join("\n");
+                const webviewUrls = [...new Set(
+                  Array.from(allTextForWebview.matchAll(WEBVIEW_URL_RE), m => cleanWebviewUrl(m[0]))
+                )];
+                // Extract workspace container paths from agent reply text (e.g. /app/data/agents/{agent_id}/filename.ext)
+                const allTextForWorkspace = [
+                  run.result_summary || "",
+                  ...runEvents
+                    .filter(e => e.event_type === "assistant_message")
+                    .map(e => (e.payload as Record<string,unknown> | undefined)?.text as string || (e.payload as Record<string,unknown> | undefined)?.summary as string || ""),
+                ].join("\n");
+                const workspacePaths = [...new Set(
+                  Array.from(allTextForWorkspace.matchAll(WORKSPACE_PATH_RE), m => m[0].replace(/\.$/, ""))
+                )];
+                const mergedFiles = [
+                  ...nonHtmlArtifacts.map(a => ({ ...a, source: "artifact" as const })),
+                  ...htmlArtifacts.map(a => ({ ...a, source: "html" as const })),
+                  ...attachmentPaths
+                    .filter(p => !artifactPathSet.has(p))
+                    .map(p => ({ path: p, sha256: "", bytes: 0, source: "attachment" as const })),
+                  ...webviewUrls
+                    .map(url => ({ path: url, sha256: "", bytes: 0, source: "webview" as const })),
+                  ...workspacePaths
+                    .filter(p => !artifactPathSet.has(p) && !attachmentPaths.includes(p))
+                    .map(p => ({ path: p, sha256: "", bytes: 0, source: "workspace" as const })),
+                ];
                 return (
                   <div key={run.run_id}>
                     {/* User message */}
@@ -1064,7 +1251,10 @@ export function CodingAgentChatPage() {
                               </div>
                             )}
                             {/* Toggles — always shown, each section expands independently */}
-                            {(run.log_excerpt || runEvents.length > 0 || ((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length > 0)) && (
+                            {(() => {
+                              const hasToggleContent = run.log_excerpt || runEvents.length > 0 || mergedFiles.length > 0;
+                              if (!hasToggleContent) return null;
+                              return (
                               <div className="mt-3 flex items-center gap-4 border-t border-slate-100 pt-3">
                                 {((isLast && runRunning) || run.log_excerpt) && (
                                   <button
@@ -1084,23 +1274,24 @@ export function CodingAgentChatPage() {
                                     <span>{(isLast ? eventsExpanded : expandedEventsRuns.has(run.run_id)) ? "▾" : "▸"}</span>事件时间线
                                   </button>
                                 )}
-                                {((run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length > 0) && (
+                                {mergedFiles.length > 0 && (
                                   <button
                                     type="button"
                                     onClick={() => isLast ? setFilesExpanded((v) => !v) : setExpandedFilesRuns(prev => { const n = new Set(prev); if (n.has(run.run_id)) n.delete(run.run_id); else n.add(run.run_id); return n; })}
                                     className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600"
                                   >
-                                    <span>{(isLast ? filesExpanded : expandedFilesRuns.has(run.run_id)) ? "▾" : "▸"}</span>文件 ({(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").length})
+                                    <span>{(isLast ? filesExpanded : expandedFilesRuns.has(run.run_id)) ? "▾" : "▸"}</span>文件 ({mergedFiles.length})
                                   </button>
                                 )}
                               </div>
-                            )}
+                              );
+                            })()}
                             {(isLast ? logExpanded : expandedLogRuns.has(run.run_id)) && (run.log_excerpt ? <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">{formatLog(run.log_excerpt)}</pre> : runRunning ? <div className="mt-2 space-y-1">{runEvents.map((ev) => { const info = describeEvent(ev); const time = ev.ts ? parseEvotownTimestamp(ev.ts) : null; return <div key={`log-${ev.id}-${ev.seq}`} className="flex items-center gap-2 text-xs"><span className="shrink-0 font-mono text-[10px] text-slate-300 w-[52px]">{time ? time.toLocaleTimeString("zh-CN", {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : ""}</span><span>{info.icon}</span><span className="text-slate-600">{info.title}</span>{info.detail ? <span className="truncate text-slate-400">· {info.detail}</span> : null}</div>; })}</div> : <p className="mt-2 text-xs text-slate-400">暂无日志</p>)}
                             {(isLast ? eventsExpanded : expandedEventsRuns.has(run.run_id)) && runEvents.length ? (
                               <div className="mt-2 space-y-1">{runEvents.map((ev) => { const info = describeEvent(ev); const time = ev.ts ? parseEvotownTimestamp(ev.ts) : null; return <div key={`${ev.id}-${ev.seq}`} className="flex items-center gap-2 text-xs"><span className="shrink-0 font-mono text-[10px] text-slate-300 w-[52px]">{time ? time.toLocaleTimeString("zh-CN", {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : ""}</span><span>{info.icon}</span><span className="text-slate-600">{info.title}</span>{info.detail ? <span className="truncate text-slate-400">· {info.detail}</span> : null}</div>; })}</div>
                             ) : null}
                             {(isLast ? filesExpanded : expandedFilesRuns.has(run.run_id)) && (
-                              <div className="mt-2 space-y-1">{(run.artifact_manifest || []).filter((a) => !a.path.startsWith(".evotown/") && a.path !== ".mcp.json").map((a) => <a key={a.path} href={`/api/v1/agents/${encodeURIComponent(agentId)}/files?path=${encodeURIComponent(a.path)}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50"><span>{fileMeta(a.path).icon}</span><span className="truncate flex-1">{a.path.split("/").pop() || a.path}</span><span className="shrink-0 text-slate-400">{formatBytes(a.bytes)}</span><span className="shrink-0 text-slate-300">↓</span></a>)}</div>
+                              <div className="mt-2 space-y-1">{mergedFiles.map((f) => { const isAttachment = f.source === "attachment"; const isHtml = f.source === "html"; const isWebview = f.source === "webview"; const isWorkspace = f.source === "workspace"; const displayPath = isWorkspace ? (f.path.split("/").pop() || f.path) : f.path; return (<div key={f.path} className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50"><span>{fileMeta(f.path).icon}</span>{isAttachment && <span className="shrink-0 text-[10px]" title="用户上传附件">📎</span>}{isHtml && <span className="shrink-0 text-[10px]" title="HTML 预览文件">🌐</span>}{isWebview && <span className="shrink-0 text-[10px]" title="Webview 文件">🌐</span>}{isWorkspace && <span className="shrink-0 text-[10px]" title="Agent 工作区文件">📦</span>}<span className="truncate flex-1">{f.path.split("/").pop() || f.path}</span><span className="shrink-0 text-slate-400">{isWebview ? "" : formatBytes(f.bytes)}</span>{!isWebview && isPreviewableFile(displayPath) ? <button type="button" onClick={(e) => { e.preventDefault(); handlePreviewFile(displayPath); }} className="shrink-0 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-100">预览</button> : null}<a href={isWebview ? f.path : `/api/v1/agents/${encodeURIComponent(agentId)}/files?path=${encodeURIComponent(displayPath)}`} className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 hover:bg-slate-100" title="下载" download>↓</a></div>); })}</div>
                             )}
                           </div>
                         </div>
@@ -1273,12 +1464,33 @@ function FileErrorModal({ err, onClose }: { err: { path: string; message: string
 
 // ── WebviewIframes: detect webview URLs in text and embed as iframes ──────────
 
-const WEBVIEW_URL_RE = /\/api\/v1\/webview\/[\w/.%+~#?&=_@:-]+/gi;
+// Match /api/v1/webview/... followed by path characters until a sentence delimiter.
+// The stop set excludes sentence-ending punctuation and whitespace so URLs containing
+// Chinese filenames (报告.html) are fully captured, while trailing 。、）etc. are dropped.
+// NOTE: dot (.) and question-mark (?) are intentionally NOT in the stop set —
+// they're part of file extensions and query strings.
+const WEBVIEW_URL_RE =
+  /\/api\/v1\/webview\/[^\s,;:!)\]}"'。，；：！？）】」』》〉〗＂＇'"'"'～]+/gi;
+
+/** Regex to match workspace container paths like /app/data/agents/{agent_id}/filename.ext */
+const WORKSPACE_PATH_RE =
+  /\/app\/data\/agents\/[a-zA-Z0-9_-]+\/[^\s,;:!)\]}"'。，；：！？）】」』》〉〗＂＇'"'"'～]+/gi;
+
+/** Strip a single trailing sentence-ending dot from a webview URL. */
+function cleanWebviewUrl(url: string): string {
+  // Only strip if the dot is NOT preceded by another dot (preserve ".." paths)
+  // and NOT preceded by a letter/digit/dot/hyphen (which would be part of a filename).
+  // In practice, strip only if it looks like sentence-ending: ".html." → ".html"
+  if (url.endsWith(".") && !url.endsWith("..")) {
+    return url.slice(0, -1);
+  }
+  return url;
+}
 
 function WebviewIframes({ text }: { text: string }) {
-  const urls = Array.from(text.matchAll(WEBVIEW_URL_RE), (m) => m[0]);
-  if (!urls.length) return null;
-  const unique = [...new Set(urls)];
+  const urls = Array.from(text.matchAll(WEBVIEW_URL_RE), (m) => cleanWebviewUrl(m[0]));
+  const unique = [...new Set(urls.filter((u) => u.length > 0))];
+  if (!unique.length) return null;
   return (
     <div className="mt-3 space-y-3">
       {unique.map((url) => (

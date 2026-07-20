@@ -81,14 +81,11 @@ const AGENT_NAV_ITEM: NavItem = {
   activePrefixes: ["/agent"],
 };
 
-function navItemsForUser(signedIn: boolean, adminUser: boolean): NavItem[] {
+function navItemsForUser(adminUser: boolean): NavItem[] {
   if (adminUser) {
     return [...BASE_NAV_ITEMS, AGENT_NAV_ITEM, ADMIN_NAV_ITEM];
   }
-  if (signedIn) {
-    // Employee: show agent workspace entry
-    return [...BASE_NAV_ITEMS, AGENT_NAV_ITEM];
-  }
+  // Employee / guest: no agent workspace or admin nav items
   return BASE_NAV_ITEMS;
 }
 
@@ -122,7 +119,7 @@ export function PublicSiteHeader({
   const brand = sysConfig.brand_name || copy.brand;
   const signedIn = isConsoleAuthenticated();
   const adminUser = canAccessAdminConsole();
-  const navItems = navItemsForUser(signedIn, adminUser);
+  const navItems = navItemsForUser(adminUser);
   const isMarket = variant === "market";
   const loginTo = loginReturnPath
     ? `/login?return=${encodeURIComponent(loginReturnPath)}`

@@ -12,6 +12,11 @@ function fmtTime(v: string | null | undefined): string {
   });
 }
 
+function parseTablesJson(tables: string): string[] {
+  try { const arr = JSON.parse(tables); return Array.isArray(arr) ? arr : []; }
+  catch { return []; }
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type McpService = {
@@ -106,6 +111,9 @@ const COPY = {
     detailTitle: "MCP 服务详情",
     basicInfo: "基本信息",
     auditRecords: "审核记录",
+    dbTables: "关联数据库表",
+    dbTableEmpty: "暂无关联数据库表",
+    dbTableCount: "共 {count} 张表",
     bound: "已绑定",
     calls24h: "24h调用",
     serviceStatus: "服务状态",
@@ -163,6 +171,9 @@ const COPY = {
     detailTitle: "MCP Service Detail",
     basicInfo: "Basic Info",
     auditRecords: "Audit Records",
+    dbTables: "Database Tables",
+    dbTableEmpty: "No database tables",
+    dbTableCount: "{count} table(s)",
     bound: "Bound",
     calls24h: "24h Calls",
     serviceStatus: "Status",
@@ -665,12 +676,28 @@ function McpDetailDrawer({
                 <div className="text-[10px] text-slate-400 uppercase tracking-wide">{copy.dimensions}</div>
                 <div className="text-sm text-slate-700 mt-0.5">{service.dimensions && service.dimensions !== "[]" ? service.dimensions : "-"}</div>
               </div>
-              {service.tables && service.tables !== "[]" && (
-                <div className="bg-slate-50 rounded-lg px-3 py-2.5">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">数据表</div>
-                  <div className="text-sm font-mono text-slate-600 mt-0.5">{service.tables}</div>
-                </div>
-              )}
+              {(() => {
+                const tableList = parseTablesJson(service.tables);
+                return (
+                  <div className="bg-slate-50 rounded-lg px-3 py-2.5">
+                    <div className="text-[10px] text-slate-400 uppercase tracking-wide">{copy.dbTables}</div>
+                    {tableList.length === 0 ? (
+                      <div className="text-sm text-slate-400 mt-0.5">{copy.dbTableEmpty}</div>
+                    ) : (
+                      <div className="mt-0.5">
+                        <span className="text-[10px] text-slate-400">{copy.dbTableCount.replace("{count}", String(tableList.length))}</span>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {tableList.map((t, i) => (
+                            <span key={i} className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2 py-0 text-xs font-medium text-violet-700">
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               {/* Input/Output schema (collapsible) */}
               {service.input_schema && service.input_schema !== "{}" && (
                 <details className="group">
@@ -993,6 +1020,10 @@ function McpDrawer({
   const [name, setName] = useState(service?.name || "");
   const [description, setDescription] = useState(service?.description || "");
   const [endpointUrl, setEndpointUrl] = useState(service?.endpoint_url || "");
+  const [tablesInput, setTablesInput] = useState(() => {
+    try { return (JSON.parse(service?.tables || "[]") as string[]).join(", "); }
+    catch { return ""; }
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -1002,18 +1033,23 @@ function McpDrawer({
     if (!name.trim()) { setError(copy.nameRequired); return; }
     setSaving(true); setError("");
     try {
+      const parsedTables = tablesInput.trim()
+        ? tablesInput.split(",").map((t) => t.trim()).filter(Boolean)
+        : [];
       if (isEditing) {
-        const body: Record<string, string> = { name: name.trim(), description: description.trim() };
+        const body: Record<string, unknown> = { name: name.trim(), description: description.trim() };
         if (source === "external" || service?.source === "external") body.endpoint_url = endpointUrl.trim();
+        body.tables = parsedTables;
         await adminFetch(`/api/v1/mcp-services/${encodeURIComponent(service!.service_id)}`, {
           method: "PUT",
           body: JSON.stringify(body),
         });
       } else {
-        const body: Record<string, string> = {
+        const body: Record<string, unknown> = {
           name: name.trim(), description: description.trim(), source,
         };
         if (source === "external") body.endpoint_url = endpointUrl.trim();
+        body.tables = parsedTables;
         await adminFetch("/api/v1/mcp-services", {
           method: "POST",
           body: JSON.stringify(body),
@@ -1070,6 +1106,22 @@ function McpDrawer({
               rows={3}
               className={`w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-violet-400 resize-none ${readonly ? "bg-slate-50 text-slate-500 border-slate-200" : "border-slate-200"}`}
             />
+          </div>
+
+          {/* Database Tables */}
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">
+              {copy.dbTables}
+              <span className="text-xs font-normal text-slate-400 ml-1">（逗号分隔）</span>
+            </label>
+            <input
+              value={tablesInput}
+              onChange={(e) => setTablesInput(e.target.value)}
+              placeholder="users, orders, products"
+              disabled={readonly}
+              className={`w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-violet-400 ${readonly ? "bg-slate-50 text-slate-500 border-slate-200" : "border-slate-200"}`}
+            />
+            <p className="text-[10px] text-slate-400 mt-1">输入该 MCP 服务使用到的数据库表名，多个用英文逗号分隔</p>
           </div>
 
           {/* Endpoint (external only) */}

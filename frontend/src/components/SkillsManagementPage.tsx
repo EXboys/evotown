@@ -11,9 +11,9 @@ type SkillRecord = {
   visibility: string; team_id?: string; tags?: string[];
   source_type?: "enterprise" | "external" | "workspace"; source_run_id?: string;
   updated_at?: string; created_at?: string;
-  versions?: Array<{ version: string; description: string; created_at: string }>;
+  versions?: Array<{ version: string; description: string; version_notes?: string; status?: string; created_at: string }>;
   test_runs?: TestRun[];
-  pending_version?: { version_id: number; version: string; status: string; submitted_by_agent_id?: string; submitted_by_account?: string; submitted_at?: string } | null;
+  pending_version?: { version_id: number; version: string; status: string; submitted_by_agent_id?: string; submitted_by_agent_name?: string; submitted_by_account?: string; submitted_at?: string } | null;
   latest_version?: { version_id: number; version: string; status: string } | null;
   required_skills?: Array<{ skill_id: string; name: string; version: string }>;
 };
@@ -38,7 +38,7 @@ type DeployAgentInfo = {
   selected?: boolean;
 };
 
-// ── Shared helpers ──────────────────────────────────────────────────────────
+// ── Shared helpers ───────────────────────────────────────────────────────
 
 function StatCard({ label, value, note }: { label: string; value: string | number; note: string }) {
   return <div className="rounded-xl border border-slate-200 bg-white px-4 py-3"><div className="text-xs font-medium uppercase text-slate-500">{label}</div><div className="mt-1 text-2xl font-semibold text-slate-950">{value}</div><div className="mt-0.5 text-xs text-slate-400">{note}</div></div>;
@@ -78,12 +78,6 @@ export function SkillsManagementPage() {
   // Modals
   const [uploadOpen, setUploadOpen] = useState(false);
   const [extractOpen, setExtractOpen] = useState(false);
-  const [testOpen, setTestOpen] = useState(false);
-  const [testSkillId, setTestSkillId] = useState("");
-  const [repairOpen, setRepairOpen] = useState(false);
-  const [repairSkillId, setRepairSkillId] = useState("");
-  const [repairSkillName, setRepairSkillName] = useState("");
-
   // Deploy
   const [deployOpen, setDeployOpen] = useState(false);
   const [deploySkillId, setDeploySkillId] = useState("");
@@ -130,11 +124,6 @@ export function SkillsManagementPage() {
   };
 
   // ── Actions ──────────────────────────────────────────────────────────────
-
-  const handleSubmit = async (skillId: string) => {
-    try { await adminFetch(`/api/v1/skills/${encodeURIComponent(skillId)}/submit`, { method: "POST" }); setMessage("已提交审核"); loadSkills(); }
-    catch (err) { setError(err instanceof Error ? err.message : "提交失败"); }
-  };
 
   const handleDeprecate = async (skillId: string) => {
     try {
@@ -250,7 +239,7 @@ export function SkillsManagementPage() {
       {/* Header */}
       <div>
         <h2 className="text-lg font-semibold text-slate-950">技能管理</h2>
-        <p className="text-sm text-slate-500">统一技能管理：Agent 创建 → 草稿 → 审核 → 入池 → 下发。企业技能 / 外部导入合流管理。</p>
+        <p className="text-sm text-slate-500">统一技能管理：Agent 创建 → 草稿 → 审核 → 入池 → 下发。企业技能 / 外部导入合流管理。审核操作直接在列表行完成，提交通道仅限 Agent 内部 MCP。</p>
         <div className="mt-3 flex items-center gap-2">
           <button type="button" onClick={() => { setExtractOpen(true); setError(""); }} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100">⬇ 提取技能</button>
           <button type="button" onClick={() => { setUploadOpen(true); setError(""); }} className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800">+ 上传技能</button>
@@ -315,30 +304,31 @@ export function SkillsManagementPage() {
                   <td className="px-3 py-2.5"><Badge className={STATUS_META[skill.status]?.className || ""}>{STATUS_META[skill.status]?.label || skill.status}</Badge></td>
                   <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1.5">
-                      <button type="button" onClick={() => openDetail(skill.skill_id)} className="text-xs text-slate-500 hover:text-slate-800">详情</button>
-                      {skill.status === "draft" && skill.pending_version && (
+                      {skill.pending_version ? (
+                        /* Has a version awaiting review — show approve/reject directly on row */
                         <>
-                          <button type="button" onClick={() => { setTestSkillId(skill.skill_id); setTestOpen(true); }} className="text-xs text-sky-600 hover:text-sky-800">测试</button>
                           <button type="button" onClick={() => handleReview(skill.pending_version!.version_id, "approved")} className="text-xs text-emerald-600 hover:text-emerald-800">通过</button>
                           <button type="button" onClick={() => handleReview(skill.pending_version!.version_id, "rejected")} className="text-xs text-red-600 hover:text-red-800">拒绝</button>
                         </>
-                      )}
-                      {skill.status === "pending" && !skill.pending_version && (
-                        <>
-                          <button type="button" onClick={() => { setTestSkillId(skill.skill_id); setTestOpen(true); }} className="text-xs text-sky-600 hover:text-sky-800">测试</button>
-                          <button type="button" onClick={() => handleSubmit(skill.skill_id)} className="text-xs text-amber-600 hover:text-amber-800">重新提交</button>
-                        </>
-                      )}
-                      {skill.status === "approved" && (
+                      ) : skill.status === "draft" ? (
+                        /* Draft, not yet submitted for review (submission via agent MCP only) */
+                        <button type="button" onClick={() => openDetail(skill.skill_id)} className="text-xs text-slate-500 hover:text-slate-800">详情</button>
+                      ) : skill.status === "approved" ? (
+                        /* Approved: all actions spread out */
                         <>
                           <button type="button" onClick={() => openDeploy(skill)} className="text-xs text-indigo-600 hover:text-indigo-800">下发</button>
                           <button type="button" onClick={() => openUndeploy(skill)} className="text-xs text-red-600 hover:text-red-800">取消下发</button>
-                          <button type="button" onClick={() => { setTestSkillId(skill.skill_id); setTestOpen(true); }} className="text-xs text-sky-600 hover:text-sky-800">测试</button>
-                          <button type="button" onClick={() => { setRepairSkillId(skill.skill_id); setRepairSkillName(skill.name); setRepairOpen(true); }} className="text-xs text-amber-600 hover:text-amber-800">修复</button>
                           <button type="button" onClick={() => handleDeprecate(skill.skill_id)} className="text-xs text-red-600 hover:text-red-800">废弃</button>
                         </>
+                      ) : skill.status === "rejected" ? (
+                        /* Rejected: view only, resubmit via agent MCP */
+                        <button type="button" onClick={() => openDetail(skill.skill_id)} className="text-xs text-slate-500 hover:text-slate-800">详情</button>
+                      ) : skill.status === "deprecated" ? (
+                        <button type="button" onClick={() => openDetail(skill.skill_id)} className="text-xs text-slate-500 hover:text-slate-800">详情</button>
+                      ) : (
+                        /* pending (old flow, no pending_version) or any unknown state */
+                        <button type="button" onClick={() => openDetail(skill.skill_id)} className="text-xs text-slate-500 hover:text-slate-800">详情</button>
                       )}
-                      {skill.status === "rejected" && <button type="button" onClick={() => handleSubmit(skill.skill_id)} className="text-xs text-amber-600 hover:text-amber-800">重新提交</button>}
                     </div>
                   </td>
                 </tr>
@@ -349,13 +339,11 @@ export function SkillsManagementPage() {
       </div>
 
       {/* Detail drawer */}
-      {detailSkill && <DetailDrawer skill={detailSkill} onClose={() => setDetailSkill(null)} onTest={() => { setTestSkillId(detailSkill.skill_id); setTestOpen(true); }} onReview={(d) => { if (detailSkill.pending_version) handleReview(detailSkill.pending_version.version_id, d); }} />}
+      {detailSkill && <DetailDrawer skill={detailSkill} onClose={() => setDetailSkill(null)} />}
 
       {/* Modals */}
       {extractOpen && <ExtractModal onClose={() => setExtractOpen(false)} onDone={(msg) => { setMessage(msg); loadSkills(); }} />}
       {uploadOpen && <UploadModal onClose={() => setUploadOpen(false)} onDone={(msg) => { setMessage(msg); loadSkills(); }} />}
-      {testOpen && <TestModal skillId={testSkillId} onClose={() => setTestOpen(false)} onDone={(msg) => { setMessage(msg); }} />}
-      {repairOpen && <RepairModal skillId={repairSkillId} skillName={repairSkillName} onClose={() => setRepairOpen(false)} onDone={(msg) => { setMessage(msg); }} />}
       {deployOpen && (
         <DeployModalV2
           skillName={deploySkillName}
@@ -387,73 +375,136 @@ export function SkillsManagementPage() {
 
 // ── Detail Drawer ───────────────────────────────────────────────────────────
 
-function DetailDrawer({ skill, onClose, onTest, onReview }: { skill: SkillRecord; onClose: () => void; onTest: () => void; onReview: (d: "approved" | "rejected") => void; }) {
-  const [detailTab, setDetailTab] = useState<"content" | "versions" | "tests">("content");
+function DetailDrawer({ skill, onClose }: { skill: SkillRecord; onClose: () => void }) {
+  const [detailTab, setDetailTab] = useState<"content" | "versions" | "logs">("content");
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
       <div className="relative w-full max-w-lg bg-white border-l border-slate-200 shadow-xl flex flex-col h-full overflow-hidden">
+        {/* Header: name + status badge */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0">
-          <h3 className="text-sm font-semibold text-slate-900 truncate">{skill.name}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+          <div className="flex items-center gap-2 min-w-0">
+            <h3 className="text-sm font-semibold text-slate-900 truncate">{skill.name}</h3>
+            <Badge className={STATUS_META[skill.status]?.className || ""}>{STATUS_META[skill.status]?.label || skill.status}</Badge>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg shrink-0">✕</button>
         </div>
-        <div className="px-4 py-3 space-y-1 text-xs text-slate-600 border-b border-slate-100 shrink-0">
-          <div className="flex gap-4"><span>版本: {skill.version}</span><span>来源: {SOURCE_LABEL[skill.source_type || ""] || "—"}</span><Badge className={STATUS_META[skill.status]?.className || ""}>{STATUS_META[skill.status]?.label || skill.status}</Badge></div>
-          <p className="text-slate-500">{skill.description || "暂无描述"}</p>
-          {(skill.tags || []).length > 0 && <div className="flex gap-1 flex-wrap">{(skill.tags || []).map((t: string) => <span key={t} className="px-1.5 py-0.5 rounded bg-slate-100 text-[10px] text-slate-600">{t}</span>)}</div>}
+
+        {/* Info bar: version · source · date */}
+        <div className="px-4 py-2.5 border-b border-slate-100 shrink-0 space-y-2">
+          <div className="flex items-center gap-3 text-xs text-slate-500">
+            <span className="font-mono text-slate-700">v{skill.version}</span>
+            <span className="text-slate-300">·</span>
+            <span>{SOURCE_LABEL[skill.source_type || ""] || "—"}</span>
+            <span className="text-slate-300">·</span>
+            <span>{skill.created_at ? formatDateTimeShort(skill.created_at) : "—"}</span>
+          </div>
+          <div className="text-[11px] font-mono text-slate-400 select-all">ID: {skill.skill_id}</div>
+          {skill.description && (
+            <p className="text-xs text-slate-600 leading-relaxed">{skill.description}</p>
+          )}
+          {(skill.tags || []).length > 0 && (
+            <div className="flex gap-1 flex-wrap">{(skill.tags || []).map((t: string) => <span key={t} className="px-1.5 py-0.5 rounded bg-slate-100 text-[10px] text-slate-600">{t}</span>)}</div>
+          )}
         </div>
+
+        {/* Pending version card (info only, no action buttons) */}
         {skill.pending_version && (
-          <div className="px-4 py-2 border-b border-slate-100 flex items-center gap-2 shrink-0 bg-amber-50">
-            <span className="text-xs text-amber-700 font-medium">待审核 · v{skill.pending_version.version}</span>
-            {skill.pending_version.submitted_by_agent_id && <span className="text-[10px] text-amber-500">{skill.pending_version.submitted_by_agent_id}</span>}
-            <button onClick={onTest} className="rounded border border-sky-200 bg-sky-50 px-2 py-1 text-xs text-sky-700 hover:bg-sky-100">🧪 运行测试</button>
-            <button onClick={() => onReview("approved")} className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-100">✓ 通过</button>
-            <button onClick={() => onReview("rejected")} className="rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100">✗ 拒绝</button>
+          <div className="px-4 py-2.5 border-b border-slate-100 shrink-0 bg-amber-50/50">
+            <div className="text-xs text-amber-800 font-medium mb-1">待审核版本</div>
+            <div className="flex items-center gap-3 text-xs text-amber-700">
+              <span className="font-mono">v{skill.pending_version.version}</span>
+              <span>提交者: <span className="font-medium">{skill.pending_version.submitted_by_agent_name || skill.pending_version.submitted_by_agent_id || "—"}</span></span>
+              {skill.pending_version.submitted_at && (
+                <span className="text-amber-500">{formatDateTimeShort(skill.pending_version.submitted_at)}</span>
+              )}
+            </div>
           </div>
         )}
         {!skill.pending_version && skill.status === "pending" && (
-          <div className="px-4 py-2 border-b border-slate-100 flex items-center gap-2 shrink-0 bg-amber-50">
-            <span className="text-xs text-amber-700 font-medium">待审核（旧流程）</span>
+          <div className="px-4 py-2 border-b border-slate-100 shrink-0 bg-amber-50">
+            <span className="text-xs text-amber-700">待审核（旧流程，无版本审核信息）</span>
           </div>
         )}
+
+        {/* Tabs */}
         <div className="flex border-b border-slate-200 shrink-0">
-          {(["content", "versions", "tests"] as const).map((t) => (
+          {(["content", "versions", "logs"] as const).map((t) => (
             <button key={t} onClick={() => setDetailTab(t)} className={`px-4 py-2 text-xs border-b-2 transition-colors ${detailTab === t ? "border-slate-950 text-slate-950 font-medium" : "border-transparent text-slate-500 hover:text-slate-800"}`}>
-              {t === "content" ? "内容" : t === "versions" ? "版本" : "测试记录"}
+              {t === "content" ? "内容" : t === "versions" ? "版本历史" : "调用日志"}
             </button>
           ))}
         </div>
+
+        {/* Tab content */}
         <div className="flex-1 overflow-y-auto p-4">
           {detailTab === "content" && (
-            <div className="space-y-3 text-xs text-slate-600">
-              <dl className="space-y-1"><div className="flex gap-2"><dt className="text-slate-400 w-20 shrink-0">技能ID</dt><dd className="font-mono">{skill.skill_id}</dd></div><div className="flex gap-2"><dt className="text-slate-400 w-20 shrink-0">版本</dt><dd>{skill.version}</dd></div><div className="flex gap-2"><dt className="text-slate-400 w-20 shrink-0">创建</dt><dd>{skill.created_at ? formatDateTimeShort(skill.created_at) : "—"}</dd></div></dl>
-              {(skill.required_skills || []).length > 0 && (
-                <div>
-                  <dt className="text-slate-400 text-xs mb-1">依赖技能</dt>
-                  <dd className="flex flex-wrap gap-1">
-                    {(skill.required_skills || []).map((dep) => (
-                      <span key={dep.skill_id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-50 border border-indigo-100 text-[10px] text-indigo-700" title={dep.skill_id}>
-                        {dep.name}
-                        {dep.version && <span className="text-indigo-400">v{dep.version}</span>}
-                      </span>
-                    ))}
-                  </dd>
+            <div className="space-y-4 text-xs text-slate-600">
+              {/* Description */}
+              <div>
+                <div className="text-xs font-medium text-slate-400 uppercase mb-1.5">技能描述</div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-slate-700 leading-relaxed whitespace-pre-wrap">
+                  {skill.description || "暂无描述"}
                 </div>
-              )}
+              </div>
+              {/* Dependencies */}
+              <div>
+                <div className="text-xs font-medium text-slate-400 uppercase mb-1.5">依赖技能</div>
+                {(skill.required_skills || []).length > 0 ? (
+                  <div className="flex flex-col gap-1">
+                    {(skill.required_skills || []).map((dep) => (
+                      <div key={dep.skill_id} className="flex items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2">
+                        <span className="text-xs font-medium text-indigo-700">{dep.name}</span>
+                        {dep.version && <span className="text-[10px] font-mono text-indigo-400">v{dep.version}</span>}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400">无</p>
+                )}
+              </div>
             </div>
           )}
           {detailTab === "versions" && (
             <div className="space-y-2">
-              {skill.latest_version && <p className="text-xs text-slate-500">最新版本: <span className="font-mono text-slate-700">v{skill.latest_version.version}</span></p>}
               {(skill.versions || []).length === 0 && <p className="text-xs text-slate-400">暂无版本记录</p>}
-              {(skill.versions || []).map((v, i) => <div key={i} className="rounded-lg border border-slate-200 p-2 text-xs"><span className="font-mono text-slate-700">v{v.version}</span><span className="ml-2 text-slate-400">{v.created_at ? formatDateTimeShort(v.created_at) : "—"}</span><p className="text-slate-500 mt-1">{v.description || "—"}</p></div>)}
+              {(skill.versions || []).map((v, i) => {
+                const isPending = v.status === "pending";
+                const isCurrent = !isPending && (skill.versions || []).findIndex(x => x.status === "approved") === i;
+                return (
+                <div key={i} className={`rounded-lg border p-2.5 text-xs ${isCurrent ? "border-slate-300 bg-slate-50" : "border-slate-200"}`}>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-slate-700">v{v.version}</span>
+                    {isCurrent && <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">当前</Badge>}
+                    {isPending && <Badge className="border-amber-200 bg-amber-50 text-amber-700">审核中</Badge>}
+                  </div>
+                  <div className="text-slate-400 mt-0.5">{v.created_at ? formatDateTimeShort(v.created_at) : "—"}</div>
+                  {(v.version_notes || v.description) && <p className="text-slate-500 mt-1">{v.version_notes || v.description}</p>}
+                </div>
+                );
+              })}
             </div>
           )}
-          {detailTab === "tests" && (
+          {detailTab === "logs" && (
             <div className="space-y-2">
-              {(skill.test_runs || []).length === 0 && <p className="text-xs text-slate-400">暂无测试记录</p>}
-              {(skill.test_runs || []).map((r, i) => <div key={i} className="rounded-lg border border-slate-200 p-2 text-xs"><span className={`font-mono ${r.run_status === "succeeded" ? "text-emerald-600" : r.run_status === "failed" ? "text-red-600" : "text-slate-500"}`}>{r.run_status}</span><span className="ml-2 text-slate-400">{r.created_at ? formatDateTimeShort(r.created_at) : "—"}</span><p className="text-slate-500 mt-1">{r.test_prompt || "—"}</p></div>)}
+              {(skill.test_runs || []).length === 0 && <p className="text-xs text-slate-400">暂无调用记录</p>}
+              {(skill.test_runs || []).map((r, i) => (
+                <div key={i} className="rounded-lg border border-slate-200 p-2.5 text-xs">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`inline-flex items-center gap-1 font-medium ${
+                      r.run_status === "succeeded" ? "text-emerald-600" : r.run_status === "failed" ? "text-red-600" : "text-slate-500"
+                    }`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${
+                        r.run_status === "succeeded" ? "bg-emerald-500" : r.run_status === "failed" ? "bg-red-500" : "bg-slate-400"
+                      }`} />
+                      {r.run_status === "succeeded" ? "成功" : r.run_status === "failed" ? "失败" : r.run_status}
+                    </span>
+                    <span className="text-slate-400">{r.created_at ? formatDateTimeShort(r.created_at) : "—"}</span>
+                  </div>
+                  {r.test_prompt && <p className="text-slate-600 bg-slate-50 rounded p-2 leading-relaxed">{r.test_prompt}</p>}
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -535,83 +586,6 @@ function UploadModal({ onClose, onDone }: { onClose: () => void; onDone: (msg: s
         <div><label className="text-xs text-slate-500 mb-1 block">标签（逗号分隔）</label><input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="network, integration" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></div>
         {error && <p className="text-xs text-red-600">{error}</p>}
         <div className="flex justify-end gap-2 pt-2"><button onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">取消</button><button onClick={upload} disabled={!file || loading} className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50">{loading ? "上传中…" : "上传"}</button></div>
-      </div>
-    </div>
-  );
-}
-
-// ── Test Modal ──────────────────────────────────────────────────────────────
-
-function TestModal({ skillId, onClose, onDone }: { skillId: string; onClose: () => void; onDone: (msg: string) => void; }) {
-  const [accounts, setAccounts] = useState<Array<{ id: string; name: string }>>([]);
-  const [accountId, setAccountId] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState("");
-  const [error, setError] = useState("");
-
-  useEffect(() => { adminFetch("/api/v1/accounts?limit=200").then((r) => r.json().catch(() => ({}))).then((d) => setAccounts((d.accounts || []) as Array<{ id: string; name: string }>)).catch(() => {}); }, []);
-
-  const run = async () => {
-    if (!accountId) return; setLoading(true); setError(""); setResult("");
-    try {
-      const res = await adminFetch(`/api/v1/skills/${encodeURIComponent(skillId)}/test`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ test_account_id: accountId, test_prompt: prompt }) });
-      const data = await res.json();
-      setResult(`测试已触发！Run ID: ${data.run_id}\n工作区: ${data.agent_id}\n前往 Coding Agent 页查看运行结果。`);
-      onDone("测试任务已下发");
-    } catch (err) { setError(err instanceof Error ? err.message : "测试失败"); }
-    finally { setLoading(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative w-full max-w-lg bg-white border border-slate-200 rounded-xl shadow-xl p-5 space-y-4">
-        <h3 className="text-sm font-semibold text-slate-900">🧪 技能测试运行</h3>
-        <div><label className="text-xs text-slate-500 mb-1 block">选择测试账号</label><select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"><option value="">-- 选择账号 --</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name || a.id}</option>)}</select></div>
-        <div><label className="text-xs text-slate-500 mb-1 block">测试 Prompt（选填）</label><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm resize-none" /></div>
-        {result && <pre className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3 whitespace-pre-wrap max-h-40 overflow-y-auto">{result}</pre>}
-        {error && <p className="text-xs text-red-600">{error}</p>}
-        <div className="flex justify-end gap-2 pt-2"><button onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">关闭</button><button onClick={run} disabled={loading || !accountId} className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50">{loading ? "下发中…" : "开始测试"}</button></div>
-      </div>
-    </div>
-  );
-}
-
-// ── Repair Modal ────────────────────────────────────────────────────────────
-
-function RepairModal({ skillId, skillName, onClose, onDone }: { skillId: string; skillName: string; onClose: () => void; onDone: (msg: string) => void; }) {
-  const [agents, setAgents] = useState<Array<{ agent_id: string; display_name: string }>>([]);
-  const [agentId, setAgentId] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState("");
-  const [error, setError] = useState("");
-
-  useEffect(() => { fetch("/agents").then((r) => r.json().catch(() => ({}))).then((d) => setAgents((d.agents || []) as Array<{ agent_id: string; display_name: string }>)).catch(() => {}); }, []);
-
-  const repair = async () => {
-    if (!agentId) return; setLoading(true); setError(""); setResult("");
-    try {
-      const res = await adminFetch(`/agents/${encodeURIComponent(agentId)}/repair-skills/stream?skill_names=${encodeURIComponent(skillId)}`, { method: "POST" });
-      if (res.ok && res.body) {
-        const reader = res.body.getReader(); const decoder = new TextDecoder(); let buf = "";
-        while (true) { const { done, value } = await reader.read(); if (done) break; buf += decoder.decode(value, { stream: true }); const lines = buf.split("\n"); buf = lines.pop() ?? ""; for (const line of lines) { if (!line.trim()) continue; try { const obj = JSON.parse(line); if (obj.t === "log") setResult((prev) => prev + obj.m + "\n"); if (obj.t === "done") setResult((prev) => prev + (obj.ok ? "✅ 修复完成\n" : "❌ 修复失败\n")); } catch { setResult((prev) => prev + line + "\n"); } } }
-      }
-      onDone("技能修复已触发");
-    } catch (err) { setError(err instanceof Error ? err.message : "修复失败"); }
-    finally { setLoading(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative w-full max-w-lg bg-white border border-slate-200 rounded-xl shadow-xl p-5 space-y-4">
-        <h3 className="text-sm font-semibold text-slate-900">🔧 修复技能：{skillName}</h3>
-        <p className="text-xs text-slate-500">选择智能体通过 LLM 重新生成技能文件</p>
-        <div><label className="text-xs text-slate-500 mb-1 block">选择智能体</label><select value={agentId} onChange={(e) => setAgentId(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"><option value="">-- 选择智能体 --</option>{agents.map((a) => <option key={a.agent_id} value={a.agent_id}>{a.display_name || a.agent_id}</option>)}</select></div>
-        {result && <pre className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3 whitespace-pre-wrap max-h-48 overflow-y-auto font-mono">{result}</pre>}
-        {error && <p className="text-xs text-red-600">{error}</p>}
-        <div className="flex justify-end gap-2 pt-2"><button onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">关闭</button><button onClick={repair} disabled={loading || !agentId} className="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50">{loading ? "修复中…" : "开始修复"}</button></div>
       </div>
     </div>
   );

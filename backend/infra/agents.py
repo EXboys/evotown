@@ -15,6 +15,7 @@ _conn: sqlite3.Connection | None = None
 
 AGENT_STATUS_ACTIVE = "active"
 AGENT_STATUS_ARCHIVED = "archived"
+AGENT_STATUS_DELETED = "deleted"
 
 
 def _data_dir() -> Path:
@@ -319,6 +320,10 @@ def list_agents(
     if status:
         where.append("agents.status=?")
         params.append(status)
+    else:
+        # Default: exclude deleted agents
+        where.append("agents.status != ?")
+        params.append(AGENT_STATUS_DELETED)
     if category:
         where.append("agents.category=?")
         params.append(category)
@@ -351,7 +356,7 @@ def update_agent(
     if name is not None:
         updates["name"] = _safe_name(name)
     if status is not None:
-        if status not in {AGENT_STATUS_ACTIVE, AGENT_STATUS_ARCHIVED}:
+        if status not in {AGENT_STATUS_ACTIVE, AGENT_STATUS_ARCHIVED, AGENT_STATUS_DELETED}:
             raise ValueError("invalid agent status")
         updates["status"] = status
     if storage_quota_mb is not None:

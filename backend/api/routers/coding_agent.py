@@ -95,7 +95,7 @@ async def get_agent_options(
 ):
     """User-readable catalog of models, skills and MCP plugins for the workbench."""
     identity = _require_identity(identity)
-    _require_scope(identity, "agent.read", "agent.write", "console.read", "console.write")
+    _require_scope(identity, "agent.read", "console.read", "console.write")
 
     # Determine model policy from workspace; default to 'all' if no agent specified
     policy = "all"
@@ -146,7 +146,7 @@ async def list_agents(
     identity: dict | None = Depends(require_console_read),
 ):
     identity = _require_identity(identity)
-    _require_scope(identity, "agent.read", "agent.write", "console.read", "console.write")
+    _require_scope(identity, "agent.read", "console.read", "console.write")
     owner = None if include_all and _is_admin(identity) else _account_id(identity)
     if not owner and not _is_admin(identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="account-bound session required")
@@ -164,7 +164,7 @@ async def list_agents(
 @router.post("/agents")
 async def create_agent(body: WorkspaceCreate, identity: dict | None = Depends(require_console_read)):
     identity = _require_identity(identity)
-    _require_scope(identity, "agent.write", "console.write")
+    _require_scope(identity, "console.write")
     admin_owner = (body.owner_account_id or body.account_id).strip()
     owner = admin_owner if _is_admin(identity) and admin_owner else _account_id(identity)
     if not owner:
@@ -195,6 +195,19 @@ async def create_agent(body: WorkspaceCreate, identity: dict | None = Depends(re
             category=body.category,
             template_id=body.template_id,
         )
+
+        # Bind selected roles to the new agent
+        if body.role_ids:
+            from infra import mcp_registry
+            agent_id = agent["agent_id"]
+            conn = mcp_registry._ensure_conn()
+            for role_id in body.role_ids:
+                rid = role_id.strip()
+                if rid:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO agent_role_members (role_id, agent_id) VALUES (?, ?)",
+                        (rid, agent_id),
+                    )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return {"agent": agent}
@@ -203,7 +216,7 @@ async def create_agent(body: WorkspaceCreate, identity: dict | None = Depends(re
 @router.get("/agents/{agent_id}")
 async def get_agent(agent_id: str, identity: dict | None = Depends(require_console_read)):
     identity = _require_identity(identity)
-    _require_scope(identity, "agent.read", "agent.write", "console.read", "console.write")
+    _require_scope(identity, "agent.read", "console.read", "console.write")
     agent = _load_agent_for_identity(agent_id, identity)
     result = claude_agent_runs.list_runs(
         agent_id=agent_id,
@@ -220,7 +233,7 @@ async def get_agent(agent_id: str, identity: dict | None = Depends(require_conso
 @router.patch("/agents/{agent_id}")
 async def update_agent(agent_id: str, body: WorkspaceUpdate, identity: dict | None = Depends(require_console_read)):
     identity = _require_identity(identity)
-    _require_scope(identity, "agent.write", "console.write")
+    _require_scope(identity, "console.write")
     agent = _load_agent_for_identity(agent_id, identity)
     # Validate: switching to routes_only requires at least one enabled route alias
     if body.model_policy == "routes_only" and claude_code_runner.count_route_aliases() == 0:
@@ -260,7 +273,7 @@ def _validate_profile_text_fields(body: WorkspaceProfileUpdate) -> None:
 @router.get("/agents/{agent_id}/profile")
 async def get_workspace_profile(agent_id: str, identity: dict | None = Depends(require_console_read)):
     identity = _require_identity(identity)
-    _require_scope(identity, "agent.read", "agent.write", "console.read", "console.write")
+    _require_scope(identity, "agent.read", "console.read", "console.write")
     agent = _load_agent_for_identity(agent_id, identity)
     return {"profile": workspace_profile.get_profile(agent)}
 
@@ -272,7 +285,7 @@ async def update_workspace_profile(
     identity: dict | None = Depends(require_console_read),
 ):
     identity = _require_identity(identity)
-    _require_scope(identity, "agent.write", "console.write")
+    _require_scope(identity, "console.write")
     agent = _load_agent_for_identity(agent_id, identity)
     # Lock: template-bound agent profiles can only be modified by admin
     if agent.get("template_id") and not _is_admin(identity):
@@ -349,7 +362,7 @@ async def read_workspace_file(
 ):
     """Read a single text file inside a agent (path-guarded), for context preview."""
     identity = _require_identity(identity)
-    _require_scope(identity, "agent.read", "agent.write", "console.read", "console.write")
+    _require_scope(identity, "agent.read", "console.read", "console.write")
     agent = _load_agent_for_identity(agent_id, identity)
     try:
         target = agents.resolve_agent_path(agent, path)
@@ -383,7 +396,7 @@ async def list_workspace_file_index(
 ):
     """List agent files by relative path (no absolute server paths exposed)."""
     identity = _require_identity(identity)
-    _require_scope(identity, "agent.read", "agent.write", "console.read", "console.write")
+    _require_scope(identity, "agent.read", "console.read", "console.write")
     agent = _load_agent_for_identity(agent_id, identity)
     try:
         payload = workspace_files.list_workspace_files(
@@ -406,7 +419,7 @@ async def share_workspace_files(
 ):
     """Copy selected workspace files to another agent the caller can run."""
     identity = _require_identity(identity)
-    _require_scope(identity, "agent.write", "console.write", "agent.run")
+    _require_scope(identity, "console.write", "agent.run")
     source_agent = _load_agent_for_identity(agent_id, identity)
     if not agents.can_run_agent(source_agent, identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="share is not allowed for this agent")
@@ -443,7 +456,7 @@ async def upload_workspace_files(
 ):
     """Upload images/files into the agent uploads/ directory for agent runs."""
     identity = _require_identity(identity)
-    _require_scope(identity, "agent.write", "console.write", "agent.run")
+    _require_scope(identity, "console.write", "agent.run")
     agent = _load_agent_for_identity(agent_id, identity)
     if not agents.can_run_agent(agent, identity):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="upload is not allowed for this agent")
@@ -801,7 +814,7 @@ async def delete_workspace_session(
     identity: dict | None = Depends(require_console_read),
 ):
     identity = _require_identity(identity)
-    _require_scope(identity, "console.write", "agent.write")
+    _require_scope(identity, "console.write")
     agent = _load_agent_for_identity(agent_id, identity)
 
     result = claude_agent_runs.list_runs(agent_id=agent_id, limit=500)
@@ -819,3 +832,31 @@ async def delete_workspace_session(
     deleted = claude_agent_runs.delete_runs(run_ids)
     root = claude_agent_runs.resolve_session_root(runs, session_id) or session_id
     return {"session_id": root, "deleted_run_ids": deleted, "deleted_count": len(deleted)}
+
+
+@router.get("/agents/{agent_id}/sessions/{session_id}/title")
+async def get_session_title(agent_id: str, session_id: str):
+    title = claude_agent_runs.get_session_title(agent_id, session_id)
+    return {"title": title}
+
+
+@router.get("/agents/{agent_id}/session-titles")
+async def get_all_session_titles(agent_id: str):
+    titles = claude_agent_runs.get_session_titles(agent_id)
+    return {"titles": titles}
+
+
+@router.put("/agents/{agent_id}/sessions/{session_id}/title")
+async def set_session_title(
+    agent_id: str,
+    session_id: str,
+    body: dict,
+    identity: dict | None = Depends(require_console_read),
+):
+    identity = _require_identity(identity)
+    _require_scope(identity, "console.write")
+    _load_agent_for_identity(agent_id, identity)
+    title = str(body.get("title", "")).strip()
+    updated_by = str(identity.get("account_id") or identity.get("login_name") or "")
+    claude_agent_runs.set_session_title(agent_id, session_id, title, updated_by)
+    return {"ok": True, "title": title}

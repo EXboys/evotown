@@ -563,11 +563,11 @@ def validate_task_content(task: str) -> None:
 # ── Staff session store (account + password login, SQLite-backed) ────
 
 STAFF_SESSION_TTL = int(os.environ.get("EVOTOWN_STAFF_SESSION_TTL", "86400"))  # synced from system.db on startup
+# Employee scopes — agent.write intentionally excluded: creation/management require admin console.write
 STAFF_EMPLOYEE_SCOPES = [
     CONSOLE_SCOPE_READ,
     AGENT_SCOPE_RUN,
     "agent.read",
-    "agent.write",
     TASK_SCOPE_SUBMIT,
 ]
 

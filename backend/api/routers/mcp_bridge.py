@@ -36,6 +36,8 @@ def _resolve_agent(agent_id: str, token: str) -> dict[str, Any] | None:
 
 def _build_tools(agent_id: str) -> list[dict[str, Any]]:
     """Return MCP tools available to this agent (Anthropic Tool Use format)."""
+    from services.mcp_loader import fetch_external_tools
+
     policies = mcp_registry.list_policies_for_agent(agent_id)
     tools: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -48,6 +50,19 @@ def _build_tools(agent_id: str) -> list[dict[str, Any]]:
         svc = mcp_registry.get_service(sid)
         if svc is None or svc.get("status") != "online":
             continue
+
+        if svc.get("source") == "external":
+            # ── External MCP: fetch tools from remote server ────────
+            ext_tools = fetch_external_tools(sid)
+            for et in ext_tools:
+                tools.append({
+                    "name": et["name"],
+                    "description": et.get("description") or svc.get("name", ""),
+                    "input_schema": et.get("input_schema") or {"type": "object", "properties": {}},
+                })
+            continue
+
+        # ── Internal / System MCP: from DB ─────────────────────────
         try:
             raw_schema = json.loads(str(svc.get("input_schema") or "{}"))
         except (json.JSONDecodeError, TypeError):
@@ -110,12 +125,23 @@ async def _handle_jsonrpc(request: Request, agent_id: str, token: str, run_id: s
         tool_name = params.get("name", "")
         arguments = params.get("arguments", {})
 
+        # Resolve service_id from tool_name.
+        # Internal MCP: tool_name == service_id (underscored)
+        # External MCP: tool_name == {service_safe_id}__{original_tool}
         service_id = ""
         for p in mcp_registry.list_policies_for_agent(agent_id):
             sid = p["service_id"]
-            if sid.replace("-", "_") == tool_name:
+            safe_sid = sid.replace("-", "_")
+            # Exact match (internal/system legacy)
+            if safe_sid == tool_name:
                 service_id = sid
                 break
+            # Prefix match (external MCP multi-tool)
+            prefix = safe_sid + "__"
+            if tool_name.startswith(prefix):
+                service_id = sid
+                break
+
         if not service_id:
             return {
                 "jsonrpc": "2.0",
@@ -153,7 +179,7 @@ async def _handle_jsonrpc(request: Request, agent_id: str, token: str, run_id: s
         if account_id_val:
             permissions["account"] = account_id_val
 
-        result = invoke_mcp(service_id, arguments, permissions)
+        result = invoke_mcp(service_id, arguments, permissions, tool_name=tool_name)
 
         handler_ok = result.get("ok") and (result.get("data") or {}).get("ok", True)
         mcp_registry.record_mcp_call(

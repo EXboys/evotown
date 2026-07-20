@@ -33,6 +33,7 @@ class McpServiceCreate(BaseModel):
     description: str = ""
     endpoint_url: str = ""
     source: str = "external"
+    tables: list[str] = Field(default_factory=list)
 
 
 class McpServiceUpdate(BaseModel):
@@ -40,6 +41,7 @@ class McpServiceUpdate(BaseModel):
     description: str | None = None
     endpoint_url: str | None = None
     source: str | None = None
+    tables: list[str] | None = None
 
 
 class McpStatusUpdate(BaseModel):
@@ -86,6 +88,7 @@ async def create_mcp_service(body: McpServiceCreate, _admin=Depends(require_admi
         description=body.description,
         endpoint_url=body.endpoint_url,
         source=body.source,
+        tables=body.tables,
     )
     return {"service": svc}
 
@@ -99,6 +102,7 @@ async def update_mcp_service(service_id: str, body: McpServiceUpdate, _admin=Dep
             description=body.description,
             endpoint_url=body.endpoint_url,
             source=body.source,
+            tables=body.tables,
         )
     except PermissionError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
@@ -382,6 +386,7 @@ async def set_role_dimensions_batch(role_id: str, body: RoleDimensionsBatchUpdat
 
 class McpCallRequest(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
+    tool_name: str = Field(default="")
 
 
 @router.post("/mcp/{service_id}")
@@ -429,7 +434,7 @@ async def call_mcp(service_id: str, body: McpCallRequest,
     from services.mcp_loader import invoke_mcp
     if account_id:
         permissions["account_id"] = account_id
-    result = invoke_mcp(service_id, body.args, permissions)
+    result = invoke_mcp(service_id, body.args, permissions, tool_name=body.tool_name)
 
     # ⑧ Record audit
     args_summary = json.dumps(body.args, ensure_ascii=False)
@@ -478,6 +483,9 @@ async def list_mcp_tools(identity: dict | None = Depends(require_mcp_call)):
         raise HTTPException(status_code=401, detail="无法解析 agent_id")
 
     import json as _json
+
+    from services.mcp_loader import fetch_external_tools
+
     policies = mcp_registry.list_policies_for_agent(agent_id)
     tools: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -490,6 +498,19 @@ async def list_mcp_tools(identity: dict | None = Depends(require_mcp_call)):
         svc = mcp_registry.get_service(sid)
         if svc is None or svc.get("status") != "online":
             continue
+
+        if svc.get("source") == "external":
+            # ── External MCP: fetch tools from remote server ────────
+            ext_tools = fetch_external_tools(sid)
+            for et in ext_tools:
+                tools.append({
+                    "name": et["name"],
+                    "description": et.get("description") or svc.get("name", ""),
+                    "input_schema": et.get("input_schema") or {"type": "object", "properties": {}},
+                })
+            continue
+
+        # ── Internal / System MCP: read from DB ────────────────────
         try:
             input_schema = json.loads(str(svc.get("input_schema") or "{}"))
         except (json.JSONDecodeError, TypeError):
@@ -852,4 +873,27 @@ async def reject_mcp_service(service_id: str, body: McpReviewRequest):
         )
 
     return {"rejected": True, "service_id": service_id, "version_id": pending["version_id"]}
+
+
+# -- Available Database Tables (for MCP table association) -------------
+
+@router.get("/mcp-available-tables", dependencies=[Depends(require_admin)])
+async def list_available_tables():
+    """Return all known database table names for MCP table association.
+
+    Sources: system_dimension_registry (table_name + db_connection_id).
+    """
+    from typing import Any as _Any
+    dims = mcp_registry.list_dimensions()
+    seen: set[str] = set()
+    tables: list[dict[str, _Any]] = []
+    for d in dims:
+        key = f"{d.get('db_connection_id', '')}:{d.get('table_name', '')}"
+        if key not in seen:
+            seen.add(key)
+            tables.append({
+                "db_connection_id": d.get("db_connection_id", ""),
+                "table_name": d.get("table_name", ""),
+            })
+    return {"tables": tables}
 

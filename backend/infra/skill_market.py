@@ -271,11 +271,21 @@ def _skill_from_row(row: sqlite3.Row) -> dict[str, Any]:
             (skill_id,),
         ).fetchone()
         if pv:
+            agent_name = ""  # resolved from agents store for display
+            if pv["submitted_by_agent_id"]:
+                try:
+                    from infra import agents as agents_store
+                    agt = agents_store.get_agent(str(pv["submitted_by_agent_id"]))
+                    if agt:
+                        agent_name = str(agt.get("name") or "")
+                except Exception:
+                    pass
             item["pending_version"] = {
                 "version_id": pv["id"],
                 "version": pv["version"],
                 "status": pv["status"],
                 "submitted_by_agent_id": pv["submitted_by_agent_id"],
+                "submitted_by_agent_name": agent_name,
                 "submitted_by_account": pv["submitted_by_account"],
                 "submitted_at": pv["created_at"],
             }
@@ -367,59 +377,72 @@ def submit_skill_version(
 ) -> dict[str, Any]:
     """Submit a new skill version for review (status=pending).
 
-    Version is auto-generated from skills.current_version (patch bump).
-    The ``version`` parameter is ignored — the system manages versioning.
-    Retries with further bumps on UNIQUE constraint collisions.
+    Uses the agent-provided version from SKILL.md frontmatter.
+    Validates: version must be >= current_version (no downgrade, no duplicate).
+    Rejects UNIQUE collisions instead of auto-bumping.
     """
     conn = _ensure_conn()
-    # Auto-generate version: skills.current_version + 1 patch
-    skill = conn.execute("SELECT current_version FROM skills WHERE skill_id=?", (skill_id,)).fetchone()
-    base_version = skill["current_version"] if skill else "1.0.0"
-    next_version = _bump_patch_version(base_version)
 
-    # Retry loop: keep bumping patch until we find a non-colliding version
-    max_retries = 50
-    for _ in range(max_retries):
-        try:
-            conn.execute(
-                """
-                INSERT INTO skill_versions (
-                    skill_id, version, description, status, version_notes,
-                    requires_skills, submitted_by_agent_id, submitted_by_account
-                )
-                VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)
-                """,
-                (
-                    skill_id,
-                    next_version,
-                    description,
-                    version_notes,
-                    requires_skills,
-                    submitted_by_agent_id,
-                    submitted_by_account,
-                ),
-            )
-            break  # success
-        except sqlite3.IntegrityError:
-            next_version = _bump_patch_version(next_version)
-    else:
-        raise RuntimeError(
-            f"Failed to find non-colliding version for skill {skill_id} "
-            f"after {max_retries} retries (last tried: {next_version})"
+    # Use agent's version from SKILL.md frontmatter
+    agent_version = version.strip()
+    if not agent_version:
+        agent_version = "0.1.0"
+
+    skill = conn.execute(
+        "SELECT current_version FROM skills WHERE skill_id=?", (skill_id,)
+    ).fetchone()
+    current_version = skill["current_version"] if skill else ""
+
+    # Validate: no downgrade
+    if current_version and _version_tuple(agent_version) < _version_tuple(current_version):
+        raise ValueError(
+            f"版本 {agent_version} 低于当前版本 {current_version}，请升级版本号后重新提交"
         )
 
-    # Also update the skills table status so admin UI sees pending submissions
+    # Validate: must be strictly higher than current
+    if current_version and _version_tuple(agent_version) == _version_tuple(current_version):
+        raise ValueError(
+            f"版本 {agent_version} 与当前已批准版本相同，"
+            f"请使用更高版本号（如 {_bump_patch_version(current_version)}）后重新提交"
+        )
+
+    try:
+        conn.execute(
+            """
+            INSERT INTO skill_versions (
+                skill_id, version, description, status, version_notes,
+                requires_skills, submitted_by_agent_id, submitted_by_account
+            )
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)
+            """,
+            (
+                skill_id,
+                agent_version,
+                description,
+                version_notes,
+                requires_skills,
+                submitted_by_agent_id,
+                submitted_by_account,
+            ),
+        )
+    except sqlite3.IntegrityError:
+        raise ValueError(
+            f"版本 {agent_version} 已存在（可能被其他 agent 抢先提交），请使用更高版本号"
+        )
+
+    # Update skills status so admin UI sees pending submissions
     conn.execute(
-        "UPDATE skills SET status='pending', updated_at=datetime('now') WHERE skill_id=? AND status IN ('draft','rejected','approved')",
+        "UPDATE skills SET status='pending', updated_at=datetime('now') "
+        "WHERE skill_id=? AND status IN ('draft','rejected','approved')",
         (skill_id,),
     )
 
     # Snapshot workspace files so approval uses exactly the submitted content
-    _snapshot_skill_files(conn, skill_id, next_version, submitted_by_agent_id)
+    _snapshot_skill_files(conn, skill_id, agent_version, submitted_by_agent_id)
 
     return dict(conn.execute(
         "SELECT * FROM skill_versions WHERE skill_id=? AND version=?",
-        (skill_id, next_version),
+        (skill_id, agent_version),
     ).fetchone() or {})
 
 
@@ -533,6 +556,20 @@ def _bump_patch_version(current: str) -> str:
         return f"{parts[0]}.{parts[1]}.{int(parts[2]) + 1}"
     # Fallback: try to parse and bump
     return "1.0.0"
+
+
+def _version_tuple(v: str) -> tuple:
+    """Convert semver string to comparable tuple. Handles 1-3 segment versions."""
+    parts = v.strip().split(".")
+    nums = []
+    for p in parts[:3]:
+        try:
+            nums.append(int(p))
+        except ValueError:
+            nums.append(0)
+    while len(nums) < 3:
+        nums.append(0)
+    return tuple(nums)
 
 
 def _resolve_publish_skill_ids(
@@ -1030,14 +1067,19 @@ def review_skill_version(
 
     skill_id = row["skill_id"]
     if new_status == "approved":
-        # Publish the skill: update skills table to approved, bump current_version
+        # Publish: sync status, version and description from approved version
         approved_version = row["version"]
+        approved_description = str(row["description"] or "").strip()  # sync to skills table
         conn.execute(
-            "UPDATE skills SET status='approved', current_version=?, updated_at=datetime('now') WHERE skill_id=?",
-            (approved_version, skill_id),
+            "UPDATE skills SET status='approved', current_version=?, description=CASE WHEN ? != '' THEN ? ELSE description END, updated_at=datetime('now') WHERE skill_id=?",
+            (approved_version, approved_description, approved_description, skill_id),
         )
         # Copy skill files to custom-skills so other agents can deploy
         _publish_skill_to_custom_skills(conn, skill_id)
+
+        # Write approved version back to agent workspace SKILL.md
+        # so agent sees the canonical version on next development cycle
+        _sync_agent_workspace_version(conn, row, approved_version)
     else:
         # Rejected: reset to draft so user can resubmit
         conn.execute(
@@ -1180,6 +1222,44 @@ def _sync_skill_md_version(skill_md_path: Path, version: str) -> None:
         fm["version"] = version
         new_frontmatter = yaml.dump(fm, default_flow_style=False, allow_unicode=True, sort_keys=False)
         skill_md_path.write_text(f"---\n{new_frontmatter}---{parts[2]}", encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _sync_agent_workspace_version(
+    conn: sqlite3.Connection,
+    version_row: sqlite3.Row,
+    approved_version: str,
+) -> None:
+    """After approval, write the canonical version back to the agent's workspace SKILL.md."""
+    try:
+        from infra import agents as agents_store
+
+        agent_id = version_row["submitted_by_agent_id"]
+        skill_id = version_row["skill_id"]
+        if not agent_id:
+            return
+
+        agent = agents_store.get_agent(agent_id)
+        if agent is None:
+            return
+
+        root = agents_store.resolve_agent_path(agent)
+        skill_name = conn.execute(
+            "SELECT name FROM skills WHERE skill_id=?", (skill_id,)
+        ).fetchone()
+        if skill_name is None:
+            return
+
+        # Two possible paths: skills/{name}/SKILL.md or .evotown/skills/{skill_id}/SKILL.md
+        candidates = [
+            root / "skills" / skill_name["name"] / "SKILL.md",
+            root / ".evotown" / "skills" / skill_id / "SKILL.md",
+        ]
+        for skill_md_path in candidates:
+            if skill_md_path.is_file():
+                _sync_skill_md_version(skill_md_path, approved_version)
+                return
     except Exception:
         pass
 

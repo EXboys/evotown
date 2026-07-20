@@ -212,9 +212,21 @@ def process(args: dict, permissions: dict) -> dict[str, Any]:
             return {"ok": False, "data": None, "error": dep_errors}
 
     # ── Submit version ──────────────────────────────────────────────
+    version_notes = (args.get("version_notes", "") or "").strip()
+    if not version_notes:
+        # Fallback: extract from body — look for ## 变更 or ## 本版本变更 section
+        body_text = raw.split("---\n", 2)[-1] if raw.count("---\n") >= 2 else ""
+        m = re.search(r"##\s*(?:本版本)?变更\s*\n+(.*?)(?=\n##|\Z)", body_text, re.DOTALL)
+        if m:
+            version_notes = m.group(1).strip()
+        if not version_notes:
+            version_notes = description
+
     ver_record = submit_skill_version(
         skill_id=skill_id,
+        version=fm.get("version", ""),
         description=description,
+        version_notes=version_notes,
         requires_skills=json.dumps(requires_skills or [], ensure_ascii=False),
         submitted_by_agent_id=agent_id,
         submitted_by_account=account,

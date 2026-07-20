@@ -200,6 +200,20 @@ Codex reads REDLINING.md or OOXML.md only when the user needs those features.
 
 ## Skill Creation Process
 
+**Important: Version management.**
+
+- SKILL.md contains ONLY the current version's execution logic. Never append version history or changelogs to SKILL.md.
+- When submitting a skill version for review, call the MCP tool with `version_notes`:
+  ```
+  mcp_call("system-internal_skill_deploy", {
+    action: "submit",
+    skill_id: "sk_xxx",
+    version_notes: "Fixed timeout bug; added CSV export support"
+  })
+  ```
+- The backend records `version_notes` in the database alongside the submitted version. No CHANGELOG files needed in the skill directory.
+- **Legacy cleanup**: If the current SKILL.md contains old version history or changelogs from before this convention, remove them when you next edit the skill. Keep only the current version's execution logic in the body.
+
 Skill creation involves these steps:
 
 1. Understand the skill with concrete examples

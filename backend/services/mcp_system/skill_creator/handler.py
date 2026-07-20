@@ -26,7 +26,11 @@ requires_mcp: []
 requires_skills: []
 requires_knowledge: []
 ---
+
 """
+# Note: version change notes are NOT stored in SKILL.md.
+# When submitting for review via MCP, pass `version_notes` to
+# `system-internal_skill_deploy` to record per-version changes.
 
 
 def process(args: dict, permissions: dict) -> dict[str, Any]:

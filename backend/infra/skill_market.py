@@ -67,7 +67,7 @@ def _ensure_conn() -> sqlite3.Connection:
             team_id         TEXT NOT NULL DEFAULT '',
             tags            TEXT NOT NULL DEFAULT '[]',
             source_run_id   TEXT NOT NULL DEFAULT '',
-            source_type     TEXT NOT NULL DEFAULT 'enterprise',
+            source_type     TEXT NOT NULL DEFAULT 'market',
             created_at      TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -180,7 +180,7 @@ def _migrate_skills_schema(conn: sqlite3.Connection) -> None:
     if "package_signature" not in cols:
         conn.execute("ALTER TABLE skills ADD COLUMN package_signature TEXT NOT NULL DEFAULT ''")
     if "source_type" not in cols:
-        conn.execute("ALTER TABLE skills ADD COLUMN source_type TEXT NOT NULL DEFAULT 'enterprise'")
+        conn.execute("ALTER TABLE skills ADD COLUMN source_type TEXT NOT NULL DEFAULT 'market'")
     if "category" not in cols:
         conn.execute("ALTER TABLE skills ADD COLUMN category TEXT NOT NULL DEFAULT ''")
     if "agent_id" not in cols:
@@ -759,7 +759,7 @@ def upload_skill_package(body: SkillPackageUpload) -> dict[str, Any]:
             package_sha256, package_signature, package_bytes, status, visibility, team_id, tags,
             source_run_id, readme, dependencies, source_type, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, 'external', datetime('now'))
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, 'market', datetime('now'))
         ON CONFLICT(skill_id) DO UPDATE SET
             name=excluded.name,
             description=excluded.description,
@@ -776,7 +776,7 @@ def upload_skill_package(body: SkillPackageUpload) -> dict[str, Any]:
             source_run_id=excluded.source_run_id,
             readme=excluded.readme,
             dependencies=excluded.dependencies,
-            source_type='external',
+            source_type='market',
             updated_at=datetime('now')
         """,
         (
@@ -1123,7 +1123,7 @@ def _publish_skill_to_custom_skills(conn: sqlite3.Connection, skill_id: str) -> 
             src = snapshot
 
         # 2. Fall back to source agent workspace (backward compat)
-        if src is None and source_type == "workspace" and agent_id:
+        if src is None and source_type == "custom" and agent_id:
             agent = agents_store.get_agent(agent_id)
             if agent:
                 root = agents_store.resolve_agent_path(agent)
@@ -1277,7 +1277,7 @@ def _promote_candidate(conn: sqlite3.Connection, candidate: dict[str, Any]) -> N
             skill_id, name, description, version, runtime_targets, package_url,
             status, visibility, team_id, tags, source_run_id, source_type, updated_at
         )
-        VALUES (?, ?, ?, '0.1.0', ?, ?, 'approved', ?, ?, ?, ?, 'enterprise', datetime('now'))
+        VALUES (?, ?, ?, '0.1.0', ?, ?, 'approved', ?, ?, ?, ?, 'market', datetime('now'))
         ON CONFLICT(skill_id) DO UPDATE SET
             name=excluded.name,
             description=excluded.description,
@@ -1286,7 +1286,7 @@ def _promote_candidate(conn: sqlite3.Connection, candidate: dict[str, Any]) -> N
             visibility=excluded.visibility,
             team_id=excluded.team_id,
             source_run_id=excluded.source_run_id,
-            source_type='enterprise',
+            source_type='market',
             updated_at=datetime('now')
         """,
         (
@@ -1318,7 +1318,7 @@ def create_draft_skill(
     team_id: str = "",
     tags: list[str] | None = None,
     source_run_id: str = "",
-    source_type: str = "workspace",
+    source_type: str = "custom",
     agent_id: str = "",
     created_by: str = "",
 ) -> dict[str, Any]:

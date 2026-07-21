@@ -318,6 +318,7 @@ export function SkillsConsole({ locale = "zh" }: { locale?: Locale }) {
 
   const buildSkillsUrl = (nextFilters = filters) => {
     const params = new URLSearchParams({ limit: "200" });
+    params.set("source_type", "market");
     if (nextFilters.query.trim()) params.set("query", nextFilters.query.trim());
     if (nextFilters.tag.trim()) params.set("tag", nextFilters.tag.trim());
     if (nextFilters.runtime_target.trim()) params.set("runtime_target", nextFilters.runtime_target.trim());

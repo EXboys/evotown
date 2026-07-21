@@ -1105,12 +1105,6 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
               onChange={(e) => setAccountForm({ ...accountForm, owner_email: e.target.value })}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
           </label>
-          <label className="block text-sm">
-            <span className="font-medium text-slate-700">{copy.notes}</span>
-            <textarea value={accountForm.notes} rows={2}
-              onChange={(e) => setAccountForm({ ...accountForm, notes: e.target.value })}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-          </label>
 
           {/* Agent checkboxes */}
           {(drawer === "account-create" || drawer === "account-edit") && (

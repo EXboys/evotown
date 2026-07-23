@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get install -y --no-install-recommends nodejs fonts-noto-cjk \
     && npm install -g agent-browser \
     && rm -rf /var/lib/apt/lists/*
 
@@ -43,8 +43,14 @@ RUN set -e && \
 
 # 安装 Python 依赖（路径相对于 repo 根目录，即 build context）
 # --mount=type=cache 持久化 pip wheel 缓存，--no-cache 也不会清除，跨次构建复用。
+# ARG 代理配置：构建时通过 --build-arg HTTP_PROXY=... 可加速 pip 下载
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
 COPY evotown/backend/requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
+    HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} NO_PROXY=${NO_PROXY} \
+    http_proxy=${HTTP_PROXY} https_proxy=${HTTPS_PROXY} no_proxy=${NO_PROXY} \
     pip install --timeout=120 --retries=5 -i https://pypi.tuna.tsinghua.edu.cn/simple --extra-index-url https://pypi.org/simple -r requirements.txt
 
 # 复制源码

@@ -144,7 +144,44 @@ def list_engines_fleet(limit: int = 200) -> list[dict[str, Any]]:
     return [_enrich_engine_row(row) for row in rows]
 
 
+def mark_engine_presence(
+    engine_id: str,
+    *,
+    online: bool,
+    connector_version: str | None = None,
+    engine_version: str | None = None,
+    meta: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Update engine presence without going through EngineHeartbeat (used by Doctor WS)."""
+    engine = engine_ingest.get_engine(engine_id)
+    if engine is None:
+        return None
+    last_seen = _utc_now() if online else "1970-01-01T00:00:00Z"
+    conn = _db()
+    conn.execute(
+        """
+        UPDATE engines
+        SET engine_version=COALESCE(?, engine_version),
+            connector_version=COALESCE(?, connector_version),
+            last_seen_at=?,
+            online_meta=?,
+            updated_at=datetime('now')
+        WHERE engine_id=?
+        """,
+        (
+            engine_version,
+            connector_version,
+            last_seen,
+            _json_dumps(meta or {}),
+            engine_id,
+        ),
+    )
+    return get_engine_fleet(engine_id)
+
+
 def _enrich_engine_row(row: sqlite3.Row) -> dict[str, Any]:
+    from infra import doctor_nodes
+
     data = engine_ingest._engine_from_row(row)
     last_seen = data.get("last_seen_at") or ""
     online = False
@@ -155,7 +192,9 @@ def _enrich_engine_row(row: sqlite3.Row) -> dict[str, Any]:
         except ValueError:
             online = False
     caps = data.get("capabilities") or {}
-    if caps.get("hosted") and hosted_agent_engines.hosted_agent_available(data["engine_id"]):
+    if doctor_nodes.is_doctor_ws_online(data["engine_id"]):
+        data["online"] = True
+    elif caps.get("hosted") and hosted_agent_engines.hosted_agent_available(data["engine_id"]):
         data["online"] = True
     else:
         data["online"] = online
@@ -360,9 +399,29 @@ def lease_job(engine_id: str) -> dict[str, Any] | None:
     ).fetchone()
     if row is None:
         return None
-    job_id = row["job_id"]
+    return _finalize_lease(row["job_id"], engine_id)
+
+
+def lease_job_by_id(job_id: str, engine_id: str) -> dict[str, Any] | None:
+    """Lease a specific queued job for a Doctor / connector engine."""
+    if hosted_agent_engines.is_hosted_engine(engine_id):
+        return None
+    if engine_ingest.get_engine(engine_id) is None:
+        return None
+    conn = _db()
+    _requeue_stale(conn)
+    row = conn.execute(
+        "SELECT * FROM dispatch_jobs WHERE job_id=? AND status='queued'",
+        (job_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return _finalize_lease(job_id, engine_id)
+
+
+def _finalize_lease(job_id: str, engine_id: str) -> dict[str, Any] | None:
     expires = _expires_at(_LEASE_SECONDS)
-    updated = conn.execute(
+    updated = _db().execute(
         """
         UPDATE dispatch_jobs
         SET status='leased', lease_engine_id=?, lease_expires_at=?, updated_at=datetime('now')
@@ -371,7 +430,7 @@ def lease_job(engine_id: str) -> dict[str, Any] | None:
         (engine_id, expires, job_id),
     ).rowcount
     if not updated:
-        return lease_job(engine_id)
+        return None
     job = get_job(job_id)
     if job is None:
         return None
@@ -386,6 +445,25 @@ def lease_job(engine_id: str) -> dict[str, Any] | None:
         "source_engine_id": job["source_engine_id"],
         "lease_expires_at": expires,
     }
+
+
+def requeue_job(job_id: str, *, reason: str = "") -> dict[str, Any] | None:
+    job = get_job(job_id)
+    if job is None:
+        return None
+    if job["status"] not in {"leased", "running"}:
+        return job
+    summary = reason or "requeued"
+    _db().execute(
+        """
+        UPDATE dispatch_jobs
+        SET status='queued', lease_engine_id='', lease_expires_at=NULL,
+            result_summary=?, updated_at=datetime('now')
+        WHERE job_id=?
+        """,
+        (summary[:500], job_id),
+    )
+    return get_job(job_id)
 
 
 def claim_next_hosted_job() -> dict[str, Any] | None:

@@ -70,7 +70,7 @@ class RepairSkillsBody(BaseModel):
     skill_names: list[str] = []
 
 
-EngineType = Literal["openclaw", "hermes", "skilllite", "custom", "hosted_coding"]
+EngineType = Literal["openclaw", "hermes", "skilllite", "custom", "hosted_coding", "agent-doctor"]
 DeploymentKind = Literal["laptop", "server", "ci", "container"]
 RunStatus = Literal["running", "succeeded", "failed", "cancelled"]
 TerminalRunStatus = Literal["succeeded", "failed", "cancelled"]

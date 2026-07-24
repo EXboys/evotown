@@ -158,6 +158,8 @@ git rev-parse HEAD | tee /tmp/evotown-pre-upgrade.rev
 
 # 3. 拉取代码与镜像
 git fetch origin && git checkout main && git pull origin main
+# 构建前轻量清理（dangling 镜像 + 7 天外 builder cache；不会 prune -af）
+./scripts/enterprise-deploy.sh --gc   # 可选：顺带清 pip/HF 缓存与 journal
 docker compose --profile litellm pull   # 仅 pull 有 image: 的服务（如 litellm）
 docker compose --profile litellm build  # backend / frontend 本地构建
 
@@ -169,14 +171,27 @@ docker compose --profile litellm up -d --build
 # 可选：用员工 evk_ key 打一条 gateway chat 或 evotown-agent-setup.py check
 ```
 
-### 5.2 升级时注意
+> `enterprise-deploy.sh`（无参数的完整部署）在 `compose up --build` **之前**也会自动跑一次 Docker 轻量清理。
+
+### 5.2 磁盘清理（防 40G 盘打满）
+
+```bash
+# 随时可跑：dangling 镜像 + builder；Linux root 下再清 ~/.cache/{pip,huggingface}、journal≤200M
+./scripts/enterprise-deploy.sh --gc
+df -h /
+docker system df
+```
+
+建议每月或磁盘 >80% 时执行一次。**不要**日常使用 `docker image prune -af`（会删掉未在跑、但仍打了 tag 的回滚镜像）。
+
+### 5.3 升级时注意
 
 - **SQLite**：Evotown 启动时会自动迁移 schema；跨大版本升级前务必完成 §4 备份。
 - **`.env`**：新版本可能增加变量；对比 `docs/templates/env.enterprise.example`，按需合并，**不要**覆盖已有 `ADMIN_TOKEN` / ingest token。
 - **LiteLLM**：profile `litellm` 与 `./litellm.config.yaml` 需一并更新；改上游模型后重启 `litellm` 与 `backend`。
 - **员工侧**：仅服务端升级时，员工 `evotown.agent.env` 通常无需变更；若 `EVOTOWN_PUBLIC_URL` 或 TLS 证书变更，需经 [MDM](./MDM_AGENT_ROLLOUT.md) 推送。
 
-### 5.3 可选：固定镜像版本
+### 5.4 可选：固定镜像版本
 
 生产建议在升级前 pin LiteLLM 镜像 tag（编辑 `docker-compose.yml` 或使用 override 文件），避免 `main-stable` 漂移。
 

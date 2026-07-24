@@ -5,6 +5,7 @@
 #   ./scripts/enterprise-deploy.sh
 #   EVOTOWN_PUBLIC_URL=https://evotown.company.internal ./scripts/enterprise-deploy.sh
 #   ./scripts/enterprise-deploy.sh --check   # 生产巡检（health / gateway / SQLite / 加固）
+#   ./scripts/enterprise-deploy.sh --gc      # 磁盘清理（dangling 镜像 + builder；可选主机缓存/journal）
 #
 set -euo pipefail
 
@@ -26,6 +27,59 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 command -v docker >/dev/null 2>&1 || die "需要 Docker。请先安装 Docker Desktop 或 Docker Engine。"
 docker compose version >/dev/null 2>&1 || die "需要 Docker Compose v2（docker compose）。"
+
+# Safe pre-build cleanup: dangling images only + unused build cache.
+# Never uses `docker image prune -af` (would drop unused-but-tagged rollback images).
+prune_docker_light() {
+  log "Docker 轻量清理（dangling images + builder cache）…"
+  df -h / 2>/dev/null | tail -1 || true
+  docker image prune -f || true
+  # Drop build cache older than 7 days; keeps recent layer reuse for this deploy.
+  docker builder prune -f --filter until=168h 2>/dev/null || docker builder prune -f || true
+  df -h / 2>/dev/null | tail -1 || true
+}
+
+# Host-side GC for Linux prod boxes (pip / HF caches + systemd journal).
+# Skips quietly on macOS / non-root. Monthly-ish: also prune stopped containers + unused networks.
+prune_host_disk() {
+  log "主机磁盘清理…"
+  df -h / 2>/dev/null | tail -1 || true
+
+  log "Docker 清理（dangling images + 全部未用 builder cache）…"
+  docker image prune -f || true
+  # --gc 场景：清掉全部未用 build cache（部署前的 light prune 仍保留近 7 天缓存）
+  docker builder prune -af || docker builder prune -f || true
+  docker container prune -f || true
+  docker network prune -f || true
+
+  if [[ "$(uname -s)" != "Linux" ]]; then
+    log "非 Linux，跳过 pip/huggingface/journal 清理"
+    df -h / 2>/dev/null | tail -1 || true
+    log "磁盘清理完成"
+    return 0
+  fi
+
+  local cache_root="${HOME:-/root}/.cache"
+  if [[ -d "$cache_root/pip" ]]; then
+    log "清理 $cache_root/pip"
+    rm -rf "$cache_root/pip"
+  fi
+  if [[ -d "$cache_root/huggingface" ]]; then
+    log "清理 $cache_root/huggingface"
+    rm -rf "$cache_root/huggingface"
+  fi
+
+  if [[ "$(id -u)" -eq 0 ]] && command -v journalctl >/dev/null 2>&1; then
+    log "压缩 journal 至 ≤200M"
+    journalctl --vacuum-size=200M || true
+  else
+    log "跳过 journal vacuum（需要 root + journalctl）"
+  fi
+
+  df -h / 2>/dev/null | tail -1 || true
+  docker system df 2>/dev/null || true
+  log "磁盘清理完成"
+}
 
 gen_secret() {
   python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
@@ -457,8 +511,15 @@ main() {
     return 0
   fi
 
+  if [[ "${1:-}" == "--gc" || "${1:-}" == "--prune" ]]; then
+    prune_host_disk
+    return 0
+  fi
+
   log "Evotown 企业一键部署（目录：$ROOT）"
   ensure_env
+
+  prune_docker_light
 
   log "启动 Docker 服务（含 LiteLLM profile）…"
   docker compose --profile litellm up -d --build

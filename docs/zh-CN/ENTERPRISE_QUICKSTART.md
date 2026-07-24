@@ -165,6 +165,7 @@ source ~/.config/evotown/evotown.agent.env
 | 任务 | 入口 |
 |------|------|
 | **升级 / 备份 / 回滚 / 巡检** | [ENTERPRISE_DEPLOY_RUNBOOK.md](./ENTERPRISE_DEPLOY_RUNBOOK.md)；`./scripts/enterprise-deploy.sh --check` |
+| **磁盘清理** | `./scripts/enterprise-deploy.sh --gc`（dangling 镜像 + builder；服务器上顺带清 pip/HF 与 journal） |
 | 上传 / 审核 Skills | 控制台 `/skills` 或 Admin API |
 | **发布 Bundle（员工 manifest）** | 控制台 `/skills` → **发布 Bundle**，或 `POST /api/v1/skill-bundles/{id}/publish` |
 | 查看模型用量 | `/dashboard`、`/costs`、Gateway API |

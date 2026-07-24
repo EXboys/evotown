@@ -21,6 +21,7 @@ import { CodingAgentPage } from "./CodingAgentPage";
 import { KnowledgePanel } from "./KnowledgePanel";
 import { DatabasePanel } from "./DatabasePanel";
 import { McpPanel } from "./McpPanel";
+import { InternalSkillsPage } from "./InternalSkillsPage";
 import { RolePanel } from "./RolePanel";
 import { AgentTemplatePanel } from "./AgentTemplatePanel";
 import { AgentActivityPanel } from "./AgentActivityPanel";
@@ -36,7 +37,7 @@ import { useSystemConfig } from "../hooks/useSystemConfig";
 import { formatDateTimeShort } from "../lib/datetime";
 import { useLocale, type Locale } from "../lib/i18n";
 
-type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "templates" | "dimensions" | "settings" | "costs" | "risk" | "audit" | "taskpool" | "taskboard";
+type ConsoleTab = "dashboard" | "gateway" | "accounts" | "engines" | "dispatch" | "coding" | "runs" | "skills" | "assets" | "policies" | "knowledge" | "databases" | "mcp" | "roles" | "templates" | "dimensions" | "settings" | "costs" | "risk" | "audit" | "taskpool" | "taskboard" | "internal-skills";
 
 type EngineRecord = {
   engine_id: string;
@@ -203,6 +204,7 @@ const TAB_ROUTE: Record<ConsoleTab, string> = {
   audit: "/console/audit",
   taskpool: "/console/taskpool",
   taskboard: "/console/taskboard",
+  "internal-skills": "/console/internal-skills",
 };
 
 const NAV_ITEMS: ConsoleTab[] = [
@@ -224,6 +226,7 @@ const NAV_ITEMS: ConsoleTab[] = [
   "audit",
   "taskboard",
   "taskpool",
+  "internal-skills",
 ];
 
 type MenuGroup = {
@@ -237,7 +240,7 @@ type MenuGroup = {
 const MENU_GROUPS: MenuGroup[] = [
   { id: "home", labelZh: "首页", labelEn: "Home", items: ["dashboard"], link: "/dashboard" },
   { id: "agent", labelZh: "智能体中心", labelEn: "Agent Center", items: ["coding", "runs", "engines", "roles", "templates", "taskboard", "taskpool"] },
-  { id: "capability", labelZh: "能力中心", labelEn: "Capabilities", items: ["skills", "knowledge", "mcp", "databases"] },
+  { id: "capability", labelZh: "能力中心", labelEn: "Capabilities", items: ["internal-skills", "skills", "knowledge", "mcp", "databases"] },
   { id: "model", labelZh: "模型管理", labelEn: "Models", items: ["gateway", "policies", "costs", "risk", "assets"] },
   { id: "admin", labelZh: "系统管理", labelEn: "System", items: ["accounts", "audit", "dimensions", "settings"] },
 ];
@@ -256,7 +259,7 @@ const CONSOLE_COPY = {
       coding: { label: "Agent", desc: "Claude" },
       runs: { label: "运行", desc: "Runs" },
       assets: { label: "资产", desc: "Assets" },
-      skills: { label: "技能", desc: "Skills" },
+      skills: { label: "技能市场", desc: "Skills Market" },
       policies: { label: "策略", desc: "Policies" },
       knowledge: { label: "知识库", desc: "Knowledge" },
       databases: { label: "数据库", desc: "Databases" },
@@ -270,6 +273,7 @@ const CONSOLE_COPY = {
       audit: { label: "追溯", desc: "Audit" },
       taskpool: { label: "任务池", desc: "Task Pool" },
       taskboard: { label: "任务看板", desc: "派活 · Kanban" },
+      "internal-skills": { label: "企业技能", desc: "Enterprise Skills" },
     },
     shell: {
       eyebrow: "Management Console",
@@ -320,7 +324,7 @@ const CONSOLE_COPY = {
       coding: { label: "Agent", desc: "Claude" },
       runs: { label: "Runs", desc: "History" },
       assets: { label: "Assets", desc: "Promote" },
-      skills: { label: "Skills", desc: "Review" },
+      skills: { label: "Skills Market", desc: "Skills" },
       policies: { label: "Policies", desc: "Rules" },
       knowledge: { label: "Knowledge", desc: "Sources" },
       databases: { label: "Databases", desc: "MCP access" },
@@ -334,6 +338,7 @@ const CONSOLE_COPY = {
       audit: { label: "Audit", desc: "Activity" },
       taskpool: { label: "Task Pool", desc: "Tasks" },
       taskboard: { label: "Task Board", desc: "Dispatch · Kanban" },
+      "internal-skills": { label: "Enterprise Skills", desc: "Management" },
     },
     shell: {
       eyebrow: "Management Console",
@@ -827,6 +832,7 @@ export function EnterpriseConsole({
             {tab === "coding" && <CodingAgentPage locale={locale} initialAgentId={initialAgentId} />}
             {tab === "runs" && <Runs runs={data.runs} selectedRun={selectedRun} events={events} loading={eventsLoading} onRun={openRun} onAssetSubmitted={() => setRoute("assets")} />}
             {tab === "skills" && <SkillsConsole locale={locale} />}
+            {tab === "internal-skills" && <InternalSkillsPage />}
             {tab === "assets" && <AssetsPanel />}
             {tab === "policies" && <PoliciesPanel locale={locale} />}
             {tab === "knowledge" && <KnowledgePanel locale={locale} />}

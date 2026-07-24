@@ -64,7 +64,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 // ── Component ──────────────────────────────────────────────────────────────
 
-export function SkillsManagementPage() {
+export function InternalSkillsPage() {
   const [skills, setSkills] = useState<SkillRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -177,7 +177,19 @@ export function SkillsManagementPage() {
     }
     setDeployMessage(results.join("\n"));
     setDeployBusy(false);
-    if (results.some(r => r.includes("已下发"))) loadSkills();
+    // Refresh deployment status to reflect updated state
+    const hasSuccess = results.some(r => r.includes("已下发"));
+    if (hasSuccess) {
+      try {
+        const res = await adminFetch(`/api/v1/skills/${encodeURIComponent(deploySkillId)}/agent-deployments`);
+        const data = await res.json();
+        const fresh = ((data.deployments || []) as DeployAgentInfo[]).map(a => ({ ...a, selected: false }));
+        setDeployAgents(fresh);
+        loadSkills();
+      } catch { setDeployAgents(prev => prev.map(a => ({ ...a, selected: false }))); }
+    } else {
+      setDeployAgents(prev => prev.map(a => ({ ...a, selected: false })));
+    }
   };
 
   // ── Undeploy ────────────────────────────────────────────────────────────
@@ -219,7 +231,19 @@ export function SkillsManagementPage() {
     }
     setUndeployMessage(results.join("\n"));
     setUndeployBusy(false);
-    if (results.some(r => r.includes("已取消"))) loadSkills();
+    // Refresh deployment status to reflect updated state
+    const hasCancel = results.some(r => r.includes("已取消"));
+    if (hasCancel) {
+      try {
+        const res = await adminFetch(`/api/v1/skills/${encodeURIComponent(undeploySkillId)}/agent-deployments`);
+        const data = await res.json();
+        const fresh = ((data.deployments || []) as DeployAgentInfo[]).map(a => ({ ...a, selected: false }));
+        setUndeployAgents(fresh.filter(d => d.deployed));
+        loadSkills();
+      } catch { setUndeployAgents(prev => prev.map(a => ({ ...a, selected: false }))); }
+    } else {
+      setUndeployAgents(prev => prev.map(a => ({ ...a, selected: false })));
+    }
   };
 
   // ── Counts ──────────────────────────────────────────────────────────────
@@ -355,7 +379,7 @@ export function SkillsManagementPage() {
           onCategoryChange={setDeployCategory}
           onAgentToggle={(agentId) => setDeployAgents(prev => prev.map(a => a.agent_id === agentId ? { ...a, selected: !a.selected } : a))}
           onDeploy={doDeploy}
-          onClose={() => setDeployOpen(false)}
+          onClose={() => { setDeployOpen(false); setDeployAgents([]); }}
         />
       )}
       {undeployOpen && (
@@ -366,7 +390,7 @@ export function SkillsManagementPage() {
           message={undeployMessage}
           onAgentToggle={(agentId) => setUndeployAgents(prev => prev.map(a => a.agent_id === agentId ? { ...a, selected: !a.selected } : a))}
           onUndeploy={doUndeploy}
-          onClose={() => setUndeployOpen(false)}
+          onClose={() => { setUndeployOpen(false); setUndeployAgents([]); }}
         />
       )}
     </div>

@@ -119,11 +119,12 @@ class WorkspaceCreate(BaseModel):
     model_policy: Literal["all", "routes_only"] = "all"
     category: Literal["employee", "department", "dedicated"] = "employee"
     template_id: str = Field(default="", max_length=128)
+    role_ids: list[str] = Field(default_factory=list)
 
 
 class WorkspaceUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
-    status: Literal["active", "archived"] | None = None
+    status: Literal["active", "archived", "deleted"] | None = None
     storage_quota_mb: int | None = Field(default=None, ge=0, le=1048576)
     model_policy: Literal["all", "routes_only"] | None = None
     owner_account_id: str | None = Field(default=None, max_length=128)

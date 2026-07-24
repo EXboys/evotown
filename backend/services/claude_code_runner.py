@@ -500,27 +500,55 @@ def _render_agent_context_md(
         "the workspace root above. Never use absolute paths like /data/workspace/.",
         "",
     ])
-    lines.extend(
-        [
-        "## Available Skills",
-        "",
-        ]
-    )
-    skill_entries = skills_block.get("skills") or []
-    if skill_entries:
-        for entry in skill_entries[:30]:
+    if materialized_skills:
+        from infra import skill_market as _sm
+        lines.extend([
+            "## WARNING: MANDATORY SKILLS",
+            "",
+            "You MUST use the following skills for this task. Read each skill's",
+            "SKILL.md under the listed path, then execute them in order.",
+            "Do NOT skip any required skill.",
+            "",
+        ])
+        skill_entries = skills_block.get("skills") or []
+        for i, entry in enumerate(skill_entries[:30], 1):
             if isinstance(entry, dict):
                 sid = entry.get("skill_id", "")
                 name = entry.get("name", sid)
                 summary = entry.get("summary") or entry.get("description") or ""
-                lines.append(f"- **{sid}** — {name}")
+                lines.append(f"REQUIRED ({i}/{len(skill_entries)}): {name} ({sid})")
+                lines.append(f"  Path: .evotown/skills/{sid}/")
                 if summary:
-                    lines.append(f"  {summary}")
+                    lines.append(f"  Description: {summary[:300]}")
+                deps = entry.get("dependencies") or []
+                if deps:
+                    lines.append(f"  Depends on skills: {', '.join(deps)}")
+                ver = _sm.get_latest_skill_version(sid)
+                if ver:
+                    mcp_deps = ver.get("requires_mcp") or []
+                    if isinstance(mcp_deps, list) and mcp_deps:
+                        lines.append(f"  Requires MCP tools: {', '.join(mcp_deps)}")
+                    skill_deps = ver.get("requires_skills") or []
+                    if isinstance(skill_deps, list) and skill_deps:
+                        lines.append(f"  Requires skills (use together): {', '.join(skill_deps)}")
+                lines.append("")
     else:
-        lines.append("- (no skills assigned)")
-    lines.append("")
-    if materialized_skills:
-        lines.append("- Materialized under `.evotown/skills/`")
+        lines.extend([
+            "## Available Skills",
+            "",
+        ])
+        skill_entries = skills_block.get("skills") or []
+        if skill_entries:
+            for entry in skill_entries[:30]:
+                if isinstance(entry, dict):
+                    sid = entry.get("skill_id", "")
+                    name = entry.get("name", sid)
+                    summary = entry.get("summary") or entry.get("description") or ""
+                    lines.append(f"- **{sid}** — {name}")
+                    if summary:
+                        lines.append(f"  {summary}")
+        else:
+            lines.append("- (no skills assigned)")
         lines.append("")
 
     lines.extend(
@@ -1133,6 +1161,23 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
             parts.append(ws_profile["standards"])
         identity = "\n\n".join(parts) + "\n\n-------------------\n\n"
         prompt = identity + prompt
+
+    # Prepend mandatory skill instructions to prompt so model prioritizes them
+    if selected_skills:
+        from infra import skill_market as _sm2
+        skill_lines = []
+        for sid in selected_skills:
+            entry = _sm2.get_market_skill(sid)
+            name = entry.get("name", sid) if entry else sid
+            skill_lines.append(f"  - {name} ({sid})")
+        mandatory_block = (
+            "[SYSTEM SKILL ENFORCEMENT]\n"
+            "You MUST read and use each skill below for this task:\n"
+            + "\n".join(skill_lines) +
+            "\n\nDo NOT skip any skill. If a skill is unusable, explain why.\n"
+            "\n-------------------\n\n"
+        )
+        prompt = mandatory_block + prompt
 
     vision_text = ""
     from services import workspace_vision

@@ -12,30 +12,30 @@ const STAFF_ROLE_KEY = "evotown_staff_role";
 
 export function getStaffToken(): string {
   if (typeof window === "undefined") return "";
-  return sessionStorage.getItem(STAFF_TOKEN_KEY)?.trim() ?? "";
+  return localStorage.getItem(STAFF_TOKEN_KEY)?.trim() ?? "";
 }
 
 export function setStaffToken(token: string): void {
   if (typeof window === "undefined") return;
   const trimmed = token.trim();
   if (trimmed) {
-    sessionStorage.setItem(STAFF_TOKEN_KEY, trimmed);
+    localStorage.setItem(STAFF_TOKEN_KEY, trimmed);
   } else {
-    sessionStorage.removeItem(STAFF_TOKEN_KEY);
+    localStorage.removeItem(STAFF_TOKEN_KEY);
   }
 }
 
 export function getStaffRole(): string {
   if (typeof window === "undefined") return "";
-  return sessionStorage.getItem(STAFF_ROLE_KEY) ?? "";
+  return localStorage.getItem(STAFF_ROLE_KEY) ?? "";
 }
 
 export function setStaffRole(role: string): void {
   if (typeof window === "undefined") return;
   if (role) {
-    sessionStorage.setItem(STAFF_ROLE_KEY, role);
+    localStorage.setItem(STAFF_ROLE_KEY, role);
   } else {
-    sessionStorage.removeItem(STAFF_ROLE_KEY);
+    localStorage.removeItem(STAFF_ROLE_KEY);
   }
 }
 
@@ -55,7 +55,7 @@ export function canAccessAdminConsole(): boolean {
 
 export function clearStaffToken(): void {
   if (typeof window === "undefined") return;
-  sessionStorage.removeItem(STAFF_TOKEN_KEY);
+  localStorage.removeItem(STAFF_TOKEN_KEY);
 }
 
 export function clearConsoleSession(): void {

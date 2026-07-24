@@ -112,8 +112,8 @@ class ConsoleAuthApiTest(unittest.TestCase):
         fleet = client.get("/api/v1/engines/fleet", headers={"Authorization": f"Bearer {secret}"})
         self.assertEqual(fleet.status_code, 403)
 
-    def test_staff_employee_stale_session_gets_agent_write_and_can_create_agent(self) -> None:
-        """Legacy staff sessions stored without agent.write must refresh on read."""
+    def test_staff_employee_no_agent_write_cannot_create_agent(self) -> None:
+        """Employee scopes no longer include agent.write — creation requires admin console.write."""
         import time
 
         from fastapi.testclient import TestClient
@@ -138,32 +138,17 @@ class ConsoleAuthApiTest(unittest.TestCase):
         self.assertEqual(login.status_code, 200)
         token = login.json()["session_token"]
 
-        # Simulate pre-policy session persisted in DB
-        accounts_store.save_staff_session(
-            {
-                "token": token,
-                "account_id": account["account_id"],
-                "account_name": account["name"],
-                "login_name": "employee_a",
-                "org_id": "org_test",
-                "role": "employee",
-                "scopes": ["console.read"],
-                "expires_at": time.time() + 3600,
-            }
-        )
-
         me = client.get("/api/v1/auth/staff-me", headers={"Authorization": f"Bearer {token}"})
         self.assertEqual(me.status_code, 200)
         scopes = me.json()["account"]["scopes"]
-        self.assertIn("agent.write", scopes)
+        self.assertNotIn("agent.write", scopes)
 
         create = client.post(
             "/api/v1/agents",
             headers={"Authorization": f"Bearer {token}"},
             json={"name": "My Sandbox"},
         )
-        self.assertEqual(create.status_code, 200, create.text)
-        self.assertEqual(create.json()["agent"]["owner_account_id"], account["account_id"])
+        self.assertEqual(create.status_code, 403, create.text)
 
 
 if __name__ == "__main__":

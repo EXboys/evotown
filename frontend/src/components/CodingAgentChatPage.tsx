@@ -210,10 +210,16 @@ export function CodingAgentChatPage() {
   // Sidebar
   const [leftOpen, setLeftOpen] = useState(true);
   const [expandedSection, setExpandedSection] = useState<"history" | "skills" | "knowledge" | null>(null);
-  const [sessionTitles, setSessionTitles] = useState<Record<string, string>>(() => {
-    try { return JSON.parse(localStorage.getItem(`evotown-session-titles-${agentId}`) || "{}"); } catch { return {}; }
-  });
+  const [sessionTitles, setSessionTitles] = useState<Record<string, string>>({});
   const [assignedSkills, setAssignedSkills] = useState<SkillOption[]>([]);
+  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(new Set());
+  const toggleSkill = (skillId: string) => {
+    setSelectedSkillIds(prev => {
+      const next = new Set(prev);
+      if (next.has(skillId)) next.delete(skillId); else next.add(skillId);
+      return next;
+    });
+  };
   const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>([]);
   const [rightOpen, setRightOpen] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState("");
@@ -329,6 +335,10 @@ export function CodingAgentChatPage() {
       setRuns(loaded);
       setHasMoreRuns(!!runData.has_more);
       void loadAgentFiles(true);
+      try {
+        const tData = await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/session-titles`).then((res) => res.json());
+        if (tData.titles) setSessionTitles(tData.titles as Record<string, string>);
+      } catch { /* ignore */ }
       try {
         const opts = await adminFetch(`/api/v1/agent/options?agent_id=${encodeURIComponent(agentId)}`).then((res) => res.json());
         setAssignedSkills((opts.skills || []) as SkillOption[]);
@@ -784,10 +794,15 @@ export function CodingAgentChatPage() {
     return () => clearInterval(id);
   }, [refreshSessions]);
 
-  const saveSessionTitle = (sessionId: string, title: string) => {
-    const next = { ...sessionTitles, [sessionId]: title.trim() || "" };
-    setSessionTitles(next);
-    localStorage.setItem(`evotown-session-titles-${agentId}`, JSON.stringify(next));
+  const saveSessionTitle = async (sessionId: string, title: string) => {
+    const trimmed = title.trim();
+    setSessionTitles(prev => ({ ...prev, [sessionId]: trimmed }));
+    try {
+      await adminFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/title`, {
+        method: "PUT",
+        body: JSON.stringify({ title: trimmed }),
+      });
+    } catch { /* 非关键操作 */ }
   };
 
   // File viewer
@@ -885,6 +900,7 @@ export function CodingAgentChatPage() {
           model,
           previous_run_id: selectedRun?.run_id || selectedRunId || "",
           attachments: attachmentPaths,
+          skills: [...selectedSkillIds],
         }),
       }).then((res) => readJson<{ run: AgentRun }>(res));
       const newRun: AgentRun = {
@@ -892,16 +908,21 @@ export function CodingAgentChatPage() {
         prompt: data.run.prompt || sentPrompt || "请处理我上传的附件。",
         signals: { ...(data.run.signals || {}), previous_run_id: ((data.run.signals?.previous_run_id as string) || "").trim() || (selectedRun?.run_id || selectedRunId || ""), attachments: attachmentPaths },
       };
-      setRuns((prev) => {
-        const idx = prev.findIndex((run) => run.run_id === newRun.run_id);
-        if (idx >= 0) { const next = [...prev]; next[idx] = newRun; return next; }
-        return [...prev, newRun];
-      });
-      // Only change selectedRunId when starting a brand-new conversation.
-      // For continuation messages in an existing session, keep selectedRunId
-      // pointing to the session root to avoid unnecessary SSE abort/reconnect
-      // cycles and session-fetch cascades that can lose event:done.
-      if (!selectedRunId) setSelectedRunId(newRun.run_id);
+      // When starting a brand-new conversation (selectedRunId is empty),
+      // replace runs entirely to avoid a flash of historical agent runs.
+      // The session-scoped useEffect (line 568) will subsequently refine
+      // the list, but the immediate render must show only the new run.
+      // For continuation within an existing session, append as before.
+      if (!selectedRunId) {
+        setRuns([newRun]);
+        setSelectedRunId(newRun.run_id);
+      } else {
+        setRuns((prev) => {
+          const idx = prev.findIndex((run) => run.run_id === newRun.run_id);
+          if (idx >= 0) { const next = [...prev]; next[idx] = newRun; return next; }
+          return [...prev, newRun];
+        });
+      }
       setPrompt("");
       for (const item of pendingAttachments) { if (item.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(item.previewUrl); }
       setPendingAttachments([]);
@@ -1047,13 +1068,32 @@ export function CodingAgentChatPage() {
               <div className={`px-3 pb-3 ${expandedSection === "skills" ? "min-h-0 overflow-y-auto" : "overflow-hidden"}`}>
                 {assignedSkills.length ? (
                   <div className="space-y-1.5">
-                    {(expandedSection === "skills" ? assignedSkills : assignedSkills.slice(0, 2)).map((skill) => (
-                      <div key={skill.id} className="rounded-lg border border-slate-100 bg-white px-2.5 py-2">
-                        <div className="text-xs font-medium text-slate-800">{skill.name}</div>
-                        {expandedSection === "skills" && skill.summary && <div className="mt-0.5 text-[11px] text-slate-400 line-clamp-2">{skill.summary}</div>}
-                        <div className="mt-0.5 text-[10px] text-slate-400">{skill.version ? `v${skill.version}` : ""}</div>
-                      </div>
-                    ))}
+                    {(expandedSection === "skills" ? assignedSkills : assignedSkills.slice(0, 2)).map((skill) => {
+                      const isSelected = selectedSkillIds.has(skill.id);
+                      return (
+                      <button
+                        key={skill.id}
+                        type="button"
+                        onClick={() => toggleSkill(skill.id)}
+                        className={`w-full rounded-lg border px-2.5 py-2 text-left transition ${
+                          isSelected
+                            ? "border-blue-300 bg-blue-50 ring-1 ring-blue-200"
+                            : "border-slate-100 bg-white hover:border-slate-200 hover:bg-slate-50"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className={`shrink-0 text-sm ${isSelected ? "text-blue-600" : "text-slate-300"}`}>
+                            {isSelected ? "☑" : "☐"}
+                          </span>
+                          <span className="text-xs font-medium text-slate-800">{skill.name}</span>
+                        </div>
+                        {expandedSection === "skills" && skill.summary && (
+                          <div className="mt-0.5 ml-6 text-[11px] text-slate-400 line-clamp-2">{skill.summary}</div>
+                        )}
+                        <div className="mt-0.5 ml-6 text-[10px] text-slate-400">{skill.version ? `v${skill.version}` : ""}</div>
+                      </button>
+                      );
+                    })}
                   </div>
                 ) : <p className="text-xs text-slate-400">未下发技能</p>}
               </div>
@@ -1331,6 +1371,19 @@ export function CodingAgentChatPage() {
           ) : null}
           <div className="rounded-2xl border border-slate-200 shadow-sm transition focus-within:border-slate-400 focus-within:ring-2 focus-within:ring-slate-100">
             <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onCompositionStart={() => { imeComposingRef.current = true; }} onCompositionEnd={() => { imeComposingRef.current = false; }} onKeyDown={onPromptKeyDown} onPaste={handlePaste} rows={1} placeholder="输入你的任务… (Enter 发送 · Shift+Enter 换行 · Ctrl+V 粘贴附件)" className="max-h-52 min-h-[3rem] w-full resize-none rounded-t-2xl px-4 pt-3 text-sm leading-relaxed outline-none" />
+            {selectedSkillIds.size > 0 && (
+              <div className="flex flex-wrap gap-1.5 px-4 pb-2">
+                {[...selectedSkillIds].map(sid => {
+                  const sk = assignedSkills.find(s => s.id === sid);
+                  return (
+                    <span key={sid} className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                      🧩 {sk?.name || sid}
+                      <button type="button" onClick={() => toggleSkill(sid)} className="ml-0.5 text-blue-400 hover:text-blue-600">×</button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
             <div className="flex items-center justify-between gap-2 px-3 pb-3">
               <button type="button" onClick={() => fileInputRef.current?.click()} disabled={busy || uploadingAttachments} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">📎 {uploadingAttachments ? "上传中…" : "附件"}</button>
               <button type="button" onClick={() => void startRun()} disabled={busy || uploadingAttachments || (!prompt.trim() && !pendingAttachments.length)} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-900 disabled:opacity-50">{busy ? "提交中…" : "发送 →"}</button>

@@ -77,10 +77,58 @@ def _ensure_conn() -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_claude_agent_runs_account ON claude_agent_runs(account_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_claude_agent_runs_status ON claude_agent_runs(status, created_at);
         CREATE INDEX IF NOT EXISTS idx_claude_agent_run_events_run ON claude_agent_run_events(run_id, seq, id);
+
+        CREATE TABLE IF NOT EXISTS session_titles (
+            agent_id    TEXT NOT NULL,
+            session_id  TEXT NOT NULL,
+            title       TEXT NOT NULL,
+            updated_by  TEXT NOT NULL DEFAULT '',
+            updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (agent_id, session_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_session_titles_agent ON session_titles(agent_id);
         """
     )
     _conn = conn
     return conn
+
+
+def get_session_title(agent_id: str, session_id: str) -> str:
+    """读取会话标题，无记录时返回空字符串。"""
+    row = _ensure_conn().execute(
+        "SELECT title FROM session_titles WHERE agent_id=? AND session_id=?",
+        (agent_id, session_id),
+    ).fetchone()
+    return row["title"] if row else ""
+
+
+def get_session_titles(agent_id: str) -> dict[str, str]:
+    """读取某个智能体下所有会话标题，返回 {session_id: title}。"""
+    rows = _ensure_conn().execute(
+        "SELECT session_id, title FROM session_titles WHERE agent_id=?",
+        (agent_id,),
+    ).fetchall()
+    return {r["session_id"]: r["title"] for r in rows}
+
+
+def set_session_title(
+    agent_id: str,
+    session_id: str,
+    title: str,
+    updated_by: str = "",
+) -> None:
+    """设置会话标题（upsert）。"""
+    _ensure_conn().execute(
+        """
+        INSERT INTO session_titles (agent_id, session_id, title, updated_by, updated_at)
+        VALUES (?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(agent_id, session_id) DO UPDATE SET
+            title=excluded.title,
+            updated_by=excluded.updated_by,
+            updated_at=excluded.updated_at
+        """,
+        (agent_id, session_id, title.strip(), updated_by),
+    )
 
 
 def _json_dumps(value: Any) -> str:
@@ -321,7 +369,7 @@ def list_runs_for_agent(
     cap = max(1, min(max_rows, 500))
     params.append(cap)
     rows = _ensure_conn().execute(
-        f"SELECT * FROM claude_agent_runs WHERE {' AND '.join(where)} ORDER BY created_at ASC LIMIT ?",
+        f"SELECT * FROM claude_agent_runs WHERE {' AND '.join(where)} ORDER BY created_at DESC LIMIT ?",
         params,
     ).fetchall()
     return [_run_from_row(row) for row in rows]

@@ -368,12 +368,13 @@ def update_service(
     endpoint_url: str | None = None,
     status: str | None = None,
     source: str | None = None,
+    tables: list[str] | None = None,
 ) -> dict[str, Any] | None:
     existing = get_service(service_id)
     if existing is None:
         return None
     if existing.get("source") == SOURCE_SYSTEM:
-        if any(v is not None for v in [name, description, endpoint_url, source]):
+        if any(v is not None for v in [name, description, endpoint_url, source, tables]):
             raise PermissionError("系统 MCP 不可编辑")
         # Only allow status toggle
         if status is not None:
@@ -395,6 +396,8 @@ def update_service(
         updates["status"] = status.strip()
     if source is not None:
         updates["source"] = source.strip()
+    if tables is not None:
+        updates["tables"] = json.dumps(tables, ensure_ascii=False)
     if not updates:
         return existing
     conn = _ensure_conn()

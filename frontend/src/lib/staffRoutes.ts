@@ -14,7 +14,7 @@ export const ADMIN_CONSOLE_PREFIXES = [
   "/risk",
 ] as const;
 
-export const STAFF_EMPLOYEE_HOME = "/agent";
+export const STAFF_EMPLOYEE_HOME = "/";
 
 export function isAdminConsolePath(path: string): boolean {
   const normalized = path.split("?")[0] ?? path;

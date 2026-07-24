@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { PublicSiteHeader } from "./PublicSiteHeader";
 import { useLocale } from "../lib/i18n";
-import { adminFetch, canAccessAdminConsole, isConsoleAuthenticated, isStaffEmployee } from "../hooks/useAdminToken";
+import { adminFetch, canAccessAdminConsole, isAdmin, isConsoleAuthenticated, isStaffEmployee } from "../hooks/useAdminToken";
 import { STAFF_EMPLOYEE_HOME } from "../lib/staffRoutes";
 import { formatDateTimeShort } from "../lib/datetime";
 import { useSystemConfig } from "../hooks/useSystemConfig";
@@ -139,9 +139,7 @@ export function LandingPage() {
     return path;
   };
 
-  const primaryCtaLabel = isStaffEmployee()
-    ? (locale === "zh" ? "进入智能体工作台" : "Open Agent Workspace")
-    : copy.hero.primary;
+  const primaryCtaLabel = copy.hero.primary;  // admin-only CTA
 
   useEffect(() => {
     fetch("/api/chronicle")
@@ -183,13 +181,16 @@ export function LandingPage() {
               {heroBody}
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => navigate(consoleEntryPath())}
-                className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-medium text-white shadow-sm hover:bg-blue-500"
-              >
-                {primaryCtaLabel}
-              </button>
+              {/* Primary CTA — admin only (guests & employees use portal without it) */}
+              {isAdmin() && (
+                <button
+                  type="button"
+                  onClick={() => navigate(consoleEntryPath())}
+                  className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-medium text-white shadow-sm hover:bg-blue-500"
+                >
+                  {primaryCtaLabel}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => navigate("/market")}

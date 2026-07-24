@@ -101,8 +101,8 @@ export function InternalSkillsPage() {
     try {
       const params = new URLSearchParams({ limit: "200" });
       if (tab !== "all") params.set("status_filter", tab);
+      // 「全部来源」不传 source_type，否则会漏掉技能市场导入的 market 技能
       if (filters.source_type) params.set("source_type", filters.source_type);
-      else params.set("source_type", "custom");
       if (filters.tag) params.set("tag", filters.tag);
       if (filters.query) params.set("query", filters.query);
       const res = await adminFetch(`/api/v1/skills?${params}`);
@@ -307,7 +307,7 @@ export function InternalSkillsPage() {
         {loading ? (
           <div className="py-12 text-center text-sm text-slate-500">加载中…</div>
         ) : skills.length === 0 ? (
-          <div className="py-12 text-center text-sm text-slate-500">暂无技能。点击「提取技能」从 Agent 工作区提取，或「上传技能」导入外部包。</div>
+          <div className="py-12 text-center text-sm text-slate-500">暂无技能。可从「技能市场 → 发现」导入，或在此「提取技能 / 上传技能」。</div>
         ) : (
           <table className="w-full text-left text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">

@@ -4,7 +4,7 @@
 # 用法（在 evotown 仓库根目录）：
 #   ./scripts/enterprise-deploy.sh
 #   EVOTOWN_PUBLIC_URL=https://evotown.company.internal ./scripts/enterprise-deploy.sh
-#   ./scripts/enterprise-deploy.sh --check   # 生产巡检（health / gateway / SQLite）
+#   ./scripts/enterprise-deploy.sh --check   # 生产巡检（health / gateway / SQLite / 加固）
 #
 set -euo pipefail
 
@@ -42,9 +42,20 @@ is_env_placeholder() {
     EVOTOWN_PUBLIC_URL)
       [[ "$val" == "http://127.0.0.1:8080" ]]
       ;;
+    CORS_ORIGINS)
+      [[ "$val" == "*" || -z "$val" ]]
+      ;;
     *)
       return 1
       ;;
+  esac
+}
+
+env_truthy() {
+  local val="${1:-}"
+  case "$(printf '%s' "$val" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
   esac
 }
 
@@ -114,7 +125,9 @@ ensure_env() {
   fi
   set_env_value "PORT" "8080"
   set_env_value "LITELLM_BASE_URL" "http://litellm:4000/v1"
-  set_env_value "EVOTOWN_ALLOW_PUBLIC_REGISTER" "0"
+  set_env_value "EVOTOWN_ALLOW_PUBLIC_REGISTER" "0" 1
+  set_env_value "EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY" "0" 1
+  set_env_value "EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK" "0" 1
   set_env_value "EVOTOWN_CLAUDE_USE_GATEWAY" "1"
   set_env_value "EVOTOWN_CLAUDE_GATEWAY_BASE_URL" "http://backend:8765/api/gateway/anthropic"
   set_env_value "EVOTOWN_CLAUDE_EXECUTION_MODE" "sdk"
@@ -132,6 +145,13 @@ ensure_env() {
   set +a
 
   PUBLIC_URL="${EVOTOWN_PUBLIC_URL:-$PUBLIC_URL}"
+  # CORS：仅当 * / 空时写入公网 URL（已有显式域名不覆盖）
+  set_env_value "CORS_ORIGINS" "${PUBLIC_URL%/}"
+  # 重新 source，确保后续 create_employee_key 等看到最新 CORS
+  set -a
+  # shellcheck source=/dev/null
+  source "$ENV_FILE"
+  set +a
 
   if [[ -z "${API_KEY:-}" || "${API_KEY}" == "your-upstream-llm-api-key" ]]; then
     die "请在 $ENV_FILE 中设置上游大模型 API_KEY（及 BASE_URL / MODEL），然后重新运行。"
@@ -157,6 +177,44 @@ check_backend_health() {
   local body
   body="$(curl -fsS "$base/health")" || return 1
   python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("status")=="ok"' <<<"$body"
+}
+
+check_env_hardening() {
+  # Fail closed on known-insecure enterprise defaults in .env
+  local failed=0
+  if env_truthy "${EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY:-0}"; then
+    log "  FAIL: EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY 必须为 0"
+    failed=1
+  fi
+  if env_truthy "${EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK:-0}"; then
+    log "  FAIL: EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK 必须为 0"
+    failed=1
+  fi
+  if env_truthy "${EVOTOWN_ALLOW_PUBLIC_REGISTER:-0}"; then
+    log "  FAIL: EVOTOWN_ALLOW_PUBLIC_REGISTER 必须为 0"
+    failed=1
+  fi
+  local cors="${CORS_ORIGINS:-}"
+  if [[ -z "$cors" || "$cors" == "*" ]]; then
+    log "  FAIL: CORS_ORIGINS 不能为 * 或空（请设为 EVOTOWN_PUBLIC_URL）"
+    failed=1
+  fi
+  return "$failed"
+}
+
+check_runtime_hardening() {
+  local base="${PUBLIC_URL%/}"
+  local body
+  body="$(curl -fsS "$base/health")" || return 1
+  python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d.get("status") == "ok"
+if d.get("hardening_ok") is False:
+    for w in d.get("security_warnings") or []:
+        print(" -", w, file=sys.stderr)
+    raise SystemExit(1)
+' <<<"$body"
 }
 
 check_gateway_health() {
@@ -214,7 +272,7 @@ run_ops_health_check() {
     die "backend 容器未运行。请先：docker compose --profile litellm up -d"
   fi
 
-  log "[1/4] Backend GET /health"
+  log "[1/5] Backend GET /health"
   if check_backend_health; then
     log "  OK"
   else
@@ -222,7 +280,7 @@ run_ops_health_check() {
     failed=1
   fi
 
-  log "[2/4] Gateway GET /api/gateway/v1/health"
+  log "[2/5] Gateway GET /api/gateway/v1/health"
   if check_gateway_health; then
     local litellm_ok
     litellm_ok="$(curl -fsS "$base/api/gateway/v1/health" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("litellm_configured"))')"
@@ -232,7 +290,7 @@ run_ops_health_check() {
     failed=1
   fi
 
-  log "[3/4] SQLite 数据目录 /app/data 可写"
+  log "[3/5] SQLite 数据目录 /app/data 可写"
   if check_data_writable; then
     log "  OK"
   else
@@ -240,7 +298,7 @@ run_ops_health_check() {
     failed=1
   fi
 
-  log "[4/4] Docker backend healthcheck"
+  log "[4/5] Docker backend healthcheck"
   if check_docker_backend_healthy; then
     log "  OK"
   else
@@ -248,8 +306,23 @@ run_ops_health_check() {
     failed=1
   fi
 
+  log "[5/5] 生产加固（.env + /health hardening_ok）"
+  local harden_failed=0
+  if ! check_env_hardening; then
+    harden_failed=1
+  fi
+  if ! check_runtime_hardening; then
+    harden_failed=1
+  fi
+  if [[ "$harden_failed" -eq 0 ]]; then
+    log "  OK"
+  else
+    log "  FAIL — 关闭 DEV 旁路、公开注册，并将 CORS_ORIGINS 设为 EVOTOWN_PUBLIC_URL"
+    failed=1
+  fi
+
   if [[ "$failed" -ne 0 ]]; then
-    die "巡检未通过。请查看 docker compose logs backend frontend litellm"
+    die "巡检未通过。请查看 docker compose logs backend frontend litellm；加固项见 docs/zh-CN/ENTERPRISE_DEPLOY_RUNBOOK.md"
   fi
   log "全部检查通过"
 }

@@ -451,12 +451,32 @@ def admin_token_status() -> str:
     return f"configured ({len(token)} chars) ✓"
 
 
-def security_status() -> dict[str, str]:
+def production_hardening_issues() -> list[str]:
+    """Blocking issues for enterprise production checks (empty = pass).
+
+    Used by ``enterprise-deploy.sh --check`` and surfaced on ``GET /health``.
+    Soft operational notes (e.g. missing ingest token) stay in ``security_status``.
+    """
+    issues: list[str] = []
+    if _truthy_env("EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY"):
+        issues.append("EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY is enabled (admin must not be a gateway bearer)")
+    if _truthy_env("EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK"):
+        issues.append("EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK is enabled (ingest must not fall back to ADMIN_TOKEN)")
+    if _truthy_env("EVOTOWN_ALLOW_PUBLIC_REGISTER"):
+        issues.append("EVOTOWN_ALLOW_PUBLIC_REGISTER is enabled (set to 0 for enterprise)")
+    cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
+    if not cors_raw or cors_raw == "*":
+        issues.append("CORS_ORIGINS is * or unset (bind to EVOTOWN_PUBLIC_URL)")
+    return issues
+
+
+def security_status() -> dict[str, Any]:
     admin = _get_configured_token()
     ingest = os.environ.get("EVOTOWN_ENGINE_INGEST_TOKEN", "").strip()
     gateway_keys = _legacy_gateway_keys()
     dev_fallback = _truthy_env("EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK")
     dev_admin_gateway = _truthy_env("EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY")
+    public_register = _truthy_env("EVOTOWN_ALLOW_PUBLIC_REGISTER")
 
     ingest_effective = ingest or (admin if dev_fallback else "")
     shared_admin_ingest = bool(admin and ingest_effective == admin and ingest == "")
@@ -475,9 +495,14 @@ def security_status() -> dict[str, str]:
         warnings.append("ADMIN_TOKEN equals EVOTOWN_ENGINE_INGEST_TOKEN")
     if admin and admin in os.environ.get("EVOTOWN_GATEWAY_API_KEYS", "").split(","):
         warnings.append("ADMIN_TOKEN also listed in EVOTOWN_GATEWAY_API_KEYS")
-    cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
-    if not cors_raw or cors_raw == "*":
-        warnings.append("CORS_ORIGINS is * or unset — restrict in production")
+    if public_register:
+        warnings.append("EVOTOWN_ALLOW_PUBLIC_REGISTER enabled")
+
+    hardening = production_hardening_issues()
+    # Hardening issues are also security warnings for operators.
+    for issue in hardening:
+        if issue not in warnings:
+            warnings.append(issue)
 
     return {
         "admin_token": admin_token_status(),
@@ -485,6 +510,9 @@ def security_status() -> dict[str, str]:
         "legacy_gateway_keys": f"{len(gateway_keys)} key(s)" if gateway_keys else "none (use managed evk_ keys)",
         "dev_admin_as_gateway": "enabled ⚠️" if dev_admin_gateway else "disabled",
         "dev_ingest_fallback": "enabled ⚠️" if dev_fallback else "disabled",
+        "public_register": "enabled ⚠️" if public_register else "disabled",
+        "hardening_ok": len(hardening) == 0,
+        "security_warnings": warnings,
         "warnings": "; ".join(warnings) if warnings else "none",
     }
 

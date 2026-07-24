@@ -21,6 +21,7 @@
 | 上游模型 | `.env` 中 `API_KEY`、`BASE_URL`、`MODEL` 有效（企业部署走 LiteLLM profile） |
 | 公网/内网 URL | `EVOTOWN_PUBLIC_URL` 与员工实际访问地址一致（含 `https://`） |
 | 密钥 | `ADMIN_TOKEN`、`EVOTOWN_ENGINE_INGEST_TOKEN` 已写入 `.env`，**勿**下发员工 |
+| 生产加固 | `EVOTOWN_DEV_ALLOW_*=0`、`EVOTOWN_ALLOW_PUBLIC_REGISTER=0`、`CORS_ORIGINS=$EVOTOWN_PUBLIC_URL`（`enterprise-deploy.sh` 会写入） |
 | 版本记录 | 记录当前 git tag / commit 或镜像 digest，便于回滚 |
 
 ```bash
@@ -59,10 +60,11 @@ export EVOTOWN_PUBLIC_URL=https://evotown.company.internal
 
 检查项：
 
-1. **Backend** — 经前端反代的 `GET /health` 返回 `{"status":"ok"}`
+1. **Backend** — 经前端反代的 `GET /health` 返回 `{"status":"ok"}`（同时返回 `hardening_ok` / `security_warnings`，**不**因警告使探活失败）
 2. **Gateway** — `GET /api/gateway/v1/health`（含 LiteLLM 是否配置）
 3. **SQLite 数据目录** — 容器内 `/app/data`（`EVOTOWN_DATA_DIR`）可写，且 `gateway.db` 可读或能新建 SQLite
 4. **Docker** — `backend` 容器 healthcheck 为 `healthy`
+5. **生产加固** — `.env` 与运行时：`EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY=0`、`EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK=0`、`EVOTOWN_ALLOW_PUBLIC_REGISTER=0`，且 `CORS_ORIGINS` 不为 `*`
 
 非零退出码表示未通过；结合 `docker compose logs backend frontend litellm` 排查。
 

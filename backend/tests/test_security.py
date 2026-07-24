@@ -269,5 +269,67 @@ class LegacyGatewayMeteringTest(unittest.TestCase):
             self.assertTrue(identity["key_id"].startswith("legacy:"))
 
 
+class ProductionHardeningTest(unittest.TestCase):
+    def test_hardening_ok_when_production_defaults(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "ADMIN_TOKEN": "admin",
+                "EVOTOWN_ENGINE_INGEST_TOKEN": "ingest",
+                "EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY": "0",
+                "EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK": "0",
+                "EVOTOWN_ALLOW_PUBLIC_REGISTER": "0",
+                "CORS_ORIGINS": "https://evotown.example.com",
+            },
+            clear=False,
+        ):
+            from core import auth as auth_mod
+            import importlib
+            importlib.reload(auth_mod)
+            self.assertEqual(auth_mod.production_hardening_issues(), [])
+            status = auth_mod.security_status()
+            self.assertTrue(status["hardening_ok"])
+            self.assertEqual(status["dev_admin_as_gateway"], "disabled")
+            self.assertEqual(status["public_register"], "disabled")
+
+    def test_hardening_fails_on_dev_gateway_and_star_cors(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY": "1",
+                "EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK": "0",
+                "EVOTOWN_ALLOW_PUBLIC_REGISTER": "0",
+                "CORS_ORIGINS": "*",
+            },
+            clear=False,
+        ):
+            from core import auth as auth_mod
+            import importlib
+            importlib.reload(auth_mod)
+            issues = auth_mod.production_hardening_issues()
+            self.assertTrue(any("ADMIN_AS_GATEWAY" in i for i in issues))
+            self.assertTrue(any("CORS_ORIGINS" in i for i in issues))
+            status = auth_mod.security_status()
+            self.assertFalse(status["hardening_ok"])
+            self.assertTrue(any("CORS_ORIGINS" in w for w in status["security_warnings"]))
+
+    def test_hardening_fails_on_public_register(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY": "0",
+                "EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK": "0",
+                "EVOTOWN_ALLOW_PUBLIC_REGISTER": "1",
+                "CORS_ORIGINS": "https://evotown.example.com",
+            },
+            clear=False,
+        ):
+            from core import auth as auth_mod
+            import importlib
+            importlib.reload(auth_mod)
+            issues = auth_mod.production_hardening_issues()
+            self.assertTrue(any("PUBLIC_REGISTER" in i for i in issues))
+
+
 if __name__ == "__main__":
     unittest.main()

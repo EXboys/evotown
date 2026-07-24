@@ -177,12 +177,14 @@ source ~/.config/evotown/evotown.agent.env
 
 ## 四、安全建议
 
-1. **生产关闭公开注册**：`.env` 中 `EVOTOWN_ALLOW_PUBLIC_REGISTER=0`（deploy 脚本默认写入）
-2. **员工 key 最小权限**：`gateway.chat` + `console.read`；管理员操作仅用 `ADMIN_TOKEN`
-3. **按人 / 按团队发 key**：在 `/accounts` 创建账号并设置 `monthly_token_limit`
-4. **HTTPS + 内网 DNS**：参考仓库根目录 `Caddyfile`
-5. **`deploy-output/` 加入 `.gitignore`**（若尚未忽略）
-5. **`deploy-output/` 加入 `.gitignore`**（若尚未忽略）
+1. **生产关闭开发旁路**：`EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY=0`、`EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK=0`（Compose 与 deploy 默认；本地开发用 `docker-compose.dev.yml`）
+2. **生产关闭公开注册**：`.env` 中 `EVOTOWN_ALLOW_PUBLIC_REGISTER=0`（deploy 脚本默认写入）
+3. **CORS 绑定公网 URL**：`CORS_ORIGINS` 设为与 `EVOTOWN_PUBLIC_URL` 同源（勿用 `*`；`--check` 会失败）
+4. **员工 key 最小权限**：`gateway.chat` + `console.read`；管理员操作仅用 `ADMIN_TOKEN`
+5. **按人 / 按团队发 key**：在 `/accounts` 创建账号并设置 `monthly_token_limit`
+6. **HTTPS + 内网 DNS**：参考仓库根目录 `Caddyfile`
+7. **`deploy-output/` 加入 `.gitignore`**（若尚未忽略）
+8. **巡检验收**：升级后执行 `./scripts/enterprise-deploy.sh --check`（含加固项）
 
 ---
 

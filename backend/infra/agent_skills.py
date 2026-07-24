@@ -219,6 +219,9 @@ def deploy_skill_to_agent_workspace(
 
     copied = False
     src = skill_market._builtin_skill_source(skill_id)
+    if src is None:
+        # Ecosystem imports may only store a skills.sh URL — fetch GitHub tree on demand.
+        src = skill_market.materialize_remote_skill_source(skill_id)
     if src is not None:
         shutil.copytree(src, dest, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         copied = True
@@ -232,7 +235,17 @@ def deploy_skill_to_agent_workspace(
             copied = True
 
     if not copied:
-        return {"deployed": False, "skipped": False, "version": "", "reason": "skill source not found"}
+        skill_row = skill or skill_market.get_skill(skill_id) or {}
+        package_url = str(skill_row.get("package_url") or "")
+        if package_url.startswith("http"):
+            reason = (
+                "skill package missing: remote catalog entry has no downloadable files "
+                f"({package_url}). Upstream may have removed this skill — pick an Evotown 精选 skill, "
+                "or upload a zip via 企业技能 → 上传技能."
+            )
+        else:
+            reason = "skill source not found"
+        return {"deployed": False, "skipped": False, "version": "", "reason": reason}
 
     return {"deployed": True, "skipped": False, "version": market_version, "reason": "ok"}
 

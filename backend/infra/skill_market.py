@@ -7,17 +7,24 @@ resolve packages through their own installers.
 """
 from __future__ import annotations
 
+import io
 import json
+import logging
 import os
 import base64
 import hashlib
 import sqlite3
+import tarfile
+import urllib.error
+import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Any
 
 from domain.models import SkillCandidateCreate, SkillCandidateReview, SkillPackageUpload
 from infra import skill_signing
+
+logger = logging.getLogger(__name__)
 
 _backend_dir = Path(__file__).resolve().parent.parent
 _arena_skills_dir = _backend_dir / "arena_skills"
@@ -928,15 +935,150 @@ def _builtin_package_zip(skill_id: str) -> Path | None:
     return zip_path if zip_path.is_file() else None
 
 
+def _parse_remote_skill_ref(skill: dict[str, Any]) -> tuple[str, str, str] | None:
+    """Return (owner, repo, skill_name) from skills.sh URL or install_ref-like package_url."""
+    package_url = str(skill.get("package_url") or "").strip()
+    if not package_url or package_url.startswith("builtin://") or package_url.startswith("/"):
+        return None
+
+    # https://skills.sh/{owner}/{repo}/{skill}
+    if "skills.sh/" in package_url:
+        tail = package_url.split("skills.sh/", 1)[1].strip("/")
+        parts = [p for p in tail.split("/") if p]
+        if len(parts) >= 3:
+            return parts[0], parts[1], parts[2]
+
+    # owner/repo@skill
+    if "@" in package_url and "/" in package_url and "://" not in package_url:
+        left, skill_name = package_url.rsplit("@", 1)
+        owner_repo = left.split("/")
+        if len(owner_repo) == 2 and skill_name:
+            return owner_repo[0], owner_repo[1], skill_name
+
+    return None
+
+
+def _candidate_skill_dir_names(skill_name: str) -> list[str]:
+    names = [skill_name]
+    for prefix in ("vercel-", "anthropic-", "anthropics-"):
+        if skill_name.startswith(prefix):
+            names.append(skill_name[len(prefix) :])
+    # catalog ids sometimes differ from folder names (react-best-practices vs vercel-react-best-practices)
+    if skill_name.startswith("vercel-") and "react" in skill_name:
+        names.append(skill_name.replace("vercel-", "", 1))
+    return list(dict.fromkeys(n for n in names if n))
+
+
+def _find_skill_dir(extracted_root: Path, skill_name: str) -> Path | None:
+    """Locate a skill directory (containing SKILL.md) inside an extracted GitHub archive."""
+    # codeload extracts to {repo}-{ref}/...
+    roots = [extracted_root]
+    children = [p for p in extracted_root.iterdir() if p.is_dir()]
+    if len(children) == 1:
+        roots.append(children[0])
+
+    for root in roots:
+        for name in _candidate_skill_dir_names(skill_name):
+            for candidate in (
+                root / name,
+                root / "skills" / name,
+                root / ".claude" / "skills" / name,
+            ):
+                if candidate.is_dir() and (candidate / "SKILL.md").is_file():
+                    return candidate
+        # shallow scan: any */SKILL.md whose folder name matches a candidate
+        wanted = set(_candidate_skill_dir_names(skill_name))
+        for skill_md in root.glob("*/SKILL.md"):
+            if skill_md.parent.name in wanted:
+                return skill_md.parent
+        for skill_md in root.glob("skills/*/SKILL.md"):
+            if skill_md.parent.name in wanted:
+                return skill_md.parent
+    return None
+
+
+def _download_github_skill_tree(
+    owner: str,
+    repo: str,
+    skill_name: str,
+    *,
+    dest: Path,
+    refs: tuple[str, ...] = ("main", "master"),
+) -> Path | None:
+    """Download owner/repo and copy the skill folder into dest. Returns dest on success."""
+    import shutil
+
+    for ref in refs:
+        url = f"https://codeload.github.com/{owner}/{repo}/tar.gz/{ref}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Evotown/1.0"})
+            with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310
+                payload = resp.read()
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            logger.info("github skill fetch failed %s@%s: %s", f"{owner}/{repo}", ref, exc)
+            continue
+
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tar:
+            # Python 3.12+ has filter=; keep compatible extract
+            tmp_root = dest.parent / f".fetch-{_safe_skill_id(dest.name)}-{ref}"
+            if tmp_root.exists():
+                shutil.rmtree(tmp_root)
+            tmp_root.mkdir(parents=True, exist_ok=True)
+            try:
+                tar.extractall(tmp_root)  # noqa: S202 — trusted GitHub archive for known catalog refs
+                skill_dir = _find_skill_dir(tmp_root, skill_name)
+                if skill_dir is None:
+                    continue
+                if dest.exists():
+                    shutil.rmtree(dest)
+                shutil.copytree(skill_dir, dest, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".git"))
+                if (dest / "SKILL.md").is_file():
+                    return dest
+            finally:
+                shutil.rmtree(tmp_root, ignore_errors=True)
+    return None
+
+
+def materialize_remote_skill_source(skill_id: str) -> Path | None:
+    """Fetch ecosystem skill files from GitHub into custom-skills when only a remote URL exists."""
+    existing = _builtin_skill_source(skill_id)
+    if existing is not None:
+        return existing
+
+    skill = get_skill(skill_id)
+    if skill is None:
+        return None
+    parsed = _parse_remote_skill_ref(skill)
+    if parsed is None:
+        return None
+    owner, repo, skill_name = parsed
+
+    _custom_skills_dir.mkdir(parents=True, exist_ok=True)
+    dest = _custom_skills_dir / _safe_skill_id(skill_id)
+    materialized = _download_github_skill_tree(owner, repo, skill_name, dest=dest)
+    if materialized is None:
+        logger.warning(
+            "unable to materialize skill %s from %s/%s@%s",
+            skill_id,
+            owner,
+            repo,
+            skill_name,
+        )
+        return None
+    return materialized
+
+
 def resolve_download_package(skill_id: str) -> tuple[Path, str] | None:
-    """Uploaded package file, or on-the-fly zip from arena_skills for builtin:// skills."""
+    """Uploaded package file, or on-the-fly zip from arena_skills / materialized remote skills."""
     uploaded = get_package_file(skill_id)
     if uploaded is not None:
         return uploaded
     skill = get_skill(skill_id)
     if skill is None:
         return None
-    if not _is_builtin_skill(skill) and _builtin_skill_source(skill_id) is None:
+    if _builtin_skill_source(skill_id) is None and not _is_builtin_skill(skill):
+        materialize_remote_skill_source(skill_id)
+    if _builtin_skill_source(skill_id) is None and not _is_builtin_skill(skill):
         return None
     zip_path = _builtin_package_zip(skill_id)
     if zip_path is None:

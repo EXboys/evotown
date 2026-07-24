@@ -42,6 +42,13 @@ class SkillCatalogTest(unittest.TestCase):
         inline = candidate.get("inline_manifest") or {}
         self.assertEqual(inline.get("import_origin"), "ecosystem")
 
+    def test_parse_skills_sh_url_and_fuzzy_dir_match(self) -> None:
+        parsed = skill_market._parse_remote_skill_ref(  # noqa: SLF001
+            {"package_url": "https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices"}
+        )
+        self.assertEqual(parsed, ("vercel-labs", "agent-skills", "vercel-react-best-practices"))
+        self.assertIn("react-best-practices", skill_market._candidate_skill_dir_names("vercel-react-best-practices"))  # noqa: SLF001
+
     def test_default_bundle_includes_all_starters_on_fresh_db(self) -> None:
         manifest = skill_market.get_bundle_manifest("default-agent-skills")
         self.assertIsNotNone(manifest)

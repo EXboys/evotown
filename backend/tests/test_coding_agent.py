@@ -669,5 +669,41 @@ class ClaudeRunModelResolveTest(unittest.TestCase):
         self.assertEqual(claude_code_runner.resolve_run_model(None), models[0]["id"])
 
 
+class AppendLogExcerptTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._env_patch = patch.dict(os.environ, {"EVOTOWN_DATA_DIR": self._tmpdir.name}, clear=False)
+        self._env_patch.start()
+        from infra import claude_agent_runs
+
+        claude_agent_runs._conn = None  # noqa: SLF001
+
+    def tearDown(self) -> None:
+        from infra import claude_agent_runs
+
+        claude_agent_runs._conn = None  # noqa: SLF001
+        self._env_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_append_log_excerpt_concatenates_and_truncates(self) -> None:
+        from infra import claude_agent_runs
+
+        run = claude_agent_runs.create_run(
+            agent_id="agent_test",
+            account_id="acc_test",
+            prompt="hi",
+            model="m",
+        )
+        rid = run["run_id"]
+        self.assertEqual(claude_agent_runs.append_log_excerpt(rid, "Hello"), "Hello")
+        self.assertEqual(claude_agent_runs.append_log_excerpt(rid, " world"), "Hello world")
+        clipped = claude_agent_runs.append_log_excerpt(rid, "X" * 100, max_len=20)
+        self.assertEqual(len(clipped), 20)
+        self.assertTrue(clipped.endswith("X" * 10))
+        stored = claude_agent_runs.get_run(rid)
+        assert stored is not None
+        self.assertEqual(stored["log_excerpt"], clipped)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -69,13 +69,23 @@ class TaskPoolAuthTest(unittest.TestCase):
 
     def test_api_key_submitter_is_server_derived(self) -> None:
         client = self._client()
-        registered = client.post(
-            "/api/v1/auth/register",
+        from infra import accounts as accounts_store
+
+        admin = {"X-Admin-Token": "test-admin-token"}
+        account = client.post(
+            "/api/v1/accounts",
             json={"name": "Task Submitter", "owner_email": "task@example.com", "org_id": "org_root"},
+            headers=admin,
         )
-        self.assertEqual(registered.status_code, 200)
-        api_key = registered.json()["api_key"]
-        account_id = registered.json()["account"]["account_id"]
+        self.assertEqual(account.status_code, 200)
+        account_id = account.json()["account"]["account_id"]
+        key_resp = client.post(
+            f"/api/v1/accounts/{account_id}/keys",
+            json={"label": "submitter", "scopes": list(accounts_store.DEFAULT_CONSOLE_KEY_SCOPES)},
+            headers=admin,
+        )
+        self.assertEqual(key_resp.status_code, 200)
+        api_key = key_resp.json()["secret"]
 
         resp = client.post(
             "/api/v1/tasks",

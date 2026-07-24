@@ -176,13 +176,22 @@ class P0ApiTest(unittest.TestCase):
 
         importlib.reload(main)
         client = TestClient(main.app)
+        admin = {"X-Admin-Token": "test-admin-token"}
 
-        registered = client.post(
-            "/api/v1/auth/register",
+        account = client.post(
+            "/api/v1/accounts",
             json={"name": "Policy Reader", "owner_email": "reader@example.com"},
+            headers=admin,
         )
-        self.assertEqual(registered.status_code, 200)
-        api_key = registered.json()["api_key"]
+        self.assertEqual(account.status_code, 200)
+        account_id = account.json()["account"]["account_id"]
+        key_resp = client.post(
+            f"/api/v1/accounts/{account_id}/keys",
+            json={"label": "reader", "scopes": ["gateway.chat", "console.read"]},
+            headers=admin,
+        )
+        self.assertEqual(key_resp.status_code, 200)
+        api_key = key_resp.json()["secret"]
 
         pol = client.get("/api/v1/policies", headers={"Authorization": f"Bearer {api_key}"})
         self.assertEqual(pol.status_code, 200)

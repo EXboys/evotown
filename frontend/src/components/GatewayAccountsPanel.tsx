@@ -1185,7 +1185,7 @@ export function GatewayAccountsPanel({ locale = "zh" }: { locale?: Locale }) {
             </button>
           </div>
         ) : (
-          <form onSubmit={(e) => { e.preventDefault(); editingKey ? handleEditKey() : handleCreateKey(); }} className="space-y-4">
+          <form onSubmit={(e) => { e.preventDefault(); if (editingKey) { void handleEditKey(); } else { void handleCreateKey(); } }} className="space-y-4">
             <label className="block text-sm">
               <span className="font-medium text-slate-700">标签</span>
               <input type="text" value={keyForm.label}

@@ -1200,7 +1200,7 @@ export function CodingAgentChatPage() {
                 // Build raw log text from assistant_message events for execution-time display
                 const rawLog = runEvents
                   .filter((e: AgentRunEvent) => e.event_type === "assistant_message")
-                  .map((e: AgentRunEvent) => (e.payload as any)?.text || "")
+                  .map((e: AgentRunEvent) => (typeof e.payload?.text === "string" ? e.payload.text : ""))
                   .filter(Boolean)
                   .join("\n");
                 const attachments = runAttachmentPaths(run);

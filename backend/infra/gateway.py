@@ -9,18 +9,23 @@ from typing import Any
 
 _backend_dir = Path(__file__).resolve().parent.parent
 _evotown_data = _backend_dir.parent / "data"
-_DATA_DIR = Path(os.environ.get("EVOTOWN_DATA_DIR", _evotown_data if _evotown_data.is_dir() else _backend_dir / "data"))
-_DB_PATH = _DATA_DIR / "gateway.db"
 
 _conn: sqlite3.Connection | None = None
+
+
+def _data_dir() -> Path:
+    """Resolve data dir at connect time so EVOTOWN_DATA_DIR test patches apply."""
+    default = _evotown_data if _evotown_data.is_dir() else _backend_dir / "data"
+    return Path(os.environ.get("EVOTOWN_DATA_DIR", default))
 
 
 def _ensure_conn() -> sqlite3.Connection:
     global _conn
     if _conn is not None:
         return _conn
-    _DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False, isolation_level=None)
+    data_dir = _data_dir()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(data_dir / "gateway.db"), check_same_thread=False, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")

@@ -8,6 +8,10 @@
 
 services:
   backend:
+    environment:
+      # 仅开发 overlay：允许 admin 旁路，便于本地联调（生产 compose 默认关闭）
+      - EVOTOWN_DEV_ALLOW_ADMIN_AS_GATEWAY=1
+      - EVOTOWN_DEV_ALLOW_ADMIN_TOKEN_FALLBACK=1
     volumes:
       - ./backend:/app
     command:

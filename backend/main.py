@@ -313,11 +313,13 @@ logger.info("  Engine ingest    : %s", _sec["engine_ingest_token"])
 logger.info("  Legacy GW keys   : %s", _sec["legacy_gateway_keys"])
 logger.info("  Dev GW+admin     : %s", _sec["dev_admin_as_gateway"])
 logger.info("  Dev ingest fall. : %s", _sec["dev_ingest_fallback"])
+logger.info("  Public register  : %s", _sec["public_register"])
+logger.info("  Hardening OK     : %s", "yes" if _sec["hardening_ok"] else "NO ⚠️")
 if _sec["warnings"] != "none":
     logger.warning("  Security notes   : %s", _sec["warnings"])
 _cors_warn = "*" in _cors_origins or (len(_cors_origins) == 1 and _cors_origins[0] == "*")
 if _cors_warn:
-    logger.warning("  CORS origins     : %s (set CORS_ORIGINS to explicit domains in production)", _cors_origins)
+    logger.warning("  CORS origins     : %s (set CORS_ORIGINS to EVOTOWN_PUBLIC_URL in production)", _cors_origins)
 else:
     logger.info("  CORS origins     : %s", _cors_origins)
 logger.info("─────────────────────────────────────────────────────")
@@ -381,8 +383,17 @@ app.include_router(chronicle_router.router, prefix="/api")
 
 @app.get("/health")
 async def health():
-    """健康检查，用于验证服务与路由是否正常"""
-    return {"status": "ok"}
+    """健康检查，用于验证服务与路由是否正常。
+
+    始终返回 status=ok（供 Docker/K8s 探活）。生产加固问题放在
+    security_warnings / hardening_ok，由 enterprise-deploy.sh --check 判定失败。
+    """
+    sec = security_status()
+    return {
+        "status": "ok",
+        "hardening_ok": bool(sec.get("hardening_ok")),
+        "security_warnings": list(sec.get("security_warnings") or []),
+    }
 
 
 @app.get("/system/{filename:path}")

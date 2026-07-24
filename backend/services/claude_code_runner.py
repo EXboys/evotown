@@ -9,13 +9,14 @@ import asyncio
 import hashlib
 import json
 import os
-import shlex
 import shutil
 import zipfile
 from pathlib import Path
 from typing import Any
 
 from infra import claude_agent_runs, knowledge, skill_market, agents
+
+from services.agent_runner_base import AgentRunContext
 
 DEFAULT_MODEL = "claude-sonnet-4"
 DEFAULT_ENGINE_ID = "claude-code-hosted"
@@ -784,77 +785,7 @@ def _write_context_files(
     return manifest
 
 
-def _default_claude_command() -> str:
-    script = Path(__file__).resolve().parent.parent / "scripts" / "run_claude_code.sh"
-    if script.is_file() and shutil.which("claude"):
-        return f"bash {shlex.quote(str(script))} {{prompt}} {{model}} {{workspace}} {{run_id}}"
-    if shutil.which("claude"):
-        return (
-            'claude -p {prompt} --model {model} '
-            '--allowedTools "Read,Edit,Bash,Glob,Grep,Write" '
-            "--append-system-prompt-file .evotown/AGENT_CONTEXT.md"
-        )
-    # Fallback: use bundled Claude CLI from the SDK package
-    bundled = Path("/usr/local/lib/python3.11/site-packages/claude_agent_sdk/_bundled/claude")
-    if bundled.is_file():
-        return (
-            f"{shlex.quote(str(bundled))} -p {{prompt}} --model {{model}} "
-            '--permission-mode acceptEdits '
-            f'--allowedTools "Read,Edit,Bash,Glob,Grep,Write,mcp__mcp__*" '
-            f"--max-turns {max_turns()} "
-            "--output-format stream-json --verbose --bare "
-            "--append-system-prompt-file .evotown/AGENT_CONTEXT.md"
-        )
-    return ""
 
-
-def _command_template(*, explicit_only: bool = False) -> str:
-    explicit = os.environ.get("EVOTOWN_CLAUDE_CODE_COMMAND", "").strip()
-    if explicit:
-        return explicit
-    if explicit_only:
-        return ""
-    return _default_claude_command()
-
-
-def _sdk_ready() -> bool:
-    from services import claude_agent_sdk_runner
-
-    direct_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    gateway_key = os.environ.get("EVOTOWN_CLAUDE_GATEWAY_API_KEY", "").strip()
-    gateway_enabled = os.environ.get("EVOTOWN_CLAUDE_USE_GATEWAY", "").strip().lower() in {"1", "true", "yes", "on"}
-    return bool(claude_agent_sdk_runner.sdk_available() and (direct_key or (gateway_enabled and gateway_key)))
-
-
-def _claude_execution_backend() -> str:
-    """Resolve Claude run backend: embedded SDK, external CLI, or dry-run."""
-    from services import claude_agent_sdk_runner
-
-    mode = os.environ.get("EVOTOWN_CLAUDE_EXECUTION_MODE", "auto").strip().lower()
-    if mode == "dry-run":
-        return "dry-run"
-    if mode == "sdk":
-        return "sdk" if claude_agent_sdk_runner.sdk_available() else "dry-run"
-    if mode == "cli":
-        return "cli" if _command_template(explicit_only=False) else "dry-run"
-    if os.environ.get("EVOTOWN_CLAUDE_CODE_COMMAND", "").strip():
-        return "cli"
-    if _sdk_ready():
-        return "sdk"
-    if _default_claude_command():
-        return "cli"
-    return "dry-run"
-
-
-def _execution_backend(runtime_engine: str) -> str:
-    """Resolve run backend for the workspace runtime engine."""
-    from services.runtime_engine import normalize_runtime_engine
-
-    if normalize_runtime_engine(runtime_engine) == "codex":
-        from services import codex_agent_sdk_runner
-
-        return codex_agent_sdk_runner.execution_backend()
-    return _claude_execution_backend()
 
 
 async def _run_agent(
@@ -864,15 +795,37 @@ async def _run_agent(
     run: dict[str, Any],
     model: str,
     runtime_engine: str = "claude",
+    context: AgentRunContext,
+    on_message: Any = None,
 ) -> tuple[int, str, str, str]:
     from services.runtime_engine import normalize_runtime_engine
 
     engine = normalize_runtime_engine(runtime_engine)
-    backend = _execution_backend(engine)
-    if engine == "codex":
-        if backend == "sdk":
-            from services import codex_agent_sdk_runner
 
+    # ── Registry 路径（Claude SDK/CLI 已注册，codex / hermes 待注册） ──
+    from services import agent_runner_registry as reg
+    runner = reg.get(engine)
+    if runner is not None and runner.is_available():
+        backend = runner.resolve_backend()
+        if backend != "dry-run":
+            result = await runner.run(
+                workspace_root=workspace_root,
+                prompt=prompt,
+                model=model,
+                context=context,
+                on_message=on_message,
+            )
+            # session_id 存入 run["signals"]，后续 update_run_status 时持久化
+            if result.raw_output:
+                signals = run.setdefault("signals", {})
+                signals["claude_session_id"] = result.raw_output
+            return result.exit_code, result.output, "", backend
+
+    # ── 回退路径（仅 codex — 尚未实现 AgentRunner Protocol，待迁移到 registry） ──
+    if engine == "codex":
+        from services import codex_agent_sdk_runner
+        backend = codex_agent_sdk_runner.execution_backend()
+        if backend == "sdk":
             exit_code, output = await codex_agent_sdk_runner.run_agent_sdk(
                 workspace_root=workspace_root,
                 prompt=prompt,
@@ -887,234 +840,12 @@ async def _run_agent(
         )
         return 0, summary, "", "dry-run"
 
-    if backend == "sdk":
-        from services import claude_agent_sdk_runner
-
-        # Look up claude_session_id from previous run for native session resume
-        resume_session_id = ""
-        previous_run_id = str((run.get("signals") or {}).get("previous_run_id") or "").strip()
-        if previous_run_id:
-            prev_run = claude_agent_runs.get_run(previous_run_id)
-            if prev_run:
-                prev_signals = prev_run.get("signals") or {}
-                resume_session_id = str(prev_signals.get("claude_session_id") or "").strip()
-
-        # Fallback: when no previous_run_id (new conversation), resume the
-        # agent's most recent session so SDK auto-memory carries forward.
-        if not resume_session_id:
-            agent_id = str(run.get("agent_id") or "")
-            if agent_id:
-                recent = claude_agent_runs.list_runs(agent_id=agent_id, limit=2)
-                if isinstance(recent, dict):
-                    latest_runs = recent.get("runs") or []
-                    for candidate in latest_runs:
-                        if candidate.get("run_id") != run.get("run_id"):
-                            latest_sig = candidate.get("signals") or {}
-                            resume_session_id = str(latest_sig.get("claude_session_id") or "").strip()
-                            break
-
-        exit_code, output, claude_session_id = await claude_agent_sdk_runner.run_agent_sdk(
-            workspace_root=workspace_root,
-            prompt=prompt,
-            model=model,
-            run=run,
-            resume_session_id=resume_session_id,
-        )
-        # Store session_id in signals for next resume; raw_output stays empty
-        signals = run.setdefault("signals", {})
-        signals["claude_session_id"] = claude_session_id
-        return exit_code, output, "", backend
-    if backend == "cli":
-        exit_code, output, raw_output = await _run_configured_command(
-            workspace_root=workspace_root,
-            prompt=prompt,
-            run=run,
-            model=model,
-        )
-        return exit_code, output, raw_output, backend
-    summary = (
-        "Dry-run completed. Install claude-agent-sdk (pip install claude-agent-sdk) and set "
-        "ANTHROPIC_API_KEY, enable EVOTOWN_CLAUDE_USE_GATEWAY with EVOTOWN_CLAUDE_GATEWAY_API_KEY, "
-        "or configure EVOTOWN_CLAUDE_CODE_COMMAND for CLI execution. "
-        "Workspace context files were written under .evotown/."
-    )
+    # ── 最终降级：engine 未注册（hermes / 未知） ──
+    summary = "Dry-run completed. No agent runner available for this engine. Workspace context files were written under .evotown/."
     return 0, summary, "", "dry-run"
 
 
-def _parse_cli_output(raw_output: str) -> tuple[str, str]:
-    """Parse stream-json CLI output into human-readable text.
-
-    Returns (text_output, result_summary) where text_output is the
-    full extracted text and result_summary is the final answer.
-    """
-    lines = raw_output.splitlines()
-    assistant_texts: list[str] = []
-    result_text = ""
-    exit_code_text = ""
-
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-        except (json.JSONDecodeError, TypeError):
-            # Non-JSON line — keep as-is
-            assistant_texts.append(line)
-            continue
-
-        obj_type = obj.get("type", "")
-        if obj_type == "assistant":
-            message = obj.get("message", {})
-            for block in message.get("content", []):
-                text = block.get("text", "")
-                if text:
-                    assistant_texts.append(text)
-        elif obj_type == "result":
-            result_text = obj.get("result", "") or ""
-            if obj.get("is_error") and not result_text:
-                result_text = obj.get("subtype", "error")
-            exit_code_text = result_text
-        elif obj_type == "system":
-            subtype = obj.get("subtype", "")
-            if subtype == "init":
-                assistant_texts.append(f"[Claude Agent started — model: {obj.get('model','?')}]")
-        elif obj_type == "user":
-            # tool_result content — skip for display
-            pass
-
-    if not assistant_texts:
-        return result_text or exit_code_text or "[no output]", result_text or exit_code_text or ""
-
-    full_text = "\n\n".join(assistant_texts)
-    summary = result_text or assistant_texts[-1]
-    return full_text, summary
-
-
-def _cli_subprocess_env(*, workspace_root: Path, run: dict[str, Any], model: str) -> dict[str, str]:
-    from services import claude_agent_sdk_runner
-
-    signals = run.get("signals") or {}
-    gateway_env = claude_agent_sdk_runner.gateway_sdk_env(agent_id=str(run.get("agent_id") or ""))
-    api_key = gateway_env.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    # ── Strip sensitive env vars before passing to agent subprocess ──
-    _STRIP_ENV_PREFIXES = (
-        "ADMIN_", "EVOTOWN_DATABASE_MCP_", "EVOTOWN_DEV_",
-        "EVOTOWN_ENGINE_INGEST_",
-    )
-    stripped_env = {
-        k: v for k, v in os.environ.items()
-        if not any(k.startswith(p) for p in _STRIP_ENV_PREFIXES)
-    }
-    env: dict[str, str] = {
-        **stripped_env,
-        "NODE_TLS_REJECT_UNAUTHORIZED": "0",
-        "CLAUDE_CODE_SIMPLE": "1",
-        "ANTHROPIC_API_KEY": api_key,
-        "EVOTOWN_AGENT_RUN_ID": run["run_id"],
-        "EVOTOWN_AGENT_PROMPT": run.get("prompt", ""),
-        "EVOTOWN_WORKSPACE_ROOT": str(workspace_root),
-        "EVOTOWN_CLAUDE_MODEL": model,
-        "EVOTOWN_SELECTED_SKILLS": json.dumps(signals.get("selected_skills") or []),
-        "EVOTOWN_SELECTED_MCP": json.dumps(signals.get("selected_mcp") or []),
-        "EVOTOWN_SKILLS_MANIFEST": str(workspace_root / ".evotown" / "skills_manifest.json"),
-        "EVOTOWN_MCP_CONTEXT": str(workspace_root / ".evotown" / "mcp_context.json"),
-    }
-    if gateway_env.get("ANTHROPIC_BASE_URL"):
-        env["ANTHROPIC_BASE_URL"] = gateway_env["ANTHROPIC_BASE_URL"]
-    elif api_key:
-        env.setdefault("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
-    env.update({k: str(v) for k, v in gateway_env.items() if k not in env})
-    return env
-
-
-async def _run_configured_command(*, workspace_root: Path, prompt: str, run: dict[str, Any], model: str) -> tuple[int, str, str]:
-    template = _command_template()
-    if not template:
-        raise RuntimeError("CLI backend selected but no command template is configured")
-
-    command = template.format(
-        prompt=shlex.quote(prompt),
-        run_id=shlex.quote(run["run_id"]),
-        model=shlex.quote(model),
-        workspace=shlex.quote(str(workspace_root)),
-    )
-    proc = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(workspace_root),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        env=_cli_subprocess_env(workspace_root=workspace_root, run=run, model=model),
-    )
-
-    # Stream output line by line, emit assistant_message events
-    run_id = run["run_id"]
-    assistant_texts: list[str] = []
-    raw_lines: list[str] = []
-    buf = b""
-    while True:
-        chunk = await proc.stdout.read(4096) if proc.stdout else None
-        if not chunk:
-            break
-        buf += chunk
-        while b"\n" in buf:
-            line_bytes, buf = buf.split(b"\n", 1)
-            line = line_bytes.decode("utf-8", errors="replace").strip()
-            if not line:
-                continue
-            raw_lines.append(line)
-            try:
-                obj = json.loads(line)
-            except (json.JSONDecodeError, TypeError):
-                assistant_texts.append(line)
-                continue
-            obj_type = obj.get("type", "")
-            if obj_type == "assistant":
-                message = obj.get("message", {})
-                for block in message.get("content", []):
-                    text = block.get("text", "")
-                    if text:
-                        assistant_texts.append(text)
-                        try:
-                            claude_agent_runs.append_event(
-                                run_id, "assistant_message",
-                                {"text": text, "seq": len(assistant_texts)}
-                            )
-                        except Exception:
-                            pass
-                    # Also emit tool_use call events
-                    if block.get("type") == "tool_use":
-                        tool_name = block.get("name", "?")
-                        tool_input = block.get("input", {})
-                        try:
-                            claude_agent_runs.append_event(
-                                run_id, "tool_call",
-                                {"tool": tool_name, "input": json.dumps(tool_input, ensure_ascii=False)[:500]}
-                            )
-                        except Exception:
-                            pass
-            elif obj_type == "user":
-                # Emit tool_result events
-                for block in obj.get("message", {}).get("content", []):
-                    if block.get("type") == "tool_result":
-                        content = block.get("content", "")
-                        is_error = block.get("is_error", False)
-                        content_preview = (content if isinstance(content, str) else json.dumps(content))[:300]
-                        try:
-                            claude_agent_runs.append_event(
-                                run_id, "tool_result",
-                                {"content": content_preview, "is_error": is_error}
-                            )
-                        except Exception:
-                            pass
-            elif obj_type == "system":
-                if obj.get("subtype") == "init":
-                    assistant_texts.append(f"[Claude Agent started — model: {obj.get('model','?')}]")
-
-    await proc.wait()
-    raw_output = "\n".join(raw_lines)
-    clean_output, _ = _parse_cli_output(raw_output)
-    return int(proc.returncode or 0), clean_output[-65536:], raw_output[-131072:]
+# ── run_claude_agent ──────────────────────────────────────────────
 
 
 async def run_claude_agent(run_id: str) -> dict[str, Any]:
@@ -1250,6 +981,47 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
 
     execution_backend = "dry-run"
     timeout_sec = run_timeout_sec()
+
+    # ── 构造 AgentRunContext（resume + gateway 配置） ──
+    from services import claude_agent_sdk_runner as _casr
+
+    gateway_env = _casr.gateway_sdk_env(agent_id=str(run.get("agent_id") or ""))
+    resume_session_id = ""
+    prev_rid = str(signals.get("previous_run_id") or "").strip()
+    if prev_rid:
+        prev_run = claude_agent_runs.get_run(prev_rid)
+        if prev_run:
+            prev_signals = prev_run.get("signals") or {}
+            resume_session_id = str(prev_signals.get("claude_session_id") or "").strip()
+    if not resume_session_id:
+        agent_id = str(run.get("agent_id") or "")
+        if agent_id:
+            recent = claude_agent_runs.list_runs(agent_id=agent_id, limit=2)
+            if isinstance(recent, dict):
+                latest_runs = recent.get("runs") or []
+                for candidate in latest_runs:
+                    if candidate.get("run_id") != run.get("run_id"):
+                        sid = candidate.get("signals") or {}
+                        resume_session_id = str(sid.get("claude_session_id") or "").strip()
+                        break
+
+    ctx = AgentRunContext(
+        run_id=run["run_id"],
+        agent_id=str(run.get("agent_id") or ""),
+        prompt=run.get("prompt", ""),
+        model=model,
+        account_id=str(run.get("account_id") or ""),
+        team_id=str(run.get("team_id") or ""),
+        tenant_id=str(run.get("tenant_id") or ""),
+        gateway_base_url=gateway_env.get("ANTHROPIC_BASE_URL", ""),
+        gateway_api_key=gateway_env.get("ANTHROPIC_API_KEY", ""),
+        resume_session_id=resume_session_id,
+    )
+
+    def on_msg(text: str) -> None:
+        claude_agent_runs.append_event(run_id, "assistant_message", {"text": text})
+        claude_agent_runs.append_log_excerpt(run_id, text)
+
     try:
         agent_coro = _run_agent(
             workspace_root=root,
@@ -1257,6 +1029,8 @@ async def run_claude_agent(run_id: str) -> dict[str, Any]:
             run=run,
             model=model,
             runtime_engine=runtime_engine,
+            context=ctx,
+            on_message=on_msg,
         )
         if timeout_sec > 0:
             exit_code, output, raw_output, execution_backend = await asyncio.wait_for(agent_coro, timeout=timeout_sec)
@@ -1461,5 +1235,15 @@ def schedule_run(run_id: str) -> None:
 
     def _clear(_task: asyncio.Task) -> None:
         _RUN_TASKS.pop(run_id, None)
+        # 即时触发排队任务 drain（fire-and-forget）
+        asyncio.ensure_future(_drain_queued())
 
     task.add_done_callback(_clear)
+
+
+async def _drain_queued() -> None:
+    try:
+        from infra.task_nodes import try_drain_one
+        await try_drain_one()
+    except Exception:
+        pass

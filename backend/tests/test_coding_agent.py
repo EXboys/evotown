@@ -241,7 +241,7 @@ class CodingAgentApiTest(unittest.TestCase):
         from infra import claude_agent_runs, agents
         from services import claude_code_runner
 
-        async def fake_run(*, workspace_root, prompt, run, model, runtime_engine="claude"):
+        async def fake_run(*, workspace_root, prompt, run, model, runtime_engine="claude", context=None, on_message=None):
             del prompt, model, runtime_engine
             (workspace_root / "report.html").write_text("<html><body>ok</body></html>", encoding="utf-8")
             (workspace_root / "data.pdf").write_bytes(b"%PDF-1.4")
@@ -346,6 +346,7 @@ class CodingAgentApiTest(unittest.TestCase):
 
     def test_runner_prefers_embedded_sdk_when_available(self) -> None:
         from services import claude_code_runner
+        from services.agent_runner_base import AgentRunResult
 
         client = self._client()
         _alice, alice_key = self._account_key("Alice")
@@ -366,8 +367,12 @@ class CodingAgentApiTest(unittest.TestCase):
             patch.dict(os.environ, {"EVOTOWN_CLAUDE_EXECUTION_MODE": "sdk"}, clear=False),
             patch("services.claude_agent_sdk_runner.sdk_available", return_value=True),
             patch(
-                "services.claude_agent_sdk_runner.run_agent_sdk",
-                new=AsyncMock(return_value=(0, "Updated README via embedded SDK.", "sess_test_123")),
+                "services.claude_agent_sdk_runner.ClaudeCodeRunner.run",
+                new=AsyncMock(return_value=AgentRunResult(
+                    exit_code=0,
+                    output="Updated README via embedded SDK.",
+                    raw_output="sess_test_123",
+                )),
             ),
         ):
             updated = asyncio.run(claude_code_runner.run_claude_agent(run_id))
@@ -378,7 +383,7 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertIn("embedded SDK", updated["result_summary"])
 
     def test_runner_gateway_env_marks_sdk_ready(self) -> None:
-        from services import claude_agent_sdk_runner, claude_code_runner
+        from services import claude_agent_sdk_runner
 
         with (
             patch.dict(
@@ -394,7 +399,8 @@ class CodingAgentApiTest(unittest.TestCase):
             ),
             patch("services.claude_agent_sdk_runner.sdk_available", return_value=True),
         ):
-            self.assertEqual(claude_code_runner._execution_backend("claude"), "sdk")  # noqa: SLF001
+            runner = claude_agent_sdk_runner.ClaudeCodeRunner()
+            self.assertEqual(runner.resolve_backend(), "sdk")
             env = claude_agent_sdk_runner.gateway_sdk_env()
 
         self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://backend:8000/api/gateway/anthropic")
@@ -402,7 +408,8 @@ class CodingAgentApiTest(unittest.TestCase):
         self.assertEqual(env["CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST"], "1")
 
     def test_cli_subprocess_env_uses_gateway_base(self) -> None:
-        from services import claude_code_runner
+        from services import claude_agent_sdk_runner
+        from services.agent_runner_base import AgentRunContext
 
         with patch.dict(
             os.environ,
@@ -413,9 +420,18 @@ class CodingAgentApiTest(unittest.TestCase):
             },
             clear=False,
         ):
-            env = claude_code_runner._cli_subprocess_env(  # noqa: SLF001
+            runner = claude_agent_sdk_runner.ClaudeCodeRunner()
+            ctx = AgentRunContext(
+                run_id="car_test",
+                agent_id="",
+                prompt="hi",
+                account_id="",
+                team_id="",
+                tenant_id="",
+            )
+            env = runner._cli_subprocess_env(  # noqa: SLF001
                 workspace_root=Path("/tmp/ws"),
-                run={"run_id": "car_test", "prompt": "hi", "signals": {}},
+                context=ctx,
                 model="deepseek-v4-flash",
             )
         self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://backend:8765/api/gateway/anthropic")

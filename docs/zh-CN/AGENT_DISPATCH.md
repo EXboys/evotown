@@ -5,6 +5,8 @@ Evotown 通过 **任务队列 + 本机 Connector + Runtime Gateway** 实现：
 - 控制中心向 OpenClaw / Hermes **派活**
 - 局域网内 Agent **handoff / 协作**（经 Evotown 队列，不直连对方电脑）
 
+> **演进**：本机推荐常驻 [Agent Doctor](./DOCTOR_NODE_PROTOCOL.md)（WebSocket 在线 + `job.assign` 执行 Claude/Codex/OpenClaw/Hermes）。队列与 connector lease **仍保留**作断线兜底。
+
 ## 架构
 
 ```text

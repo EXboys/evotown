@@ -17,6 +17,7 @@ from core.config import load_dispatch_config, save_dispatch_team_pairs
 from domain.models import DispatchJobAck, DispatchJobComplete, DispatchJobCreate, EngineHeartbeat
 from infra import agent_dispatch, engine_ingest
 from infra.dispatch_notify import broadcast_dispatch_job
+from infra import doctor_nodes
 
 router = APIRouter(prefix="/api/v1", tags=["agent-dispatch"])
 logger = logging.getLogger("evotown.dispatch")
@@ -70,6 +71,7 @@ async def create_job_admin(body: DispatchJobCreate):
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     broadcast_dispatch_job(job, action="created")
+    doctor_nodes.offer_job_to_doctor(job)
     return {"job": job}
 
 
@@ -112,6 +114,7 @@ async def create_job_from_engine(
         body.target_engine_id,
     )
     broadcast_dispatch_job(job, action="created")
+    doctor_nodes.offer_job_to_doctor(job)
     return {"job": job}
 
 

@@ -293,6 +293,33 @@ def update_run_status(
     return get_run(run_id)
 
 
+def append_log_excerpt(run_id: str, text: str, *, max_len: int = 65536) -> str:
+    """Append streaming assistant text to ``log_excerpt`` (keep last ``max_len`` chars).
+
+    Used by Coding Agent runners while tokens arrive; final status updates may
+    still replace the field via ``update_run_status``.
+    """
+    chunk = text or ""
+    if not chunk:
+        run = get_run(run_id)
+        return str((run or {}).get("log_excerpt") or "")
+    conn = _ensure_conn()
+    row = conn.execute(
+        "SELECT log_excerpt FROM claude_agent_runs WHERE run_id=?",
+        (run_id,),
+    ).fetchone()
+    if row is None:
+        return ""
+    combined = (row["log_excerpt"] or "") + chunk
+    if max_len > 0 and len(combined) > max_len:
+        combined = combined[-max_len:]
+    conn.execute(
+        "UPDATE claude_agent_runs SET log_excerpt=?, updated_at=datetime('now') WHERE run_id=?",
+        (combined, run_id),
+    )
+    return combined
+
+
 def append_event(run_id: str, event_type: str, payload: dict[str, Any] | None = None, *, seq: int | None = None) -> dict[str, Any]:
     conn = _ensure_conn()
     next_seq = seq

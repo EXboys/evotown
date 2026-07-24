@@ -2,6 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useNavigate, useParams } from "react-router-dom";
 import { MarkdownContent } from "./MarkdownContent";
 import { ClickableConversationImage, ImageLightbox, type LightboxImage } from "./ImageLightbox";
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
 import {
   ContextFileViewer,
   contextArtifactMeta,
@@ -224,11 +226,57 @@ export function CodingAgentChatPage() {
   const [rightOpen, setRightOpen] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState("");
 
+  // ── Export helpers ──────────────────────────────────────────────────
+  const getRunResponseText = (runId: string): string => {
+    const evts = eventsByRun[runId] || [];
+    return evts
+      .filter(e => e.event_type === "assistant_message")
+      .map(e => (e.payload as Record<string,unknown> | undefined)?.text as string || (e.payload as Record<string,unknown> | undefined)?.summary as string || "")
+      .join("\n\n");
+  };
+
+  const exportMD = (runId: string, run: AgentRun) => {
+    const text = getRunResponseText(runId);
+    const header = `# Agent 回复\n> 模型: ${run.model || "—"} | 时间: ${run.completed_at || run.created_at}\n\n`;
+    const blob = new Blob([header + text], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `agent-response-${runId.slice(0,8)}.md`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    setExportDropdownRunId("");
+  };
+
+  const exportPDF = async (runId: string) => {
+    // 截图导出：找到页面上该 run 的结论气泡 DOM，html2canvas 截取 → jsPDF 导出
+    const el = document.querySelector(`[data-export-target="${runId}"]`) as HTMLElement | null;
+    if (!el) return;
+    try {
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+        logging: false,
+      });
+      const imgData = canvas.toDataURL("image/png");
+      const margin = 40; // px，页边距
+      const pdf = new jsPDF({
+        orientation: canvas.width > canvas.height ? "landscape" : "portrait",
+        unit: "px",
+        format: [canvas.width + margin * 2, canvas.height + margin * 2],
+      });
+      pdf.addImage(imgData, "PNG", margin, margin, canvas.width, canvas.height, undefined, "FAST");
+      pdf.save(`agent-response-${runId.slice(0, 8)}.pdf`);
+    } catch { /* silently fail */ }
+    setExportDropdownRunId("");
+  };
+
   // Detail
   useEffect(() => { setLogExpanded(false); setEventsExpanded(false); setFilesExpanded(false); }, [selectedRunId]);
   const [logExpanded, setLogExpanded] = useState(false);
   const [eventsExpanded, setEventsExpanded] = useState(false);
   const [filesExpanded, setFilesExpanded] = useState(false);
+  // export dropdown
+  const [exportDropdownRunId, setExportDropdownRunId] = useState("");
   // Per-run toggle state for historical runs (last run uses the boolean states above)
   const [expandedLogRuns, setExpandedLogRuns] = useState<Set<string>>(new Set());
   const [expandedEventsRuns, setExpandedEventsRuns] = useState<Set<string>>(new Set());
@@ -701,7 +749,9 @@ export function CodingAgentChatPage() {
             pollTimerRef.current = null;
           }
         } else if (newStatus === "running" || newStatus === "queued") {
-          // Still running — check if SSE might be stuck (no new events for 30s)
+          // Still running — merge live log_excerpt for real-time log display
+          setRuns(prev => prev.map(r => r.run_id === runId ? { ...r, ...data.run } : r));
+          // check if SSE might be stuck (no new events for 30s)
           const currentEventCount = (eventsByRun[runId]?.length || 0);
           if (currentEventCount === lastEventCount && sseReconnectRef.current[runId] !== undefined && sseReconnectRef.current[runId]! >= 5) {
             // SSE reconnects exhausted + no new events — force re-fetch events via HTTP
@@ -1147,6 +1197,12 @@ export function CodingAgentChatPage() {
                 const isLast = run.run_id === selectedRun?.run_id;
                 const runRunning = run.status === "running" || run.status === "queued";
                 const runEvents = eventsByRun[run.run_id] || [];
+                // Build raw log text from assistant_message events for execution-time display
+                const rawLog = runEvents
+                  .filter((e: AgentRunEvent) => e.event_type === "assistant_message")
+                  .map((e: AgentRunEvent) => (e.payload as any)?.text || "")
+                  .filter(Boolean)
+                  .join("\n");
                 const attachments = runAttachmentPaths(run);
                 const isHtmlRun = (run.artifact_manifest || []).some((a) => /\.html?$/i.test(a.path) && !a.path.startsWith(".evotown/"));
                 // Merge artifact manifest files + user-uploaded attachments (deduped)
@@ -1254,7 +1310,9 @@ export function CodingAgentChatPage() {
                                   const text = (ev.payload as Record<string,unknown> | undefined)?.text as string || (ev.payload as Record<string,unknown> | undefined)?.summary as string || "";
                                   const isConclusion = !runRunning && ev.id === lastMsgId;
                                   return (
-                                    <div key={ev.id} className={`rounded-xl border px-3 py-2 text-xs leading-relaxed ${isConclusion ? "border-blue-100 bg-blue-50/50 text-slate-600" : "border-slate-200 bg-slate-50 text-slate-500"}`}>
+                                    <div key={ev.id}
+                                      {...(isConclusion ? { "data-export-target": run.run_id } : {})}
+                                      className={`rounded-xl border px-3 py-2 text-xs leading-relaxed ${isConclusion ? "border-blue-100 bg-blue-50/50 text-slate-600" : "border-slate-200 bg-slate-50 text-slate-500"}`}>
                                       <MarkdownContent>{text}</MarkdownContent>
                                     </div>
                                   );
@@ -1292,7 +1350,8 @@ export function CodingAgentChatPage() {
                             )}
                             {/* Toggles — always shown, each section expands independently */}
                             {(() => {
-                              const hasToggleContent = run.log_excerpt || runEvents.length > 0 || mergedFiles.length > 0;
+                              const hasAssistantMsgs = runEvents.some(e => e.event_type === "assistant_message");
+                              const hasToggleContent = run.log_excerpt || runEvents.length > 0 || mergedFiles.length > 0 || (hasAssistantMsgs && !runRunning);
                               if (!hasToggleContent) return null;
                               return (
                               <div className="mt-3 flex items-center gap-4 border-t border-slate-100 pt-3">
@@ -1323,10 +1382,30 @@ export function CodingAgentChatPage() {
                                     <span>{(isLast ? filesExpanded : expandedFilesRuns.has(run.run_id)) ? "▾" : "▸"}</span>文件 ({mergedFiles.length})
                                   </button>
                                 )}
+                                {!runRunning && (() => {
+                                  const hasResponse = runEvents.some(e => e.event_type === "assistant_message");
+                                  if (!hasResponse) return null;
+                                  return (
+                                    <div className="relative ml-auto">
+                                      <button type="button" onClick={() => setExportDropdownRunId(exportDropdownRunId === run.run_id ? "" : run.run_id)}
+                                        className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600">
+                                        <span>{exportDropdownRunId === run.run_id ? "▾" : "▸"}</span>导出
+                                      </button>
+                                      {exportDropdownRunId === run.run_id && (
+                                        <div className="absolute bottom-full right-0 mb-1 rounded-lg border border-slate-200 bg-white shadow-lg py-1 z-10">
+                                          <button type="button" onClick={() => exportMD(run.run_id, run)}
+                                            className="block w-full text-left px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 whitespace-nowrap">📄 导出文本</button>
+                                          <button type="button" onClick={() => exportPDF(run.run_id)}
+                                            className="block w-full text-left px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 whitespace-nowrap">📑 导出 PDF</button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                               );
                             })()}
-                            {(isLast ? logExpanded : expandedLogRuns.has(run.run_id)) && (run.log_excerpt ? <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">{formatLog(run.log_excerpt)}</pre> : runRunning ? <div className="mt-2 space-y-1">{runEvents.map((ev) => { const info = describeEvent(ev); const time = ev.ts ? parseEvotownTimestamp(ev.ts) : null; return <div key={`log-${ev.id}-${ev.seq}`} className="flex items-center gap-2 text-xs"><span className="shrink-0 font-mono text-[10px] text-slate-300 w-[52px]">{time ? time.toLocaleTimeString("zh-CN", {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : ""}</span><span>{info.icon}</span><span className="text-slate-600">{info.title}</span>{info.detail ? <span className="truncate text-slate-400">· {info.detail}</span> : null}</div>; })}</div> : <p className="mt-2 text-xs text-slate-400">暂无日志</p>)}
+                            {(isLast ? logExpanded : expandedLogRuns.has(run.run_id)) && (run.log_excerpt ? <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">{formatLog(run.log_excerpt)}</pre> : runRunning ? (rawLog ? <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-950 p-3 text-xs leading-relaxed text-slate-100">{rawLog}</pre> : <p className="mt-2 text-xs text-slate-400">等待 Agent 输出…</p>) : <p className="mt-2 text-xs text-slate-400">暂无日志</p>)}
                             {(isLast ? eventsExpanded : expandedEventsRuns.has(run.run_id)) && runEvents.length ? (
                               <div className="mt-2 space-y-1">{runEvents.map((ev) => { const info = describeEvent(ev); const time = ev.ts ? parseEvotownTimestamp(ev.ts) : null; return <div key={`${ev.id}-${ev.seq}`} className="flex items-center gap-2 text-xs"><span className="shrink-0 font-mono text-[10px] text-slate-300 w-[52px]">{time ? time.toLocaleTimeString("zh-CN", {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : ""}</span><span>{info.icon}</span><span className="text-slate-600">{info.title}</span>{info.detail ? <span className="truncate text-slate-400">· {info.detail}</span> : null}</div>; })}</div>
                             ) : null}

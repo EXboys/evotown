@@ -183,7 +183,7 @@ class DraftSkillBody(_BaseModel):
     team_id: str = _Field(default="", max_length=128)
     tags: list[str] = _Field(default_factory=list)
     source_run_id: str = _Field(default="", max_length=128)
-    source_type: str = _Field(default="enterprise", pattern=r"^(enterprise|external)$")
+    source_type: str = _Field(default="custom", pattern=r"^(market|custom)$")
 
 
 @router.post("/skills/draft", dependencies=[Depends(require_admin)])

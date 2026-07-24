@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { adminFetch } from "../hooks/useAdminToken";
 
-const SOURCE_LABEL: Record<string, string> = { enterprise: "企业技能", external: "外部导入" };
+const SOURCE_LABEL: Record<string, string> = { market: "技能市场", custom: "自定义技能" };
 
 type SkillInfo = {
   skill_id: string;

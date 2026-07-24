@@ -56,7 +56,7 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
   deprecated: { label: "已废弃", className: "border-slate-200 bg-slate-100 text-slate-500" },
 };
 
-const SOURCE_LABEL: Record<string, string> = { enterprise: "企业技能", external: "外部导入" };
+const SOURCE_LABEL: Record<string, string> = { market: "技能市场", custom: "自定义技能" };
 
 const CATEGORY_LABELS: Record<string, string> = {
   employee: "员工", department: "部门", dedicated: "专属",
@@ -102,6 +102,7 @@ export function InternalSkillsPage() {
       const params = new URLSearchParams({ limit: "200" });
       if (tab !== "all") params.set("status_filter", tab);
       if (filters.source_type) params.set("source_type", filters.source_type);
+      else params.set("source_type", "custom");
       if (filters.tag) params.set("tag", filters.tag);
       if (filters.query) params.set("query", filters.query);
       const res = await adminFetch(`/api/v1/skills?${params}`);
@@ -290,7 +291,7 @@ export function InternalSkillsPage() {
         </div>
         <form onSubmit={handleSearch} className="flex gap-2">
           <select value={filters.source_type} onChange={(e) => setFilters({ ...filters, source_type: e.target.value })} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-600">
-            <option value="">全部来源</option><option value="enterprise">企业技能</option><option value="external">外部导入</option>
+            <option value="">全部来源</option><option value="market">技能市场</option><option value="custom">自定义技能</option>
           </select>
           <input value={filters.query} onChange={(e) => setFilters({ ...filters, query: e.target.value })} placeholder="搜索..." className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs" />
           <button type="submit" className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-200">搜索</button>

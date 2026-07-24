@@ -79,11 +79,20 @@ class MarketApiTest(unittest.TestCase):
         self.assertEqual(skill["readme"], "# Market Demo\nInstall me from /market.")
         self.assertGreaterEqual(len(skill["versions"]), 1)
 
-        register = client.post(
-            "/api/v1/auth/register",
+        user = client.post(
+            "/api/v1/accounts",
             json={"name": "Market User", "owner_email": "user@example.com"},
+            headers=admin,
         )
-        api_key = register.json()["api_key"]
+        self.assertEqual(user.status_code, 200)
+        user_id = user.json()["account"]["account_id"]
+        key_resp = client.post(
+            f"/api/v1/accounts/{user_id}/keys",
+            json={"label": "employee", "scopes": ["gateway.chat", "console.read"]},
+            headers=admin,
+        )
+        self.assertEqual(key_resp.status_code, 200)
+        api_key = key_resp.json()["secret"]
 
         downloaded = client.get(
             "/api/v1/market/skills/market-demo/download",
@@ -95,10 +104,11 @@ class MarketApiTest(unittest.TestCase):
         detail_after = client.get("/api/v1/market/skills/market-demo")
         self.assertEqual(detail_after.json()["skill"]["download_count"], 1)
 
-    def test_market_manifest_requires_employee_key(self) -> None:
+    def test_market_manifest_requires_staff_session(self) -> None:
         from fastapi.testclient import TestClient
         import importlib
         import main
+        from infra import accounts as accounts_store
 
         importlib.reload(main)
         client = TestClient(main.app)
@@ -108,6 +118,7 @@ class MarketApiTest(unittest.TestCase):
         )
         self.assertEqual(unauth.status_code, 401)
 
+        # API keys are not enough — manifest requires a staff session.
         admin = {"X-Admin-Token": "test-admin-token"}
         account = client.post(
             "/api/v1/accounts",
@@ -123,10 +134,29 @@ class MarketApiTest(unittest.TestCase):
         )
         self.assertEqual(key_resp.status_code, 200)
         api_key = key_resp.json()["secret"]
+        denied_key = client.get(
+            "/api/v1/market/bundles/default-agent-skills/manifest?runtime_target=hermes",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        self.assertEqual(denied_key.status_code, 401)
+
+        accounts_store.create_account(
+            name="Manifest Staff",
+            org_id="default",
+            login_name="manifest_staff",
+            password="secret-pass",
+            role="employee",
+        )
+        login = client.post(
+            "/api/v1/auth/staff-login",
+            json={"login_name": "manifest_staff", "password": "secret-pass"},
+        )
+        self.assertEqual(login.status_code, 200)
+        token = login.json()["session_token"]
 
         manifest = client.get(
             "/api/v1/market/bundles/default-agent-skills/manifest?runtime_target=hermes",
-            headers={"Authorization": f"Bearer {api_key}"},
+            headers={"Authorization": f"Bearer {token}"},
         )
         self.assertEqual(manifest.status_code, 200)
         body = manifest.json()["manifest"]

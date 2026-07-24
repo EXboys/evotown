@@ -1,4 +1,4 @@
-"""Console auth registration and API-key session tests."""
+"""Console auth and API-key scope tests (staff-only login model)."""
 from __future__ import annotations
 
 import os
@@ -33,28 +33,32 @@ class ConsoleAuthApiTest(unittest.TestCase):
         self._env_patch.stop()
         self._tmpdir.cleanup()
 
-    def test_register_login_and_access_skills_with_console_key(self) -> None:
+    def test_console_key_can_access_skills_and_limited_key_cannot(self) -> None:
         from fastapi.testclient import TestClient
         import importlib
         import main
+        from infra import accounts as accounts_store
 
         importlib.reload(main)
         client = TestClient(main.app)
+        admin = {"X-Admin-Token": "test-admin-token"}
 
-        registered = client.post(
-            "/api/v1/auth/register",
+        account = client.post(
+            "/api/v1/accounts",
             json={"name": "Platform Owner", "owner_email": "owner@example.com", "org_id": "org_root"},
+            headers=admin,
         )
-        self.assertEqual(registered.status_code, 200)
-        api_key = registered.json()["api_key"]
+        self.assertEqual(account.status_code, 200)
+        account_id = account.json()["account"]["account_id"]
+
+        key_resp = client.post(
+            f"/api/v1/accounts/{account_id}/keys",
+            json={"label": "console", "scopes": list(accounts_store.DEFAULT_CONSOLE_KEY_SCOPES)},
+            headers=admin,
+        )
+        self.assertEqual(key_resp.status_code, 200)
+        api_key = key_resp.json()["secret"]
         self.assertTrue(api_key.startswith("evk_"))
-
-        login = client.post("/api/v1/auth/login", json={"api_key": api_key})
-        self.assertEqual(login.status_code, 200)
-        self.assertEqual(login.json()["session"]["account_name"], "Platform Owner")
-
-        me = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {api_key}"})
-        self.assertEqual(me.status_code, 200)
 
         skills = client.get("/api/v1/skills?limit=1", headers={"Authorization": f"Bearer {api_key}"})
         self.assertEqual(skills.status_code, 200)
@@ -62,15 +66,15 @@ class ConsoleAuthApiTest(unittest.TestCase):
         gateway_only_account = client.post(
             "/api/v1/accounts",
             json={"name": "Gateway Only", "org_id": "org_root"},
-            headers={"X-Admin-Token": "test-admin-token"},
+            headers=admin,
         )
         self.assertEqual(gateway_only_account.status_code, 200)
-        account_id = gateway_only_account.json()["account"]["account_id"]
+        limited_account_id = gateway_only_account.json()["account"]["account_id"]
 
         limited_key = client.post(
-            f"/api/v1/accounts/{account_id}/keys",
+            f"/api/v1/accounts/{limited_account_id}/keys",
             json={"label": "limited", "scopes": ["gateway.chat"]},
-            headers={"X-Admin-Token": "test-admin-token"},
+            headers=admin,
         )
         self.assertEqual(limited_key.status_code, 200)
         limited_secret = limited_key.json()["secret"]
@@ -78,19 +82,20 @@ class ConsoleAuthApiTest(unittest.TestCase):
         blocked = client.get("/api/v1/skills?limit=1", headers={"Authorization": f"Bearer {limited_secret}"})
         self.assertEqual(blocked.status_code, 403)
 
-    def test_read_only_console_key_can_login_but_not_admin_routes(self) -> None:
-        """Deploy-style keys with console.read only must pass /login but fail admin APIs with 403."""
+    def test_read_only_console_key_can_read_but_not_admin_routes(self) -> None:
+        """Deploy-style keys with console.read only must pass read APIs but fail admin APIs with 403."""
         from fastapi.testclient import TestClient
         import importlib
         import main
 
         importlib.reload(main)
         client = TestClient(main.app)
+        admin = {"X-Admin-Token": "test-admin-token"}
 
         account = client.post(
             "/api/v1/accounts",
             json={"name": "Read Only", "org_id": "org_root"},
-            headers={"X-Admin-Token": "test-admin-token"},
+            headers=admin,
         )
         self.assertEqual(account.status_code, 200)
         account_id = account.json()["account"]["account_id"]
@@ -98,16 +103,13 @@ class ConsoleAuthApiTest(unittest.TestCase):
         key_resp = client.post(
             f"/api/v1/accounts/{account_id}/keys",
             json={"label": "deploy-style", "scopes": ["gateway.chat", "console.read"]},
-            headers={"X-Admin-Token": "test-admin-token"},
+            headers=admin,
         )
         self.assertEqual(key_resp.status_code, 200)
         secret = key_resp.json()["secret"]
 
-        login = client.post("/api/v1/auth/login", json={"api_key": secret})
-        self.assertEqual(login.status_code, 200)
-
-        me = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {secret}"})
-        self.assertEqual(me.status_code, 200)
+        policies = client.get("/api/v1/policies", headers={"Authorization": f"Bearer {secret}"})
+        self.assertEqual(policies.status_code, 200)
 
         fleet = client.get("/api/v1/engines/fleet", headers={"Authorization": f"Bearer {secret}"})
         self.assertEqual(fleet.status_code, 403)

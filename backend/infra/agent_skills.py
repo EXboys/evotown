@@ -157,7 +157,7 @@ def _version_installed(dest: Path) -> str:
 
     Returns ``""`` when the file is missing or unparseable.
     """
-    import yaml
+    import re
 
     skill_md = dest / "SKILL.md"
     if not skill_md.is_file():
@@ -167,8 +167,9 @@ def _version_installed(dest: Path) -> str:
         if content.startswith("---"):
             parts = content.split("---", 2)
             if len(parts) >= 3:
-                fm = yaml.safe_load(parts[1]) or {}
-                return str(fm.get("version", "")).strip()
+                m = re.search(r"^version:\s*(\S+)", parts[1], re.MULTILINE)
+                if m:
+                    return m.group(1).strip().strip("\"'")
     except Exception:
         pass
     return ""

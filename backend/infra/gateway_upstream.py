@@ -27,9 +27,12 @@ def build_upstream_call(
     body: dict[str, Any],
     effective_model: str,
 ) -> tuple[str, dict[str, str], dict[str, Any]]:
-    """Return (url, headers, request_body) for one upstream chat/completions call."""
+    """Return (url, headers, request_body) for one upstream /responses call."""
     req = copy.deepcopy(body)
     req["model"] = effective_model
+    # Strip OpenAI-exclusive fields that non-OpenAI providers reject (e.g. DeepSeek)
+    req.pop("include", None)
+    req.pop("client_metadata", None)
     metadata = req.get("metadata") if isinstance(req.get("metadata"), dict) else {}
     req["metadata"] = {**metadata, "evotown_effective_model": effective_model}
 

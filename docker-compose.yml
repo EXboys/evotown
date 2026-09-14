@@ -137,6 +137,10 @@ services:
     volumes:
       # 进化产物持久化
       - evotown_arena:/root/.skilllite/arena
+      # Claude 运行时 HOME 状态（~/.claude：session resume + MCP server 注册状态）。
+      # read_only:true 下根文件系统只读，必须给 ~/.claude 单独挂可写卷，否则
+      # claude-agent-sdk 无法初始化、MCP bridge 起不来（system_* 工具注入失效）。
+      - evotown_claude_home:/root/.claude
       # 实验数据持久化（SQLite WAL + social_log.jsonl）
       # 关键：容器重启后数据不丢失；可直接在宿主机 ./data/ 查看/备份文件
       - ./data:/app/data
@@ -229,5 +233,6 @@ services:
 
 volumes:
   evotown_arena:
+  evotown_claude_home:
   evotown_replays:
 
